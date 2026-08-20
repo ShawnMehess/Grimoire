@@ -1,0 +1,20 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /characters/{characterId} {
+      // Anyone signed in can read any character (private group site —
+      // tighten this to owner-only or a shared "party" list if you
+      // don't want friends seeing each other's sheets by default).
+      allow read: if request.auth != null;
+
+      // Only the owner can create/update/delete their own characters.
+      allow create: if request.auth != null
+                    && request.resource.data.ownerId == request.auth.uid;
+
+      allow update, delete: if request.auth != null
+                    && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}
