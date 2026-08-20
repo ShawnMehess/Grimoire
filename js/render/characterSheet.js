@@ -56,6 +56,7 @@ export function renderCharacterSheet(root, character, store) {
 
 function renderAbilitiesAndSkills(root, character, persistField) {
   root.querySelector("#abilities-section")?.remove();
+  root.querySelector("#skills-section")?.remove();
 
   const section = document.createElement("section");
   section.className = "sheet-section";
@@ -84,6 +85,7 @@ function renderAbilitiesAndSkills(root, character, persistField) {
   // still built entirely from schema + rules, no hand-written markup.
   const skillsSection = document.createElement("section");
   skillsSection.className = "sheet-section";
+  skillsSection.id = "skills-section";
   const skillsHeading = document.createElement("h3");
   skillsHeading.textContent = "Skills";
   const skillsCard = document.createElement("div");
