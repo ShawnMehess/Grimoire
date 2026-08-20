@@ -4,7 +4,7 @@
 // firebase/firestore or firebase/auth. Everywhere else (formBuilder,
 // characterSheet, etc.) calls these functions and works with plain
 // JS objects — that keeps Firebase swappable and keeps the rendering
-// code testable without a live backend.
+// code testable without a live backend. 
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js";
 import {
