@@ -8,7 +8,6 @@
 import { ABILITIES, SKILLS, IDENTITY_FIELDS, COMBAT_FIELDS } from "../data/schema.js";
 import { abilityModifier, skillModifier, savingThrowModifier, initiativeModifier, formatModifier } from "../data/rules.js";
 import { buildSheetSection, buildStatBlock, buildInputGroup } from "./formBuilder.js";
-import { saveCharacterField } from "../state/characterStore.js";
 
 // Debounce writes so typing a name doesn't fire a Firestore write per
 // keystroke. Cheap and keeps you well within free-tier write quotas.
@@ -20,11 +19,16 @@ function debounce(fn, delayMs = 400) {
   };
 }
 
-export function renderCharacterSheet(root, character) {
+// `store` just needs a saveCharacterField(characterId, fieldId, value)
+// function — pass the real state/characterStore.js for live Firebase
+// persistence, or state/mockStore.js to preview the UI with no backend
+// at all. Keeping this as a parameter (instead of importing Firebase
+// directly here) is what makes that swap possible.
+export function renderCharacterSheet(root, character, store) {
   root.innerHTML = "";
 
   const persistField = debounce((fieldId, value) => {
-    saveCharacterField(character.id, fieldId, value);
+    store.saveCharacterField(character.id, fieldId, value);
   });
 
   const onFieldChange = (fieldId, value) => {

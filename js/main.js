@@ -1,5 +1,6 @@
 // main.js — app entry point
 
+import * as characterStore from "./state/characterStore.js";
 import { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, createCharacter } from "./state/characterStore.js";
 import { createBlankCharacter } from "./data/schema.js";
 import { renderCharacterSheet } from "./render/characterSheet.js";
@@ -76,5 +77,5 @@ async function openCharacter(characterId) {
 
   const sheetRoot = document.createElement("div");
   appRoot.append(sheetRoot);
-  renderCharacterSheet(sheetRoot, character);
+  renderCharacterSheet(sheetRoot, character, characterStore);
 }

@@ -6,7 +6,7 @@
 // JS objects — that keeps Firebase swappable and keeps the rendering
 // code testable without a live backend.
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js";
 import {
   getFirestore,
   doc,
@@ -19,25 +19,24 @@ import {
   where,
   getDocs,
   serverTimestamp,
-} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+} from "https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js";
 import {
   getAuth,
   onAuthStateChanged,
   signInWithPopup,
   GoogleAuthProvider,
   signOut,
-} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+} from "https://www.gstatic.com/firebasejs/12.12.0/firebase-auth.js";
 
-// Fill in with your Firebase project config (Project Settings -> General
-// -> Your apps). Fine to commit — these values are not secret, access
-// control happens in Firestore security rules, not by hiding this config.
+// Same project as the earlier Grimoire/DiceAndData attempt.
 const firebaseConfig = {
-  apiKey: "REPLACE_ME",
-  authDomain: "REPLACE_ME.firebaseapp.com",
-  projectId: "REPLACE_ME",
-  storageBucket: "REPLACE_ME.appspot.com",
-  messagingSenderId: "REPLACE_ME",
-  appId: "REPLACE_ME",
+  apiKey: "AIzaSyBYYgS04lxcbeawj7WDahEN7SbzYgVGLjE",
+  authDomain: "diceanddata-81ebe.firebaseapp.com",
+  projectId: "diceanddata-81ebe",
+  storageBucket: "diceanddata-81ebe.firebasestorage.app",
+  messagingSenderId: "547850961878",
+  appId: "1:547850961878:web:8b2a99076d66c0ab451a77",
+  measurementId: "G-LSZ59FPDTL",
 };
 
 const app = initializeApp(firebaseConfig);

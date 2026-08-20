@@ -45,6 +45,27 @@ firestore.rules       security rules: users can only write their own characters
 index.html
 ```
 
+## Viewing it locally
+
+ES modules (`<script type="module">`) won't load from a `file://`
+path — browsers block that for security reasons — so you need a tiny
+local web server, not a double-click. From the project root:
+
+```
+python3 -m http.server 8080
+```
+(or `npx serve .`, or VS Code's "Live Server" extension — any static
+server works)
+
+Then open **http://localhost:8080/demo.html** — this loads the
+character sheet with placeholder data via `js/state/mockStore.js`
+instead of Firebase, so you can see the actual layout/styling
+immediately, with no project setup required. Typing in fields logs to
+the browser console instead of saving anywhere.
+
+Once you've set up Firebase (below), **http://localhost:8080/**
+(`index.html`) is the real app — sign-in, character list, persistence.
+
 ## Setup
 
 1. Create a Firebase project, enable **Firestore** and **Google Auth**.

@@ -1,50 +1,14 @@
 [
-  {
-    "value": "barbarian",
-    "label": "Barbarian"
-  },
-  {
-    "value": "bard",
-    "label": "Bard"
-  },
-  {
-    "value": "cleric",
-    "label": "Cleric"
-  },
-  {
-    "value": "druid",
-    "label": "Druid"
-  },
-  {
-    "value": "fighter",
-    "label": "Fighter"
-  },
-  {
-    "value": "monk",
-    "label": "Monk"
-  },
-  {
-    "value": "paladin",
-    "label": "Paladin"
-  },
-  {
-    "value": "ranger",
-    "label": "Ranger"
-  },
-  {
-    "value": "rogue",
-    "label": "Rogue"
-  },
-  {
-    "value": "sorcerer",
-    "label": "Sorcerer"
-  },
-  {
-    "value": "warlock",
-    "label": "Warlock"
-  },
-  {
-    "value": "wizard",
-    "label": "Wizard"
-  }
+  { "value": "fighter", "label": "Fighter" },
+  { "value": "wizard", "label": "Wizard" },
+  { "value": "rogue", "label": "Rogue" },
+  { "value": "cleric", "label": "Cleric" },
+  { "value": "ranger", "label": "Ranger" },
+  { "value": "barbarian", "label": "Barbarian" },
+  { "value": "bard", "label": "Bard" },
+  { "value": "druid", "label": "Druid" },
+  { "value": "monk", "label": "Monk" },
+  { "value": "paladin", "label": "Paladin" },
+  { "value": "sorcerer", "label": "Sorcerer" },
+  { "value": "warlock", "label": "Warlock" }
 ]
