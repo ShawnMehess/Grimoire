@@ -1,0 +1,30 @@
+/* ==========================================================================
+   list-row.css
+   Rows within an editable list section (attacks, inventory, spells,
+   features, spell slots). One pattern for all of them: a horizontal
+   strip of fields plus a remove button.
+   ========================================================================== */
+
+.list-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--color-bg-raised);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.list-row__field {
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+
+.list-row__remove {
+  flex: 0 0 auto;
+  color: var(--color-negative);
+}
+
+.readout__value {
+  font-size: var(--text-md);
+}

@@ -37,6 +37,8 @@ export const SKILLS = [
   { id: "survival",       label: "Survival",         ability: "wis" },
 ];
 
+export const SPELL_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
 // Top-of-sheet identity fields. type: "select" fields expect an
 // `options: []` array (kept in /data/*.json rather than hardcoded here
 // since class/race/background lists are shared reference data).
@@ -59,10 +61,91 @@ export const COMBAT_FIELDS = [
   { id: "hitDice",      label: "Hit Dice",       type: "text" },
 ];
 
+export const CURRENCY_FIELDS = [
+  { id: "cp", label: "CP", type: "number", default: 0 },
+  { id: "sp", label: "SP", type: "number", default: 0 },
+  { id: "ep", label: "EP", type: "number", default: 0 },
+  { id: "gp", label: "GP", type: "number", default: 0 },
+  { id: "pp", label: "PP", type: "number", default: 0 },
+];
+
+export const PROFICIENCY_FIELDS = [
+  { id: "proficienciesArmor",   label: "Armor",   type: "text" },
+  { id: "proficienciesWeapons", label: "Weapons", type: "text" },
+  { id: "proficienciesTools",   label: "Tools",   type: "text" },
+  { id: "languages",            label: "Languages", type: "text" },
+];
+
+export const SPELLCASTING_FIELDS = [
+  {
+    id: "spellcastingAbility",
+    label: "Spellcasting Ability",
+    type: "select",
+    options: ABILITIES.map(a => ({ value: a.id, label: a.label })),
+  },
+];
+
+export const PERSONALITY_FIELDS = [
+  { id: "personalityTraits", label: "Personality Traits", type: "textarea" },
+  { id: "ideals",            label: "Ideals",             type: "textarea" },
+  { id: "bonds",             label: "Bonds",               type: "textarea" },
+  { id: "flaws",             label: "Flaws",               type: "textarea" },
+];
+
+// --- Field defs for repeatable list sections (attacks, inventory, etc) ----
+// Each of these is passed to buildEditableList() alongside the matching
+// array on the character (e.g. character.attacks) and a factory below.
+
+export const ATTACK_FIELDS = [
+  { id: "name",   label: "Name",       type: "text" },
+  { id: "bonus",  label: "Atk Bonus",  type: "text" },
+  { id: "damage", label: "Damage",     type: "text" },
+  { id: "type",   label: "Type",       type: "text" },
+  { id: "notes",  label: "Notes",      type: "text" },
+];
+
+export const INVENTORY_FIELDS = [
+  { id: "name",     label: "Item",     type: "text" },
+  { id: "quantity", label: "Qty",      type: "number", default: 1 },
+  { id: "weight",   label: "Weight",   type: "number", default: 0 },
+  { id: "equipped", label: "Equipped", type: "toggle" },
+  { id: "notes",    label: "Notes",    type: "text" },
+];
+
+export const SPELL_FIELDS = [
+  { id: "name",     label: "Name",     type: "text" },
+  { id: "level",    label: "Level",    type: "number", min: 0, max: 9, default: 0 },
+  { id: "prepared", label: "Prepared", type: "toggle" },
+  { id: "notes",    label: "Notes",    type: "text" },
+];
+
+export const FEATURE_FIELDS = [
+  { id: "name",        label: "Name",        type: "text" },
+  { id: "source",      label: "Source",      type: "text" },
+  { id: "description", label: "Description", type: "textarea" },
+];
+
+function newId() {
+  return (crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+}
+
+export function createAttack() {
+  return { id: newId(), name: "", bonus: "", damage: "", type: "", notes: "" };
+}
+export function createInventoryItem() {
+  return { id: newId(), name: "", quantity: 1, weight: 0, equipped: false, notes: "" };
+}
+export function createSpell() {
+  return { id: newId(), name: "", level: 0, prepared: false, notes: "" };
+}
+export function createFeature() {
+  return { id: newId(), name: "", source: "", description: "" };
+}
+
 // Factory for a brand-new character document. This is the shape that
 // gets written to Firestore, so keep it flat where reasonable —
 // nested objects only where the data is genuinely grouped (abilities,
-// skillProficiencies).
+// skillProficiencies, spellSlots).
 export function createBlankCharacter(ownerId) {
   return {
     ownerId,
@@ -84,9 +167,27 @@ export function createBlankCharacter(ownerId) {
     hpTemp: 0,
     hitDice: "",
 
-    inventory: [],   // [{ id, name, quantity, weight, notes }]
+    deathSaves: { successes: 0, failures: 0 },
+
+    cp: 0, sp: 0, ep: 0, gp: 0, pp: 0,
+
+    proficienciesArmor: "",
+    proficienciesWeapons: "",
+    proficienciesTools: "",
+    languages: "",
+
+    spellcastingAbility: "int",
+    spellSlots: Object.fromEntries(SPELL_LEVELS.map(l => [l, { max: 0, current: 0 }])),
+
+    attacks: [],     // [{ id, name, bonus, damage, type, notes }]
+    inventory: [],   // [{ id, name, quantity, weight, equipped, notes }]
     spells: [],      // [{ id, name, level, prepared, notes }]
     features: [],    // [{ id, name, source, description }]
+
+    personalityTraits: "",
+    ideals: "",
+    bonds: "",
+    flaws: "",
 
     notes: "",
     createdAt: null,  // set server-side via serverTimestamp()

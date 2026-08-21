@@ -143,3 +143,118 @@ export function buildSheetSection(title, fieldDefs, character, onFieldChange) {
   section.append(heading, grid);
   return section;
 }
+
+/**
+ * Build a small read-only value display (e.g. "Passive Perception 13").
+ * Give it an id via wrap.dataset so callers can update .textContent
+ * later without rebuilding.
+ */
+export function buildReadout(label, value, id) {
+  const wrap = document.createElement("div");
+  wrap.className = "stat-block";
+  if (id) wrap.dataset.readoutId = id;
+
+  const labelEl = document.createElement("div");
+  labelEl.className = "stat-block__label";
+  labelEl.textContent = label;
+
+  const valueEl = document.createElement("div");
+  valueEl.className = "stat-block__modifier readout__value";
+  valueEl.textContent = value;
+
+  wrap.append(labelEl, valueEl);
+  return wrap;
+}
+
+/**
+ * Build a repeatable list section — attacks, inventory, spells,
+ * features all use this. Rows are built once; editing a field inside
+ * a row calls onFieldChange directly WITHOUT rebuilding the list (so
+ * typing never loses focus). Add/remove are the only actions that
+ * rebuild, since those genuinely change the number of rows.
+ *
+ * @param {object} config
+ * @param {string} config.title
+ * @param {Array<object>} config.items - each needs a unique `id`
+ * @param {Array<object>} config.fieldDefs - schema.js field defs (no `id` clash with item.id — these describe item properties)
+ * @param {() => void} config.onAdd
+ * @param {(itemId:string) => void} config.onRemove
+ * @param {(itemId:string, fieldId:string, value:any) => void} config.onFieldChange
+ */
+export function buildEditableList({ title, items, fieldDefs, onAdd, onRemove, onFieldChange, addLabel = "+ Add" }) {
+  const section = document.createElement("section");
+  section.className = "sheet-section";
+
+  const header = document.createElement("div");
+  header.className = "card__header";
+
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "btn btn--primary";
+  addBtn.textContent = addLabel;
+  addBtn.addEventListener("click", onAdd);
+
+  header.append(heading, addBtn);
+  section.append(header);
+
+  const list = document.createElement("div");
+  list.className = "card-list";
+
+  if (items.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "input-group__hint";
+    empty.textContent = "Nothing here yet.";
+    list.append(empty);
+  }
+
+  items.forEach(item => {
+    const row = document.createElement("div");
+    row.className = "list-row";
+    row.dataset.itemId = item.id;
+
+    fieldDefs.forEach(def => {
+      const field = buildInputGroup(def, item[def.id], (val) => onFieldChange(item.id, def.id, val));
+      field.classList.add("list-row__field");
+      row.append(field);
+    });
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "btn btn--danger btn--icon list-row__remove";
+    removeBtn.textContent = "✕";
+    removeBtn.title = "Remove";
+    removeBtn.addEventListener("click", () => onRemove(item.id));
+    row.append(removeBtn);
+
+    list.append(row);
+  });
+
+  section.append(list);
+  return section;
+}
+
+/**
+ * Build one spell-slot-level row: level label + max/current inputs.
+ */
+export function buildSpellSlotRow(level, slot, onMaxChange, onCurrentChange) {
+  const row = document.createElement("div");
+  row.className = "list-row";
+  row.dataset.spellLevel = level;
+
+  const label = document.createElement("div");
+  label.className = "input-group__label";
+  label.textContent = `Level ${level}`;
+  label.style.alignSelf = "center";
+  label.style.minWidth = "4.5rem";
+
+  const maxField = buildInputGroup({ id: `max-${level}`, label: "Max", type: "number", min: 0 }, slot.max, onMaxChange);
+  const currentField = buildInputGroup({ id: `current-${level}`, label: "Current", type: "number", min: 0 }, slot.current, onCurrentChange);
+  maxField.classList.add("list-row__field");
+  currentField.classList.add("list-row__field");
+
+  row.append(label, maxField, currentField);
+  return row;
+}

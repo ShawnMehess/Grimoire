@@ -34,5 +34,30 @@ export function initiativeModifier(character) {
   return abilityModifier(character.abilities.dex);
 }
 
-// Spell slot tables, class-specific carrying capacity math, etc. all
-// belong here too as the sheet grows — keep them out of render/.
+export function passivePerception(character, skillsList) {
+  return 10 + skillModifier(character, "perception", skillsList);
+}
+
+// Spell save DC / spell attack bonus depend on which ability the
+// character casts with (character.spellcastingAbility) — not every
+// class uses the same one, so this is stored per-character rather
+// than assumed.
+export function spellSaveDC(character) {
+  const ability = character.spellcastingAbility;
+  return 8 + proficiencyBonus(character.level) + abilityModifier(character.abilities[ability]);
+}
+
+export function spellAttackBonus(character) {
+  const ability = character.spellcastingAbility;
+  return proficiencyBonus(character.level) + abilityModifier(character.abilities[ability]);
+}
+
+// Class-specific spell slot tables (full caster vs half-caster vs
+// Warlock pact magic vs non-caster) differ enough that auto-deriving
+// "max slots" from class+level reliably is a project of its own.
+// Deliberately NOT doing that here — spellSlots.max is a value you set
+// once from the class table (PHB or D&D Beyond) and it's stored as
+// plain data on the character; only .current ticks up/down as slots
+// get spent. If you want auto-calculated slots later, this is the
+// function to add — keep it pure and call it from characterSheet.js,
+// same as everything else here.
