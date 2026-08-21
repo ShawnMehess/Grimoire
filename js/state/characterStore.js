@@ -13,6 +13,7 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
   onSnapshot,
   collection,
   query,
@@ -101,6 +102,10 @@ export async function saveCharacterFields(characterId, patch) {
     ...patch,
     updatedAt: serverTimestamp(),
   });
+}
+
+export async function deleteCharacter(characterId) {
+  await deleteDoc(doc(db, CHARACTERS_COLLECTION, characterId));
 }
 
 /**
