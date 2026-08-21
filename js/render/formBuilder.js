@@ -181,9 +181,9 @@ export function buildReadout(label, value, id) {
  * @param {(itemId:string) => void} config.onRemove
  * @param {(itemId:string, fieldId:string, value:any) => void} config.onFieldChange
  */
-export function buildEditableList({ title, items, fieldDefs, onAdd, onRemove, onFieldChange, addLabel = "+ Add" }) {
+export function buildEditableList({ title, items, fieldDefs, onAdd, onRemove, onFieldChange, addLabel = "+ Add", extraClass = "" }) {
   const section = document.createElement("section");
-  section.className = "sheet-section";
+  section.className = extraClass ? `sheet-section ${extraClass}` : "sheet-section";
 
   const header = document.createElement("div");
   header.className = "card__header";

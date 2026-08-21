@@ -1,8 +1,9 @@
 /* ==========================================================================
    layout.css
-   Structural scaffolding only: how the big regions of a page relate to
-   each other. Nothing about what's INSIDE a card/input/button belongs
-   here — that's a component's job.
+   Structural scaffolding: how the big regions of a page relate to each
+   other, and the packed-grid system the character sheet renders into.
+   Nothing about what's INSIDE a card/input/button belongs here — that's
+   a component's job.
    ========================================================================== */
 
 .app-shell {
@@ -18,7 +19,7 @@
 }
 
 .app-main {
-  padding: var(--space-6);
+  padding: var(--space-5);
   max-width: var(--content-max-width);
   margin: 0 auto;
   width: 100%;
@@ -28,21 +29,73 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: var(--space-6);
-  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-3);
   border-bottom: var(--border-width) solid var(--color-border);
 }
 
-/* The recurring "sheet section" pattern: a titled block containing a
-   grid of form fields. Character sheets are ~90% this pattern repeated. */
+/* --------------------------------------------------------------------------
+   Packed section grid.
+   Sections are cards that flow into a multi-column grid rather than a
+   single stacked list. `grid-auto-flow: dense` is what does the actual
+   packing — the browser fills gaps with later, smaller cards instead of
+   leaving empty space, so small sections (Currency, Death Saves, Spell
+   Slots...) end up sitting two-or-three to a row automatically, while
+   field-heavy sections (Identity, Combat, Inventory...) claim more room
+   via .sheet-section--wide / --full. You don't have to hand-pair
+   anything — just mark a section's size and the grid does the rest.
+   -------------------------------------------------------------------- */
+
+.sheet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-auto-flow: dense;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (min-width: 700px) {
+  .sheet-section--wide {
+    grid-column: span 2;
+  }
+}
+
+.sheet-section--full {
+  grid-column: 1 / -1;
+}
+
+/* The recurring "sheet section" card: a titled block containing a grid
+   of form fields or a list. Character sheets are ~90% this pattern. */
 .sheet-section {
-  margin-bottom: var(--space-6);
+  background: var(--color-bg-raised);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-normal), transform var(--transition-normal);
+}
+
+.sheet-section:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.sheet-section h3 {
+  margin: 0 0 var(--space-3) 0;
+  padding-left: var(--space-2);
+  border-left: 3px solid var(--color-accent);
+}
+
+/* Thematic accent for spellcasting-related cards — reuses the arcane
+   blue token that otherwise had nothing to do. */
+.sheet-section--arcane h3 {
+  border-left-color: var(--color-arcane);
 }
 
 .sheet-section__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--space-2) var(--space-3);
 }
 
 @media (max-width: 720px) {
@@ -52,5 +105,8 @@
   .app-sidebar {
     border-right: none;
     border-bottom: var(--border-width) solid var(--color-border);
+  }
+  .sheet-grid {
+    grid-template-columns: 1fr;
   }
 }

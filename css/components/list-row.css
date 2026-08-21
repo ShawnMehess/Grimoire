@@ -7,6 +7,7 @@
 
 .list-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: var(--space-2);
   padding: var(--space-2);
@@ -16,8 +17,8 @@
 }
 
 .list-row__field {
-  flex: 1 1 8rem;
-  min-width: 0;
+  flex: 1 1 6rem;
+  min-width: 5rem;
 }
 
 .list-row__remove {

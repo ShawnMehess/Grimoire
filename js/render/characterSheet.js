@@ -5,6 +5,14 @@
 // persists changes via characterStore.js. No Firebase calls and no
 // raw DOM-building logic should live in this file — delegate.
 //
+// Layout: everything renders into one .sheet-grid container (see
+// layout.css). Each section is marked with a size — default (packs
+// two-or-more to a row), .sheet-section--wide (spans 2 columns), or
+// .sheet-section--full (spans the whole row) — and CSS grid's dense
+// packing does the actual arranging. Add a new section by picking
+// whichever size fits its content; you don't need to hand-place it
+// next to anything.
+//
 // Important pattern: most DOM is built exactly ONCE per
 // renderCharacterSheet call. When a value that affects derived numbers
 // changes (an ability score, level, a skill/save proficiency), we
@@ -15,7 +23,10 @@
 //
 // List sections (attacks/inventory/spells/features) DO rebuild on
 // add/remove — that's a deliberate click, not typing, so it's safe.
-// Editing a field WITHIN a row never rebuilds the list.
+// Editing a field WITHIN a row never rebuilds the list. Each list gets
+// a stable wrapper div (created once) so add/remove refills that div's
+// contents in place instead of re-appending the section to the end of
+// the grid.
 
 import {
   ABILITIES, SKILLS, IDENTITY_FIELDS, COMBAT_FIELDS, CURRENCY_FIELDS,
@@ -49,6 +60,10 @@ function debounce(fn, delayMs = 400) {
 export function renderCharacterSheet(root, character, store) {
   root.innerHTML = "";
 
+  const grid = document.createElement("div");
+  grid.className = "sheet-grid";
+  root.append(grid);
+
   const persistField = debounce((fieldId, value) => {
     store.saveCharacterField(character.id, fieldId, value);
   });
@@ -59,82 +74,90 @@ export function renderCharacterSheet(root, character, store) {
     // Level and spellcasting ability affect several derived numbers —
     // update those in place, don't rebuild the DOM.
     if (fieldId === "level" || fieldId === "spellcastingAbility") {
-      updateDerivedDisplays(root, character);
+      updateDerivedDisplays(grid, character);
     }
   };
 
-  root.append(buildSheetSection("Identity", IDENTITY_FIELDS, character, onFieldChange));
-  root.append(buildSheetSection("Combat", COMBAT_FIELDS, character, onFieldChange));
-  root.append(buildDeathSaves(character, persistField));
+  addWide(grid, buildSheetSection("Identity", IDENTITY_FIELDS, character, onFieldChange));
+  addWide(grid, buildSheetSection("Combat", COMBAT_FIELDS, character, onFieldChange));
+  grid.append(buildDeathSaves(character, persistField));
 
-  buildAbilitiesAndSkills(root, character, persistField);
-  buildSavingThrows(root, character, persistField);
-  buildPassiveStats(root);
+  addWide(grid, buildAbilities(grid, character, persistField));
+  grid.append(buildSkills(grid, character, persistField));
+  grid.append(buildSavingThrows(grid, character, persistField));
+  grid.append(buildPassiveStats());
 
-  root.append(buildSheetSection("Spellcasting", SPELLCASTING_FIELDS, character, onFieldChange));
-  root.append(buildSpellcastingReadouts());
-  root.append(buildSpellSlots(character, persistField));
+  grid.append(buildSpellcastingSummary(character, onFieldChange));
+  grid.append(buildSpellSlots(character, persistField));
 
-  renderListSection(root, character, store, {
+  addWide(grid, renderListContainer(grid, character, store, {
     arrayKey: "attacks", sectionId: "attacks-section", title: "Attacks",
     fieldDefs: ATTACK_FIELDS, factory: createAttack,
-  });
+  }));
 
-  root.append(buildSheetSection("Currency", CURRENCY_FIELDS, character, onFieldChange));
-  renderListSection(root, character, store, {
+  grid.append(buildSheetSection("Currency", CURRENCY_FIELDS, character, onFieldChange));
+  addWide(grid, renderListContainer(grid, character, store, {
     arrayKey: "inventory", sectionId: "inventory-section", title: "Inventory",
     fieldDefs: INVENTORY_FIELDS, factory: createInventoryItem,
-  });
+  }));
 
-  renderListSection(root, character, store, {
+  const spellsContainer = renderListContainer(grid, character, store, {
     arrayKey: "spells", sectionId: "spells-section", title: "Spells",
-    fieldDefs: SPELL_FIELDS, factory: createSpell,
+    fieldDefs: SPELL_FIELDS, factory: createSpell, extraClass: "sheet-section--arcane",
   });
+  grid.append(spellsContainer);
 
-  renderListSection(root, character, store, {
+  addWide(grid, renderListContainer(grid, character, store, {
     arrayKey: "features", sectionId: "features-section", title: "Features & Traits",
     fieldDefs: FEATURE_FIELDS, factory: createFeature,
-  });
+  }));
 
-  root.append(buildSheetSection("Proficiencies & Languages", PROFICIENCY_FIELDS, character, onFieldChange));
-  root.append(buildSheetSection("Personality", PERSONALITY_FIELDS, character, onFieldChange));
+  addWide(grid, buildSheetSection("Proficiencies & Languages", PROFICIENCY_FIELDS, character, onFieldChange));
+  addWide(grid, buildSheetSection("Personality", PERSONALITY_FIELDS, character, onFieldChange));
 
   const notesField = buildInputGroup(
     { id: "notes", label: "Notes", type: "textarea" },
     character.notes,
     (val) => { character.notes = val; persistField("notes", val); }
   );
-  root.append(notesField);
+  addWide(grid, notesField);
 
-  updateDerivedDisplays(root, character);
+  updateDerivedDisplays(grid, character);
+}
+
+function addWide(grid, el) {
+  el.classList.add("sheet-section--wide");
+  grid.append(el);
 }
 
 // --- Abilities & Skills ------------------------------------------------
 
-function buildAbilitiesAndSkills(root, character, persistField) {
+function buildAbilities(grid, character, persistField) {
   const section = document.createElement("section");
   section.className = "sheet-section";
   section.id = "abilities-section";
 
   const heading = document.createElement("h3");
-  heading.textContent = "Abilities & Skills";
+  heading.textContent = "Abilities";
 
-  const grid = document.createElement("div");
-  grid.className = "sheet-section__grid";
+  const fieldGrid = document.createElement("div");
+  fieldGrid.className = "sheet-section__grid";
 
   ABILITIES.forEach(ability => {
     const score = character.abilities[ability.id];
     const mod = abilityModifier(score);
-    grid.append(buildStatBlock(ability, score, mod, (newScore) => {
+    fieldGrid.append(buildStatBlock(ability, score, mod, (newScore) => {
       character.abilities[ability.id] = newScore;
       persistField(`abilities.${ability.id}`, newScore);
-      updateDerivedDisplays(root, character);
+      updateDerivedDisplays(grid, character);
     }));
   });
 
-  section.append(heading, grid);
-  root.append(section);
+  section.append(heading, fieldGrid);
+  return section;
+}
 
+function buildSkills(grid, character, persistField) {
   const skillsSection = document.createElement("section");
   skillsSection.className = "sheet-section";
   skillsSection.id = "skills-section";
@@ -155,7 +178,7 @@ function buildAbilitiesAndSkills(root, character, persistField) {
     checkbox.addEventListener("change", () => {
       character.skillProficiencies[skill.id] = checkbox.checked;
       persistField(`skillProficiencies.${skill.id}`, checkbox.checked);
-      updateDerivedDisplays(root, character);
+      updateDerivedDisplays(grid, character);
     });
 
     const label = document.createElement("span");
@@ -170,12 +193,12 @@ function buildAbilitiesAndSkills(root, character, persistField) {
   });
 
   skillsSection.append(skillsHeading, skillsCard);
-  root.append(skillsSection);
+  return skillsSection;
 }
 
 // --- Saving Throws -------------------------------------------------------
 
-function buildSavingThrows(root, character, persistField) {
+function buildSavingThrows(grid, character, persistField) {
   const section = document.createElement("section");
   section.className = "sheet-section";
   section.id = "saves-section";
@@ -198,7 +221,7 @@ function buildSavingThrows(root, character, persistField) {
     checkbox.addEventListener("change", () => {
       character.savingThrowProficiencies[ability.id] = checkbox.checked;
       persistField(`savingThrowProficiencies.${ability.id}`, checkbox.checked);
-      updateDerivedDisplays(root, character);
+      updateDerivedDisplays(grid, character);
     });
 
     const label = document.createElement("span");
@@ -213,12 +236,12 @@ function buildSavingThrows(root, character, persistField) {
   });
 
   section.append(heading, card);
-  root.append(section);
+  return section;
 }
 
 // --- Passive stats (proficiency bonus, passive perception) ---------------
 
-function buildPassiveStats(root) {
+function buildPassiveStats() {
   const section = document.createElement("section");
   section.className = "sheet-section";
   const grid = document.createElement("div");
@@ -228,27 +251,33 @@ function buildPassiveStats(root) {
     buildReadout("Passive Perception", "10", "passive-perception"),
   );
   section.append(grid);
-  root.append(section);
+  return section;
 }
 
-// --- Spellcasting readouts + spell slots ----------------------------------
+// --- Spellcasting: ability + DC + attack bonus, one compact card ---------
 
-function buildSpellcastingReadouts() {
+function buildSpellcastingSummary(character, onFieldChange) {
   const section = document.createElement("section");
-  section.className = "sheet-section";
-  const grid = document.createElement("div");
-  grid.className = "sheet-section__grid";
-  grid.append(
-    buildReadout("Spell Save DC", "8", "spell-save-dc"),
-    buildReadout("Spell Attack Bonus", "+0", "spell-attack-bonus"),
-  );
-  section.append(grid);
+  section.className = "sheet-section sheet-section--arcane";
+  const heading = document.createElement("h3");
+  heading.textContent = "Spellcasting";
+
+  const fieldGrid = document.createElement("div");
+  fieldGrid.className = "sheet-section__grid";
+
+  SPELLCASTING_FIELDS.forEach(def => {
+    fieldGrid.append(buildInputGroup(def, character[def.id], (val) => onFieldChange(def.id, val)));
+  });
+  fieldGrid.append(buildReadout("Spell Save DC", "8", "spell-save-dc"));
+  fieldGrid.append(buildReadout("Spell Attack Bonus", "+0", "spell-attack-bonus"));
+
+  section.append(heading, fieldGrid);
   return section;
 }
 
 function buildSpellSlots(character, persistField) {
   const section = document.createElement("section");
-  section.className = "sheet-section";
+  section.className = "sheet-section sheet-section--arcane";
   const heading = document.createElement("h3");
   heading.textContent = "Spell Slots";
   const list = document.createElement("div");
@@ -313,22 +342,19 @@ function buildDeathSaves(character, persistField) {
 }
 
 // --- Generic list-section controller (attacks/inventory/spells/features) --
+//
+// Returns a stable wrapper div (created once) that the caller appends
+// to the grid. Add/remove refill this div's contents in place — the
+// div itself never moves, so a list section never migrates to the end
+// of the page the way a naive remove()+append() would.
 
-function renderListSection(root, character, store, { arrayKey, sectionId, title, fieldDefs, factory }) {
+function renderListContainer(grid, character, store, { arrayKey, sectionId, title, fieldDefs, factory, extraClass }) {
   const persistArray = debounce(() => {
     store.saveCharacterField(character.id, arrayKey, character[arrayKey]);
   });
 
-  // A stable container, created once and appended in place. Re-renders
-  // refill its contents rather than removing/re-appending the section
-  // itself — otherwise each add/remove would migrate the whole section
-  // to the end of the page (past Notes, Personality, etc).
-  let container = root.querySelector(`#${sectionId}`);
-  if (!container) {
-    container = document.createElement("div");
-    container.id = sectionId;
-    root.append(container);
-  }
+  const container = document.createElement("div");
+  container.id = sectionId;
 
   function rerender() {
     container.innerHTML = "";
@@ -336,6 +362,7 @@ function renderListSection(root, character, store, { arrayKey, sectionId, title,
       title,
       items: character[arrayKey],
       fieldDefs,
+      extraClass,
       onAdd: () => {
         character[arrayKey].push(factory());
         persistArray();
@@ -356,38 +383,39 @@ function renderListSection(root, character, store, { arrayKey, sectionId, title,
   }
 
   rerender();
+  return container;
 }
 
 // --- Derived value refresh (never rebuilds DOM — safe on every keystroke) -
 
-function updateDerivedDisplays(root, character) {
+function updateDerivedDisplays(grid, character) {
   ABILITIES.forEach(ability => {
-    const badge = root.querySelector(`[data-ability-id="${ability.id}"] .stat-block__modifier`);
+    const badge = grid.querySelector(`[data-ability-id="${ability.id}"] .stat-block__modifier`);
     if (badge) badge.textContent = formatModifier(abilityModifier(character.abilities[ability.id]));
   });
 
   SKILLS.forEach(skill => {
-    const modEl = root.querySelector(`[data-skill-id="${skill.id}"] .skill-mod`);
+    const modEl = grid.querySelector(`[data-skill-id="${skill.id}"] .skill-mod`);
     if (modEl) modEl.textContent = formatModifier(skillModifier(character, skill.id, SKILLS));
   });
 
   ABILITIES.forEach(ability => {
-    const modEl = root.querySelector(`[data-save-id="${ability.id}"] .save-mod`);
+    const modEl = grid.querySelector(`[data-save-id="${ability.id}"] .save-mod`);
     if (modEl) modEl.textContent = formatModifier(savingThrowModifier(character, ability.id));
   });
 
-  const initField = root.querySelector('[data-field-id="initiative"] .input-group__control');
+  const initField = grid.querySelector('[data-field-id="initiative"] .input-group__control');
   if (initField) initField.value = initiativeModifier(character);
 
-  const profBonusEl = root.querySelector('[data-readout-id="proficiency-bonus"] .readout__value');
+  const profBonusEl = grid.querySelector('[data-readout-id="proficiency-bonus"] .readout__value');
   if (profBonusEl) profBonusEl.textContent = formatModifier(proficiencyBonus(character.level));
 
-  const passivePerceptionEl = root.querySelector('[data-readout-id="passive-perception"] .readout__value');
+  const passivePerceptionEl = grid.querySelector('[data-readout-id="passive-perception"] .readout__value');
   if (passivePerceptionEl) passivePerceptionEl.textContent = String(passivePerception(character, SKILLS));
 
-  const spellDCEl = root.querySelector('[data-readout-id="spell-save-dc"] .readout__value');
+  const spellDCEl = grid.querySelector('[data-readout-id="spell-save-dc"] .readout__value');
   if (spellDCEl) spellDCEl.textContent = String(spellSaveDC(character));
 
-  const spellAtkEl = root.querySelector('[data-readout-id="spell-attack-bonus"] .readout__value');
+  const spellAtkEl = grid.querySelector('[data-readout-id="spell-attack-bonus"] .readout__value');
   if (spellAtkEl) spellAtkEl.textContent = formatModifier(spellAttackBonus(character));
 }
