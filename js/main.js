@@ -1,7 +1,7 @@
 // main.js — app entry point
 
 import * as characterStore from "./state/characterStore.js";
-import { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, createCharacter } from "./state/characterStore.js";
+import { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, createCharacter, deleteCharacter } from "./state/characterStore.js";
 import { createBlankCharacter } from "./data/schema.js";
 import { renderCharacterSheet } from "./render/characterSheet.js";
 
@@ -55,10 +55,30 @@ async function renderCharacterList() {
   characters.forEach(c => {
     const card = document.createElement("div");
     card.className = "card";
-    card.style.cursor = "pointer";
-    card.innerHTML = `<div class="card__title">${c.name || "Unnamed"}</div>
+    card.style.display = "flex";
+    card.style.justifyContent = "space-between";
+    card.style.alignItems = "center";
+
+    const info = document.createElement("div");
+    info.style.cursor = "pointer";
+    info.innerHTML = `<div class="card__title">${c.name || "Unnamed"}</div>
       <div class="card__meta">${c.race || "?"} ${c.class || "?"} — Level ${c.level ?? 1}</div>`;
-    card.addEventListener("click", () => openCharacter(c.id));
+    info.addEventListener("click", () => openCharacter(c.id));
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "btn btn--danger btn--icon";
+    deleteBtn.textContent = "✕";
+    deleteBtn.title = "Delete character";
+    deleteBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const confirmed = window.confirm(`Delete "${c.name || "Unnamed"}"? This can't be undone.`);
+      if (!confirmed) return;
+      await deleteCharacter(c.id);
+      renderCharacterList();
+    });
+
+    card.append(info, deleteBtn);
     list.append(card);
   });
 
