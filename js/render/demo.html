@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Character Vault — Demo Preview</title>
+  <link rel="stylesheet" href="css/main.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="app-sidebar">
+      <h1>Character Vault</h1>
+      <p class="input-group__hint">
+        Demo preview — showing placeholder data, no Firebase connected.
+        Edits here log to the console instead of saving anywhere.
+      </p>
+    </aside>
+    <main class="app-main" id="app-main"></main>
+  </div>
+
+  <script type="module">
+    import * as mockStore from "./js/state/mockStore.js";
+    import { renderCharacterSheet } from "./js/render/characterSheet.js";
+
+    const character = await mockStore.loadCharacter("demo-1");
+    renderCharacterSheet(document.getElementById("app-main"), character, mockStore);
+  </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+[
+  { "value": "fighter", "label": "Fighter" },
+  { "value": "wizard", "label": "Wizard" },
+  { "value": "rogue", "label": "Rogue" },
+  { "value": "cleric", "label": "Cleric" },
+  { "value": "ranger", "label": "Ranger" },
+  { "value": "barbarian", "label": "Barbarian" },
+  { "value": "bard", "label": "Bard" },
+  { "value": "druid", "label": "Druid" },
+  { "value": "monk", "label": "Monk" },
+  { "value": "paladin", "label": "Paladin" },
+  { "value": "sorcerer", "label": "Sorcerer" },
+  { "value": "warlock", "label": "Warlock" }
+]
