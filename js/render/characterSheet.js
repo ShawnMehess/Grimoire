@@ -4,9 +4,16 @@
 // DOM via formBuilder.js, computes derived values via rules.js, and
 // persists changes via characterStore.js. No Firebase calls and no
 // raw DOM-building logic should live in this file — delegate.
+//
+// Important pattern: the abilities/skills DOM is built exactly ONCE
+// per renderCharacterSheet call. When an ability score (or level)
+// changes, we update the affected modifier numbers *in place* via
+// updateDerivedDisplays() rather than tearing down and rebuilding the
+// section — rebuilding recreates the <input> the user is actively
+// typing into, which kicks it out of focus after every keystroke.
 
 import { ABILITIES, SKILLS, IDENTITY_FIELDS, COMBAT_FIELDS } from "../data/schema.js";
-import { abilityModifier, skillModifier, savingThrowModifier, initiativeModifier, formatModifier } from "../data/rules.js";
+import { abilityModifier, skillModifier, initiativeModifier, formatModifier } from "../data/rules.js";
 import { buildSheetSection, buildStatBlock, buildInputGroup } from "./formBuilder.js";
 
 // Debounce writes so typing a name doesn't fire a Firestore write per
@@ -34,17 +41,17 @@ export function renderCharacterSheet(root, character, store) {
   const onFieldChange = (fieldId, value) => {
     character[fieldId] = value;
     persistField(fieldId, value);
-    // Re-render sections whose derived values depend on this field.
-    if (fieldId === "level" || ABILITIES.some(a => a.id === fieldId)) {
-      renderCombatDerived(root, character);
-      renderAbilitiesAndSkills(root, character, persistField);
+    // Level affects proficiency bonus, which affects skill/save modifiers —
+    // update those numbers in place, don't rebuild the DOM.
+    if (fieldId === "level") {
+      updateDerivedDisplays(root, character);
     }
   };
 
   root.append(buildSheetSection("Identity", IDENTITY_FIELDS, character, onFieldChange));
   root.append(buildSheetSection("Combat", COMBAT_FIELDS, character, onFieldChange));
 
-  renderAbilitiesAndSkills(root, character, persistField);
+  buildAbilitiesAndSkills(root, character, persistField);
 
   const notesField = buildInputGroup(
     { id: "notes", label: "Notes", type: "textarea" },
@@ -52,12 +59,15 @@ export function renderCharacterSheet(root, character, store) {
     (val) => { character.notes = val; persistField("notes", val); }
   );
   root.append(notesField);
+
+  updateDerivedDisplays(root, character);
 }
 
-function renderAbilitiesAndSkills(root, character, persistField) {
-  root.querySelector("#abilities-section")?.remove();
-  root.querySelector("#skills-section")?.remove();
-
+/**
+ * Builds the abilities + skills DOM ONCE and appends it to root. Score
+ * inputs call updateDerivedDisplays() on change instead of rebuilding.
+ */
+function buildAbilitiesAndSkills(root, character, persistField) {
   const section = document.createElement("section");
   section.className = "sheet-section";
   section.id = "abilities-section";
@@ -74,7 +84,7 @@ function renderAbilitiesAndSkills(root, character, persistField) {
     grid.append(buildStatBlock(ability, score, mod, (newScore) => {
       character.abilities[ability.id] = newScore;
       persistField(`abilities.${ability.id}`, newScore);
-      renderAbilitiesAndSkills(root, character, persistField); // refresh dependent skills
+      updateDerivedDisplays(root, character);
     }));
   });
 
@@ -93,6 +103,7 @@ function renderAbilitiesAndSkills(root, character, persistField) {
 
   SKILLS.forEach(skill => {
     const row = document.createElement("label");
+    row.dataset.skillId = skill.id;
     row.style.display = "flex";
     row.style.justifyContent = "space-between";
 
@@ -102,8 +113,7 @@ function renderAbilitiesAndSkills(root, character, persistField) {
     checkbox.addEventListener("change", () => {
       character.skillProficiencies[skill.id] = checkbox.checked;
       persistField(`skillProficiencies.${skill.id}`, checkbox.checked);
-      row.querySelector(".skill-mod").textContent =
-        formatModifier(skillModifier(character, skill.id, SKILLS));
+      updateDerivedDisplays(root, character);
     });
 
     const label = document.createElement("span");
@@ -121,7 +131,23 @@ function renderAbilitiesAndSkills(root, character, persistField) {
   root.append(skillsSection);
 }
 
-function renderCombatDerived(root, character) {
+/**
+ * Updates every derived (calculated) number on the sheet in place:
+ * ability modifier badges, skill modifiers, initiative. Never creates
+ * or removes DOM nodes, so it's safe to call on every keystroke —
+ * focus is never lost.
+ */
+function updateDerivedDisplays(root, character) {
+  ABILITIES.forEach(ability => {
+    const badge = root.querySelector(`[data-ability-id="${ability.id}"] .stat-block__modifier`);
+    if (badge) badge.textContent = formatModifier(abilityModifier(character.abilities[ability.id]));
+  });
+
+  SKILLS.forEach(skill => {
+    const modEl = root.querySelector(`[data-skill-id="${skill.id}"] .skill-mod`);
+    if (modEl) modEl.textContent = formatModifier(skillModifier(character, skill.id, SKILLS));
+  });
+
   const initField = root.querySelector('[data-field-id="initiative"] .input-group__control');
   if (initField) initField.value = initiativeModifier(character);
 }
