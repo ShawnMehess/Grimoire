@@ -70,10 +70,10 @@ export const CURRENCY_FIELDS = [
 ];
 
 export const PROFICIENCY_FIELDS = [
-  { id: "proficienciesArmor",   label: "Armor",   type: "text" },
-  { id: "proficienciesWeapons", label: "Weapons", type: "text" },
-  { id: "proficienciesTools",   label: "Tools",   type: "text" },
-  { id: "languages",            label: "Languages", type: "text" },
+  { id: "proficienciesArmor",   label: "Armor",   type: "textarea" },
+  { id: "proficienciesWeapons", label: "Weapons", type: "textarea" },
+  { id: "proficienciesTools",   label: "Tools",   type: "textarea" },
+  { id: "languages",            label: "Languages", type: "textarea" },
 ];
 
 export const SPELLCASTING_FIELDS = [
