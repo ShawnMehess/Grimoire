@@ -1183,14 +1183,25 @@ export function renderCustomSheet(root, character, store) {
     pop.addEventListener("pointerdown", (e) => e.stopPropagation());
     const editableStyle = styleForEditing(node);
 
+    function buildStyleLabel(text, styleKey) {
+      const label = document.createElement("label");
+      label.textContent = text;
+      if (node.styleOverrides && Object.prototype.hasOwnProperty.call(node.styleOverrides, styleKey)) {
+        const badge = document.createElement("span");
+        badge.className = "style-popover__badge";
+        badge.textContent = "local";
+        label.append(document.createTextNode(" "), badge);
+      }
+      return label;
+    }
+
     // Background color (whole node only — background doesn't cascade
     // to children the way font/color properties do, which is exactly
     // what keeps a field's own background from blotting out its
     // parent block's background).
     const bgRow = document.createElement("div");
     bgRow.className = "style-popover__row";
-    const bgLabel = document.createElement("label");
-    bgLabel.textContent = "Background";
+    const bgLabel = buildStyleLabel("Background", "bg");
     const bgInput = document.createElement("input");
     bgInput.type = "color";
     bgInput.value = editableStyle.bg || "#1d1a16";
@@ -1206,8 +1217,7 @@ export function renderCustomSheet(root, character, store) {
     // Background image
     const imgRow = document.createElement("div");
     imgRow.className = "style-popover__row";
-    const imgLabel = document.createElement("label");
-    imgLabel.textContent = "Bg image";
+    const imgLabel = buildStyleLabel("Bg image", "bgImage");
     const imgInput = document.createElement("input");
     imgInput.type = "file";
     imgInput.accept = "image/*";
@@ -1235,8 +1245,7 @@ export function renderCustomSheet(root, character, store) {
     // Font family
     const fontRow = document.createElement("div");
     fontRow.className = "style-popover__row";
-    const fontLabel = document.createElement("label");
-    fontLabel.textContent = "Font";
+    const fontLabel = buildStyleLabel("Font", "fontFamily");
     const fontSelect = document.createElement("select");
     [
       ["", "Theme default"],
@@ -1260,8 +1269,7 @@ export function renderCustomSheet(root, character, store) {
     // Font size
     const sizeRow = document.createElement("div");
     sizeRow.className = "style-popover__row";
-    const sizeLabel = document.createElement("label");
-    sizeLabel.textContent = "Size (px)";
+    const sizeLabel = buildStyleLabel("Size (px)", "fontSize");
     const sizeInput = document.createElement("input");
     sizeInput.type = "number";
     sizeInput.min = "8"; sizeInput.max = "72";
@@ -1277,8 +1285,7 @@ export function renderCustomSheet(root, character, store) {
     // Text color
     const colorRow = document.createElement("div");
     colorRow.className = "style-popover__row";
-    const colorLabel = document.createElement("label");
-    colorLabel.textContent = "Text color";
+    const colorLabel = buildStyleLabel("Text color", "color");
     const colorInput = document.createElement("input");
     colorInput.type = "color";
     colorInput.value = editableStyle.color || "#e8e0d0";
@@ -1301,7 +1308,13 @@ export function renderCustomSheet(root, character, store) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.textContent = label;
+      btn.title = node.styleOverrides && Object.prototype.hasOwnProperty.call(node.styleOverrides, key)
+        ? `${label} is locally overridden`
+        : label;
       btn.className = editableStyle[key] ? "active" : "";
+      if (node.styleOverrides && Object.prototype.hasOwnProperty.call(node.styleOverrides, key)) {
+        btn.classList.add("has-local-override");
+      }
       btn.addEventListener("click", () => {
         const changedWholeNode = applyStyleChange(wrapperEl, node, { cssProp, cssValue, styleKey: key, toggle: true });
         // Only reflect the change on the button if it actually changed
