@@ -219,9 +219,23 @@ export function renderCustomSheet(root, character, store) {
     // actual content needs more — in which case it scrolls.
     const contentPx = contentHeight(character.layout) * (ROW_PX + GAP_PX);
     pageGrid.style.height = `${Math.max(availableHeight, contentPx)}px`;
+    applyGridLines(pageGrid, cw);
     character.layout.forEach(block => {
       pageGrid.append(renderBlockNode(block, cw));
     });
+  }
+
+  /** Draws the visible cell grid as the element's own background —
+   *  paints behind all the absolutely-positioned blocks/fields on top
+   *  of it, so it only shows through in empty space. Recomputed
+   *  whenever cw changes since column width is responsive. */
+  function applyGridLines(el, cw) {
+    const colStep = cw + GAP_PX;
+    const rowStep = ROW_PX + GAP_PX;
+    const line = "rgba(255,255,255,0.5)";
+    el.style.backgroundImage =
+      `repeating-linear-gradient(to right, ${line} 0, ${line} 2px, transparent 2px, transparent ${colStep}px),` +
+      `repeating-linear-gradient(to bottom, ${line} 0, ${line} 2px, transparent 2px, transparent ${rowStep}px)`;
   }
 
   // --- Block rendering ----------------------------------------------------
@@ -254,6 +268,7 @@ export function renderCustomSheet(root, character, store) {
     const body = document.createElement("div");
     body.className = "block-body";
     body.style.top = `${headerPx + GAP_PX}px`;
+    applyGridLines(body, cw);
     el.append(body);
 
     block.children.forEach(field => {
@@ -335,10 +350,21 @@ export function renderCustomSheet(root, character, store) {
     el.append(buildFieldToolbar(field, parentBlock, el));
     el.append(buildEquationHint(field));
 
-    wireDrag(el, field, cw, () => renderPageGrid());
+    // Fields are confined to their parent block's content area — the
+    // area below the reserved name row (see BLOCK_HEADER_ROWS). They
+    // can move/resize freely WITHIN that, but never past the block's
+    // own edges; the block itself has no such limit (it can go
+    // anywhere on the canvas).
+    const contentRows = parentBlock.h - BLOCK_HEADER_ROWS;
+    wireDrag(el, field, cw, () => renderPageGrid(), {
+      maxX: parentBlock.w - field.w,
+      maxY: contentRows - field.h,
+    });
     if (field.fieldType === "text") {
       wireResize(el, field, cw, {
         minW: 1, minH: 1,
+        maxW: parentBlock.w - field.x,
+        maxH: contentRows - field.y,
         onCommit: () => {
           persist();
           renderPageGrid();
@@ -532,8 +558,14 @@ export function renderCustomSheet(root, character, store) {
   // Overlapping other blocks/fields is allowed; nothing tries to fix
   // it up automatically.
 
-  function wireDrag(el, node, cw, onSettled) {
-    const handle = el.querySelector(".drag-handle");
+  function wireDrag(el, node, cw, onSettled, bounds = {}) {
+    // :scope > restricts this to el's OWN handle, not any descendant's
+    // (a block contains fields, which have their own drag handles too —
+    // a plain, unscoped querySelector would find the first FIELD's
+    // handle before ever reaching the block's own, since the fields
+    // get appended into the DOM before the block's handle does).
+    const handle = el.querySelector(":scope > .drag-handle");
+    const { maxX = Infinity, maxY = Infinity } = bounds;
     handle.addEventListener("pointerdown", (e) => {
       if (!editMode) return;
       e.preventDefault();
@@ -545,8 +577,8 @@ export function renderCustomSheet(root, character, store) {
       function onMove(ev) {
         const dx = Math.round((ev.clientX - startClientX) / (cw + GAP_PX));
         const dy = Math.round((ev.clientY - startClientY) / (ROW_PX + GAP_PX));
-        node.x = Math.max(0, startX + dx);
-        node.y = Math.max(0, startY + dy);
+        node.x = Math.min(Math.max(0, maxX), Math.max(0, startX + dx));
+        node.y = Math.min(Math.max(0, maxY), Math.max(0, startY + dy));
         applyRect(el, node, cw);
       }
       function onUp() {
@@ -561,8 +593,8 @@ export function renderCustomSheet(root, character, store) {
     });
   }
 
-  function wireResize(el, node, cw, { minW, minH, maxW = Infinity, onCommit }) {
-    const handle = el.querySelector(".resize-handle");
+  function wireResize(el, node, cw, { minW, minH, maxW = Infinity, maxH = Infinity, onCommit }) {
+    const handle = el.querySelector(":scope > .resize-handle"); // see note in wireDrag above
     if (!handle) return;
     handle.addEventListener("pointerdown", (e) => {
       if (!editMode) return;
@@ -576,7 +608,7 @@ export function renderCustomSheet(root, character, store) {
         const dw = Math.round((ev.clientX - startClientX) / (cw + GAP_PX));
         const dh = Math.round((ev.clientY - startClientY) / (ROW_PX + GAP_PX));
         node.w = Math.min(maxW, Math.max(minW, startW + dw));
-        node.h = Math.max(minH, startH + dh);
+        node.h = Math.min(maxH, Math.max(minH, startH + dh));
         applyRect(el, node, cw);
       }
       function onUp() {
@@ -793,7 +825,11 @@ export function renderCustomSheet(root, character, store) {
    *  their own on/off display should update. */
   function applyStyleChange(wrapperEl, node, { cssProp, cssValue, styleKey, toggle = false, rawValue }) {
     const sel = window.getSelection();
-    const valueEl = wrapperEl.querySelector(".field-value[contenteditable]");
+    // Only a FIELD has its own editable value — for a block, this must
+    // be a direct-child lookup, or it would find a nested field's value
+    // (same descendant-search issue as wireDrag/wireResize above) and
+    // wrongly treat a block-level style change as selection-scoped.
+    const valueEl = wrapperEl.querySelector(":scope > .field-inner > .field-value[contenteditable]");
     const hasSelection = sel && !sel.isCollapsed && valueEl && sel.anchorNode && valueEl.contains(sel.anchorNode);
 
     if (hasSelection) {
