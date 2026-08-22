@@ -163,6 +163,7 @@ function templatePayload(character, parsed) {
     name: parsed.templateName,
     sourceName: character.name || "",
     layout: cloneLayout(character.layout),
+    sheetTabs: cloneLayout(character.sheetTabs || []),
     updatedAt: serverTimestamp(),
   };
 }

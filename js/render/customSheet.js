@@ -55,7 +55,7 @@
 //     large images will fail to save — there's a warning on upload,
 //     but no compression/resizing yet.
 
-import { createStarterLayout, createBlock, createField, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS } from "../data/blockModel.js";
+import { createStarterLayout, createBlock, createField, createLabelBlock, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS } from "../data/blockModel.js";
 import { contentHeight } from "./gridEngine.js";
 import { openEquationStub } from "./equationStub.js";
 
@@ -77,8 +77,12 @@ export function renderCustomSheet(root, character, store) {
   if (!character.layout) {
     character.layout = createStarterLayout();
   }
+  normalizeTabs();
 
   let editMode = false;
+  let activeTabId = character.sheetTabs[0].id;
+  const undoStack = [];
+  const redoStack = [];
 
   root.innerHTML = "";
 
@@ -94,19 +98,41 @@ export function renderCustomSheet(root, character, store) {
   modeBtn.className = "btn btn--primary";
   modeBtn.textContent = "Customize Sheet";
 
+  const undoBtn = document.createElement("button");
+  undoBtn.type = "button";
+  undoBtn.className = "btn";
+  undoBtn.textContent = "Undo";
+  undoBtn.disabled = true;
+
+  const redoBtn = document.createElement("button");
+  redoBtn.type = "button";
+  redoBtn.className = "btn";
+  redoBtn.textContent = "Redo";
+  redoBtn.disabled = true;
+
   const addBlockBtn = document.createElement("button");
   addBlockBtn.type = "button";
   addBlockBtn.className = "btn";
   addBlockBtn.textContent = "+ Block";
   addBlockBtn.style.display = "none";
   addBlockBtn.addEventListener("click", () => {
-    const block = createBlock({ name: "New Block", x: 0, y: 0, w: 3, h: 3 });
-    character.layout.push(block);
-    persist();
-    renderPageGrid();
+    commitMutation(() => {
+      currentLayout().push(createBlock({ name: "New Block", x: 0, y: 0, w: 3, h: 3 }));
+    });
   });
 
-  leftGroup.append(modeBtn, addBlockBtn);
+  const addLabelBtn = document.createElement("button");
+  addLabelBtn.type = "button";
+  addLabelBtn.className = "btn";
+  addLabelBtn.textContent = "+ Label";
+  addLabelBtn.style.display = "none";
+  addLabelBtn.addEventListener("click", () => {
+    commitMutation(() => {
+      currentLayout().push(createLabelBlock({ name: "Header", x: 0, y: 0, w: 5, h: 1 }));
+    });
+  });
+
+  leftGroup.append(modeBtn, undoBtn, redoBtn, addBlockBtn, addLabelBtn);
   toolbar.append(leftGroup);
 
   // A plain, non-customizable name field — deliberately outside the
@@ -146,17 +172,26 @@ export function renderCustomSheet(root, character, store) {
       });
   }
 
-  const persist = debounce(() => saveWithStatus("layout", character.layout));
+  const persist = debounce(persistSheetState);
 
   root.append(toolbar);
+
+  const tabsBar = document.createElement("div");
+  tabsBar.className = "sheet-tabs";
+  root.append(tabsBar);
 
   modeBtn.addEventListener("click", () => {
     editMode = !editMode;
     modeBtn.textContent = editMode ? "Done Editing" : "Customize Sheet";
     addBlockBtn.style.display = editMode ? "" : "none";
+    addLabelBtn.style.display = editMode ? "" : "none";
     pageGrid.classList.toggle("is-edit-mode", editMode);
-    renderPageGrid();
+    renderAll();
   });
+
+  undoBtn.addEventListener("click", undo);
+  redoBtn.addEventListener("click", redo);
+  document.addEventListener("keydown", onShortcut);
 
   // --- Page grid --------------------------------------------------------
   // Wrapped in a horizontally-scrolling container so narrow (phone)
@@ -164,13 +199,276 @@ export function renderCustomSheet(root, character, store) {
   // width — see MIN_CELL_PX. This also keeps a saved layout's x/y
   // coordinates meaningful across devices: the grid itself never
   // changes column count, only how much of it fits on screen at once.
+  const workbench = document.createElement("div");
+  workbench.className = "sheet-workbench";
+  root.append(workbench);
+
+  const blockFrame = document.createElement("aside");
+  blockFrame.className = "sheet-block-frame";
+  workbench.append(blockFrame);
+
   const scrollWrapper = document.createElement("div");
   scrollWrapper.className = "page-grid-scroll";
-  root.append(scrollWrapper);
+  workbench.append(scrollWrapper);
 
   const pageGrid = document.createElement("div");
   pageGrid.className = "page-grid";
   scrollWrapper.append(pageGrid);
+  pageGrid.addEventListener("dragover", (e) => {
+    if (!editMode) return;
+    if (e.dataTransfer.types.includes("application/x-sheet-block") ||
+        e.dataTransfer.types.includes("application/x-sheet-field")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  });
+  pageGrid.addEventListener("drop", (e) => {
+    if (!editMode) return;
+    const blockId = e.dataTransfer.getData("application/x-sheet-block");
+    const fieldPayload = e.dataTransfer.getData("application/x-sheet-field");
+    if (!blockId && !fieldPayload) return;
+    e.preventDefault();
+
+    const rect = pageGrid.getBoundingClientRect();
+    const cw = colWidthPx();
+    const x = Math.max(0, Math.round((e.clientX - rect.left) / (cw + GAP_PX)));
+    const y = Math.max(0, Math.round((e.clientY - rect.top) / (ROW_PX + GAP_PX)));
+
+    commitMutation(() => {
+      if (blockId) {
+        addBlockReferenceToActiveTab(blockId, x, y);
+      } else if (fieldPayload) {
+        const { blockId: sourceBlockId, fieldId } = JSON.parse(fieldPayload);
+        addFieldReferenceToActiveTab(sourceBlockId, fieldId, x, y);
+      }
+    });
+  });
+
+  function normalizeTabs() {
+    if (!Array.isArray(character.sheetTabs) || character.sheetTabs.length === 0) {
+      character.sheetTabs = [{
+        id: newId(),
+        name: "Main",
+        layout: Array.isArray(character.layout) ? character.layout : [],
+      }];
+    }
+    character.sheetTabs.forEach((tab, index) => {
+      if (!tab.id) tab.id = newId();
+      if (!tab.name) tab.name = index === 0 ? "Main" : `Tab ${index + 1}`;
+      if (!Array.isArray(tab.layout)) tab.layout = [];
+    });
+    mirrorFirstTabLayout();
+  }
+
+  function newId() {
+    return crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function snapshot() {
+    return clone({
+      sheetTabs: character.sheetTabs,
+      layout: character.layout,
+    });
+  }
+
+  function restoreSnapshot(state) {
+    character.sheetTabs = clone(state.sheetTabs || []);
+    character.layout = clone(state.layout || []);
+    normalizeTabs();
+    if (!character.sheetTabs.some(tab => tab.id === activeTabId)) {
+      activeTabId = character.sheetTabs[0].id;
+    }
+    renderAll();
+    persistSheetState();
+  }
+
+  function commitMutation(fn, { render = true, save = true } = {}) {
+    undoStack.push(snapshot());
+    redoStack.length = 0;
+    fn();
+    normalizeTabs();
+    updateHistoryButtons();
+    if (save) persist();
+    if (render) renderAll();
+  }
+
+  function undo() {
+    if (undoStack.length === 0) return;
+    redoStack.push(snapshot());
+    restoreSnapshot(undoStack.pop());
+    updateHistoryButtons();
+  }
+
+  function redo() {
+    if (redoStack.length === 0) return;
+    undoStack.push(snapshot());
+    restoreSnapshot(redoStack.pop());
+    updateHistoryButtons();
+  }
+
+  function updateHistoryButtons() {
+    undoBtn.disabled = undoStack.length === 0;
+    redoBtn.disabled = redoStack.length === 0;
+  }
+
+  function onShortcut(e) {
+    if (e.target.closest("input, textarea, select, [contenteditable='true']")) return;
+    if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return;
+    const key = e.key.toLowerCase();
+    if (key === "z") {
+      e.preventDefault();
+      undo();
+    } else if (key === "y") {
+      e.preventDefault();
+      redo();
+    }
+  }
+
+  function persistSheetState() {
+    mirrorFirstTabLayout();
+    if (store.saveCharacterFields) {
+      statusEl.textContent = "Saving…";
+      statusEl.style.color = "";
+      store.saveCharacterFields(character.id, {
+        layout: character.layout,
+        sheetTabs: character.sheetTabs,
+      })
+        .then(() => { statusEl.textContent = "Saved"; })
+        .catch((err) => {
+          console.error("Failed to save sheet state:", err);
+          statusEl.textContent = "⚠ Save failed — see console";
+          statusEl.style.color = "var(--color-negative)";
+        });
+      return;
+    }
+    saveWithStatus("layout", character.layout);
+  }
+
+  function mirrorFirstTabLayout() {
+    character.layout = character.sheetTabs[0]?.layout || [];
+  }
+
+  function activeTab() {
+    return character.sheetTabs.find(tab => tab.id === activeTabId) || character.sheetTabs[0];
+  }
+
+  function activeTabIndex() {
+    return character.sheetTabs.findIndex(tab => tab.id === activeTab().id);
+  }
+
+  function isGlobalTab() {
+    return activeTabIndex() === 0;
+  }
+
+  function currentLayout() {
+    return activeTab().layout;
+  }
+
+  function globalLayout() {
+    return character.sheetTabs[0].layout;
+  }
+
+  function sourceBlockFor(block) {
+    if (!block.sourceBlockId) return block;
+    return globalLayout().find(candidate => candidate.id === block.sourceBlockId) || block;
+  }
+
+  function effectiveStyle(block) {
+    const source = sourceBlockFor(block);
+    return { ...(source.style || {}), ...(block.styleOverrides || {}) };
+  }
+
+  function styleForEditing(node) {
+    if (node.sourceBlockId) return effectiveStyle(node);
+    return node.style || {};
+  }
+
+  function setNodeStyleValue(node, styleKey, value) {
+    if (!node.sourceBlockId) {
+      node.style[styleKey] = value;
+      return;
+    }
+
+    const sourceValue = sourceBlockFor(node).style?.[styleKey];
+    if (!node.styleOverrides) node.styleOverrides = {};
+    if (valuesMatch(value, sourceValue)) {
+      delete node.styleOverrides[styleKey];
+    } else {
+      node.styleOverrides[styleKey] = value;
+    }
+  }
+
+  function valuesMatch(a, b) {
+    return (a ?? null) === (b ?? null);
+  }
+
+  function mergeTextStyle(baseStyle = {}, localStyle = {}) {
+    return {
+      ...localStyle,
+      fontFamily: localStyle.fontFamily ?? baseStyle.fontFamily ?? null,
+      fontSize: localStyle.fontSize ?? baseStyle.fontSize ?? null,
+      bold: !!(localStyle.bold || baseStyle.bold),
+      italic: !!(localStyle.italic || baseStyle.italic),
+      underline: !!(localStyle.underline || baseStyle.underline),
+      color: localStyle.color ?? baseStyle.color ?? null,
+    };
+  }
+
+  function effectiveBlock(block) {
+    const source = sourceBlockFor(block);
+    return {
+      ...source,
+      ...block,
+      blockType: source.blockType || block.blockType || "stat",
+      name: source.name || block.name,
+      children: source.children || block.children || [],
+      style: effectiveStyle(block),
+    };
+  }
+
+  function blockTabs(blockId) {
+    return character.sheetTabs
+      .filter(tab => tab.layout.some(block => block.id === blockId || block.sourceBlockId === blockId))
+      .map(tab => tab.name);
+  }
+
+  function addBlockReferenceToActiveTab(blockId, x, y) {
+    const source = globalLayout().find(block => block.id === blockId);
+    if (!source) return;
+    if (isGlobalTab()) {
+      currentLayout().push(clone({ ...source, id: newId(), x, y }));
+      return;
+    }
+    currentLayout().push({
+      id: newId(),
+      kind: "block",
+      sourceBlockId: blockId,
+      x,
+      y,
+      w: source.w,
+      h: source.h,
+      styleOverrides: {},
+    });
+  }
+
+  function addFieldReferenceToActiveTab(blockId, fieldId, x, y) {
+    const source = globalLayout().find(block => block.id === blockId);
+    const field = source?.children?.find(child => child.id === fieldId);
+    if (!source || !field) return;
+    const block = createBlock({
+      name: field.label || source.name || "Stat",
+      x,
+      y,
+      w: Math.max(1, field.w || 1),
+      h: BLOCK_HEADER_ROWS + Math.max(1, field.h || 1),
+    });
+    block.children = [clone({ ...field, id: newId(), x: 0, y: 0 })];
+    currentLayout().push(block);
+  }
 
   function colWidthPx() {
     const availableWidth = scrollWrapper.clientWidth || root.clientWidth || 960;
@@ -218,11 +516,148 @@ export function renderCustomSheet(root, character, store) {
     // At least tall enough to fill the visible canvas (so there's
     // always room to drag things into open space), taller only if the
     // actual content needs more — in which case it scrolls.
-    const contentPx = contentHeight(character.layout) * (ROW_PX + GAP_PX);
+    const contentPx = contentHeight(currentLayout()) * (ROW_PX + GAP_PX);
     pageGrid.style.height = `${Math.max(availableHeight, contentPx)}px`;
     applyGridLines(pageGrid, cw);
-    character.layout.forEach(block => {
+    currentLayout().forEach(block => {
       pageGrid.append(renderBlockNode(block, cw));
+    });
+  }
+
+  function renderAll() {
+    renderTabs();
+    renderBlockFrame();
+    renderPageGrid();
+  }
+
+  function renderTabs() {
+    tabsBar.innerHTML = "";
+    character.sheetTabs.forEach((tab, index) => {
+      const tabBtn = document.createElement("button");
+      tabBtn.type = "button";
+      tabBtn.className = `sheet-tab${tab.id === activeTab().id ? " active" : ""}`;
+      tabBtn.draggable = editMode;
+      tabBtn.dataset.tabId = tab.id;
+
+      const nameEl = document.createElement("span");
+      nameEl.className = "sheet-tab__name";
+      nameEl.contentEditable = editMode ? "true" : "false";
+      nameEl.textContent = tab.name;
+      nameEl.addEventListener("pointerdown", (e) => e.stopPropagation());
+      nameEl.addEventListener("input", () => {
+        commitMutation(() => {
+          tab.name = nameEl.textContent.trim() || (index === 0 ? "Main" : `Tab ${index + 1}`);
+        }, { render: false });
+        renderBlockFrame();
+      });
+
+      tabBtn.addEventListener("click", () => {
+        activeTabId = tab.id;
+        renderAll();
+      });
+      tabBtn.addEventListener("dragstart", (e) => {
+        if (!editMode) return;
+        e.dataTransfer.setData("application/x-sheet-tab", tab.id);
+        e.dataTransfer.effectAllowed = "move";
+      });
+      tabBtn.addEventListener("dragover", (e) => {
+        if (!editMode) return;
+        e.preventDefault();
+      });
+      tabBtn.addEventListener("drop", (e) => {
+        if (!editMode) return;
+        const draggedId = e.dataTransfer.getData("application/x-sheet-tab");
+        if (!draggedId || draggedId === tab.id) return;
+        e.preventDefault();
+        commitMutation(() => {
+          const from = character.sheetTabs.findIndex(t => t.id === draggedId);
+          const to = character.sheetTabs.findIndex(t => t.id === tab.id);
+          if (from <= 0 || to < 0) return;
+          const [moved] = character.sheetTabs.splice(from, 1);
+          character.sheetTabs.splice(Math.max(1, to), 0, moved);
+        });
+      });
+
+      tabBtn.append(nameEl);
+      if (editMode && index > 0) {
+        const deleteBtn = document.createElement("span");
+        deleteBtn.className = "sheet-tab__delete";
+        deleteBtn.textContent = "×";
+        deleteBtn.title = "Delete tab";
+        deleteBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          commitMutation(() => {
+            character.sheetTabs = character.sheetTabs.filter(t => t.id !== tab.id);
+            activeTabId = character.sheetTabs[0].id;
+          });
+        });
+        tabBtn.append(deleteBtn);
+      }
+      tabsBar.append(tabBtn);
+    });
+
+    if (editMode) {
+      const addTabBtn = document.createElement("button");
+      addTabBtn.type = "button";
+      addTabBtn.className = "sheet-tab sheet-tab--add";
+      addTabBtn.textContent = "+";
+      addTabBtn.title = "Add tab";
+      addTabBtn.addEventListener("click", () => {
+        commitMutation(() => {
+          const tab = { id: newId(), name: `Tab ${character.sheetTabs.length + 1}`, layout: [] };
+          character.sheetTabs.push(tab);
+          activeTabId = tab.id;
+        });
+      });
+      tabsBar.append(addTabBtn);
+    }
+  }
+
+  function renderBlockFrame() {
+    blockFrame.innerHTML = "";
+    const title = document.createElement("div");
+    title.className = "sheet-block-frame__title";
+    title.textContent = "Stat Blocks";
+    blockFrame.append(title);
+
+    globalLayout().forEach(block => {
+      const source = effectiveBlock(block);
+      const blockItem = document.createElement("div");
+      blockItem.className = "sheet-block-list__block";
+      blockItem.draggable = true;
+      blockItem.dataset.blockId = block.id;
+      blockItem.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("application/x-sheet-block", block.id);
+        e.dataTransfer.effectAllowed = "copy";
+      });
+
+      const blockLine = document.createElement("div");
+      blockLine.className = "sheet-block-list__line";
+      const name = document.createElement("span");
+      name.textContent = source.name || "Unnamed Block";
+      blockLine.append(name);
+      if (character.sheetTabs.length > 1) {
+        const tabs = document.createElement("span");
+        tabs.className = "sheet-block-list__tabs";
+        tabs.textContent = blockTabs(block.id).join(", ");
+        blockLine.append(tabs);
+      }
+      blockItem.append(blockLine);
+
+      (source.children || []).forEach(field => {
+        const fieldItem = document.createElement("div");
+        fieldItem.className = "sheet-block-list__field";
+        fieldItem.textContent = field.label || "Unnamed Field";
+        fieldItem.draggable = true;
+        fieldItem.addEventListener("dragstart", (e) => {
+          e.stopPropagation();
+          e.dataTransfer.setData("application/x-sheet-field", JSON.stringify({ blockId: block.id, fieldId: field.id }));
+          e.dataTransfer.effectAllowed = "copy";
+        });
+        blockItem.append(fieldItem);
+      });
+
+      blockFrame.append(blockItem);
     });
   }
 
@@ -246,10 +681,38 @@ export function renderCustomSheet(root, character, store) {
   // --- Block rendering ----------------------------------------------------
 
   function renderBlockNode(block, cw) {
+    const viewBlock = effectiveBlock(block);
     const el = document.createElement("div");
-    el.className = "grid-node grid-node--block";
+    el.className = `grid-node grid-node--block${viewBlock.blockType === "label" ? " grid-node--label-block" : ""}`;
     applyRect(el, block, cw);
-    applyNodeStyle(el, block.style);
+    applyNodeStyle(el, viewBlock.style);
+
+    if (viewBlock.blockType === "label") {
+      const labelEl = document.createElement("div");
+      labelEl.className = "label-block-text";
+      labelEl.contentEditable = "true";
+      labelEl.textContent = viewBlock.name;
+      labelEl.addEventListener("input", () => {
+        commitMutation(() => {
+          sourceBlockFor(block).name = labelEl.textContent;
+        }, { render: false });
+      });
+      el.append(labelEl);
+      applyTextStyleToOwnText(el, viewBlock.style);
+      el.append(buildDragHandle());
+      el.append(buildResizeHandle());
+      el.append(buildBlockToolbar(block, el));
+      wireDrag(el, block, cw, () => renderAll());
+      wireResize(el, block, cw, {
+        minW: 1,
+        minH: 1,
+        onCommit: () => {
+          persist();
+          renderAll();
+        },
+      });
+      return el;
+    }
 
     // Name and body are explicitly positioned to occupy exactly
     // BLOCK_HEADER_ROWS worth of pixels for the name, with the body
@@ -263,10 +726,12 @@ export function renderCustomSheet(root, character, store) {
     nameEl.className = "block-name";
     nameEl.style.height = `${headerPx}px`;
     nameEl.contentEditable = "true";
-    nameEl.textContent = block.name;
+    nameEl.textContent = viewBlock.name;
     nameEl.addEventListener("input", () => {
-      block.name = nameEl.textContent;
-      persist();
+      commitMutation(() => {
+        sourceBlockFor(block).name = nameEl.textContent;
+      }, { render: false });
+      renderBlockFrame();
     });
     el.append(nameEl);
 
@@ -276,21 +741,23 @@ export function renderCustomSheet(root, character, store) {
     applyGridLines(body, cw);
     el.append(body);
 
-    block.children.forEach(field => {
-      body.append(renderFieldNode(field, block, cw));
+    applyTextStyleToOwnText(el, viewBlock.style);
+
+    viewBlock.children.forEach(field => {
+      body.append(renderFieldNode(field, block, cw, viewBlock.style));
     });
 
     el.append(buildDragHandle());
     el.append(buildResizeHandle());
     el.append(buildBlockToolbar(block, el));
 
-    wireDrag(el, block, cw, () => renderPageGrid());
+    wireDrag(el, block, cw, () => renderAll());
     wireResize(el, block, cw, {
       minW: 1,
       minH: BLOCK_HEADER_ROWS + 1,
       onCommit: () => {
         persist();
-        renderPageGrid();
+        renderAll();
       },
     });
 
@@ -303,23 +770,25 @@ export function renderCustomSheet(root, character, store) {
 
     bar.append(buildStyleButton(block, wrapperEl));
 
-    const addFieldBtn = document.createElement("button");
-    addFieldBtn.type = "button";
-    addFieldBtn.title = "Add field";
-    addFieldBtn.textContent = "+";
-    addFieldBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openFieldTypeMenu(addFieldBtn, (fieldType) => {
-        const field = createField({
-          fieldType, label: "Stat",
-          x: 0, y: 0, w: 1, h: 1,
+    if (effectiveBlock(block).blockType !== "label") {
+      const addFieldBtn = document.createElement("button");
+      addFieldBtn.type = "button";
+      addFieldBtn.title = "Add field";
+      addFieldBtn.textContent = "+";
+      addFieldBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openFieldTypeMenu(addFieldBtn, (fieldType) => {
+          commitMutation(() => {
+            const field = createField({
+              fieldType, label: "Stat",
+              x: 0, y: 0, w: 1, h: 1,
+            });
+            sourceBlockFor(block).children.push(field);
+          });
         });
-        block.children.push(field);
-        persist();
-        renderPageGrid();
       });
-    });
-    bar.append(addFieldBtn);
+      bar.append(addFieldBtn);
+    }
 
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
@@ -328,10 +797,13 @@ export function renderCustomSheet(root, character, store) {
     deleteBtn.textContent = "✕";
     deleteBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (!window.confirm(`Delete block "${block.name}" and everything in it?`)) return;
-      character.layout = character.layout.filter(b => b.id !== block.id);
-      persist();
-      renderPageGrid();
+      const viewBlock = effectiveBlock(block);
+      if ((viewBlock.children || []).length > 0 && !window.confirm(`Delete block "${viewBlock.name}" and everything in it?`)) return;
+      commitMutation(() => {
+        const layout = currentLayout();
+        const idx = layout.findIndex(b => b.id === block.id);
+        if (idx >= 0) layout.splice(idx, 1);
+      });
     });
     bar.append(deleteBtn);
 
@@ -340,13 +812,15 @@ export function renderCustomSheet(root, character, store) {
 
   // --- Field rendering ------------------------------------------------------
 
-  function renderFieldNode(field, parentBlock, cw) {
+  function renderFieldNode(field, parentBlock, cw, parentStyle = {}) {
     const el = document.createElement("div");
     el.className = "grid-node grid-node--field";
     applyRect(el, field, cw);
-    applyNodeStyle(el, field.style);
+    const fieldStyle = mergeTextStyle(parentStyle, field.style || {});
+    applyNodeStyle(el, fieldStyle);
 
     renderFieldInner(el, field);
+    applyTextStyleToOwnText(el, fieldStyle);
 
     el.append(buildDragHandle());
     if (field.fieldType === "text") {
@@ -361,7 +835,7 @@ export function renderCustomSheet(root, character, store) {
     // own edges; the block itself has no such limit (it can go
     // anywhere on the canvas).
     const contentRows = parentBlock.h - BLOCK_HEADER_ROWS;
-    wireDrag(el, field, cw, () => renderPageGrid(), {
+    wireDrag(el, field, cw, () => renderAll(), {
       maxX: parentBlock.w - field.w,
       maxY: contentRows - field.h,
     });
@@ -372,7 +846,7 @@ export function renderCustomSheet(root, character, store) {
         maxH: contentRows - field.y,
         onCommit: () => {
           persist();
-          renderPageGrid();
+          renderAll();
         },
       });
     }
@@ -396,8 +870,10 @@ export function renderCustomSheet(root, character, store) {
     labelEl.contentEditable = "true";
     labelEl.textContent = field.label;
     labelEl.addEventListener("input", () => {
-      field.label = labelEl.textContent;
-      persist();
+      commitMutation(() => {
+        field.label = labelEl.textContent;
+      }, { render: false });
+      renderBlockFrame();
     });
     labelEl.addEventListener("pointerdown", (e) => e.stopPropagation());
 
@@ -415,8 +891,9 @@ export function renderCustomSheet(root, character, store) {
       el.contentEditable = "true";
       el.innerHTML = field.value || "";
       el.addEventListener("input", () => {
-        field.value = el.innerHTML;
-        persist();
+        commitMutation(() => {
+          field.value = el.innerHTML;
+        }, { render: false });
       });
       el.addEventListener("pointerdown", (e) => e.stopPropagation());
       return el;
@@ -424,6 +901,7 @@ export function renderCustomSheet(root, character, store) {
 
     const el = document.createElement("div");
     el.className = "field-value field-value--options";
+    el.style.gridTemplateColumns = `repeat(${Math.max(1, field.options || 1)}, minmax(0, 1fr))`;
 
     if (field.fieldType === "radio") {
       for (let n = 1; n <= field.options; n++) {
@@ -433,7 +911,11 @@ export function renderCustomSheet(root, character, store) {
         input.type = "radio";
         input.name = field.id;
         input.checked = field.selected === n;
-        input.addEventListener("change", () => { field.selected = n; persist(); });
+        input.addEventListener("change", () => {
+          commitMutation(() => {
+            field.selected = n;
+          }, { render: false });
+        });
         input.addEventListener("pointerdown", (e) => e.stopPropagation());
         wrap.append(input, document.createTextNode(String(n)));
         el.append(wrap);
@@ -445,7 +927,11 @@ export function renderCustomSheet(root, character, store) {
         const input = document.createElement("input");
         input.type = "checkbox";
         input.checked = !!field.checked[i];
-        input.addEventListener("change", () => { field.checked[i] = input.checked; persist(); });
+        input.addEventListener("change", () => {
+          commitMutation(() => {
+            field.checked[i] = input.checked;
+          }, { render: false });
+        });
         input.addEventListener("pointerdown", (e) => e.stopPropagation());
         wrap.append(input);
         el.append(wrap);
@@ -478,10 +964,10 @@ export function renderCustomSheet(root, character, store) {
       minusBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         if (field.options <= 1) return;
-        field.options -= 1;
-        syncOptionWidth(field);
-        persist();
-        renderPageGrid();
+        commitMutation(() => {
+          field.options -= 1;
+          syncOptionWidth(field);
+        });
       });
       const plusBtn = document.createElement("button");
       plusBtn.type = "button";
@@ -489,10 +975,10 @@ export function renderCustomSheet(root, character, store) {
       plusBtn.textContent = "+";
       plusBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        field.options += 1;
-        syncOptionWidth(field);
-        persist();
-        renderPageGrid();
+        commitMutation(() => {
+          field.options += 1;
+          syncOptionWidth(field);
+        });
       });
       bar.append(minusBtn, plusBtn);
     }
@@ -504,13 +990,13 @@ export function renderCustomSheet(root, character, store) {
     deleteBtn.textContent = "✕";
     deleteBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const arr = findParentArray(character.layout, field.id);
-      if (arr) {
-        const idx = arr.findIndex(n => n.id === field.id);
-        arr.splice(idx, 1);
-      }
-      persist();
-      renderPageGrid();
+      commitMutation(() => {
+        const arr = findParentArray(globalLayout(), field.id) || findParentArray(currentLayout(), field.id);
+        if (arr) {
+          const idx = arr.findIndex(n => n.id === field.id);
+          arr.splice(idx, 1);
+        }
+      });
     });
     bar.append(deleteBtn);
 
@@ -534,9 +1020,10 @@ export function renderCustomSheet(root, character, store) {
     const labelEl = fieldEl.querySelector(".field-label");
     const first = labelEl ? labelEl.getBoundingClientRect() : null;
 
-    const idx = LABEL_POSITIONS.indexOf(field.labelPosition);
-    field.labelPosition = LABEL_POSITIONS[(idx + 1) % LABEL_POSITIONS.length];
-    persist();
+    commitMutation(() => {
+      const idx = LABEL_POSITIONS.indexOf(field.labelPosition);
+      field.labelPosition = LABEL_POSITIONS[(idx + 1) % LABEL_POSITIONS.length];
+    }, { render: false });
 
     const newLabelEl = renderFieldInner(fieldEl, field);
     // Refresh the equation hint since it always sits opposite the label.
@@ -576,6 +1063,7 @@ export function renderCustomSheet(root, character, store) {
       e.preventDefault();
       e.stopPropagation();
       el.classList.add("is-dragging");
+      const before = snapshot();
       const startClientX = e.clientX, startClientY = e.clientY;
       const startX = node.x, startY = node.y;
 
@@ -590,6 +1078,10 @@ export function renderCustomSheet(root, character, store) {
         document.removeEventListener("pointermove", onMove);
         document.removeEventListener("pointerup", onUp);
         el.classList.remove("is-dragging");
+        undoStack.push(before);
+        redoStack.length = 0;
+        updateHistoryButtons();
+        normalizeTabs();
         persist();
         onSettled();
       }
@@ -606,6 +1098,7 @@ export function renderCustomSheet(root, character, store) {
       e.preventDefault();
       e.stopPropagation();
       el.classList.add("is-resizing");
+      const before = snapshot();
       const startClientX = e.clientX, startClientY = e.clientY;
       const startW = node.w, startH = node.h;
 
@@ -620,6 +1113,10 @@ export function renderCustomSheet(root, character, store) {
         document.removeEventListener("pointermove", onMove);
         document.removeEventListener("pointerup", onUp);
         el.classList.remove("is-resizing");
+        undoStack.push(before);
+        redoStack.length = 0;
+        updateHistoryButtons();
+        normalizeTabs();
         onCommit();
       }
       document.addEventListener("pointermove", onMove);
@@ -684,6 +1181,7 @@ export function renderCustomSheet(root, character, store) {
     const pop = document.createElement("div");
     pop.className = "style-popover";
     pop.addEventListener("pointerdown", (e) => e.stopPropagation());
+    const editableStyle = styleForEditing(node);
 
     // Background color (whole node only — background doesn't cascade
     // to children the way font/color properties do, which is exactly
@@ -695,11 +1193,12 @@ export function renderCustomSheet(root, character, store) {
     bgLabel.textContent = "Background";
     const bgInput = document.createElement("input");
     bgInput.type = "color";
-    bgInput.value = node.style.bg || "#1d1a16";
+    bgInput.value = editableStyle.bg || "#1d1a16";
     bgInput.addEventListener("input", () => {
-      node.style.bg = bgInput.value;
-      applyNodeStyle(wrapperEl, node.style);
-      persist();
+      commitMutation(() => {
+        setNodeStyleValue(node, "bg", bgInput.value);
+      }, { render: false });
+      applyNodeStyle(wrapperEl, styleForEditing(node));
     });
     bgRow.append(bgLabel, bgInput);
     pop.append(bgRow);
@@ -723,9 +1222,10 @@ export function renderCustomSheet(root, character, store) {
             "That image is large enough that it (plus the rest of this character) may not fit in a single Firestore document (1MB limit). It'll be applied, but saving might fail — try a smaller image if so."
           );
         }
-        node.style.bgImage = reader.result;
-        applyNodeStyle(wrapperEl, node.style);
-        persist();
+        commitMutation(() => {
+          setNodeStyleValue(node, "bgImage", reader.result);
+        }, { render: false });
+        applyNodeStyle(wrapperEl, styleForEditing(node));
       };
       reader.readAsDataURL(file);
     });
@@ -748,7 +1248,7 @@ export function renderCustomSheet(root, character, store) {
     ].forEach(([val, label]) => {
       const opt = document.createElement("option");
       opt.value = val; opt.textContent = label;
-      if ((node.style.fontFamily || "") === val) opt.selected = true;
+      if ((editableStyle.fontFamily || "") === val) opt.selected = true;
       fontSelect.append(opt);
     });
     fontSelect.addEventListener("change", () => {
@@ -766,7 +1266,7 @@ export function renderCustomSheet(root, character, store) {
     sizeInput.type = "number";
     sizeInput.min = "8"; sizeInput.max = "72";
     sizeInput.style.width = "60px";
-    sizeInput.value = node.style.fontSize || "";
+    sizeInput.value = editableStyle.fontSize || "";
     sizeInput.addEventListener("change", () => {
       const px = Number(sizeInput.value) || null;
       applyStyleChange(wrapperEl, node, { cssProp: "fontSize", cssValue: px ? `${px}px` : "", styleKey: "fontSize", rawValue: px });
@@ -781,7 +1281,7 @@ export function renderCustomSheet(root, character, store) {
     colorLabel.textContent = "Text color";
     const colorInput = document.createElement("input");
     colorInput.type = "color";
-    colorInput.value = node.style.color || "#e8e0d0";
+    colorInput.value = editableStyle.color || "#e8e0d0";
     colorInput.addEventListener("input", () => {
       applyStyleChange(wrapperEl, node, { cssProp: "color", cssValue: colorInput.value, styleKey: "color", rawValue: colorInput.value });
     });
@@ -801,7 +1301,7 @@ export function renderCustomSheet(root, character, store) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.textContent = label;
-      btn.className = node.style[key] ? "active" : "";
+      btn.className = editableStyle[key] ? "active" : "";
       btn.addEventListener("click", () => {
         const changedWholeNode = applyStyleChange(wrapperEl, node, { cssProp, cssValue, styleKey: key, toggle: true });
         // Only reflect the change on the button if it actually changed
@@ -810,7 +1310,7 @@ export function renderCustomSheet(root, character, store) {
         // (there's no single "is this selection bold" answer to show),
         // so leave it as-is rather than showing something misleading.
         if (changedWholeNode) {
-          btn.classList.toggle("active", !!node.style[key]);
+          btn.classList.toggle("active", !!styleForEditing(node)[key]);
         }
       });
       toggles.append(btn);
@@ -843,15 +1343,21 @@ export function renderCustomSheet(root, character, store) {
         node.value = valueEl.innerHTML; // keep the field's persisted value in sync
       }
     } else if (toggle) {
-      node.style[styleKey] = !node.style[styleKey];
-      applyNodeStyle(wrapperEl, node.style);
-      applyDescendantTextStyle(wrapperEl, cssProp, node.style[styleKey] ? cssValue : "");
+      const nextValue = !styleForEditing(node)[styleKey];
+      commitMutation(() => {
+        setNodeStyleValue(node, styleKey, nextValue);
+      }, { render: false });
+      applyNodeStyle(wrapperEl, styleForEditing(node));
+      applyDescendantTextStyle(wrapperEl, cssProp, nextValue ? cssValue : "");
     } else {
-      node.style[styleKey] = rawValue !== undefined ? rawValue : cssValue;
-      applyNodeStyle(wrapperEl, node.style);
+      const nextValue = rawValue !== undefined ? rawValue : cssValue;
+      commitMutation(() => {
+        setNodeStyleValue(node, styleKey, nextValue);
+      }, { render: false });
+      applyNodeStyle(wrapperEl, styleForEditing(node));
       applyDescendantTextStyle(wrapperEl, cssProp, cssValue);
     }
-    persist();
+    if (hasSelection) persist();
     return !hasSelection;
   }
 
@@ -876,9 +1382,26 @@ export function renderCustomSheet(root, character, store) {
 
   function applyDescendantTextStyle(wrapperEl, cssProp, cssValue) {
     wrapperEl
-      .querySelectorAll(".block-name, .field-label, .field-value")
+      .querySelectorAll(".block-name, .field-label, .field-value, .label-block-text")
       .forEach(el => {
         el.style[cssProp] = cssValue || "";
+      });
+  }
+
+  function applyTextStyleToOwnText(wrapperEl, style) {
+    const rules = [
+      ["fontFamily", style.fontFamily || ""],
+      ["fontSize", style.fontSize ? `${style.fontSize}px` : ""],
+      ["fontWeight", style.bold ? "bold" : ""],
+      ["fontStyle", style.italic ? "italic" : ""],
+      ["textDecoration", style.underline ? "underline" : ""],
+      ["color", style.color || ""],
+    ];
+    wrapperEl
+      .querySelectorAll(".block-name, .field-label, .field-value, .label-block-text")
+      .forEach(el => {
+        if (el.closest(".style-popover")) return;
+        rules.forEach(([prop, value]) => { el.style[prop] = value; });
       });
   }
 
@@ -903,6 +1426,6 @@ export function renderCustomSheet(root, character, store) {
 
   // --- Boot + responsive re-render ---------------------------------------
 
-  renderPageGrid();
+  renderAll();
   window.addEventListener("resize", debounce(renderPageGrid, 150));
 }

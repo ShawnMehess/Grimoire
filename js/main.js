@@ -165,10 +165,14 @@ async function openNewCharacterDialog() {
   templateBtn.addEventListener("click", async () => {
     const template = templates[Number(templateSelect.value)];
     if (!template) return;
-    const id = await createCharacter({
+    const sheetTabs = cloneLayout(template.sheetTabs || []);
+    const layout = sheetTabs[0]?.layout || cloneLayout(template.layout);
+    const characterData = {
       ...createBlankCharacter(currentUserId()),
-      layout: cloneLayout(template.layout),
-    });
+      layout,
+    };
+    if (sheetTabs.length > 0) characterData.sheetTabs = sheetTabs;
+    const id = await createCharacter(characterData);
     close();
     openCharacter(id);
   });

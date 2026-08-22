@@ -70,8 +70,12 @@ function createNode(overrides) {
 /** Create a new container block. `h` must be at least BLOCK_HEADER_ROWS + 1
  *  (one row for the name label, at least one for content) — the default
  *  leaves room for 2 content rows. */
-export function createBlock({ name = "New Block", x = 0, y = 0, w = 3, h = 3 } = {}) {
-  return createNode({ kind: "block", name, x, y, w, h: Math.max(h, BLOCK_HEADER_ROWS + 1), children: [] });
+export function createBlock({ name = "New Block", x = 0, y = 0, w = 3, h = 3, blockType = "stat" } = {}) {
+  return createNode({ kind: "block", blockType, name, x, y, w, h: Math.max(h, BLOCK_HEADER_ROWS + 1), children: [] });
+}
+
+export function createLabelBlock({ name = "Text Label", x = 0, y = 0, w = 4, h = 1 } = {}) {
+  return createNode({ kind: "block", blockType: "label", name, x, y, w, h: Math.max(1, h), children: [] });
 }
 
 /** Create a new leaf field. w/h default to 1 cell; radio/checkbox fields
@@ -87,20 +91,21 @@ export function createField({ fieldType = "text", label = "Stat", x = 0, y = 0, 
   } else if (fieldType === "radio") {
     field.options = 3;
     field.selected = null;
-    field.w = 3; field.h = 1;
+    syncOptionWidth(field);
   } else if (fieldType === "checkbox") {
     field.options = 3;
     field.checked = [false, false, false];
-    field.w = 3; field.h = 1;
+    syncOptionWidth(field);
   }
   return field;
 }
 
 /** Keep a radio/checkbox field's width in sync with its option count —
- *  call after incrementing/decrementing `options`. Options are always
- *  exactly 1 cell each, arranged horizontally, 1 row tall. */
+ *  call after incrementing/decrementing `options`. Up to three options
+ *  fit in one grid cell, so width grows by one cell for every three
+ *  options. */
 export function syncOptionWidth(field) {
-  field.w = Math.max(1, field.options);
+  field.w = Math.max(1, Math.ceil((field.options || 1) / 3));
   field.h = 1;
   if (field.fieldType === "checkbox") {
     const arr = field.checked || [];
