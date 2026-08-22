@@ -24,6 +24,15 @@ function newId() {
 export const FIELD_TYPES = ["text", "radio", "checkbox"];
 export const LABEL_POSITIONS = ["top", "right", "bottom", "left"];
 
+// A block's declared `h` (in blockModel.js) includes ONE reserved row
+// at the top for its name label — that row isn't available to its
+// children. This is baked into `h` itself (rather than tracked as a
+// separate "extra" number) specifically so gridEngine.js's collision/
+// compaction math never needs to know blocks are special: `h` always
+// means "this node's true total footprint," full stop, for every
+// kind of node.
+export const BLOCK_HEADER_ROWS = 1;
+
 function defaultStyle() {
   return {
     bg: null,          // CSS color string, or null = inherit theme
@@ -59,9 +68,11 @@ function createNode(overrides) {
   };
 }
 
-/** Create a new container block. */
-export function createBlock({ name = "New Block", x = 0, y = 0, w = 3, h = 2 } = {}) {
-  return createNode({ kind: "block", name, x, y, w, h, children: [] });
+/** Create a new container block. `h` must be at least BLOCK_HEADER_ROWS + 1
+ *  (one row for the name label, at least one for content) — the default
+ *  leaves room for 2 content rows. */
+export function createBlock({ name = "New Block", x = 0, y = 0, w = 3, h = 3 } = {}) {
+  return createNode({ kind: "block", name, x, y, w, h: Math.max(h, BLOCK_HEADER_ROWS + 1), children: [] });
 }
 
 /** Create a new leaf field. w/h default to 1 cell; radio/checkbox fields
@@ -110,24 +121,24 @@ export function syncOptionWidth(field) {
  * confusing page on first load.
  */
 export function createStarterLayout() {
-  const identity = createBlock({ name: "Identity", x: 0, y: 0, w: 4, h: 2 });
+  const identity = createBlock({ name: "Identity", x: 0, y: 0, w: 4, h: 3 }); // 2 content rows + header
   identity.children = [
     createField({ fieldType: "text", label: "Name", x: 0, y: 0, w: 4, h: 1 }),
     createField({ fieldType: "text", label: "Class", x: 0, y: 1, w: 2, h: 1 }),
     createField({ fieldType: "text", label: "Level", x: 2, y: 1, w: 2, h: 1 }),
   ];
 
-  const abilities = createBlock({ name: "Abilities", x: 4, y: 0, w: 6, h: 2 });
+  const abilities = createBlock({ name: "Abilities", x: 4, y: 0, w: 6, h: 3 }); // 2 content rows + header
   abilities.children = ["STR", "DEX", "CON", "INT", "WIS", "CHA"].map((label, i) =>
     createField({ fieldType: "text", label, x: i, y: 0, w: 1, h: 2 })
   );
 
-  const status = createBlock({ name: "Status", x: 0, y: 2, w: 4, h: 1 });
+  const status = createBlock({ name: "Status", x: 0, y: 3, w: 4, h: 2 }); // 1 content row + header
   status.children = [
     createField({ fieldType: "checkbox", label: "Death Saves", x: 0, y: 0, w: 3, h: 1 }),
   ];
 
-  const example = createBlock({ name: "Example Choice", x: 4, y: 2, w: 3, h: 1 });
+  const example = createBlock({ name: "Example Choice", x: 4, y: 3, w: 3, h: 2 }); // 1 content row + header
   example.children = [
     createField({ fieldType: "radio", label: "Pick One", x: 0, y: 0, w: 3, h: 1 }),
   ];

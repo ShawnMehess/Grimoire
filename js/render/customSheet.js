@@ -47,7 +47,7 @@
 //     large images will fail to save — there's a warning on upload,
 //     but no compression/resizing yet.
 
-import { createStarterLayout, createBlock, createField, findParentArray, syncOptionWidth, LABEL_POSITIONS } from "../data/blockModel.js";
+import { createStarterLayout, createBlock, createField, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS } from "../data/blockModel.js";
 import { compact, contentHeight, clampToWidth } from "./gridEngine.js";
 import { openEquationStub } from "./equationStub.js";
 
@@ -92,7 +92,7 @@ export function renderCustomSheet(root, character, store) {
   addBlockBtn.textContent = "+ Block";
   addBlockBtn.style.display = "none";
   addBlockBtn.addEventListener("click", () => {
-    const block = createBlock({ name: "New Block", x: 0, y: contentHeight(character.layout), w: 3, h: 2 });
+    const block = createBlock({ name: "New Block", x: 0, y: contentHeight(character.layout), w: 3, h: 3 });
     character.layout.push(block);
     compact(character.layout);
     persist();
@@ -211,8 +211,17 @@ export function renderCustomSheet(root, character, store) {
     applyRect(el, block, cw);
     applyNodeStyle(el, block.style);
 
+    // Name and body are explicitly positioned to occupy exactly
+    // BLOCK_HEADER_ROWS worth of pixels for the name, with the body
+    // starting right after — NOT flexbox auto-sizing. Flexbox sizing
+    // the name to its own font-driven height (rather than a fixed
+    // grid-row height) was what caused blocks to render shorter than
+    // their actual content, spilling into whatever sat below them.
+    const headerPx = BLOCK_HEADER_ROWS * ROW_PX + (BLOCK_HEADER_ROWS - 1) * GAP_PX;
+
     const nameEl = document.createElement("div");
     nameEl.className = "block-name";
+    nameEl.style.height = `${headerPx}px`;
     nameEl.contentEditable = "true";
     nameEl.textContent = block.name;
     nameEl.addEventListener("input", () => {
@@ -223,6 +232,7 @@ export function renderCustomSheet(root, character, store) {
 
     const body = document.createElement("div");
     body.className = "block-body";
+    body.style.top = `${headerPx + GAP_PX}px`;
     el.append(body);
 
     block.children.forEach(field => {
@@ -236,11 +246,11 @@ export function renderCustomSheet(root, character, store) {
     wireDrag(el, block, character.layout, cw, () => renderPageGrid());
     wireResize(el, block, character.layout, cw, {
       minW: Math.max(1, blockMinWidth(block)),
-      minH: Math.max(1, contentHeight(block.children)),
+      minH: BLOCK_HEADER_ROWS + Math.max(1, contentHeight(block.children)),
       maxW: PAGE_COLS,
       onCommit: () => {
         clampToWidth(block.children, block.w);
-        block.h = Math.max(block.h, contentHeight(block.children));
+        block.h = Math.max(block.h, BLOCK_HEADER_ROWS + contentHeight(block.children));
         compact(character.layout);
         persist();
         renderPageGrid();
@@ -273,7 +283,7 @@ export function renderCustomSheet(root, character, store) {
         });
         block.children.push(field);
         compact(block.children);
-        block.h = Math.max(block.h, contentHeight(block.children));
+        block.h = Math.max(block.h, BLOCK_HEADER_ROWS + contentHeight(block.children));
         persist();
         renderPageGrid();
       });
@@ -316,7 +326,7 @@ export function renderCustomSheet(root, character, store) {
     el.append(buildEquationHint(field));
 
     wireDrag(el, field, parentBlock.children, cw, () => {
-      parentBlock.h = Math.max(parentBlock.h, contentHeight(parentBlock.children));
+      parentBlock.h = Math.max(parentBlock.h, BLOCK_HEADER_ROWS + contentHeight(parentBlock.children));
       renderPageGrid();
     });
     if (field.fieldType === "text") {
@@ -324,7 +334,7 @@ export function renderCustomSheet(root, character, store) {
         minW: 1, minH: 1, maxW: parentBlock.w,
         onCommit: () => {
           compact(parentBlock.children);
-          parentBlock.h = Math.max(parentBlock.h, contentHeight(parentBlock.children));
+          parentBlock.h = Math.max(parentBlock.h, BLOCK_HEADER_ROWS + contentHeight(parentBlock.children));
           persist();
           renderPageGrid();
         },
