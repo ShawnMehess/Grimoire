@@ -74,7 +74,7 @@ function debounce(fn, delayMs = 500) {
 }
 
 export function renderCustomSheet(root, character, store) {
-  if (!character.layout || character.layout.length === 0) {
+  if (!character.layout) {
     character.layout = createStarterLayout();
   }
 
@@ -92,7 +92,7 @@ export function renderCustomSheet(root, character, store) {
   const modeBtn = document.createElement("button");
   modeBtn.type = "button";
   modeBtn.className = "btn btn--primary";
-  modeBtn.textContent = "Custom Character Sheet";
+  modeBtn.textContent = "Customize Sheet";
 
   const addBlockBtn = document.createElement("button");
   addBlockBtn.type = "button";
@@ -152,9 +152,10 @@ export function renderCustomSheet(root, character, store) {
 
   modeBtn.addEventListener("click", () => {
     editMode = !editMode;
-    modeBtn.textContent = editMode ? "Done Editing" : "Custom Character Sheet";
+    modeBtn.textContent = editMode ? "Done Editing" : "Customize Sheet";
     addBlockBtn.style.display = editMode ? "" : "none";
     pageGrid.classList.toggle("is-edit-mode", editMode);
+    renderPageGrid();
   });
 
   // --- Page grid --------------------------------------------------------
@@ -230,6 +231,10 @@ export function renderCustomSheet(root, character, store) {
    *  of it, so it only shows through in empty space. Recomputed
    *  whenever cw changes since column width is responsive. */
   function applyGridLines(el, cw) {
+    if (!editMode) {
+      el.style.backgroundImage = "";
+      return;
+    }
     const colStep = cw + GAP_PX;
     const rowStep = ROW_PX + GAP_PX;
     const line = "rgba(255,255,255,0.5)";
@@ -840,9 +845,11 @@ export function renderCustomSheet(root, character, store) {
     } else if (toggle) {
       node.style[styleKey] = !node.style[styleKey];
       applyNodeStyle(wrapperEl, node.style);
+      applyDescendantTextStyle(wrapperEl, cssProp, node.style[styleKey] ? cssValue : "");
     } else {
       node.style[styleKey] = rawValue !== undefined ? rawValue : cssValue;
       applyNodeStyle(wrapperEl, node.style);
+      applyDescendantTextStyle(wrapperEl, cssProp, cssValue);
     }
     persist();
     return !hasSelection;
@@ -865,6 +872,14 @@ export function renderCustomSheet(root, character, store) {
       range.insertNode(span);
     }
     sel.removeAllRanges();
+  }
+
+  function applyDescendantTextStyle(wrapperEl, cssProp, cssValue) {
+    wrapperEl
+      .querySelectorAll(".block-name, .field-label, .field-value")
+      .forEach(el => {
+        el.style[cssProp] = cssValue || "";
+      });
   }
 
   function openFieldTypeMenu(anchorBtn, onChoose) {

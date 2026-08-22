@@ -334,3 +334,26 @@
   max-width: 420px;
   box-shadow: var(--shadow-md);
 }
+
+.modal-box--sheet-template {
+  width: min(420px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.modal-box--sheet-template h3 {
+  margin: 0;
+}
+
+.modal-copy {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

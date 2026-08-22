@@ -45,6 +45,9 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 
 const CHARACTERS_COLLECTION = "characters";
+const PUBLIC_TEMPLATES_COLLECTION = "publicSheetTemplates";
+const USER_TEMPLATES_COLLECTION = "userSheetTemplates";
+const ADMINS_COLLECTION = "admins";
 
 // --- Auth -----------------------------------------------------------------
 
@@ -63,6 +66,13 @@ export async function signOutUser() {
 
 export function currentUserId() {
   return auth.currentUser?.uid ?? null;
+}
+
+export async function isCurrentUserAdmin() {
+  const uid = currentUserId();
+  if (!uid) return false;
+  const snap = await getDoc(doc(db, ADMINS_COLLECTION, uid));
+  return snap.exists();
 }
 
 // --- Character CRUD ---------------------------------------------------------
@@ -95,6 +105,11 @@ export async function saveCharacterField(characterId, fieldId, value) {
     [fieldId]: value,
     updatedAt: serverTimestamp(),
   });
+  if (fieldId === "name" || fieldId === "layout") {
+    syncCharacterTemplate(characterId).catch((err) => {
+      console.warn("Template sync skipped:", err);
+    });
+  }
 }
 
 export async function saveCharacterFields(characterId, patch) {
@@ -102,6 +117,11 @@ export async function saveCharacterFields(characterId, patch) {
     ...patch,
     updatedAt: serverTimestamp(),
   });
+  if ("name" in patch || "layout" in patch) {
+    syncCharacterTemplate(characterId).catch((err) => {
+      console.warn("Template sync skipped:", err);
+    });
+  }
 }
 
 export async function deleteCharacter(characterId) {
@@ -116,5 +136,71 @@ export async function deleteCharacter(characterId) {
 export function subscribeToCharacter(characterId, onUpdate) {
   return onSnapshot(doc(db, CHARACTERS_COLLECTION, characterId), (snap) => {
     if (snap.exists()) onUpdate({ id: snap.id, ...snap.data() });
+  });
+}
+
+// --- Sheet templates -------------------------------------------------------
+
+function cloneLayout(layout) {
+  return JSON.parse(JSON.stringify(layout || []));
+}
+
+function parseTemplateName(name) {
+  const trimmed = (name || "").trim();
+  const globalMatch = trimmed.match(/^(.+?)\s+GLOBAL\s+TEMPLATE$/i);
+  if (globalMatch) return { kind: "global", templateName: globalMatch[1].trim() };
+
+  const personalMatch = trimmed.match(/^(.+?)\s+TEMPLATE$/i);
+  if (personalMatch) return { kind: "personal", templateName: personalMatch[1].trim() };
+
+  return null;
+}
+
+function templatePayload(character, parsed) {
+  return {
+    characterId: character.id,
+    ownerId: character.ownerId,
+    name: parsed.templateName,
+    sourceName: character.name || "",
+    layout: cloneLayout(character.layout),
+    updatedAt: serverTimestamp(),
+  };
+}
+
+async function syncCharacterTemplate(characterId) {
+  const character = await loadCharacter(characterId);
+  if (!character) return;
+
+  const parsed = parseTemplateName(character.name);
+  const uid = currentUserId();
+  if (!parsed || !uid || character.ownerId !== uid) return;
+
+  if (parsed.kind === "global") {
+    if (!(await isCurrentUserAdmin())) return;
+    await setDoc(doc(db, PUBLIC_TEMPLATES_COLLECTION, character.id), templatePayload(character, parsed));
+    return;
+  }
+
+  await setDoc(
+    doc(db, USER_TEMPLATES_COLLECTION, uid, "templates", character.id),
+    templatePayload(character, parsed)
+  );
+}
+
+export async function listSheetTemplates() {
+  const uid = currentUserId();
+  if (!uid) return [];
+
+  const [globalSnap, personalSnap] = await Promise.all([
+    getDocs(collection(db, PUBLIC_TEMPLATES_COLLECTION)),
+    getDocs(collection(db, USER_TEMPLATES_COLLECTION, uid, "templates")),
+  ]);
+
+  const globals = globalSnap.docs.map(d => ({ id: d.id, scope: "global", ...d.data() }));
+  const personal = personalSnap.docs.map(d => ({ id: d.id, scope: "personal", ...d.data() }));
+
+  return [...globals, ...personal].sort((a, b) => {
+    if (a.scope !== b.scope) return a.scope === "global" ? -1 : 1;
+    return (a.name || "").localeCompare(b.name || "");
   });
 }

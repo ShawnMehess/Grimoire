@@ -1,7 +1,7 @@
 // main.js — app entry point
 
 import * as characterStore from "./state/characterStore.js";
-import { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, createCharacter, deleteCharacter, currentUserId } from "./state/characterStore.js";
+import { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, createCharacter, deleteCharacter, currentUserId, listSheetTemplates } from "./state/characterStore.js";
 import { createBlankCharacter } from "./data/schema.js";
 import { renderCustomSheet } from "./render/customSheet.js";
 
@@ -40,10 +40,7 @@ async function renderCharacterList() {
   const newBtn = document.createElement("button");
   newBtn.className = "btn btn--primary";
   newBtn.textContent = "+ New Character";
-  newBtn.addEventListener("click", async () => {
-    const id = await createCharacter(createBlankCharacter(currentUserId()));
-    openCharacter(id);
-  });
+  newBtn.addEventListener("click", openNewCharacterDialog);
   heading.append(title, newBtn);
   appRoot.append(heading);
 
@@ -83,6 +80,102 @@ async function renderCharacterList() {
   });
 
   appRoot.append(list);
+}
+
+async function openNewCharacterDialog() {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+
+  const box = document.createElement("div");
+  box.className = "modal-box modal-box--sheet-template";
+  box.addEventListener("click", (e) => e.stopPropagation());
+
+  const title = document.createElement("h3");
+  title.textContent = "Create Character";
+
+  const copy = document.createElement("p");
+  copy.className = "modal-copy";
+  copy.textContent = "Start with a blank sheet or choose a saved template.";
+
+  const templateSelect = document.createElement("select");
+  templateSelect.className = "input-group__control";
+  templateSelect.disabled = true;
+
+  const loadingOpt = document.createElement("option");
+  loadingOpt.textContent = "Loading templates...";
+  templateSelect.append(loadingOpt);
+
+  const buttonRow = document.createElement("div");
+  buttonRow.className = "modal-actions";
+
+  const blankBtn = document.createElement("button");
+  blankBtn.type = "button";
+  blankBtn.className = "btn";
+  blankBtn.textContent = "Blank Sheet";
+
+  const templateBtn = document.createElement("button");
+  templateBtn.type = "button";
+  templateBtn.className = "btn btn--primary";
+  templateBtn.textContent = "Use Template";
+  templateBtn.disabled = true;
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "btn";
+  cancelBtn.textContent = "Cancel";
+
+  buttonRow.append(blankBtn, templateBtn, cancelBtn);
+  box.append(title, copy, templateSelect, buttonRow);
+  overlay.append(box);
+  document.body.append(overlay);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", close);
+  cancelBtn.addEventListener("click", close);
+
+  blankBtn.addEventListener("click", async () => {
+    const id = await createCharacter({ ...createBlankCharacter(currentUserId()), layout: [] });
+    close();
+    openCharacter(id);
+  });
+
+  let templates = [];
+  try {
+    templates = await listSheetTemplates();
+  } catch (err) {
+    console.error("Failed to load sheet templates:", err);
+  }
+
+  templateSelect.innerHTML = "";
+  if (templates.length === 0) {
+    const opt = document.createElement("option");
+    opt.textContent = "No templates found";
+    templateSelect.append(opt);
+  } else {
+    templates.forEach((template, index) => {
+      const opt = document.createElement("option");
+      opt.value = String(index);
+      opt.textContent = `${template.name || "Unnamed Template"} (${template.scope === "global" ? "Global" : "Mine"})`;
+      templateSelect.append(opt);
+    });
+    templateSelect.disabled = false;
+    templateBtn.disabled = false;
+  }
+
+  templateBtn.addEventListener("click", async () => {
+    const template = templates[Number(templateSelect.value)];
+    if (!template) return;
+    const id = await createCharacter({
+      ...createBlankCharacter(currentUserId()),
+      layout: cloneLayout(template.layout),
+    });
+    close();
+    openCharacter(id);
+  });
+}
+
+function cloneLayout(layout) {
+  return JSON.parse(JSON.stringify(layout || []));
 }
 
 async function openCharacter(characterId) {
