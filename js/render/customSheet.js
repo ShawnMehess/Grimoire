@@ -8,7 +8,7 @@
 // that mattered more here than saving code volume).
 //
 // GRID MATH: one consistent cell size is used at every nesting level.
-// Column WIDTH is responsive (computed from the page's pixel width /
+// Column WIDTH is responsive (computed from the canvas's pixel width /
 // PAGE_COLS, recalculated on window resize) so the sheet fills
 // whatever screen it's on; row HEIGHT is a fixed pixel value. A
 // block's own children use the exact same column width, with the
@@ -16,14 +16,22 @@
 // that's what makes "one cell" mean the same physical size whether
 // you're looking at a top-level block or a field inside it.
 //
+// CANVAS: the draggable area breaks out to the full viewport width
+// (regardless of .app-main's own max-width) and is sized to fill the
+// remaining viewport height below the toolbar, so there's always open
+// space to drag things into — it only scrolls (both axes) once actual
+// content exceeds that.
+//
 // EDITING MODEL: every block/field is a DOM node with a drag handle
 // (top-left) and, where resizing makes sense, a resize handle
 // (bottom-right) — both only interactive in edit mode. Dragging/
-// resizing mutates the node's x/y/w/h directly for live visual
-// feedback, then on release runs gridEngine.compact() over its
-// siblings and persists. This is what implements "other fields move
-// to accommodate changes" — see gridEngine.js for the (deliberately
-// simple) packing strategy and its known trade-off.
+// resizing snaps to the nearest whole grid cell and persists on
+// release. There is deliberately NO collision handling or auto-reflow
+// — overlapping other blocks/fields is allowed, and nothing tries to
+// fix it up automatically. (An earlier pass had gridEngine.js do this
+// automatically; it was removed by request in favor of fully manual
+// placement — gridEngine.js's compact()/clampToWidth() are unused now
+// and could be deleted if nothing else ends up wanting them.)
 //
 // KNOWN SIMPLIFICATIONS in this pass (flagged here and repeated to
 // Shawn in chat, not hidden):
@@ -48,7 +56,7 @@
 //     but no compression/resizing yet.
 
 import { createStarterLayout, createBlock, createField, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS } from "../data/blockModel.js";
-import { compact, contentHeight, clampToWidth } from "./gridEngine.js";
+import { contentHeight } from "./gridEngine.js";
 import { openEquationStub } from "./equationStub.js";
 
 const PAGE_COLS = 16;
@@ -92,9 +100,8 @@ export function renderCustomSheet(root, character, store) {
   addBlockBtn.textContent = "+ Block";
   addBlockBtn.style.display = "none";
   addBlockBtn.addEventListener("click", () => {
-    const block = createBlock({ name: "New Block", x: 0, y: contentHeight(character.layout), w: 3, h: 3 });
+    const block = createBlock({ name: "New Block", x: 0, y: 0, w: 3, h: 3 });
     character.layout.push(block);
-    compact(character.layout);
     persist();
     renderPageGrid();
   });
@@ -170,6 +177,14 @@ export function renderCustomSheet(root, character, store) {
     return Math.max(MIN_CELL_PX, natural);
   }
 
+  /** How tall the scroll wrapper should be to fill the rest of the
+   *  viewport below it — recomputed on every render since window size
+   *  (and thus how much vertical space remains) can change. */
+  function availableViewportHeight() {
+    const top = scrollWrapper.getBoundingClientRect().top;
+    return Math.max(300, window.innerHeight - top - 16); // 16px breathing room at the bottom
+  }
+
   function applyRect(el, node, cw) {
     el.style.left = `${node.x * (cw + GAP_PX)}px`;
     el.style.top = `${node.y * (ROW_PX + GAP_PX)}px`;
@@ -194,10 +209,16 @@ export function renderCustomSheet(root, character, store) {
     pageGrid.innerHTML = "";
     pageGrid.classList.toggle("is-edit-mode", editMode);
     const cw = colWidthPx();
+    const availableHeight = availableViewportHeight();
+    scrollWrapper.style.height = `${availableHeight}px`;
     // Explicit width so the grid can exceed the wrapper's width (and
     // scroll) once cw hits its floor, rather than being crushed to fit.
     pageGrid.style.width = `${PAGE_COLS * cw + (PAGE_COLS - 1) * GAP_PX}px`;
-    pageGrid.style.height = `${contentHeight(character.layout) * (ROW_PX + GAP_PX)}px`;
+    // At least tall enough to fill the visible canvas (so there's
+    // always room to drag things into open space), taller only if the
+    // actual content needs more — in which case it scrolls.
+    const contentPx = contentHeight(character.layout) * (ROW_PX + GAP_PX);
+    pageGrid.style.height = `${Math.max(availableHeight, contentPx)}px`;
     character.layout.forEach(block => {
       pageGrid.append(renderBlockNode(block, cw));
     });
@@ -243,25 +264,17 @@ export function renderCustomSheet(root, character, store) {
     el.append(buildResizeHandle());
     el.append(buildBlockToolbar(block, el));
 
-    wireDrag(el, block, character.layout, cw, () => renderPageGrid());
-    wireResize(el, block, character.layout, cw, {
-      minW: Math.max(1, blockMinWidth(block)),
-      minH: BLOCK_HEADER_ROWS + Math.max(1, contentHeight(block.children)),
-      maxW: PAGE_COLS,
+    wireDrag(el, block, cw, () => renderPageGrid());
+    wireResize(el, block, cw, {
+      minW: 1,
+      minH: BLOCK_HEADER_ROWS + 1,
       onCommit: () => {
-        clampToWidth(block.children, block.w);
-        block.h = Math.max(block.h, BLOCK_HEADER_ROWS + contentHeight(block.children));
-        compact(character.layout);
         persist();
         renderPageGrid();
       },
     });
 
     return el;
-  }
-
-  function blockMinWidth(block) {
-    return block.children.reduce((max, f) => Math.max(max, f.x + f.w), 1);
   }
 
   function buildBlockToolbar(block, wrapperEl) {
@@ -279,11 +292,9 @@ export function renderCustomSheet(root, character, store) {
       openFieldTypeMenu(addFieldBtn, (fieldType) => {
         const field = createField({
           fieldType, label: "Stat",
-          x: 0, y: contentHeight(block.children), w: 1, h: 1,
+          x: 0, y: 0, w: 1, h: 1,
         });
         block.children.push(field);
-        compact(block.children);
-        block.h = Math.max(block.h, BLOCK_HEADER_ROWS + contentHeight(block.children));
         persist();
         renderPageGrid();
       });
@@ -299,7 +310,6 @@ export function renderCustomSheet(root, character, store) {
       e.stopPropagation();
       if (!window.confirm(`Delete block "${block.name}" and everything in it?`)) return;
       character.layout = character.layout.filter(b => b.id !== block.id);
-      compact(character.layout);
       persist();
       renderPageGrid();
     });
@@ -325,16 +335,11 @@ export function renderCustomSheet(root, character, store) {
     el.append(buildFieldToolbar(field, parentBlock, el));
     el.append(buildEquationHint(field));
 
-    wireDrag(el, field, parentBlock.children, cw, () => {
-      parentBlock.h = Math.max(parentBlock.h, BLOCK_HEADER_ROWS + contentHeight(parentBlock.children));
-      renderPageGrid();
-    });
+    wireDrag(el, field, cw, () => renderPageGrid());
     if (field.fieldType === "text") {
-      wireResize(el, field, parentBlock.children, cw, {
-        minW: 1, minH: 1, maxW: parentBlock.w,
+      wireResize(el, field, cw, {
+        minW: 1, minH: 1,
         onCommit: () => {
-          compact(parentBlock.children);
-          parentBlock.h = Math.max(parentBlock.h, BLOCK_HEADER_ROWS + contentHeight(parentBlock.children));
           persist();
           renderPageGrid();
         },
@@ -444,7 +449,6 @@ export function renderCustomSheet(root, character, store) {
         if (field.options <= 1) return;
         field.options -= 1;
         syncOptionWidth(field);
-        compact(parentBlock.children);
         persist();
         renderPageGrid();
       });
@@ -454,10 +458,8 @@ export function renderCustomSheet(root, character, store) {
       plusBtn.textContent = "+";
       plusBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        if ((field.options + 1) + field.x > parentBlock.w) return; // would overflow the block — widen the block first
         field.options += 1;
         syncOptionWidth(field);
-        compact(parentBlock.children);
         persist();
         renderPageGrid();
       });
@@ -475,7 +477,6 @@ export function renderCustomSheet(root, character, store) {
       if (arr) {
         const idx = arr.findIndex(n => n.id === field.id);
         arr.splice(idx, 1);
-        compact(arr);
       }
       persist();
       renderPageGrid();
@@ -526,8 +527,12 @@ export function renderCustomSheet(root, character, store) {
   }
 
   // --- Drag / resize (shared by blocks and fields) ---------------------------
+  // Deliberately no collision handling or auto-reflow here — dragging/
+  // resizing just snaps to the nearest whole grid cell and commits.
+  // Overlapping other blocks/fields is allowed; nothing tries to fix
+  // it up automatically.
 
-  function wireDrag(el, node, siblings, cw, onSettled) {
+  function wireDrag(el, node, cw, onSettled) {
     const handle = el.querySelector(".drag-handle");
     handle.addEventListener("pointerdown", (e) => {
       if (!editMode) return;
@@ -548,7 +553,6 @@ export function renderCustomSheet(root, character, store) {
         document.removeEventListener("pointermove", onMove);
         document.removeEventListener("pointerup", onUp);
         el.classList.remove("is-dragging");
-        compact(siblings);
         persist();
         onSettled();
       }
@@ -557,7 +561,7 @@ export function renderCustomSheet(root, character, store) {
     });
   }
 
-  function wireResize(el, node, siblings, cw, { minW, minH, maxW, onCommit }) {
+  function wireResize(el, node, cw, { minW, minH, maxW = Infinity, onCommit }) {
     const handle = el.querySelector(".resize-handle");
     if (!handle) return;
     handle.addEventListener("pointerdown", (e) => {

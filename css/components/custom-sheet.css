@@ -21,9 +21,21 @@
   gap: var(--space-2);
 }
 
+/* Breaks out of .app-main's centered max-width column to span the full
+   viewport width, regardless of how wide .app-main itself is capped —
+   the standard CSS "full-bleed" trick (works because it's positioned
+   relative to the viewport, not to its own parent's box). Height is
+   set explicitly in JS to fill the remaining viewport below the
+   toolbar, growing (and scrolling, both axes) only if actual content
+   needs more room than that. */
 .page-grid-scroll {
-  overflow-x: auto;
-  padding-bottom: var(--space-2); /* room for the scrollbar without clipping content */
+  position: relative;
+  left: 50%;
+  right: 50%;
+  margin-left: -50vw;
+  margin-right: -50vw;
+  width: 100vw;
+  overflow: auto;
 }
 
 .page-grid {

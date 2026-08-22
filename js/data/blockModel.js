@@ -27,9 +27,8 @@ export const LABEL_POSITIONS = ["top", "right", "bottom", "left"];
 // A block's declared `h` (in blockModel.js) includes ONE reserved row
 // at the top for its name label — that row isn't available to its
 // children. This is baked into `h` itself (rather than tracked as a
-// separate "extra" number) specifically so gridEngine.js's collision/
-// compaction math never needs to know blocks are special: `h` always
-// means "this node's true total footprint," full stop, for every
+// separate "extra" number) so `h` always means "this node's true
+// total footprint," full stop, for every
 // kind of node.
 export const BLOCK_HEADER_ROWS = 1;
 
