@@ -7,23 +7,20 @@
   <link rel="stylesheet" href="css/main.css" />
 </head>
 <body>
-  <div class="app-shell">
-    <aside class="app-sidebar">
-      <h1>Character Vault</h1>
-      <p class="input-group__hint">
-        Demo preview — showing placeholder data, no Firebase connected.
-        Edits here log to the console instead of saving anywhere.
-      </p>
-    </aside>
-    <main class="app-main" id="app-main"></main>
-  </div>
+  <header class="app-header">
+    <h1>Character Vault</h1>
+    <p class="input-group__hint">
+      Demo preview — no Firebase connected, edits log to the console instead of saving.
+    </p>
+  </header>
+  <main class="app-main" id="app-main"></main>
 
   <script type="module">
     import * as mockStore from "./js/state/mockStore.js";
-    import { renderCharacterSheet } from "./js/render/characterSheet.js";
+    import { renderCustomSheet } from "./js/render/customSheet.js";
 
     const character = await mockStore.loadCharacter("demo-1");
-    renderCharacterSheet(document.getElementById("app-main"), character, mockStore);
+    renderCustomSheet(document.getElementById("app-main"), character, mockStore);
   </script>
 </body>
 </html>

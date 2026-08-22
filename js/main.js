@@ -1,9 +1,9 @@
 // main.js — app entry point
 
 import * as characterStore from "./state/characterStore.js";
-import { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, createCharacter, deleteCharacter } from "./state/characterStore.js";
+import { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, createCharacter, deleteCharacter, currentUserId } from "./state/characterStore.js";
 import { createBlankCharacter } from "./data/schema.js";
-import { renderCharacterSheet } from "./render/characterSheet.js";
+import { renderCustomSheet } from "./render/customSheet.js";
 
 const appRoot = document.getElementById("app-main");
 const authArea = document.getElementById("auth-area");
@@ -41,7 +41,6 @@ async function renderCharacterList() {
   newBtn.className = "btn btn--primary";
   newBtn.textContent = "+ New Character";
   newBtn.addEventListener("click", async () => {
-    const { currentUserId } = await import("./state/characterStore.js");
     const id = await createCharacter(createBlankCharacter(currentUserId()));
     openCharacter(id);
   });
@@ -61,8 +60,9 @@ async function renderCharacterList() {
 
     const info = document.createElement("div");
     info.style.cursor = "pointer";
+    const blockCount = c.layout ? c.layout.length : 0;
     info.innerHTML = `<div class="card__title">${c.name || "Unnamed"}</div>
-      <div class="card__meta">${c.race || "?"} ${c.class || "?"} — Level ${c.level ?? 1}</div>`;
+      <div class="card__meta">${blockCount} block${blockCount === 1 ? "" : "s"}</div>`;
     info.addEventListener("click", () => openCharacter(c.id));
 
     const deleteBtn = document.createElement("button");
@@ -97,5 +97,5 @@ async function openCharacter(characterId) {
 
   const sheetRoot = document.createElement("div");
   appRoot.append(sheetRoot);
-  renderCharacterSheet(sheetRoot, character, characterStore);
+  renderCustomSheet(sheetRoot, character, characterStore);
 }

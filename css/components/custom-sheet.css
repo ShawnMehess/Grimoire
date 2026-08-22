@@ -1,0 +1,313 @@
+/* ==========================================================================
+   custom-sheet.css
+   The drag/resize/style-everything character sheet builder. One grid
+   unit (CELL_PX + GAP_PX, see customSheet.js) is used at every nesting
+   level so "a cell" means the same physical size on the page grid and
+   inside every block's own local grid.
+   ========================================================================== */
+
+.sheet-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.sheet-toolbar__group {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.page-grid-scroll {
+  overflow-x: auto;
+  padding-bottom: var(--space-2); /* room for the scrollbar without clipping content */
+}
+
+.page-grid {
+  position: relative;
+}
+
+.save-status {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  min-width: 6rem;
+}
+
+/* --- Node chrome (shared by top-level blocks and fields) --- */
+
+.grid-node {
+  position: absolute;
+  border-radius: var(--radius-md);
+  border: var(--border-width) solid var(--color-border);
+  background: var(--color-bg-raised);
+  overflow: visible;
+  transition: left 120ms ease, top 120ms ease, width 120ms ease, height 120ms ease,
+              box-shadow var(--transition-fast);
+  box-sizing: border-box;
+}
+
+.grid-node--block {
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+}
+
+.grid-node--field {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-1);
+  background: transparent;
+}
+
+.grid-node.is-dragging,
+.grid-node.is-resizing {
+  transition: none;
+  z-index: 50;
+  box-shadow: var(--shadow-md);
+  opacity: 0.9;
+}
+
+.block-name {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-1) 0;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: text;
+}
+.block-name:focus {
+  background: var(--color-bg-inset);
+}
+
+.block-body {
+  position: relative;
+  flex: 1;
+}
+
+/* --- Field internal layout: label position variants --- */
+
+.field-inner {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  gap: 2px;
+}
+.field-inner--top    { flex-direction: column; }
+.field-inner--bottom { flex-direction: column-reverse; }
+.field-inner--left   { flex-direction: row; }
+.field-inner--right  { flex-direction: row-reverse; }
+
+.field-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+  outline: none;
+  cursor: text;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2px;
+}
+.field-inner--left .field-label,
+.field-inner--right .field-label {
+  writing-mode: horizontal-tb;
+  min-width: 2.5rem;
+}
+
+.field-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 4px;
+  text-align: center;
+  overflow: auto;
+}
+.field-value:focus {
+  border-color: var(--color-accent);
+}
+
+.field-value--options {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+}
+
+.option-radio,
+.option-checkbox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 10px;
+  color: var(--color-text-faint);
+  gap: 2px;
+}
+
+/* --- Edit-mode-only chrome: drag handle, resize handle, hover toolbar --- */
+
+.node-handle {
+  display: none;
+}
+
+.is-edit-mode .node-handle {
+  display: flex;
+}
+
+.drag-handle {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-accent);
+  color: #fff;
+  border-radius: var(--radius-sm) 0 var(--radius-sm) 0;
+  cursor: grab;
+  font-size: 10px;
+  z-index: 5;
+  user-select: none;
+  touch-action: none;
+}
+.drag-handle:active { cursor: grabbing; }
+
+.resize-handle {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 14px;
+  height: 14px;
+  background: var(--color-border-strong);
+  border-radius: var(--radius-sm) 0 var(--radius-sm) 0;
+  cursor: nwse-resize;
+  z-index: 5;
+  touch-action: none;
+}
+
+.node-toolbar {
+  display: none;
+  position: absolute;
+  top: -30px;
+  right: -2px;
+  gap: 2px;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  z-index: 6;
+  box-shadow: var(--shadow-sm);
+}
+.is-edit-mode .grid-node:hover .node-toolbar {
+  display: flex;
+}
+
+.node-toolbar button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* The equals icon sits on whichever edge is opposite the label. */
+.equation-hint {
+  display: none;
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-arcane);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: bold;
+  z-index: 5;
+  cursor: pointer;
+}
+.is-edit-mode .grid-node--field:hover .equation-hint {
+  display: flex;
+}
+.equation-hint--top    { top: -8px; left: 50%; transform: translateX(-50%); }
+.equation-hint--bottom { bottom: -8px; left: 50%; transform: translateX(-50%); }
+.equation-hint--left   { left: -8px; top: 50%; transform: translateY(-50%); }
+.equation-hint--right  { right: -8px; top: 50%; transform: translateY(-50%); }
+
+/* --- Style popover --- */
+
+.style-popover {
+  position: absolute;
+  top: -2px;
+  left: calc(100% + var(--space-2));
+  width: 220px;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  box-shadow: var(--shadow-md);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.style-popover__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.style-popover__row label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.style-popover__toggles {
+  display: flex;
+  gap: 4px;
+}
+.style-popover__toggles button.active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* --- Equation stub modal --- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-box {
+  background: var(--color-bg-raised);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  max-width: 420px;
+  box-shadow: var(--shadow-md);
+}
