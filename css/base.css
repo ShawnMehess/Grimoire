@@ -1,0 +1,139 @@
+/* ==========================================================================
+   base.css
+   Resets and bare-element defaults only. No component-specific classes
+   belong in this file — if you need a new visual pattern, it goes in
+   css/components/ as its own file.
+   ========================================================================== */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background:
+    radial-gradient(ellipse 1200px 800px at 50% -10%, #241f19 0%, transparent 60%),
+    radial-gradient(ellipse 900px 600px at 100% 100%, #1a1613 0%, transparent 55%),
+    var(--color-bg);
+  background-attachment: fixed;
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  min-height: 100vh;
+  cursor: default; /* plain text shouldn't show the text-select I-beam;
+    editable elements ([contenteditable], inputs) and buttons already
+    set their own cursor and override this via normal CSS cascade */
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  -webkit-user-select: none;
+  user-select: none; /* text you can't edit shouldn't be selectable either —
+    it should behave like an image. Anything actually editable opts back
+    in below, right next to the cursor override for the same reason. */
+}
+
+/* body's cursor:default and user-select:none above would otherwise
+   incorrectly cascade onto these too, since both are inherited
+   properties — editable text needs the normal text cursor AND normal
+   selection back. */
+input[type="text"], input[type="number"], input[type="search"], textarea,
+[contenteditable="true"] {
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+  margin: 0 0 var(--space-3) 0;
+  color: var(--color-text);
+  letter-spacing: 0.01em;
+}
+
+h1 { font-size: var(--text-2xl); }
+h2 { font-size: var(--text-xl); }
+h3 { font-size: var(--text-lg); }
+h4 { font-size: var(--text-md); }
+
+p { margin: 0 0 var(--space-3) 0; }
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+a:hover { color: var(--color-accent-hover); }
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+ul, ol { margin: 0; padding: 0; list-style: none; }
+
+/* Visible keyboard focus everywhere — not optional */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-accent-muted);
+  color: var(--color-text);
+}
+
+/* Themed scrollbars (WebKit + Firefox) so scroll areas match the palette
+   instead of showing the OS-default light/dark chrome. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: var(--radius-md);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-faint);
+  background-clip: padding-box;
+}
+
+/* Simple loading state used before the app finishes mounting */
+.app-loading {
+  color: var(--color-text-muted);
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+.app-loading__dots span {
+  animation: app-loading-blink 1.2s infinite;
+  opacity: 0.2;
+}
+.app-loading__dots span:nth-child(2) { animation-delay: 0.2s; }
+.app-loading__dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes app-loading-blink {
+  0%, 80%, 100% { opacity: 0.2; }
+  40% { opacity: 1; }
+}
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

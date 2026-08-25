@@ -1,0 +1,792 @@
+/* ==========================================================================
+   custom-sheet.css
+   The drag/resize/style-everything character sheet builder. One grid
+   unit (CELL_PX + GAP_PX, see customSheet.js) is used at every nesting
+   level so "a cell" means the same physical size on the page grid and
+   inside every block's own local grid.
+   ========================================================================== */
+
+.sheet-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.sheet-toolbar__group {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.sheet-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+  overflow-x: auto;
+}
+
+.sheet-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 42px;
+  max-width: 180px;
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: var(--color-bg-inset);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.sheet-tab {
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.sheet-tab.active {
+  color: var(--color-text);
+  background: var(--color-bg-raised);
+  border-color: var(--color-border-strong);
+  box-shadow: inset 0 2px 0 var(--color-accent);
+}
+
+.sheet-tab__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  outline: none;
+}
+
+.sheet-tab__name:focus {
+  color: var(--color-text);
+}
+
+.sheet-tab__delete {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+}
+
+.sheet-tab--add {
+  justify-content: center;
+}
+
+.sheet-workbench {
+  display: flex;
+  gap: var(--space-3);
+  align-items: stretch;
+}
+
+.sheet-block-frame {
+  flex: 0 0 230px;
+  max-height: 100%;
+  overflow: auto;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-raised);
+  padding: var(--space-2);
+}
+
+.sheet-block-frame__title {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.sheet-block-list__block {
+  border-top: var(--border-width) solid var(--color-border);
+  padding: var(--space-2) 0;
+  cursor: grab;
+}
+
+.sheet-block-list__line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sheet-block-list__tabs {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}
+
+.sheet-block-list__field {
+  margin-left: var(--space-3);
+  padding-top: 2px;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  cursor: grab;
+}
+
+.sheet-block-list__field--sub {
+  margin-left: var(--space-6);
+  color: var(--color-text-faint);
+}
+
+/* Breaks out of .app-main's centered max-width column to span the full
+   viewport width, regardless of how wide .app-main itself is capped —
+   the standard CSS "full-bleed" trick (works because it's positioned
+   relative to the viewport, not to its own parent's box). Height is
+   set explicitly in JS to fill the remaining viewport below the
+   toolbar, growing (and scrolling, both axes) only if actual content
+   needs more room than that. */
+.page-grid-scroll {
+  position: relative;
+  left: 50%;
+  right: 50%;
+  margin-left: -50vw;
+  margin-right: -50vw;
+  width: 100vw;
+  overflow: auto;
+}
+
+.sheet-workbench .page-grid-scroll {
+  left: auto;
+  right: auto;
+  margin-left: 0;
+  margin-right: 0;
+  width: auto;
+  flex: 1 1 auto;
+}
+
+.page-grid {
+  position: relative;
+}
+
+.save-status {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  min-width: 6rem;
+}
+
+/* --- Node chrome (shared by top-level blocks and fields) --- */
+
+.grid-node {
+  position: absolute;
+  border-radius: var(--radius-md);
+  border: var(--border-width) solid var(--color-border);
+  background: var(--gradient-surface);
+  overflow: visible;
+  transition: left 120ms ease, top 120ms ease, width 120ms ease, height 120ms ease,
+              box-shadow var(--transition-fast), border-color var(--transition-fast);
+  box-sizing: border-box;
+}
+
+.is-edit-mode .grid-node:hover {
+  border-color: var(--color-border-strong);
+}
+
+/* Explicit selection chrome for a clicked/focused block or field —
+   deliberately NOT relying on the browser's default focus ring (which
+   some dark-mode browser extensions restore but plain Firefox/Chrome
+   render invisibly-faint against this theme's dark surfaces). Uses
+   :focus-within rather than :focus so this also lights up when the
+   thing that actually took focus is a child (the name/label/value
+   text, which is directly editable) rather than the wrapper itself. */
+.grid-node:focus-within {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  z-index: 4;
+}
+
+.grid-node--block {
+  padding: var(--space-1);
+  /* NOT flex — .block-name and .block-body are explicitly positioned
+     in JS (customSheet.js) to align exactly with the underlying cell
+     grid. Flexbox auto-sizing the name to its own font height (rather
+     than a fixed grid-row height) previously caused blocks to render
+     shorter than their actual content needed. */
+}
+
+.grid-node--field {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-1);
+  background: transparent;
+}
+
+.grid-node--label-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2);
+}
+
+.label-block-text {
+  width: 100%;
+  outline: none;
+  cursor: text;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  color: inherit;
+}
+
+.grid-node.is-dragging,
+.grid-node.is-resizing {
+  transition: none;
+  z-index: 50;
+  box-shadow: var(--shadow-md);
+  opacity: 0.9;
+}
+
+.block-name {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  /* height set inline in JS — exactly one grid row's worth of pixels */
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: text;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+}
+.block-name:focus {
+  background: var(--color-bg-inset);
+  white-space: normal; /* let it wrap while actively editing a long name */
+}
+
+.block-body {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  /* top set inline in JS — starts right after the name row + gap */
+}
+
+/* --- Field internal layout: label position variants --- */
+
+.field-inner {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  gap: 2px;
+}
+.field-inner--top    { flex-direction: column; }
+.field-inner--bottom { flex-direction: column-reverse; }
+.field-inner--left   { flex-direction: row; }
+.field-inner--right  { flex-direction: row-reverse; }
+
+.field-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+  outline: none;
+  cursor: text;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2px;
+}
+.field-inner--left .field-label,
+.field-inner--right .field-label {
+  writing-mode: horizontal-tb;
+  min-width: 2.5rem;
+}
+
+.field-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: text;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 4px;
+  text-align: center;
+  overflow: auto;
+}
+.field-value:focus {
+  border-color: var(--color-accent);
+}
+
+.field-value--computed {
+  cursor: default;
+  color: var(--color-accent);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.field-value--options {
+  display: grid;
+  gap: var(--space-1);
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+}
+
+.option-radio,
+.option-checkbox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 10px;
+  color: var(--color-text-faint);
+  gap: 2px;
+}
+
+/* --- Edit-mode-only chrome: drag handle, resize handle, hover toolbar --- */
+
+.node-handle {
+  display: none;
+}
+
+.is-edit-mode .node-handle {
+  display: flex;
+}
+
+.drag-handle {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  background: var(--gradient-accent);
+  color: #fff;
+  border-radius: var(--radius-sm) 0 var(--radius-sm) 0;
+  cursor: grab;
+  font-size: 10px;
+  z-index: 5;
+  user-select: none;
+  touch-action: none;
+  box-shadow: var(--shadow-sm);
+}
+.drag-handle:active { cursor: grabbing; }
+
+.resize-handle {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 14px;
+  height: 14px;
+  background: var(--color-border-strong);
+  border-radius: var(--radius-sm) 0 var(--radius-sm) 0;
+  cursor: nwse-resize;
+  z-index: 5;
+  touch-action: none;
+}
+
+.node-toolbar {
+  display: none;
+  position: absolute;
+  top: -30px;
+  right: -2px;
+  gap: 2px;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  z-index: 6;
+  box-shadow: var(--shadow-sm);
+}
+.node-toolbar.is-visible {
+  display: flex;
+}
+
+.node-toolbar button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-raised);
+  color: var(--color-text);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.node-toolbar button:hover {
+  background: var(--color-bg-inset);
+  border-color: var(--color-border-strong);
+}
+
+/* The equals icon sits on whichever edge is opposite the label. */
+.equation-hint {
+  display: none;
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-arcane);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: bold;
+  z-index: 5;
+  cursor: pointer;
+}
+.is-edit-mode .grid-node--field:hover .equation-hint {
+  display: flex;
+}
+.equation-hint--top    { top: -8px; left: 50%; transform: translateX(-50%); }
+.equation-hint--bottom { bottom: -8px; left: 50%; transform: translateX(-50%); }
+.equation-hint--left   { left: -8px; top: 50%; transform: translateY(-50%); }
+.equation-hint--right  { right: -8px; top: 50%; transform: translateY(-50%); }
+
+/* A field with a live formula gets its "=" hint tinted green (still
+   only shown on hover in edit mode, like any other hint) so it's easy
+   to tell computed fields apart from plain typed values at a glance. */
+.equation-hint--active {
+  background: var(--color-positive);
+}
+
+/* --- Style popover --- */
+
+.style-popover {
+  position: absolute;
+  top: -2px;
+  left: calc(100% + var(--space-2));
+  width: 220px;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: normal;
+  font-style: normal;
+  text-decoration: none;
+  color: var(--color-text);
+  animation: style-popover-in 140ms ease;
+}
+
+@keyframes style-popover-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Sized to fit its content (a label + a small preview per row) rather
+   than the fixed 220px .style-popover normally uses. */
+.style-popover.field-type-menu {
+  width: max-content;
+  max-width: 280px;
+}
+
+.field-type-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  width: 100%;
+  white-space: nowrap;
+}
+
+.field-type-option__label {
+  flex: 0 0 auto;
+}
+
+.field-type-option__preview {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  pointer-events: none; /* purely illustrative — never interactive */
+}
+
+.field-type-preview-text {
+  display: inline-block;
+  width: 44px;
+  height: 14px;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.field-type-preview-options {
+  display: flex;
+  gap: 3px;
+}
+
+.field-type-preview-radio {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: var(--border-width) solid var(--color-text-muted);
+  border-radius: 50%;
+  background: var(--color-bg-inset);
+}
+
+.field-type-preview-checkbox {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: var(--border-width) solid var(--color-text-muted);
+  border-radius: 2px;
+  background: var(--color-bg-inset);
+}
+
+/* Fixed label column + flexible value column, shared by every row —
+   this is what makes the controls line up and share one consistent
+   width, no matter whether a given row's control is a color swatch, a
+   dropdown, a number input, or the B/I/U toggle group. */
+.style-popover__row {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.style-popover__row label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.style-popover__badge {
+  color: var(--color-accent);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+/* Every row's value control gets the same height and fills the same
+   column, regardless of how that input type renders natively. */
+.style-popover__row input,
+.style-popover__row select,
+.style-popover__toggles {
+  width: 100%;
+  height: 28px;
+  box-sizing: border-box;
+}
+
+.style-popover__row input[type="color"] {
+  padding: 2px;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-inset);
+  cursor: pointer;
+}
+
+.style-popover__row input[type="file"] {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.style-popover__row input[type="number"],
+.style-popover__row select {
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: 0 var(--space-2);
+}
+
+.style-popover__toggles {
+  display: flex;
+  gap: 4px;
+}
+.style-popover__toggles button {
+  flex: 1 1 0; /* the three toggle buttons split the value column evenly,
+    so they're always exactly as wide as each other */
+  height: 100%;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  cursor: pointer;
+  font-weight: 600;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.style-popover__toggles button:hover {
+  border-color: var(--color-border-strong);
+}
+.style-popover__toggles button.active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+.style-popover__toggles button.has-local-override {
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+
+/* --- Equation stub modal --- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10,8,6,0.7);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: modal-fade-in 150ms ease;
+}
+
+.modal-box {
+  background: var(--gradient-surface);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  max-width: 420px;
+  box-shadow: var(--shadow-lg);
+  animation: modal-pop-in 160ms ease;
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes modal-pop-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.modal-box--sheet-template {
+  width: min(420px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.modal-box--sheet-template h3 {
+  margin: 0;
+}
+
+.modal-copy {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* --- Formula / equation editor --- */
+
+.modal-box--formula {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(80vh, 720px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.formula-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.formula-leaf {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.formula-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.formula-toolbar__btn {
+  padding: 2px var(--space-2);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+}
+
+.formula-input {
+  min-height: 2.25rem;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+.formula-input:focus {
+  border-color: var(--color-accent);
+}
+
+.formula-chip {
+  display: inline-flex;
+  align-items: center;
+  background: var(--color-accent-muted);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+  margin: 0 2px;
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  cursor: default;
+}
+.formula-chip--missing {
+  background: transparent;
+  border: 1px dashed var(--color-negative);
+  color: var(--color-negative);
+  text-decoration: line-through;
+}
+
+.formula-if {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-left: 3px solid var(--color-arcane);
+  background: rgba(91, 127, 158, 0.08);
+  border-radius: var(--radius-sm);
+}
+
+.formula-if label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.formula-branch-label {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: var(--space-1);
+}
+
+.formula-branch {
+  padding-left: var(--space-3);
+  border-left: var(--border-width) solid var(--color-border);
+}
