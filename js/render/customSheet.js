@@ -65,6 +65,23 @@ const GAP_PX = 8;
 const MIN_CELL_PX = 40; // below this, the page scrolls horizontally instead of squishing cells
 const MAX_BG_IMAGE_BYTES = 250_000; // warn above this — Firestore caps a whole doc at 1MB
 
+// Sensible starting footprint per field type when it's first added —
+// a 1x1 cell is fine for a short stat but far too small to be useful
+// for a text area, list, or dropdown.
+const DEFAULT_FIELD_SIZE = {
+  text: { w: 1, h: 1 },
+  label: { w: 2, h: 1 },
+  textarea: { w: 3, h: 2 },
+  textlist: { w: 3, h: 2 },
+  dropdown: { w: 2, h: 1 },
+  radio: { w: 1, h: 1 },
+  checkbox: { w: 1, h: 1 },
+};
+// Radio/checkbox auto-size via syncOptionWidth (their w/h are derived
+// from option count, not user-resizable); every other field type can
+// be freely resized.
+const RESIZABLE_FIELD_TYPES = new Set(["text", "label", "textarea", "textlist", "dropdown"]);
+
 function debounce(fn, delayMs = 500) {
   let handle;
   return (...args) => {
@@ -895,9 +912,10 @@ export function renderCustomSheet(root, character, store) {
         e.stopPropagation();
         openFieldTypeMenu(addFieldBtn, (fieldType) => {
           commitMutation(() => {
+            const size = DEFAULT_FIELD_SIZE[fieldType] || { w: 1, h: 1 };
             const field = createField({
               fieldType, label: "Stat",
-              x: 0, y: 0, w: 1, h: 1,
+              x: 0, y: 0, w: size.w, h: size.h,
             });
             sourceBlockFor(block).children.push(field);
           });
@@ -926,8 +944,10 @@ export function renderCustomSheet(root, character, store) {
     applyTextStyleToOwnText(el, fieldStyle);
 
     el.append(buildDragHandle());
-    if (field.fieldType === "text") {
+    if (RESIZABLE_FIELD_TYPES.has(field.fieldType)) {
       el.append(buildResizeHandle());
+    }
+    if (field.fieldType === "text") {
       el.append(buildEquationHint(field));
     }
     el.append(buildFieldToolbar(field, parentBlock, el));
@@ -942,7 +962,7 @@ export function renderCustomSheet(root, character, store) {
       maxX: parentBlock.w - field.w,
       maxY: contentRows - field.h,
     });
-    if (field.fieldType === "text") {
+    if (RESIZABLE_FIELD_TYPES.has(field.fieldType)) {
       wireResize(el, field, cw, {
         minW: 1, minH: 1,
         maxW: parentBlock.w - field.x,
@@ -967,6 +987,15 @@ export function renderCustomSheet(root, character, store) {
 
     const inner = document.createElement("div");
     inner.className = `field-inner field-inner--${field.labelPosition}`;
+
+    // A "label" field is just plain text — no separate caption/value
+    // split, so it doesn't get a .field-label at all.
+    if (field.fieldType === "label") {
+      const valueEl = buildFieldValue(field, () => {});
+      inner.append(valueEl);
+      fieldEl.prepend(inner);
+      return null;
+    }
 
     const labelEl = document.createElement("div");
     labelEl.className = "field-label";
@@ -1028,8 +1057,47 @@ export function renderCustomSheet(root, character, store) {
           }, { render: false });
           if (onValueChange) onValueChange();
         });
+        el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") e.preventDefault(); // single-line — see textarea for multi-line
+        });
       }
       return el;
+    }
+
+    if (field.fieldType === "label") {
+      const el = document.createElement("div");
+      el.className = "field-value field-value--label";
+      el.contentEditable = "true";
+      el.innerHTML = field.value || "";
+      el.addEventListener("pointerdown", (e) => e.stopPropagation());
+      el.addEventListener("input", () => {
+        commitMutation(() => {
+          field.value = el.innerHTML;
+        }, { render: false });
+      });
+      return el;
+    }
+
+    if (field.fieldType === "textarea") {
+      const el = document.createElement("div");
+      el.className = "field-value field-value--textarea";
+      el.contentEditable = "true";
+      el.innerHTML = field.value || "";
+      el.addEventListener("pointerdown", (e) => e.stopPropagation());
+      el.addEventListener("input", () => {
+        commitMutation(() => {
+          field.value = el.innerHTML;
+        }, { render: false });
+      });
+      return el;
+    }
+
+    if (field.fieldType === "textlist") {
+      return buildTextListValue(field);
+    }
+
+    if (field.fieldType === "dropdown") {
+      return buildDropdownValue(field);
     }
 
     const el = document.createElement("div");
@@ -1073,21 +1141,311 @@ export function renderCustomSheet(root, character, store) {
     return el;
   }
 
+  /** Draggable-to-reorder bulleted list — used by the "textlist" field
+   *  type. Each item's own text is independently editable; the row
+   *  itself (not the text) is the drag source, so dragging never
+   *  fights with placing a text caret. */
+  function buildTextListValue(field) {
+    if (!field.items) field.items = [];
+    const el = document.createElement("div");
+    el.className = "field-value field-value--textlist";
+    el.addEventListener("pointerdown", (e) => e.stopPropagation());
+
+    const itemsWrap = document.createElement("div");
+    itemsWrap.className = "textlist-items";
+    let dragFromIndex = null;
+
+    function renderItems() {
+      itemsWrap.innerHTML = "";
+      field.items.forEach((text, index) => {
+        const row = document.createElement("div");
+        row.className = "textlist-item";
+        row.draggable = true;
+
+        row.addEventListener("dragstart", (e) => {
+          dragFromIndex = index;
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", ""); // Firefox needs data set to allow the drag
+          row.classList.add("is-dragging");
+        });
+        row.addEventListener("dragend", () => row.classList.remove("is-dragging"));
+        row.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        });
+        row.addEventListener("drop", (e) => {
+          e.preventDefault();
+          if (dragFromIndex === null || dragFromIndex === index) return;
+          commitMutation(() => {
+            const [moved] = field.items.splice(dragFromIndex, 1);
+            field.items.splice(index, 0, moved);
+          }, { render: false });
+          renderItems();
+        });
+
+        const handle = document.createElement("span");
+        handle.className = "textlist-item__handle";
+        handle.textContent = "⠿";
+
+        const bullet = document.createElement("span");
+        bullet.className = "textlist-item__bullet";
+        bullet.textContent = "•";
+
+        const textEl = document.createElement("div");
+        textEl.className = "textlist-item__text";
+        textEl.contentEditable = "true";
+        textEl.textContent = text;
+        textEl.addEventListener("pointerdown", (e) => e.stopPropagation());
+        textEl.addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
+        textEl.addEventListener("input", () => {
+          commitMutation(() => {
+            field.items[index] = textEl.textContent;
+          }, { render: false });
+        });
+
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "textlist-item__remove";
+        removeBtn.title = "Remove item";
+        removeBtn.textContent = "✕";
+        removeBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+        removeBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          commitMutation(() => {
+            field.items.splice(index, 1);
+          }, { render: false });
+          renderItems();
+        });
+
+        row.append(handle, bullet, textEl, removeBtn);
+        itemsWrap.append(row);
+      });
+    }
+    renderItems();
+
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "textlist-add";
+    addBtn.textContent = "+ Add item";
+    addBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+    addBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      commitMutation(() => {
+        field.items.push("");
+      }, { render: false });
+      renderItems();
+      const lastText = itemsWrap.querySelector(".textlist-item:last-child .textlist-item__text");
+      if (lastText) lastText.focus();
+    });
+
+    el.append(itemsWrap, addBtn);
+    return el;
+  }
+
+  /** The on-sheet control for a "dropdown" field is just a native
+   *  <select> — list management (add/remove/reorder/alphabetize)
+   *  lives in a separate popover (openDropdownChoicesEditor) opened
+   *  from the field's toolbar, the same way style editing does, so
+   *  the sheet itself always shows a normal-looking dropdown. */
+  function buildDropdownValue(field) {
+    const select = document.createElement("select");
+    select.className = "field-value field-value--dropdown";
+    select.addEventListener("pointerdown", (e) => e.stopPropagation());
+    populateDropdownSelect(select, field);
+    select.addEventListener("change", () => {
+      commitMutation(() => {
+        field.selected = select.value || null;
+      }, { render: false });
+    });
+    return select;
+  }
+
+  function populateDropdownSelect(select, field) {
+    select.innerHTML = "";
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "—";
+    select.append(blank);
+    (field.choices || []).forEach((choice) => {
+      const opt = document.createElement("option");
+      opt.value = choice;
+      opt.textContent = choice;
+      select.append(opt);
+    });
+    select.value = field.selected || "";
+  }
+
+  /** Popover for managing a dropdown field's choice list: add, remove,
+   *  drag to reorder, and an Auto-Alphabetize toggle that keeps the
+   *  list sorted (and disables manual dragging, since a fixed order
+   *  would just get overwritten by the next sort). */
+  function openDropdownChoicesEditor(field, wrapperEl) {
+    closeOpenPopovers();
+    if (!field.choices) field.choices = [];
+
+    const pop = document.createElement("div");
+    pop.className = "style-popover dropdown-choices-editor";
+    pop.addEventListener("pointerdown", (e) => e.stopPropagation());
+
+    const title = document.createElement("div");
+    title.className = "style-popover__badge";
+    title.textContent = "Dropdown Choices";
+    pop.append(title);
+
+    function refreshFieldSelect() {
+      const select = wrapperEl.querySelector("select.field-value");
+      if (select) populateDropdownSelect(select, field);
+    }
+
+    const alphaBtn = document.createElement("button");
+    alphaBtn.type = "button";
+    function paintAlphaBtn() {
+      alphaBtn.textContent = field.autoAlphabetize ? "Auto-Alphabetize: On" : "Auto-Alphabetize: Off";
+      alphaBtn.className = "btn dropdown-choices-editor__alpha" + (field.autoAlphabetize ? " active" : "");
+    }
+    paintAlphaBtn();
+    alphaBtn.addEventListener("click", () => {
+      commitMutation(() => {
+        field.autoAlphabetize = !field.autoAlphabetize;
+        if (field.autoAlphabetize) field.choices.sort((a, b) => a.localeCompare(b));
+      }, { render: false });
+      paintAlphaBtn();
+      renderRows();
+      refreshFieldSelect();
+    });
+    pop.append(alphaBtn);
+
+    const list = document.createElement("div");
+    list.className = "dropdown-choices-editor__list";
+    pop.append(list);
+
+    let dragFromIndex = null;
+
+    function renderRows() {
+      list.innerHTML = "";
+      field.choices.forEach((choice, index) => {
+        const row = document.createElement("div");
+        row.className = "dropdown-choices-editor__row";
+        row.draggable = !field.autoAlphabetize;
+
+        row.addEventListener("dragstart", (e) => {
+          dragFromIndex = index;
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", "");
+        });
+        row.addEventListener("dragover", (e) => {
+          if (field.autoAlphabetize) return;
+          e.preventDefault();
+        });
+        row.addEventListener("drop", (e) => {
+          if (field.autoAlphabetize || dragFromIndex === null || dragFromIndex === index) return;
+          e.preventDefault();
+          commitMutation(() => {
+            const [moved] = field.choices.splice(dragFromIndex, 1);
+            field.choices.splice(index, 0, moved);
+          }, { render: false });
+          renderRows();
+          refreshFieldSelect();
+        });
+
+        const handle = document.createElement("span");
+        handle.className = "dropdown-choices-editor__handle";
+        handle.textContent = field.autoAlphabetize ? "" : "⠿";
+
+        const textEl = document.createElement("div");
+        textEl.className = "dropdown-choices-editor__text";
+        textEl.contentEditable = "true";
+        textEl.textContent = choice;
+        textEl.addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
+        textEl.addEventListener("input", () => {
+          const wasSelected = field.selected === choice;
+          commitMutation(() => {
+            field.choices[index] = textEl.textContent;
+            if (wasSelected) field.selected = textEl.textContent;
+          }, { render: false });
+          choice = textEl.textContent;
+          refreshFieldSelect();
+        });
+
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "btn formula-toolbar__btn";
+        removeBtn.textContent = "✕";
+        removeBtn.addEventListener("click", () => {
+          commitMutation(() => {
+            if (field.selected === field.choices[index]) field.selected = null;
+            field.choices.splice(index, 1);
+          }, { render: false });
+          renderRows();
+          refreshFieldSelect();
+        });
+
+        row.append(handle, textEl, removeBtn);
+        list.append(row);
+      });
+    }
+    renderRows();
+
+    const addRow = document.createElement("div");
+    addRow.className = "dropdown-choices-editor__add";
+    const addInput = document.createElement("input");
+    addInput.type = "text";
+    addInput.placeholder = "New choice…";
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "btn";
+    addBtn.textContent = "+ Add";
+    function addChoice() {
+      const text = addInput.value.trim();
+      if (!text) return;
+      commitMutation(() => {
+        field.choices.push(text);
+        if (field.autoAlphabetize) field.choices.sort((a, b) => a.localeCompare(b));
+      }, { render: false });
+      addInput.value = "";
+      renderRows();
+      refreshFieldSelect();
+      addInput.focus();
+    }
+    addBtn.addEventListener("click", addChoice);
+    addInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addChoice(); } });
+    addRow.append(addInput, addBtn);
+    pop.append(addRow);
+
+    wrapperEl.append(pop);
+    positionPopoverWithinViewport(pop);
+    toolbarWithOpenPopup = wrapperEl.querySelector(".node-toolbar");
+  }
+
   function buildFieldToolbar(field, parentBlock, wrapperEl) {
     const bar = document.createElement("div");
     bar.className = "node-toolbar";
 
     bar.append(buildStyleButton(field, wrapperEl));
 
-    const cycleLabelBtn = document.createElement("button");
-    cycleLabelBtn.type = "button";
-    cycleLabelBtn.title = "Move label";
-    cycleLabelBtn.textContent = "↻";
-    cycleLabelBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      cycleLabelPosition(field, wrapperEl);
-    });
-    bar.append(cycleLabelBtn);
+    if (field.fieldType !== "label") {
+      const cycleLabelBtn = document.createElement("button");
+      cycleLabelBtn.type = "button";
+      cycleLabelBtn.title = "Move label";
+      cycleLabelBtn.textContent = "↻";
+      cycleLabelBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        cycleLabelPosition(field, wrapperEl);
+      });
+      bar.append(cycleLabelBtn);
+    }
+
+    if (field.fieldType === "dropdown") {
+      const editChoicesBtn = document.createElement("button");
+      editChoicesBtn.type = "button";
+      editChoicesBtn.title = "Edit choices";
+      editChoicesBtn.textContent = "☰";
+      editChoicesBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openDropdownChoicesEditor(field, wrapperEl);
+      });
+      bar.append(editChoicesBtn);
+    }
 
     if (field.fieldType === "radio" || field.fieldType === "checkbox") {
       const minusBtn = document.createElement("button");
@@ -1600,6 +1958,10 @@ export function renderCustomSheet(root, character, store) {
 
     const OPTIONS = [
       { type: "text", label: "Text", preview: buildTextPreview },
+      { type: "label", label: "Label", preview: buildLabelPreview },
+      { type: "textarea", label: "Text Area", preview: buildTextareaPreview },
+      { type: "textlist", label: "Text List", preview: buildTextlistPreview },
+      { type: "dropdown", label: "Dropdown", preview: buildDropdownPreview },
       { type: "radio", label: "Radio Buttons", preview: () => buildOptionPreview("radio", 3) },
       { type: "checkbox", label: "Checkbox", preview: () => buildOptionPreview("checkbox", 1) },
     ];
@@ -1638,6 +2000,37 @@ export function renderCustomSheet(root, character, store) {
   function buildTextPreview() {
     const el = document.createElement("span");
     el.className = "field-type-preview-text";
+    return el;
+  }
+
+  function buildLabelPreview() {
+    const el = document.createElement("span");
+    el.className = "field-type-preview-label";
+    el.textContent = "Aa";
+    return el;
+  }
+
+  function buildTextareaPreview() {
+    const el = document.createElement("span");
+    el.className = "field-type-preview-textarea";
+    return el;
+  }
+
+  function buildTextlistPreview() {
+    const el = document.createElement("span");
+    el.className = "field-type-preview-textlist";
+    for (let i = 0; i < 3; i++) {
+      const line = document.createElement("span");
+      line.className = "field-type-preview-textlist__line";
+      el.append(line);
+    }
+    return el;
+  }
+
+  function buildDropdownPreview() {
+    const el = document.createElement("span");
+    el.className = "field-type-preview-dropdown";
+    el.textContent = "▾";
     return el;
   }
 

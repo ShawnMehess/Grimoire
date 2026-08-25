@@ -39,6 +39,43 @@ const FUNCTIONS = {
 
 export const FUNCTION_NAMES = Object.keys(FUNCTIONS);
 
+// Parameter NAMES (for the formula editor's ghosted-placeholder
+// insertion) and arity (for validation) — one source of truth for
+// both so they can't drift apart.
+export const FUNCTION_PARAMS = {
+  sum: ["a", "b", "…"],
+  product: ["a", "b", "…"],
+  sqrt: ["x"],
+  pow: ["base", "exponent"],
+  min: ["a", "b", "…"],
+  max: ["a", "b", "…"],
+  roundup: ["x"],
+  rounddown: ["x"],
+};
+
+const FUNCTION_ARITY = {
+  sum: [1, Infinity],
+  product: [1, Infinity],
+  sqrt: [1, 1],
+  pow: [2, 2],
+  min: [1, Infinity],
+  max: [1, Infinity],
+  roundup: [1, 1],
+  rounddown: [1, 1],
+};
+
+function describeArity([lo, hi]) {
+  if (lo === hi) return `exactly ${lo} parameter${lo === 1 ? "" : "s"}`;
+  if (hi === Infinity) return `at least ${lo} parameter${lo === 1 ? "" : "s"}`;
+  return `between ${lo} and ${hi} parameters`;
+}
+
+/** Thrown by the parser for anything worth explaining to the person
+ *  writing the formula. evaluateExpression() catches these (along
+ *  with anything else) and quietly returns NaN, same as always — only
+ *  validateExpression()/validateCondition() surface the message. */
+class FormulaError extends Error {}
+
 const VAR_TOKEN = /\{\{([^}]+)\}\}/g;
 
 /** Replaces every {{fieldId}} / {{fieldId::index}} token with a
@@ -51,6 +88,13 @@ function substituteTokens(text, valueMap) {
     const n = Number.isFinite(v) ? v : 0;
     return `(${n})`;
   });
+}
+
+/** Same idea as substituteTokens, but for validation — we don't have
+ *  (or need) real field values there, just SOMETHING numeric so the
+ *  structure/arity checks below can run. */
+function stripTokensForValidation(text) {
+  return String(text || "").replace(VAR_TOKEN, "(1)");
 }
 
 // --- Arithmetic expression parser --------------------------------------
@@ -98,30 +142,44 @@ function parseExpressionTokens(tokens) {
     if (peek() === "(") {
       next();
       const value = parseExpression();
-      if (peek() === ")") next();
+      if (peek() !== ")") throw new FormulaError("Missing a closing parenthesis");
+      next();
       return value;
     }
     const tok = next();
-    if (tok === undefined) return NaN;
+    if (tok === undefined) throw new FormulaError("Looks incomplete — a number or variable is missing");
     if (/^[A-Za-z_]/.test(tok)) {
-      const fn = FUNCTIONS[tok.toLowerCase()];
-      if (peek() === "(") {
-        next();
-        const args = [];
-        if (peek() !== ")") {
-          args.push(parseExpression());
-          while (peek() === ",") { next(); args.push(parseExpression()); }
-        }
-        if (peek() === ")") next();
-        return fn ? fn(...args) : NaN;
+      if (peek() !== "(") {
+        throw new FormulaError(`"${tok}" isn't a recognized function — if you meant a stat field, drag it in from the list instead of typing its name`);
       }
-      return NaN; // bare identifier with no call — unresolvable
+      next();
+      const args = [];
+      if (peek() !== ")") {
+        args.push(parseExpression());
+        while (peek() === ",") { next(); args.push(parseExpression()); }
+      }
+      if (peek() !== ")") throw new FormulaError(`Missing a closing parenthesis for ${tok}()`);
+      next();
+      const fn = FUNCTIONS[tok.toLowerCase()];
+      if (!fn) throw new FormulaError(`"${tok}" isn't a recognized function`);
+      const arity = FUNCTION_ARITY[tok.toLowerCase()];
+      if (arity && (args.length < arity[0] || args.length > arity[1])) {
+        throw new FormulaError(`${tok}() expects ${describeArity(arity)}, but got ${args.length}`);
+      }
+      return fn(...args);
     }
-    return parseFloat(tok);
+    const n = parseFloat(tok);
+    if (Number.isNaN(n)) {
+      throw new FormulaError(`"${tok}" isn't a number — if you meant a stat field, drag it in from the list instead of typing its name`);
+    }
+    return n;
   }
 
   const result = parseExpression();
-  return i < tokens.length ? NaN : result; // trailing junk = malformed expression
+  if (i < tokens.length) {
+    throw new FormulaError(`Unexpected "${tokens[i]}" — check for a missing operator, or an extra character`);
+  }
+  return result;
 }
 
 /** Evaluates a plain arithmetic expression (after variable
@@ -133,6 +191,24 @@ export function evaluateExpression(substitutedText) {
     return Number.isFinite(result) ? result : NaN;
   } catch {
     return NaN;
+  }
+}
+
+/** Structural check for an expression box in the formula editor —
+ *  same parser as evaluateExpression, but surfaces WHAT'S wrong
+ *  instead of silently returning NaN. Takes the raw (unsubstituted)
+ *  text, i.e. still containing {{...}} variable tokens — those are
+ *  swapped for a dummy value here since validation only cares about
+ *  structure, not the actual numbers. Returns null when there's
+ *  nothing to report (including for empty/not-yet-written text). */
+export function validateExpression(rawText) {
+  const substituted = stripTokensForValidation(rawText);
+  if (!substituted.trim()) return null;
+  try {
+    parseExpressionTokens(tokenize(substituted));
+    return null;
+  } catch (err) {
+    return err instanceof FormulaError ? err.message : null;
   }
 }
 
@@ -176,6 +252,44 @@ export function evaluateCondition(substitutedText) {
     else if (connective === "XOR") result = result !== rhs;
   }
   return result;
+}
+
+function validateComparisonSide(text) {
+  try {
+    parseExpressionTokens(tokenize(text));
+    return null;
+  } catch (err) {
+    return err instanceof FormulaError ? err.message : null;
+  }
+}
+
+/** Structural check for a condition box — same idea as
+ *  validateExpression, checking each comparison segment's left/right
+ *  side. Takes raw (unsubstituted) text; returns null when there's
+ *  nothing to report. */
+export function validateCondition(rawText) {
+  const substituted = stripTokensForValidation(rawText);
+  if (!substituted.trim()) return null;
+  const parts = substituted.split(/\s+(AND|OR|XOR)\s+/i);
+  for (let idx = 0; idx < parts.length; idx += 2) {
+    const term = parts[idx] || "";
+    let found = false;
+    for (const op of COMPARATORS) {
+      const at = term.indexOf(op);
+      if (at === -1) continue;
+      found = true;
+      const leftErr = validateComparisonSide(term.slice(0, at));
+      if (leftErr) return leftErr;
+      const rightErr = validateComparisonSide(term.slice(at + op.length));
+      if (rightErr) return rightErr;
+      break;
+    }
+    if (!found) {
+      const err = validateComparisonSide(term);
+      if (err) return err;
+    }
+  }
+  return null;
 }
 
 // --- Formula tree ---------------------------------------------------------

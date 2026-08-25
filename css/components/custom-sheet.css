@@ -273,6 +273,13 @@
   display: flex;
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden; /* hard backstop: a value that overflows its box
+    (long text, an accidental newline) scrolls inside field-value
+    rather than visually growing the field and crowding out its label —
+    .grid-node itself stays overflow:visible (for handles/toolbar), so
+    this is the actual clipping boundary */
   gap: 2px;
 }
 .field-inner--top    { flex-direction: column; }
@@ -310,10 +317,13 @@
   outline: none;
   cursor: text;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: center; /* vertical centering via flex... */
+  text-align: center;  /* ...horizontal centering via text-align, NOT
+    justify-content: an empty flex container centered via
+    justify-content puts the caret at the container's edge instead of
+    its middle in some browsers — text-align positions the caret
+    itself, which behaves correctly even with no text yet typed */
   padding: 2px 4px;
-  text-align: center;
   overflow: auto;
 }
 .field-value:focus {
@@ -325,6 +335,184 @@
   color: var(--color-accent);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+.field-value--label {
+  background: transparent;
+  border: none;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+}
+
+.field-value--textarea {
+  align-items: flex-start;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: auto; /* fixed footprint (from the grid cell) — scrolls
+    rather than growing once content exceeds it */
+}
+
+.field-value--textlist {
+  display: block;
+  text-align: left;
+  padding: 4px;
+  overflow-y: auto; /* same fixed-footprint-with-scroll behavior as textarea */
+}
+
+.textlist-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.textlist-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: grab;
+  border-radius: var(--radius-sm);
+}
+.textlist-item:hover {
+  background: var(--color-bg-raised);
+}
+.textlist-item.is-dragging {
+  opacity: 0.4;
+}
+
+.textlist-item__handle {
+  flex: 0 0 auto;
+  color: var(--color-text-faint);
+  font-size: 10px;
+}
+
+.textlist-item__bullet {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+}
+
+.textlist-item__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  outline: none;
+  cursor: text;
+}
+
+.textlist-item__remove {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  font-size: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--color-text-faint);
+  cursor: pointer;
+  visibility: hidden;
+}
+.textlist-item:hover .textlist-item__remove {
+  visibility: visible;
+}
+.textlist-item__remove:hover {
+  color: var(--color-negative);
+}
+
+.textlist-add {
+  margin-top: 4px;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  cursor: pointer;
+  width: 100%;
+}
+.textlist-add:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+
+.field-value--dropdown {
+  appearance: none;
+  -webkit-appearance: none;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: inherit;
+  padding-right: var(--space-4);
+  background-image: linear-gradient(45deg, transparent 50%, var(--color-text-muted) 50%),
+                     linear-gradient(135deg, var(--color-text-muted) 50%, transparent 50%);
+  background-position: calc(100% - 12px) center, calc(100% - 8px) center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+
+.dropdown-choices-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.dropdown-choices-editor__alpha {
+  width: 100%;
+  font-size: var(--text-xs);
+}
+.dropdown-choices-editor__alpha.active {
+  background: var(--color-positive);
+  border-color: var(--color-positive);
+  color: #fff;
+}
+
+.dropdown-choices-editor__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.dropdown-choices-editor__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: grab;
+  border-radius: var(--radius-sm);
+}
+.dropdown-choices-editor__row:hover {
+  background: var(--color-bg-raised);
+}
+
+.dropdown-choices-editor__handle {
+  flex: 0 0 auto;
+  width: 12px;
+  color: var(--color-text-faint);
+  font-size: 10px;
+}
+
+.dropdown-choices-editor__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  outline: none;
+  cursor: text;
+  font-size: var(--text-sm);
+}
+
+.dropdown-choices-editor__add {
+  display: flex;
+  gap: 4px;
+}
+.dropdown-choices-editor__add input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: 2px var(--space-2);
+  font-size: var(--text-sm);
 }
 
 .field-value--options {
@@ -548,6 +736,56 @@
   background: var(--color-bg-inset);
 }
 
+.field-type-preview-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 14px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.field-type-preview-textarea {
+  display: inline-block;
+  width: 36px;
+  height: 22px;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.field-type-preview-textlist {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 36px;
+  height: 22px;
+  justify-content: center;
+  padding-left: 3px;
+}
+.field-type-preview-textlist__line {
+  display: block;
+  width: 70%;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-text-faint);
+}
+
+.field-type-preview-dropdown {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 14px;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 9px;
+  color: var(--color-text-muted);
+}
+
 /* Fixed label column + flexible value column, shared by every row —
    this is what makes the controls line up and share one consistent
    width, no matter whether a given row's control is a color swatch, a
@@ -689,13 +927,64 @@
 
 /* --- Formula / equation editor --- */
 
+/* Deliberately NOT a full-screen dimmed modal — this panel floats
+   over the page (right side, clear of the sidebar) with
+   pointer-events disabled on the overlay itself, so the sidebar stays
+   fully usable (to drag fields in as variables) while it's open. */
+.formula-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+}
+
 .modal-box--formula {
-  width: min(560px, calc(100vw - 32px));
-  max-height: min(80vh, 720px);
+  position: fixed;
+  top: 76px;
+  right: 16px;
+  bottom: 16px;
+  width: min(440px, 38vw);
+  min-width: 320px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  pointer-events: auto;
+  animation: formula-slide-in 160ms ease;
+}
+
+@keyframes formula-slide-in {
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.formula-editor-titlerow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.formula-editor-titlerow h3 {
+  margin: 0;
+}
+
+.formula-editor-close {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.formula-editor-close:hover {
+  color: var(--color-text);
+  background: var(--color-bg-inset);
 }
 
 .formula-editor-body {
@@ -758,6 +1047,71 @@
   border: 1px dashed var(--color-negative);
   color: var(--color-negative);
   text-decoration: line-through;
+}
+
+.formula-ghost {
+  color: var(--color-text-faint);
+  font-style: italic;
+  outline: none;
+}
+.formula-ghost::selection {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.formula-field-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.formula-field-group__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.formula-copy-btn {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-raised);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+.formula-copy-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+
+.formula-copy-feedback {
+  position: relative;
+  margin-left: 6px;
+  font-size: var(--text-xs);
+  color: var(--color-positive);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.formula-copy-feedback.is-visible {
+  opacity: 1;
+}
+
+.formula-flag {
+  margin-top: 4px;
+  font-size: var(--text-xs);
+  color: var(--color-negative);
+  background: rgba(163, 65, 58, 0.1);
+  border: 1px solid var(--color-negative);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
 }
 
 .formula-if {

@@ -1,10 +1,12 @@
 // formulaEditor.js
 //
-// The modal opened by a field's "=" hint. Lets you build a formula
-// tree (see js/data/formula.js for the shape) by typing math/
-// comparison text and dragging in other fields (from the sidebar,
-// via the same "application/x-sheet-field" drag payload the page grid
-// already uses) as variable "chips".
+// The floating panel opened by a field's "=" hint. Lets you build a
+// formula tree (see js/data/formula.js for the shape) by typing math/
+// comparison text and dragging in other fields (from the sidebar, via
+// the same "application/x-sheet-field" drag payload the page grid
+// already uses) as variable "chips". Deliberately NOT a full-screen
+// modal — see the .formula-overlay comment in custom-sheet.css — so
+// the sidebar stays draggable-from while this is open.
 //
 // Each expression/condition box is a contentEditable div rather than
 // a plain <textarea>, specifically so a dropped field can render as
@@ -17,8 +19,16 @@
 // the reverse, re-resolving each id against the CURRENT field list so
 // a renamed field's chip always shows its latest label, and a deleted
 // field's chip shows as visibly broken instead of silently vanishing.
+//
+// Clicking a function button inserts a GHOSTED template, e.g.
+// "sqrt(x)" — the "x" is a placeholder span: clicking it selects its
+// whole contents so the next keystroke replaces it outright, and the
+// first ghost in a freshly-inserted template is pre-selected the same
+// way. A ghost still showing its placeholder text when the formula is
+// saved contributes NOTHING to the stored expression (as if that
+// argument were just left blank) rather than the literal word "x".
 
-import { FUNCTION_NAMES } from "../data/formula.js";
+import { FUNCTION_NAMES, FUNCTION_PARAMS, validateExpression, validateCondition } from "../data/formula.js";
 
 const COMPARATOR_BUTTONS = ["=", "!=", "<=", "<", ">=", ">", " AND ", " OR ", " XOR "];
 
@@ -48,15 +58,43 @@ function makeChip(field, checkboxIndex) {
   return chip;
 }
 
-/** DOM (chips + text) -> stored token string. */
+function makeGhost(text) {
+  const span = document.createElement("span");
+  span.className = "formula-ghost";
+  span.dataset.ghostText = text;
+  span.textContent = text;
+  return span;
+}
+
+/** name() -> a run of nodes ["name(", ghost, ", ", ghost, ")"] ready
+ *  to insert at the caret. */
+function buildFunctionTemplate(name) {
+  const params = FUNCTION_PARAMS[name] || [];
+  const nodes = [document.createTextNode(`${name}(`)];
+  params.forEach((p, i) => {
+    if (i > 0) nodes.push(document.createTextNode(", "));
+    nodes.push(makeGhost(p));
+  });
+  nodes.push(document.createTextNode(")"));
+  return nodes;
+}
+
+/** DOM (chips + ghosts + text) -> stored token string. A ghost still
+ *  showing its own placeholder text (never clicked/edited) is treated
+ *  as blank — see file header. */
 function serializeEditable(el) {
   let out = "";
   el.childNodes.forEach((node) => {
     if (node.nodeType === Node.TEXT_NODE) {
       out += node.textContent;
-    } else if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains("formula-chip")) {
+    } else if (node.nodeType !== Node.ELEMENT_NODE) {
+      return;
+    } else if (node.classList.contains("formula-chip")) {
       const idx = node.dataset.checkboxIndex;
       out += idx !== undefined ? `{{${node.dataset.fieldId}::${idx}}}` : `{{${node.dataset.fieldId}}}`;
+    } else if (node.classList.contains("formula-ghost")) {
+      if (node.textContent !== node.dataset.ghostText) out += node.textContent; // edited — keep it
+      // else: still just the placeholder — contributes nothing
     } else {
       out += node.textContent || "";
     }
@@ -97,7 +135,13 @@ function renderTokensIntoEditable(el, text, resolveField) {
   }
 }
 
-function insertTextAtCaret(editableEl, text, caretOffsetFromEnd = 0) {
+/** Inserts an arbitrary run of nodes at the current caret (or at the
+ *  end, if the editable doesn't currently hold the selection). If any
+ *  of the inserted nodes is a ghost, the caret ends up with that
+ *  ghost's contents SELECTED (so the very next keystroke replaces it,
+ *  like a snippet tool's tab stop) — otherwise it's placed right
+ *  after the last inserted node. */
+function insertNodesAtCaret(editableEl, nodes) {
   editableEl.focus();
   const sel = window.getSelection();
   let range;
@@ -109,12 +153,19 @@ function insertTextAtCaret(editableEl, text, caretOffsetFromEnd = 0) {
     range.collapse(false);
   }
   range.deleteContents();
-  const textNode = document.createTextNode(text);
-  range.insertNode(textNode);
-  const caretPos = Math.max(0, Math.min(text.length, text.length + caretOffsetFromEnd));
+  const frag = document.createDocumentFragment();
+  nodes.forEach((n) => frag.append(n));
+  const lastNode = nodes[nodes.length - 1];
+  range.insertNode(frag);
+
+  const firstGhost = nodes.find((n) => n.classList && n.classList.contains("formula-ghost"));
   const newRange = document.createRange();
-  newRange.setStart(textNode, caretPos);
-  newRange.collapse(true);
+  if (firstGhost) {
+    newRange.selectNodeContents(firstGhost);
+  } else {
+    newRange.setStartAfter(lastNode);
+    newRange.collapse(true);
+  }
   sel.removeAllRanges();
   sel.addRange(newRange);
 }
@@ -166,18 +217,115 @@ function wireVariableDrop(editableEl, resolveField, afterInsert) {
   });
 }
 
-function makeEditableField(initialText, resolveField, onChange) {
+/** If a ghost's text no longer matches its original placeholder (the
+ *  user typed over it), unwrap it into plain text so it stops
+ *  behaving like a ghost (no more select-all-on-click) — while trying
+ *  to keep the caret in the same visual spot through the swap. */
+function unwrapEditedGhosts(editableEl) {
+  const sel = window.getSelection();
+  const activeRange = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+  editableEl.querySelectorAll(".formula-ghost").forEach((span) => {
+    if (span.textContent === span.dataset.ghostText) return; // untouched — leave it as a ghost
+    const caretWasHere = !!(activeRange && span.contains(activeRange.startContainer));
+    const offset = caretWasHere && activeRange.startContainer.nodeType === Node.TEXT_NODE
+      ? activeRange.startOffset
+      : span.textContent.length;
+    const textNode = document.createTextNode(span.textContent);
+    span.replaceWith(textNode);
+    if (caretWasHere) {
+      const newRange = document.createRange();
+      newRange.setStart(textNode, Math.min(offset, textNode.length));
+      newRange.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+    }
+  });
+}
+
+function showCopiedFeedback(anchorBtn) {
+  const existing = anchorBtn.parentElement.querySelector(".formula-copy-feedback");
+  if (existing) existing.remove();
+  const badge = document.createElement("span");
+  badge.className = "formula-copy-feedback";
+  badge.textContent = "Copied!";
+  anchorBtn.after(badge);
+  requestAnimationFrame(() => badge.classList.add("is-visible"));
+  setTimeout(() => badge.remove(), 1200);
+}
+
+/** Builds one expression/condition box, complete with its copy
+ *  button, ghost/chip-aware editing, drag-to-insert-variable support,
+ *  and a validation flag underneath. Returns the wrapping element to
+ *  place in the layout, plus a couple of handles callers need:
+ *  `editable` (for the function/comparator toolbar buttons to insert
+ *  into) and `refreshValidation()` (serializes + validates + updates
+ *  the flag, returning the current token string — callers use this
+ *  after any programmatic insertion, since those don't fire a native
+ *  "input" event on their own). */
+function makeEditableField(initialText, resolveField, onTextChange, validateFn) {
+  const wrap = document.createElement("div");
+  wrap.className = "formula-field-group";
+
+  const copyBtn = document.createElement("button");
+  copyBtn.type = "button";
+  copyBtn.className = "formula-copy-btn";
+  copyBtn.title = "Copy";
+  copyBtn.textContent = "⧉";
+
+  const main = document.createElement("div");
+  main.className = "formula-field-group__main";
+
   const el = document.createElement("div");
   el.className = "formula-input";
   el.contentEditable = "true";
   el.spellcheck = false;
   renderTokensIntoEditable(el, initialText, resolveField);
-  el.addEventListener("input", onChange);
+
+  const flag = document.createElement("div");
+  flag.className = "formula-flag";
+  flag.hidden = true;
+
+  function refreshValidation() {
+    const text = serializeEditable(el);
+    const message = validateFn ? validateFn(text) : null;
+    flag.hidden = !message;
+    flag.textContent = message ? `⚠ ${message}` : "";
+    return text;
+  }
+
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(el.textContent || "");
+      showCopiedFeedback(copyBtn);
+    } catch {
+      // Clipboard permission/context issue — nothing useful to do beyond not crashing.
+    }
+  });
+
+  el.addEventListener("input", () => {
+    unwrapEditedGhosts(el);
+    onTextChange(refreshValidation());
+  });
   el.addEventListener("keydown", (e) => {
     if (e.key === "Enter") e.preventDefault(); // single-line
   });
-  wireVariableDrop(el, resolveField, onChange);
-  return el;
+  el.addEventListener("mousedown", (e) => {
+    const ghost = e.target.closest(".formula-ghost");
+    if (!ghost) return;
+    e.preventDefault(); // don't let the browser place a bare caret — we're selecting the whole placeholder instead
+    const range = document.createRange();
+    range.selectNodeContents(ghost);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  });
+  wireVariableDrop(el, resolveField, () => onTextChange(refreshValidation()));
+
+  refreshValidation(); // surface any pre-existing issue immediately on reopen
+
+  main.append(el, flag);
+  wrap.append(copyBtn, main);
+  return { wrap, editable: el, refreshValidation };
 }
 
 /**
@@ -191,16 +339,28 @@ export function openFormulaEditor(field, resolveField, onChange) {
   const commitDebounced = debounce(() => onChange(deepClone(working)), 350);
 
   const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  overlay.className = "formula-overlay";
+  // Deliberately NOT a full-screen click-catcher: the whole point is
+  // to let the sidebar stay usable (to drag fields in) while this is
+  // open, so it doesn't dim/block the rest of the page and closing is
+  // only ever explicit (the × / Done buttons).
 
   const box = document.createElement("div");
   box.className = "modal-box modal-box--formula";
   box.addEventListener("click", (e) => e.stopPropagation());
 
+  const titleRow = document.createElement("div");
+  titleRow.className = "formula-editor-titlerow";
   const title = document.createElement("h3");
   title.textContent = `Formula for "${field.label || "Field"}"`;
-  box.append(title);
+  const closeX = document.createElement("button");
+  closeX.type = "button";
+  closeX.className = "formula-editor-close";
+  closeX.title = "Close";
+  closeX.textContent = "✕";
+  closeX.addEventListener("click", close);
+  titleRow.append(title, closeX);
+  box.append(titleRow);
 
   const hint = document.createElement("p");
   hint.className = "modal-copy";
@@ -246,10 +406,11 @@ export function openFormulaEditor(field, resolveField, onChange) {
     const wrap = document.createElement("div");
     wrap.className = "formula-leaf";
 
-    const editable = makeEditableField(node.text, resolveField, () => {
-      node.text = serializeEditable(editable);
+    const leafField = makeEditableField(node.text, resolveField, (text) => {
+      node.text = text;
       commitDebounced();
-    });
+    }, validateExpression);
+    const { editable, refreshValidation } = leafField;
 
     const fnRow = document.createElement("div");
     fnRow.className = "formula-toolbar";
@@ -258,13 +419,26 @@ export function openFormulaEditor(field, resolveField, onChange) {
       btn.type = "button";
       btn.className = "btn formula-toolbar__btn";
       btn.textContent = `${name}()`;
+      btn.title = `${name}(${(FUNCTION_PARAMS[name] || []).join(", ")})`;
       btn.addEventListener("click", () => {
-        insertTextAtCaret(editable, `${name}()`, -1);
-        node.text = serializeEditable(editable);
+        insertNodesAtCaret(editable, buildFunctionTemplate(name));
+        node.text = refreshValidation();
         commitDebounced();
       });
       fnRow.append(btn);
     });
+
+    const thisFieldBtn = document.createElement("button");
+    thisFieldBtn.type = "button";
+    thisFieldBtn.className = "btn formula-toolbar__btn";
+    thisFieldBtn.textContent = "This field";
+    thisFieldBtn.title = "Reference this field's own value — see the note below about self-reference";
+    thisFieldBtn.addEventListener("click", () => {
+      insertNodesAtCaret(editable, [makeChip(field, null)]);
+      node.text = refreshValidation();
+      commitDebounced();
+    });
+    fnRow.append(thisFieldBtn);
 
     const addCondBtn = document.createElement("button");
     addCondBtn.type = "button";
@@ -279,7 +453,7 @@ export function openFormulaEditor(field, resolveField, onChange) {
       });
     });
 
-    wrap.append(fnRow, editable, addCondBtn);
+    wrap.append(fnRow, leafField.wrap, addCondBtn);
     return wrap;
   }
 
@@ -291,10 +465,11 @@ export function openFormulaEditor(field, resolveField, onChange) {
     condLabel.textContent = "If";
     wrap.append(condLabel);
 
-    const condEditable = makeEditableField(node.condition, resolveField, () => {
-      node.condition = serializeEditable(condEditable);
+    const condField = makeEditableField(node.condition, resolveField, (text) => {
+      node.condition = text;
       commitDebounced();
-    });
+    }, validateCondition);
+    const { editable: condEditable, refreshValidation: refreshCond } = condField;
 
     const condRow = document.createElement("div");
     condRow.className = "formula-toolbar";
@@ -304,13 +479,13 @@ export function openFormulaEditor(field, resolveField, onChange) {
       btn.className = "btn formula-toolbar__btn";
       btn.textContent = sym.trim();
       btn.addEventListener("click", () => {
-        insertTextAtCaret(condEditable, sym, 0);
-        node.condition = serializeEditable(condEditable);
+        insertNodesAtCaret(condEditable, [document.createTextNode(sym)]);
+        node.condition = refreshCond();
         commitDebounced();
       });
       condRow.append(btn);
     });
-    wrap.append(condRow, condEditable);
+    wrap.append(condRow, condField.wrap);
 
     const removeCondBtn = document.createElement("button");
     removeCondBtn.type = "button";
