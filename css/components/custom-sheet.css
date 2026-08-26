@@ -200,11 +200,20 @@
 
 .grid-node--block {
   padding: var(--space-1);
+  /* Semi-transparent rather than the fully-opaque .grid-node default —
+     a block should still visibly sit on top of the page grid behind
+     it, but not black it out completely. Deliberately not
+     compensated for by giving any of its OWN children their own
+     background (.block-name and .grid-node--field are both plain
+     transparent) — the block is the only thing doing any obscuring
+     here, not "block elements" individually. */
+  background: linear-gradient(160deg, rgba(33,29,24,0.82), rgba(29,26,22,0.82) 60%);
   /* NOT flex — .block-name and .block-body are explicitly positioned
      in JS (customSheet.js) to align exactly with the underlying cell
      grid. Flexbox auto-sizing the name to its own font height (rather
      than a fixed grid-row height) previously caused blocks to render
-     shorter than their actual content needed. */
+     shorter than their actual content, spilling into whatever sat
+     below them. */
 }
 
 .grid-node--field {
@@ -257,7 +266,10 @@
   box-sizing: border-box;
 }
 .block-name:focus {
-  background: var(--color-bg-inset);
+  background: rgba(15, 13, 11, 0.55); /* a translucent tint while
+    actively editing, not a solid fill — see the .grid-node--block
+    comment above about not letting individual elements obscure the
+    grid more than the block itself does */
   white-space: normal; /* let it wrap while actively editing a long name */
 }
 
@@ -335,6 +347,15 @@
   color: var(--color-accent);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+/* Shared by block-name, label-block-text, field-label, and a "label"
+   field's own value — see wireGhostDefault in customSheet.js. Applies
+   only while the element still holds its literal sentinel default
+   text; disappears the instant real content is typed. */
+.is-ghost-default {
+  color: var(--color-text-faint) !important;
+  font-style: italic;
 }
 
 .field-value--label {
@@ -456,14 +477,25 @@
   gap: var(--space-2);
 }
 
-.dropdown-choices-editor__alpha {
-  width: 100%;
+.dropdown-choices-editor__alpha-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
   font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.dropdown-choices-editor__alpha {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 2px var(--space-2);
 }
 .dropdown-choices-editor__alpha.active {
-  background: var(--color-positive);
-  border-color: var(--color-positive);
-  color: #fff;
+  background: var(--color-accent-muted);
+  border-color: var(--color-accent);
+  color: var(--color-text);
 }
 
 .dropdown-choices-editor__list {
@@ -658,7 +690,10 @@
   border-radius: var(--radius-md);
   padding: var(--space-3);
   box-shadow: var(--shadow-lg);
-  z-index: 20;
+  z-index: 60; /* above .resize-handle (5) and even .is-dragging/.is-resizing
+    (50) — a popover anchored off a field (like the dropdown choices
+    editor) should never be tucked behind the parent block's own resize
+    handle poking out at its corner */
   display: flex;
   flex-direction: column;
   gap: var(--space-2);

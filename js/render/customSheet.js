@@ -829,6 +829,11 @@ export function renderCustomSheet(root, character, store) {
           sourceBlockFor(block).name = labelEl.textContent;
         }, { render: false });
       });
+      wireGhostDefault(labelEl, "Text Label", (text) => {
+        commitMutation(() => {
+          sourceBlockFor(block).name = text;
+        }, { render: false });
+      });
       el.append(labelEl);
       applyTextStyleToOwnText(el, viewBlock.style);
       el.append(buildDragHandle());
@@ -862,6 +867,12 @@ export function renderCustomSheet(root, character, store) {
     nameEl.addEventListener("input", () => {
       commitMutation(() => {
         sourceBlockFor(block).name = nameEl.textContent;
+      }, { render: false });
+      renderBlockFrame();
+    });
+    wireGhostDefault(nameEl, "New Block", (text) => {
+      commitMutation(() => {
+        sourceBlockFor(block).name = text;
       }, { render: false });
       renderBlockFrame();
     });
@@ -1008,6 +1019,13 @@ export function renderCustomSheet(root, character, store) {
       renderBlockFrame();
       updateFieldLabelVisibility(field, labelEl);
     });
+    wireGhostDefault(labelEl, "Stat", (text) => {
+      commitMutation(() => {
+        field.label = text;
+      }, { render: false });
+      renderBlockFrame();
+      updateFieldLabelVisibility(field, labelEl);
+    });
     labelEl.addEventListener("pointerdown", (e) => e.stopPropagation());
 
     const valueEl = buildFieldValue(field, () => updateFieldLabelVisibility(field, labelEl));
@@ -1037,6 +1055,38 @@ export function renderCustomSheet(root, character, store) {
     const tmp = document.createElement("div");
     tmp.innerHTML = html;
     return tmp.textContent.trim().length > 0;
+  }
+
+  /** Makes a contentEditable element behave like a placeholder: while
+   *  its content is still exactly the sentinel default text (e.g. a
+   *  fresh field's label is literally the string "Stat"), it's shown
+   *  faded/italic via .is-ghost-default — and focusing it clears the
+   *  visible text immediately, so typing a real name doesn't require
+   *  deleting the default first. Blurring with content that's
+   *  genuinely EMPTY (zero characters) restores the ghost and commits
+   *  the sentinel value back via `commit`; anything else — even just
+   *  a space — counts as a real (if unusual) value and is left alone.
+   *  Uses innerHTML rather than textContent so this also works for
+   *  richly-formatted fields (a plain default string round-trips
+   *  through innerHTML identically to textContent). */
+  function wireGhostDefault(el, defaultText, commit) {
+    function refreshGhostState() {
+      el.classList.toggle("is-ghost-default", el.innerHTML === defaultText);
+    }
+    refreshGhostState();
+    el.addEventListener("focus", () => {
+      if (el.classList.contains("is-ghost-default")) {
+        el.innerHTML = "";
+        el.classList.remove("is-ghost-default");
+      }
+    });
+    el.addEventListener("blur", () => {
+      if (el.textContent.length === 0) {
+        el.innerHTML = defaultText;
+        el.classList.add("is-ghost-default");
+        commit(defaultText);
+      }
+    });
   }
 
   function buildFieldValue(field, onValueChange) {
@@ -1073,6 +1123,11 @@ export function renderCustomSheet(root, character, store) {
       el.addEventListener("input", () => {
         commitMutation(() => {
           field.value = el.innerHTML;
+        }, { render: false });
+      });
+      wireGhostDefault(el, "Label text", (text) => {
+        commitMutation(() => {
+          field.value = text;
         }, { render: false });
       });
       return el;
@@ -1297,10 +1352,17 @@ export function renderCustomSheet(root, character, store) {
       if (select) populateDropdownSelect(select, field);
     }
 
+    const alphaRow = document.createElement("div");
+    alphaRow.className = "dropdown-choices-editor__alpha-row";
+    const alphaLabel = document.createElement("span");
+    alphaLabel.textContent = "Alphabetize";
     const alphaBtn = document.createElement("button");
     alphaBtn.type = "button";
     function paintAlphaBtn() {
-      alphaBtn.textContent = field.autoAlphabetize ? "Auto-Alphabetize: On" : "Auto-Alphabetize: Off";
+      alphaBtn.textContent = field.autoAlphabetize ? "ABC↓" : "ABC?";
+      alphaBtn.title = field.autoAlphabetize
+        ? "Auto-Alphabetize is on — click to turn off"
+        : "Auto-Alphabetize is off — click to turn on";
       alphaBtn.className = "btn dropdown-choices-editor__alpha" + (field.autoAlphabetize ? " active" : "");
     }
     paintAlphaBtn();
@@ -1313,7 +1375,8 @@ export function renderCustomSheet(root, character, store) {
       renderRows();
       refreshFieldSelect();
     });
-    pop.append(alphaBtn);
+    alphaRow.append(alphaLabel, alphaBtn);
+    pop.append(alphaRow);
 
     const list = document.createElement("div");
     list.className = "dropdown-choices-editor__list";
@@ -1545,6 +1608,8 @@ export function renderCustomSheet(root, character, store) {
       e.preventDefault();
       e.stopPropagation();
       el.classList.add("is-dragging");
+      el.focus(); // grabbing something to move it selects it too — same
+        // highlight + Delete/Backspace behavior as clicking it directly
       const before = snapshot();
       const startClientX = e.clientX, startClientY = e.clientY;
       const startX = node.x, startY = node.y;
@@ -1580,6 +1645,7 @@ export function renderCustomSheet(root, character, store) {
       e.preventDefault();
       e.stopPropagation();
       el.classList.add("is-resizing");
+      el.focus(); // same reasoning as wireDrag above
       const before = snapshot();
       const startClientX = e.clientX, startClientY = e.clientY;
       const startW = node.w, startH = node.h;
