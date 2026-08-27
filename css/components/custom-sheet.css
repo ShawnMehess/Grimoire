@@ -365,6 +365,58 @@
   font-size: var(--text-md);
 }
 
+.field-value--picture {
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+  background: var(--color-bg-inset);
+}
+.picture-field-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none; /* clicks go to the wrapper, which opens the file picker */
+}
+.picture-placeholder-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+.picture-avatar-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 4px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 13, 11, 0.6);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: 50%;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.picture-avatar-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+.picture-avatar-btn.active {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+.picture-avatar-btn .person-icon {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
 .field-value--textarea {
   align-items: flex-start;
   text-align: left;
@@ -472,6 +524,7 @@
 }
 
 .dropdown-choices-editor {
+  width: 320px;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -502,7 +555,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 220px;
+  max-height: 360px;
   overflow-y: auto;
 }
 
@@ -545,6 +598,89 @@
   color: var(--color-text);
   padding: 2px var(--space-2);
   font-size: var(--text-sm);
+}
+
+.dropdown-choices-editor__mod-btn.active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* The expandable per-choice bundle editor — indented and left-bordered
+   like formula-branch, so it visually reads as "belonging to" the
+   choice row above it rather than as its own separate list item. */
+.dropdown-choices-editor__mods {
+  margin: 2px 0 6px 16px;
+  padding: var(--space-2) var(--space-3);
+  border-left: var(--border-width) solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dropdown-choices-editor__mods-header {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: var(--space-1);
+}
+.dropdown-choices-editor__mods-header:first-child {
+  margin-top: 0;
+}
+
+.bundle-mod-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.bundle-mod-row select,
+.bundle-mod-row input[type="number"],
+.bundle-mod-row input[type="text"] {
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: 2px 4px;
+  font-size: var(--text-xs);
+  min-width: 0;
+}
+.bundle-mod-row select:first-child,
+.bundle-mod-row input[type="text"] {
+  flex: 1 1 auto;
+}
+.bundle-mod-row input[type="number"] {
+  width: 56px;
+  flex: 0 0 auto;
+}
+
+.bundle-access-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 4px;
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+.bundle-access-rule:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.bundle-access-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  max-height: 120px;
+  overflow-y: auto;
+}
+.bundle-access-checklist label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
 }
 
 .field-value--options {
@@ -724,6 +860,8 @@
   justify-content: space-between;
   gap: var(--space-4);
   width: 100%;
+  height: 34px;
+  box-sizing: border-box;
   white-space: nowrap;
 }
 
@@ -733,15 +871,18 @@
 
 .field-type-option__preview {
   flex: 0 0 auto;
+  width: 48px;
   display: flex;
   align-items: center;
+  justify-content: center; /* centers every preview on one shared axis,
+    regardless of how wide that particular icon naturally is */
   gap: 3px;
   pointer-events: none; /* purely illustrative — never interactive */
 }
 
 .field-type-preview-text {
   display: inline-block;
-  width: 44px;
+  width: 40px;
   height: 14px;
   background: var(--color-bg-inset);
   border: var(--border-width) solid var(--color-border);
@@ -775,7 +916,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
+  width: 40px;
   height: 14px;
   font-family: var(--font-display);
   font-size: 11px;
@@ -784,7 +925,7 @@
 
 .field-type-preview-textarea {
   display: inline-block;
-  width: 36px;
+  width: 40px;
   height: 22px;
   background: var(--color-bg-inset);
   border: var(--border-width) solid var(--color-border);
@@ -795,10 +936,11 @@
   display: inline-flex;
   flex-direction: column;
   gap: 2px;
-  width: 36px;
+  width: 40px;
   height: 22px;
   justify-content: center;
   padding-left: 3px;
+  box-sizing: border-box;
 }
 .field-type-preview-textlist__line {
   display: block;
@@ -812,13 +954,27 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
+  width: 40px;
   height: 14px;
   background: var(--color-bg-inset);
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-sm);
   font-size: 9px;
   color: var(--color-text-muted);
+}
+
+.field-type-preview-picture {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+}
+.field-type-preview-picture .person-icon {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
 }
 
 /* Fixed label column + flexible value column, shared by every row —
@@ -1020,6 +1176,128 @@
 .formula-editor-close:hover {
   color: var(--color-text);
   background: var(--color-bg-inset);
+}
+
+/* --- Bundle library manager ---------------------------------------- */
+
+.modal-box--bundle-library {
+  width: min(640px, 60vw);
+}
+
+.bundle-library-body {
+  display: flex;
+  gap: var(--space-3);
+  min-height: 320px;
+}
+
+.bundle-library-list {
+  flex: 0 0 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  border-right: var(--border-width) solid var(--color-border);
+  padding-right: var(--space-2);
+}
+
+.bundle-library-list__new {
+  margin-bottom: var(--space-2);
+}
+
+.bundle-library-list__group {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: var(--space-2);
+}
+.bundle-library-list__group:first-child {
+  margin-top: 0;
+}
+
+.bundle-library-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  text-align: left;
+  background: transparent;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: 4px var(--space-2);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+.bundle-library-list__item:hover {
+  background: var(--color-bg-inset);
+}
+.bundle-library-list__item.active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-muted);
+}
+.bundle-library-list__scope {
+  font-size: 10px;
+  color: var(--color-text-faint);
+  text-transform: uppercase;
+}
+
+.bundle-library-list__empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  padding: var(--space-2);
+}
+
+.bundle-library-editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-y: auto;
+}
+
+.bundle-library-field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.bundle-library-field-row label {
+  flex: 0 0 70px;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.bundle-library-field-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: 2px var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.bundle-access-rule__label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.bundle-access-rule__input {
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: 2px var(--space-2);
+  font-size: var(--text-xs);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.bundle-library-actions {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: var(--border-width) solid var(--color-border);
 }
 
 .formula-editor-body {

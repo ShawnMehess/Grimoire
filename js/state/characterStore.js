@@ -105,6 +105,8 @@ const auth = initializeAuth(app, {
 const CHARACTERS_COLLECTION = "characters";
 const PUBLIC_TEMPLATES_COLLECTION = "publicSheetTemplates";
 const USER_TEMPLATES_COLLECTION = "userSheetTemplates";
+const PUBLIC_BUNDLES_COLLECTION = "publicBundleLibraries";
+const USER_BUNDLES_COLLECTION = "userBundleLibraries";
 const ADMINS_COLLECTION = "admins";
 
 // --- Auth -----------------------------------------------------------------
@@ -262,4 +264,84 @@ export async function listSheetTemplates() {
     if (a.scope !== b.scope) return a.scope === "global" ? -1 : 1;
     return (a.name || "").localeCompare(b.name || "");
   });
+}
+
+// --- Bundle libraries -------------------------------------------------------
+//
+// A reusable "Elf" or "Fighter" bundle, defined ONCE here rather than
+// hand-built fresh on every character. Deliberately NOT stored in
+// terms of field ids the way an in-character bundle is (see
+// ensureBundle/renderModifiersPanel in customSheet.js) — a library
+// bundle has to work across many different characters' sheets, each
+// with their own field ids, so it references targets by NAME instead
+// ("Strength", not whatever opaque id Strength happens to have on one
+// particular character). Applying a library bundle to a specific
+// character's dropdown choice (see applyBundleLibraryToChoice in
+// customSheet.js) resolves those names against THAT character's
+// fields and copies the result in — a one-time "materialize" step,
+// the same way a sheet TEMPLATE gets applied rather than live-linked.
+// Editing the library after the fact won't retroactively update
+// characters it's already been applied to.
+
+function bundleLibraryPayload(entry, ownerId) {
+  return {
+    ownerId,
+    name: entry.name || "Unnamed Bundle",
+    category: entry.category || "",
+    statModifiers: entry.statModifiers || [],
+    dropdownAccess: entry.dropdownAccess || [],
+    updatedAt: serverTimestamp(),
+  };
+}
+
+export async function listBundleLibraries() {
+  const uid = currentUserId();
+  if (!uid) return [];
+
+  const [globalSnap, personalSnap] = await Promise.all([
+    getDocs(collection(db, PUBLIC_BUNDLES_COLLECTION)),
+    getDocs(collection(db, USER_BUNDLES_COLLECTION, uid, "bundles")),
+  ]);
+
+  const globals = globalSnap.docs.map(d => ({ id: d.id, scope: "global", ...d.data() }));
+  const personal = personalSnap.docs.map(d => ({ id: d.id, scope: "personal", ...d.data() }));
+
+  return [...globals, ...personal].sort((a, b) => {
+    if (a.category !== b.category) return (a.category || "").localeCompare(b.category || "");
+    return (a.name || "").localeCompare(b.name || "");
+  });
+}
+
+/** Creates a new bundle (entry.id omitted) or overwrites an existing
+ *  one (entry.id set) in the requested scope. Global bundles need
+ *  admin rights — same gate the global sheet-template sync uses —
+ *  and both the check and the actual write are enforced again by
+ *  firestore.rules, so this isn't the only thing standing between a
+ *  non-admin and the public collection. */
+export async function saveBundleLibrary(scope, entry) {
+  const uid = currentUserId();
+  if (!uid) throw new Error("Not signed in");
+  if (scope === "global" && !(await isCurrentUserAdmin())) {
+    throw new Error("Only admins can save global bundle libraries");
+  }
+
+  const collectionRef = scope === "global"
+    ? collection(db, PUBLIC_BUNDLES_COLLECTION)
+    : collection(db, USER_BUNDLES_COLLECTION, uid, "bundles");
+  const id = entry.id || doc(collectionRef).id;
+  const ref = scope === "global"
+    ? doc(db, PUBLIC_BUNDLES_COLLECTION, id)
+    : doc(db, USER_BUNDLES_COLLECTION, uid, "bundles", id);
+
+  await setDoc(ref, bundleLibraryPayload(entry, uid));
+  return id;
+}
+
+export async function deleteBundleLibrary(scope, id) {
+  const uid = currentUserId();
+  if (!uid) return;
+  const ref = scope === "global"
+    ? doc(db, PUBLIC_BUNDLES_COLLECTION, id)
+    : doc(db, USER_BUNDLES_COLLECTION, uid, "bundles", id);
+  await deleteDoc(ref);
 }

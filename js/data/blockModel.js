@@ -21,7 +21,7 @@ function newId() {
   return crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export const FIELD_TYPES = ["text", "label", "textarea", "textlist", "dropdown", "radio", "checkbox"];
+export const FIELD_TYPES = ["text", "label", "textarea", "textlist", "dropdown", "picture", "radio", "checkbox"];
 export const LABEL_POSITIONS = ["top", "right", "bottom", "left"];
 
 // A block's declared `h` (in blockModel.js) includes ONE reserved row
@@ -98,6 +98,9 @@ export function createField({ fieldType = "text", label = "Stat", x = 0, y = 0, 
     field.choices = [];
     field.selected = null;
     field.autoAlphabetize = false;
+  } else if (fieldType === "picture") {
+    field.imageData = null;
+    field.isAvatar = false;
   } else if (fieldType === "radio") {
     field.options = 3;
     field.selected = null;

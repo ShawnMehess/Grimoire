@@ -57,8 +57,9 @@
 
 import { createStarterLayout, createBlock, createField, findNode, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS } from "../data/blockModel.js";
 import { contentHeight } from "./gridEngine.js";
-import { computeAllFormulas, formatComputedValue } from "../data/formula.js";
+import { computeAllFormulas, evaluateFormulaNode, formatComputedValue } from "../data/formula.js";
 import { openFormulaEditor } from "./formulaEditor.js";
+import { openBundleLibraryManager } from "./bundleLibraryEditor.js";
 
 const PAGE_COLS = 16;
 const GAP_PX = 8;
@@ -74,13 +75,18 @@ const DEFAULT_FIELD_SIZE = {
   textarea: { w: 3, h: 2 },
   textlist: { w: 3, h: 2 },
   dropdown: { w: 2, h: 1 },
+  picture: { w: 3, h: 3 },
   radio: { w: 1, h: 1 },
   checkbox: { w: 1, h: 1 },
 };
 // Radio/checkbox auto-size via syncOptionWidth (their w/h are derived
 // from option count, not user-resizable); every other field type can
 // be freely resized.
-const RESIZABLE_FIELD_TYPES = new Set(["text", "label", "textarea", "textlist", "dropdown"]);
+const RESIZABLE_FIELD_TYPES = new Set(["text", "label", "textarea", "textlist", "dropdown", "picture"]);
+// Field types with no separate label/value split — just one element
+// filling the whole field (see renderFieldInner).
+const CAPTIONLESS_FIELD_TYPES = new Set(["label", "picture"]);
+const MAX_IMAGE_BYTES = 250_000; // same Firestore-doc-size reasoning as MAX_BG_IMAGE_BYTES below
 
 function debounce(fn, delayMs = 500) {
   let handle;
@@ -104,6 +110,16 @@ export function renderCustomSheet(root, character, store) {
   // id::checkboxIndex) -> current numeric value. Read by buildFieldValue
   // to display a formula field's computed result.
   let formulaValues = {};
+  // Cached list of reusable bundle-library entries (see
+  // bundleLibraryEditor.js) — refreshed on load and whenever the
+  // manager reports a save/delete, so the "Apply from Library" picker
+  // in a choice's Modifiers panel doesn't re-fetch on every render.
+  let bundleLibraryCache = [];
+  async function refreshBundleLibraryCache() {
+    if (!store.listBundleLibraries) return;
+    bundleLibraryCache = await store.listBundleLibraries();
+  }
+  refreshBundleLibraryCache();
 
   root.innerHTML = "";
 
@@ -145,11 +161,24 @@ export function renderCustomSheet(root, character, store) {
   leftGroup.append(modeBtn, undoBtn, redoBtn, addBlockBtn);
   toolbar.append(leftGroup);
 
+  const bundleLibBtn = document.createElement("button");
+  bundleLibBtn.type = "button";
+  bundleLibBtn.className = "btn";
+  bundleLibBtn.textContent = "Bundle Libraries";
+  bundleLibBtn.title = "Manage reusable Race/Class/etc. bundles";
+  bundleLibBtn.addEventListener("click", () => {
+    openBundleLibraryManager(store, refreshBundleLibraryCache);
+  });
+  toolbar.append(bundleLibBtn);
+
   // A plain, non-customizable name field — deliberately outside the
   // draggable/relabelable grid. The character LIST view needs a
   // reliable "this is the name" field, and once everything on the
   // sheet itself can be freely relabeled and rearranged, there's no
-  // way to reconstruct that from the layout alone.
+  // way to reconstruct that from the layout alone. Race/Class/Level
+  // are here for the same reason — the character-selection page shows
+  // them on each card, and needs somewhere guaranteed to find them
+  // regardless of how someone's built their custom layout.
   const nameInput = document.createElement("input");
   nameInput.type = "text";
   nameInput.className = "input-group__control";
@@ -161,6 +190,26 @@ export function renderCustomSheet(root, character, store) {
     saveWithStatus("name", nameInput.value);
   }, 400));
   toolbar.append(nameInput);
+
+  function buildIdentityInput(field, placeholder, { type = "text", maxWidth = "110px" } = {}) {
+    const input = document.createElement("input");
+    input.type = type;
+    input.className = "input-group__control";
+    input.style.maxWidth = maxWidth;
+    input.placeholder = placeholder;
+    input.value = character[field] ?? "";
+    input.addEventListener("input", debounce(() => {
+      const value = type === "number" ? (input.value === "" ? "" : Number(input.value)) : input.value;
+      character[field] = value;
+      saveWithStatus(field, value);
+    }, 400));
+    return input;
+  }
+  toolbar.append(
+    buildIdentityInput("race", "Race"),
+    buildIdentityInput("class", "Class"),
+    buildIdentityInput("level", "Level", { type: "number", maxWidth: "70px" }),
+  );
 
   // Visible save-state feedback — saves happen silently in the
   // background otherwise, which means a failed save (e.g. a
@@ -226,7 +275,8 @@ export function renderCustomSheet(root, character, store) {
   pageGrid.addEventListener("dragover", (e) => {
     if (!editMode) return;
     if (e.dataTransfer.types.includes("application/x-sheet-block") ||
-        e.dataTransfer.types.includes("application/x-sheet-field")) {
+        e.dataTransfer.types.includes("application/x-sheet-field") ||
+        e.dataTransfer.types.includes("Files")) {
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
     }
@@ -235,13 +285,31 @@ export function renderCustomSheet(root, character, store) {
     if (!editMode) return;
     const blockId = e.dataTransfer.getData("application/x-sheet-block");
     const fieldPayload = e.dataTransfer.getData("application/x-sheet-field");
-    if (!blockId && !fieldPayload) return;
+    const imageFile = Array.from(e.dataTransfer.files || []).find((f) => f.type.startsWith("image/"));
+    if (!blockId && !fieldPayload && !imageFile) return;
     e.preventDefault();
 
     const rect = pageGrid.getBoundingClientRect();
     const cw = colWidthPx();
     const x = Math.max(0, Math.round((e.clientX - rect.left) / (cw + GAP_PX)));
     const y = Math.max(0, Math.round((e.clientY - rect.top) / (cw + GAP_PX)));
+
+    // Dropping an image file directly onto empty grid space (not onto
+    // an existing picture field, which handles the drop itself and
+    // stops it from bubbling here) auto-builds a new block just for it.
+    if (imageFile) {
+      readImageFile(imageFile, (dataUrl) => {
+        commitMutation(() => {
+          const size = DEFAULT_FIELD_SIZE.picture;
+          const block = createBlock({ name: "New Block", x, y, w: size.w, h: size.h + BLOCK_HEADER_ROWS });
+          const field = createField({ fieldType: "picture", label: "Stat", x: 0, y: 0, w: size.w, h: size.h });
+          field.imageData = dataUrl;
+          block.children.push(field);
+          currentLayout().push(block);
+        });
+      });
+      return;
+    }
 
     commitMutation(() => {
       if (blockId) {
@@ -442,8 +510,134 @@ export function renderCustomSheet(root, character, store) {
     return list;
   }
 
+  /** Migrates a dropdown's choices from the old plain-string shape to
+   *  { id, text, bundle } objects (needed once bundles exist — a
+   *  choice needs somewhere to hang stat/access modifiers off of) and
+   *  backfills a missing `bundle` on already-migrated choices. Also
+   *  remaps `.selected` from the old text value to the new id, since
+   *  selection is tracked by id from here on (stable across renames,
+   *  same reasoning as everything else keyed by id in this file). */
+  function normalizeChoiceObjects(allFields) {
+    let changed = false;
+    allFields.forEach((field) => {
+      if (field.fieldType !== "dropdown" || !Array.isArray(field.choices)) return;
+      const hadStrings = field.choices.some(c => typeof c === "string");
+      if (hadStrings) {
+        const oldSelectedText = field.selected;
+        field.choices = field.choices.map(c =>
+          typeof c === "string" ? { id: newId(), text: c, bundle: null } : c
+        );
+        if (oldSelectedText) {
+          const match = field.choices.find(c => c.text === oldSelectedText);
+          field.selected = match ? match.id : null;
+        }
+        changed = true;
+      } else {
+        field.choices.forEach((c) => {
+          if (c.bundle === undefined) { c.bundle = null; changed = true; }
+        });
+      }
+    });
+    return changed;
+  }
+
   function resolveFieldById(id) {
     return flattenGlobalFields().find(f => f.id === id) || null;
+  }
+
+  /** Which of `field`'s own choices are currently selectable, given
+   *  every OTHER dropdown's bundle-driven access rules (see the
+   *  "Modifiers" editor on each choice in openDropdownChoicesEditor).
+   *  A choice stays allowed unless some active bundle elsewhere
+   *  explicitly restricts this field and excludes it — multiple
+   *  restrictions intersect, they don't override each other. */
+  function getAllowedChoiceIds(field, allFields) {
+    let allowed = new Set((field.choices || []).map(c => c.id));
+    allFields.forEach((other) => {
+      if (other.fieldType !== "dropdown" || other === field) return;
+      const choice = (other.choices || []).find(c => c.id === other.selected);
+      const bundle = choice && choice.bundle;
+      if (!bundle) return;
+      (bundle.dropdownAccess || []).forEach((rule) => {
+        if (rule.targetFieldId !== field.id) return;
+        const ruleSet = new Set(rule.allowedChoiceIds || []);
+        allowed = new Set([...allowed].filter(id => ruleSet.has(id)));
+      });
+    });
+    return allowed;
+  }
+
+  /** Run once per render, before anything reads .selected: if some
+   *  OTHER dropdown's bundle rule (or a straight-up removed choice)
+   *  invalidated a field's current selection, clear it rather than
+   *  silently keep showing/using a value that's no longer a real
+   *  option — e.g. changing Class away from Wizard should drop a
+   *  Subclass selection that only made sense for Wizard. Returns
+   *  whether anything actually changed, so the caller knows whether
+   *  to persist the correction. */
+  function normalizeDropdownSelections(allFields) {
+    let changed = false;
+    allFields.forEach((field) => {
+      if (field.fieldType !== "dropdown" || !field.selected) return;
+      if (!getAllowedChoiceIds(field, allFields).has(field.selected)) {
+        field.selected = null;
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
+  /** Applies every active bundle's stat modifiers on top of the plain
+   *  formula results — "active" meaning: this dropdown field's
+   *  currently SELECTED choice has a bundle with modifiers attached
+   *  (see the per-choice "Modifiers" editor). Modifiers apply in
+   *  field order, each building on whatever came before — if two
+   *  different selected choices both touch the same target field,
+   *  order genuinely matters (a flat +2 vs. a ×1.5 gives a different
+   *  result depending which runs first).
+   *
+   *  KNOWN LIMITATION: computeSheetValues() re-runs formulas AFTER
+   *  this, so a modifier targeting an already-FORMULA-driven field
+   *  gets overwritten by that field's own formula and won't stick.
+   *  That's actually the right behavior for the common case — a race
+   *  bonus modifying a plainly-typed ability score, which other
+   *  formulas then read off of — just not for a modifier aimed at a
+   *  field that's itself computed. */
+  function applyBundleModifiers(fields, valueMap) {
+    fields.forEach((field) => {
+      if (field.fieldType !== "dropdown") return;
+      const choice = (field.choices || []).find(c => c.id === field.selected);
+      const bundle = choice && choice.bundle;
+      if (!bundle) return;
+      (bundle.statModifiers || []).forEach((mod) => {
+        if (!mod.targetFieldId) return;
+        const current = Number.isFinite(valueMap[mod.targetFieldId]) ? valueMap[mod.targetFieldId] : 0;
+        const amount = Number.isFinite(mod.value) ? mod.value : 0;
+        switch (mod.op) {
+          case "add": valueMap[mod.targetFieldId] = current + amount; break;
+          case "subtract": valueMap[mod.targetFieldId] = current - amount; break;
+          case "multiply": valueMap[mod.targetFieldId] = current * amount; break;
+          case "set": valueMap[mod.targetFieldId] = amount; break;
+          default: break;
+        }
+      });
+    });
+  }
+
+  function computeSheetValues(fields) {
+    const valueMap = computeAllFormulas(fields);
+    applyBundleModifiers(fields, valueMap);
+    // One more settle pass so anything a bundle modifier just changed
+    // (e.g. a race bonus on Strength) flows through to formulas that
+    // reference it (e.g. a Strength-based skill).
+    const formulaFields = fields.filter(f => f.fieldType === "text" && f.formula);
+    for (let pass = 0; pass < 3; pass++) {
+      formulaFields.forEach((f) => {
+        const result = evaluateFormulaNode(f.formula, valueMap);
+        if (Number.isFinite(result)) valueMap[f.id] = result;
+      });
+    }
+    return valueMap;
   }
 
   function sourceBlockFor(block) {
@@ -587,7 +781,12 @@ export function renderCustomSheet(root, character, store) {
   function renderPageGrid() {
     pageGrid.innerHTML = "";
     pageGrid.classList.toggle("is-edit-mode", editMode);
-    formulaValues = computeAllFormulas(flattenGlobalFields());
+    const allFields = flattenGlobalFields();
+    let needsNormalizedPersist = false;
+    if (normalizeChoiceObjects(allFields)) needsNormalizedPersist = true;
+    if (normalizeDropdownSelections(allFields)) needsNormalizedPersist = true;
+    if (needsNormalizedPersist) persist();
+    formulaValues = computeSheetValues(allFields);
     const cw = colWidthPx();
     const availableHeight = availableViewportHeight();
     scrollWrapper.style.height = `${availableHeight}px`;
@@ -999,9 +1198,9 @@ export function renderCustomSheet(root, character, store) {
     const inner = document.createElement("div");
     inner.className = `field-inner field-inner--${field.labelPosition}`;
 
-    // A "label" field is just plain text — no separate caption/value
-    // split, so it doesn't get a .field-label at all.
-    if (field.fieldType === "label") {
+    // "label" and "picture" fields are just one element filling the
+    // whole box — no separate caption/value split.
+    if (CAPTIONLESS_FIELD_TYPES.has(field.fieldType)) {
       const valueEl = buildFieldValue(field, () => {});
       inner.append(valueEl);
       fieldEl.prepend(inner);
@@ -1155,6 +1354,10 @@ export function renderCustomSheet(root, character, store) {
       return buildDropdownValue(field);
     }
 
+    if (field.fieldType === "picture") {
+      return buildPictureValue(field);
+    }
+
     const el = document.createElement("div");
     el.className = "field-value field-value--options";
     el.style.gridTemplateColumns = `repeat(${Math.max(1, field.options || 1)}, minmax(0, 1fr))`;
@@ -1298,19 +1501,25 @@ export function renderCustomSheet(root, character, store) {
   }
 
   /** The on-sheet control for a "dropdown" field is just a native
-   *  <select> — list management (add/remove/reorder/alphabetize)
-   *  lives in a separate popover (openDropdownChoicesEditor) opened
-   *  from the field's toolbar, the same way style editing does, so
-   *  the sheet itself always shows a normal-looking dropdown. */
+   *  <select> — list management (add/remove/reorder/alphabetize, plus
+   *  each choice's optional stat/access "bundle") lives in a separate
+   *  popover (openDropdownChoicesEditor) opened from the field's
+   *  toolbar, the same way style editing does, so the sheet itself
+   *  always shows a normal-looking dropdown. */
   function buildDropdownValue(field) {
     const select = document.createElement("select");
     select.className = "field-value field-value--dropdown";
     select.addEventListener("pointerdown", (e) => e.stopPropagation());
     populateDropdownSelect(select, field);
     select.addEventListener("change", () => {
+      // A full (not {render:false}) commit here on purpose: picking a
+      // Class/Race/etc. can change another dropdown's available
+      // choices (bundle dropdown-access rules) and other fields'
+      // computed values (bundle stat modifiers) — both need the
+      // normal full render to actually show up.
       commitMutation(() => {
         field.selected = select.value || null;
-      }, { render: false });
+      });
     });
     return select;
   }
@@ -1321,22 +1530,226 @@ export function renderCustomSheet(root, character, store) {
     blank.value = "";
     blank.textContent = "—";
     select.append(blank);
+    const allowed = getAllowedChoiceIds(field, flattenGlobalFields());
     (field.choices || []).forEach((choice) => {
+      if (!allowed.has(choice.id)) return;
       const opt = document.createElement("option");
-      opt.value = choice;
-      opt.textContent = choice;
+      opt.value = choice.id;
+      opt.textContent = choice.text;
       select.append(opt);
     });
     select.value = field.selected || "";
+  }
+
+  /** Reads a File as a data URL, with the same "this might not fit in
+   *  a single Firestore document" warning the block-background image
+   *  upload already gives. */
+  function readImageFile(file, onLoaded) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (reader.result.length > MAX_IMAGE_BYTES) {
+        window.alert(
+          "That image is large enough that it (plus the rest of this character) may not fit in a single Firestore document (1MB limit). It'll be applied, but saving might fail — try a smaller image if so."
+        );
+      }
+      onLoaded(reader.result);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  /** A simple filled "person" glyph — used both for the avatar toggle
+   *  button and (larger) as the generic placeholder when a picture
+   *  field has no image yet. Built as inline SVG rather than an emoji
+   *  so it renders identically everywhere instead of depending on the
+   *  OS/browser's emoji font. */
+  function personIconSvgMarkup() {
+    return `<svg viewBox="0 0 24 24" class="person-icon" aria-hidden="true">
+      <circle cx="12" cy="8" r="4.2"/>
+      <path d="M4 21c0-4.8 3.6-8.6 8-8.6s8 3.8 8 8.6z"/>
+    </svg>`;
+  }
+
+  function buildAvatarPlaceholderSvg() {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("preserveAspectRatio", "xMidYMid slice");
+    svg.classList.add("picture-placeholder-svg");
+    svg.innerHTML = `
+      <rect width="24" height="24" fill="#2a2520"/>
+      <circle cx="12" cy="9.5" r="4" fill="#4a4038"/>
+      <path d="M12 14.6c-4.8 0-8.2 3.2-8.2 7.7v1.7h16.4v-1.7c0-4.5-3.4-7.7-8.2-7.7z" fill="#4a4038"/>
+    `;
+    return svg;
+  }
+
+  /** Clears isAvatar on every OTHER picture field across every tab —
+   *  only one field on the whole character can be "the" avatar shown
+   *  on the character-selection page. Caller is responsible for
+   *  setting the one it actually wants afterward (or leaving all of
+   *  them false, to unset entirely). */
+  function clearOtherAvatars(exceptField) {
+    character.sheetTabs.forEach((tab) => {
+      (tab.layout || []).forEach((b) => {
+        (b.children || []).forEach((f) => {
+          if (f.fieldType === "picture" && f !== exceptField) f.isAvatar = false;
+        });
+      });
+    });
+  }
+
+  /** A "picture" field: shows the image if one's been set, or a
+   *  generic placeholder silhouette otherwise. Click it (or drag an
+   *  image file onto it) to set/replace the image. The small avatar
+   *  button in the corner marks this as the character's portrait for
+   *  the character-selection page (see findAvatarImageData in
+   *  characterStore-adjacent code / main.js — only one field across
+   *  the whole character can hold that flag at a time). */
+  function buildPictureValue(field) {
+    const wrap = document.createElement("div");
+    wrap.className = "field-value field-value--picture";
+    wrap.addEventListener("pointerdown", (e) => e.stopPropagation());
+
+    if (field.imageData) {
+      const img = document.createElement("img");
+      img.className = "picture-field-image";
+      img.src = field.imageData;
+      img.draggable = false;
+      img.alt = field.label || "Portrait";
+      wrap.append(img);
+    } else {
+      wrap.append(buildAvatarPlaceholderSvg());
+    }
+
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = "image/*";
+    fileInput.hidden = true;
+    fileInput.addEventListener("pointerdown", (e) => e.stopPropagation());
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      readImageFile(file, (dataUrl) => {
+        commitMutation(() => {
+          field.imageData = dataUrl;
+        });
+      });
+    });
+    wrap.append(fileInput);
+
+    wrap.addEventListener("click", (e) => {
+      if (e.target.closest(".picture-avatar-btn")) return;
+      fileInput.click();
+    });
+    wrap.addEventListener("dragover", (e) => {
+      if (e.dataTransfer.types.includes("Files")) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }
+    });
+    wrap.addEventListener("drop", (e) => {
+      const file = Array.from(e.dataTransfer.files || []).find((f) => f.type.startsWith("image/"));
+      if (!file) return;
+      e.preventDefault();
+      e.stopPropagation(); // this field is handling it — don't let the
+        // page-grid's own "drop an image to create a new picture
+        // block" handler also fire for the same drop
+      readImageFile(file, (dataUrl) => {
+        commitMutation(() => {
+          field.imageData = dataUrl;
+        });
+      });
+    });
+
+    const avatarBtn = document.createElement("button");
+    avatarBtn.type = "button";
+    avatarBtn.className = "picture-avatar-btn" + (field.isAvatar ? " active" : "");
+    avatarBtn.title = "Set as Avatar";
+    avatarBtn.innerHTML = personIconSvgMarkup();
+    avatarBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+    avatarBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const makingAvatar = !field.isAvatar;
+      commitMutation(() => {
+        clearOtherAvatars(field);
+        field.isAvatar = makingAvatar;
+      });
+    });
+    wrap.append(avatarBtn);
+
+    return wrap;
   }
 
   /** Popover for managing a dropdown field's choice list: add, remove,
    *  drag to reorder, and an Auto-Alphabetize toggle that keeps the
    *  list sorted (and disables manual dragging, since a fixed order
    *  would just get overwritten by the next sort). */
+  const MODIFIER_OPS = [
+    { value: "add", label: "+" },
+    { value: "subtract", label: "−" },
+    { value: "multiply", label: "×" },
+    { value: "set", label: "=" },
+  ];
+
+  function ensureBundle(choice) {
+    if (!choice.bundle) choice.bundle = { statModifiers: [], dropdownAccess: [] };
+    if (!choice.bundle.statModifiers) choice.bundle.statModifiers = [];
+    if (!choice.bundle.dropdownAccess) choice.bundle.dropdownAccess = [];
+    return choice.bundle;
+  }
+
+  function bundleIsEmpty(bundle) {
+    return !bundle || ((bundle.statModifiers || []).length === 0 && (bundle.dropdownAccess || []).length === 0);
+  }
+
+  /** Materializes a reusable library bundle (see bundleLibraryEditor.js
+   *  — names only, no field ids) onto one specific choice, resolving
+   *  each name against THIS character's actual fields. A name that
+   *  doesn't match anything still gets added (with a null target) so
+   *  it's visibly there to fix by hand, rather than silently dropped —
+   *  e.g. because this character's sheet spells a stat differently.
+   *  Adds on top of whatever's already in the choice's bundle; doesn't
+   *  replace it, so applying a library bundle is a safe starting point
+   *  even if you've already hand-tweaked something here. */
+  function applyBundleLibraryToChoice(libraryEntry, choice, allFields) {
+    const bundle = ensureBundle(choice);
+    const norm = (s) => (s || "").trim().toLowerCase();
+
+    (libraryEntry.statModifiers || []).forEach((mod) => {
+      const match = allFields.find(f => f.fieldType === "text" && norm(f.label) === norm(mod.targetFieldName));
+      bundle.statModifiers.push({
+        id: newId(),
+        targetFieldId: match ? match.id : null,
+        op: mod.op,
+        value: mod.value,
+      });
+    });
+
+    (libraryEntry.dropdownAccess || []).forEach((rule) => {
+      const targetField = allFields.find(f => f.fieldType === "dropdown" && norm(f.label) === norm(rule.targetFieldName));
+      let allowedChoiceIds = [];
+      if (targetField) {
+        const wanted = new Set((rule.allowedChoiceNames || []).map(norm));
+        allowedChoiceIds = (targetField.choices || [])
+          .filter(c => wanted.has(norm(c.text)))
+          .map(c => c.id);
+      }
+      bundle.dropdownAccess.push({
+        id: newId(),
+        targetFieldId: targetField ? targetField.id : null,
+        allowedChoiceIds,
+      });
+    });
+  }
+
   function openDropdownChoicesEditor(field, wrapperEl) {
     closeOpenPopovers();
     if (!field.choices) field.choices = [];
+    // Set of choice ids whose "Modifiers" accordion is currently open —
+    // survives renderRows() re-renders within this popover session, but
+    // (like the rest of this popover's edits) is lost if a structural
+    // edit closes the whole thing. See the file-level note on why
+    // structural bundle edits do a full render rather than {render:false}.
+    const expanded = new Set();
 
     const pop = document.createElement("div");
     pop.className = "style-popover dropdown-choices-editor";
@@ -1369,7 +1782,7 @@ export function renderCustomSheet(root, character, store) {
     alphaBtn.addEventListener("click", () => {
       commitMutation(() => {
         field.autoAlphabetize = !field.autoAlphabetize;
-        if (field.autoAlphabetize) field.choices.sort((a, b) => a.localeCompare(b));
+        if (field.autoAlphabetize) field.choices.sort((a, b) => a.text.localeCompare(b.text));
       }, { render: false });
       paintAlphaBtn();
       renderRows();
@@ -1382,7 +1795,19 @@ export function renderCustomSheet(root, character, store) {
     list.className = "dropdown-choices-editor__list";
     pop.append(list);
 
-    let dragFromIndex = null;
+    /** Every edit in this whole popover — including the bundle editor
+     *  below — uses {render:false} and refreshes just this popover's
+     *  own DOM (renderRows/refreshFieldSelect) rather than a full
+     *  page render, so a multi-step edit (configuring several stat
+     *  modifiers, checking a dozen allowed-choice boxes) doesn't get
+     *  interrupted or lose its accordion state along the way. The
+     *  sheet-wide effects (another dropdown's options changing, a
+     *  modified stat's displayed value) catch up in one full render
+     *  when this popover actually closes — see the document-level
+     *  pointerdown listener further down this file. */
+    function commitLocal(mutator) {
+      commitMutation(mutator, { render: false });
+    }
 
     function renderRows() {
       list.innerHTML = "";
@@ -1403,10 +1828,10 @@ export function renderCustomSheet(root, character, store) {
         row.addEventListener("drop", (e) => {
           if (field.autoAlphabetize || dragFromIndex === null || dragFromIndex === index) return;
           e.preventDefault();
-          commitMutation(() => {
+          commitLocal(() => {
             const [moved] = field.choices.splice(dragFromIndex, 1);
             field.choices.splice(index, 0, moved);
-          }, { render: false });
+          });
           renderRows();
           refreshFieldSelect();
         });
@@ -1418,16 +1843,23 @@ export function renderCustomSheet(root, character, store) {
         const textEl = document.createElement("div");
         textEl.className = "dropdown-choices-editor__text";
         textEl.contentEditable = "true";
-        textEl.textContent = choice;
+        textEl.textContent = choice.text;
         textEl.addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
         textEl.addEventListener("input", () => {
-          const wasSelected = field.selected === choice;
-          commitMutation(() => {
-            field.choices[index] = textEl.textContent;
-            if (wasSelected) field.selected = textEl.textContent;
-          }, { render: false });
-          choice = textEl.textContent;
+          commitLocal(() => { choice.text = textEl.textContent; });
           refreshFieldSelect();
+        });
+
+        const modBtn = document.createElement("button");
+        modBtn.type = "button";
+        modBtn.className = "btn formula-toolbar__btn dropdown-choices-editor__mod-btn" +
+          (!bundleIsEmpty(choice.bundle) ? " active" : "");
+        modBtn.title = "Stat modifiers & dropdown access for this choice";
+        modBtn.textContent = "⚙";
+        modBtn.addEventListener("click", () => {
+          if (expanded.has(choice.id)) expanded.delete(choice.id);
+          else expanded.add(choice.id);
+          renderRows();
         });
 
         const removeBtn = document.createElement("button");
@@ -1435,16 +1867,20 @@ export function renderCustomSheet(root, character, store) {
         removeBtn.className = "btn formula-toolbar__btn";
         removeBtn.textContent = "✕";
         removeBtn.addEventListener("click", () => {
-          commitMutation(() => {
-            if (field.selected === field.choices[index]) field.selected = null;
+          commitLocal(() => {
+            if (field.selected === choice.id) field.selected = null;
             field.choices.splice(index, 1);
-          }, { render: false });
+          });
           renderRows();
           refreshFieldSelect();
         });
 
-        row.append(handle, textEl, removeBtn);
+        row.append(handle, textEl, modBtn, removeBtn);
         list.append(row);
+
+        if (expanded.has(choice.id)) {
+          list.append(renderModifiersPanel(field, choice, commitLocal, renderRows));
+        }
       });
     }
     renderRows();
@@ -1461,10 +1897,10 @@ export function renderCustomSheet(root, character, store) {
     function addChoice() {
       const text = addInput.value.trim();
       if (!text) return;
-      commitMutation(() => {
-        field.choices.push(text);
-        if (field.autoAlphabetize) field.choices.sort((a, b) => a.localeCompare(b));
-      }, { render: false });
+      commitLocal(() => {
+        field.choices.push({ id: newId(), text, bundle: null });
+        if (field.autoAlphabetize) field.choices.sort((a, b) => a.text.localeCompare(b.text));
+      });
       addInput.value = "";
       renderRows();
       refreshFieldSelect();
@@ -1480,13 +1916,229 @@ export function renderCustomSheet(root, character, store) {
     toolbarWithOpenPopup = wrapperEl.querySelector(".node-toolbar");
   }
 
+  /** The expandable per-choice panel behind the ⚙ button: stat
+   *  modifiers (this choice adds/subtracts/sets/multiplies some OTHER
+   *  field's value) and dropdown-access rules (this choice restricts
+   *  which choices some OTHER dropdown offers) — together, "a bundle"
+   *  in the sense of a race/class/background entry bundling together
+   *  everything it grants or restricts. `field` is the dropdown this
+   *  choice belongs to (so it can exclude itself from the "restrict
+   *  which OTHER dropdown" target list). `commitLocal` and
+   *  `refreshPanel` are passed in from the caller so edits here share
+   *  the same {render:false}-plus-local-refresh approach as the rest
+   *  of this popover (refreshPanel is just the outer renderRows —
+   *  calling it rebuilds this panel along with everything else). */
+  function renderModifiersPanel(field, choice, commitLocal, refreshPanel) {
+    const bundle = ensureBundle(choice);
+    const panel = document.createElement("div");
+    panel.className = "dropdown-choices-editor__mods";
+
+    const textFields = flattenGlobalFields().filter(f => f.fieldType === "text");
+    // Excludes this same field — a dropdown restricting its own
+    // choices based on its own current selection doesn't make sense.
+    const dropdownFields = flattenGlobalFields().filter(f => f.fieldType === "dropdown" && f.id !== field.id);
+
+    // --- Apply from Library ---
+    const libraryHeader = document.createElement("div");
+    libraryHeader.className = "dropdown-choices-editor__mods-header";
+    libraryHeader.textContent = "Apply from Library";
+    panel.append(libraryHeader);
+
+    const libraryRow = document.createElement("div");
+    libraryRow.className = "bundle-mod-row";
+    const librarySelect = document.createElement("select");
+    const blankLibOpt = document.createElement("option");
+    blankLibOpt.value = "";
+    blankLibOpt.textContent = bundleLibraryCache.length ? "Choose a bundle…" : "No bundles saved yet";
+    librarySelect.append(blankLibOpt);
+    bundleLibraryCache.forEach((lib) => {
+      const opt = document.createElement("option");
+      opt.value = lib.id;
+      opt.textContent = lib.category ? `${lib.name} (${lib.category})` : lib.name;
+      librarySelect.append(opt);
+    });
+    const applyLibBtn = document.createElement("button");
+    applyLibBtn.type = "button";
+    applyLibBtn.className = "btn formula-toolbar__btn";
+    applyLibBtn.textContent = "+ Apply";
+    applyLibBtn.title = "Adds this bundle's rules on top of whatever's already here — it doesn't replace them";
+    applyLibBtn.addEventListener("click", () => {
+      const lib = bundleLibraryCache.find(l => l.id === librarySelect.value);
+      if (!lib) return;
+      commitLocal(() => {
+        applyBundleLibraryToChoice(lib, choice, flattenGlobalFields());
+      });
+      refreshPanel();
+    });
+    libraryRow.append(librarySelect, applyLibBtn);
+    panel.append(libraryRow);
+
+    // --- Stat modifiers ---
+    const statHeader = document.createElement("div");
+    statHeader.className = "dropdown-choices-editor__mods-header";
+    statHeader.textContent = "Stat Modifiers";
+    panel.append(statHeader);
+
+    bundle.statModifiers.forEach((mod, i) => {
+      const row = document.createElement("div");
+      row.className = "bundle-mod-row";
+
+      const targetSelect = document.createElement("select");
+      const blankOpt = document.createElement("option");
+      blankOpt.value = "";
+      blankOpt.textContent = "Choose a stat…";
+      targetSelect.append(blankOpt);
+      textFields.forEach((f) => {
+        const opt = document.createElement("option");
+        opt.value = f.id;
+        opt.textContent = f.label || "Stat";
+        if (f.id === mod.targetFieldId) opt.selected = true;
+        targetSelect.append(opt);
+      });
+      targetSelect.addEventListener("change", () => {
+        commitLocal(() => { mod.targetFieldId = targetSelect.value || null; });
+      });
+
+      const opSelect = document.createElement("select");
+      MODIFIER_OPS.forEach(({ value, label }) => {
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = label;
+        if (value === mod.op) opt.selected = true;
+        opSelect.append(opt);
+      });
+      opSelect.addEventListener("change", () => {
+        commitLocal(() => { mod.op = opSelect.value; });
+      });
+
+      const valueInput = document.createElement("input");
+      valueInput.type = "number";
+      valueInput.value = Number.isFinite(mod.value) ? mod.value : 0;
+      valueInput.addEventListener("input", () => {
+        commitLocal(() => { mod.value = Number(valueInput.value) || 0; });
+      });
+
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "btn formula-toolbar__btn";
+      removeBtn.textContent = "✕";
+      removeBtn.addEventListener("click", () => {
+        commitLocal(() => { bundle.statModifiers.splice(i, 1); });
+        refreshPanel();
+      });
+
+      row.append(targetSelect, opSelect, valueInput, removeBtn);
+      panel.append(row);
+    });
+
+    const addModBtn = document.createElement("button");
+    addModBtn.type = "button";
+    addModBtn.className = "btn formula-toolbar__btn";
+    addModBtn.textContent = "+ Add Modifier";
+    addModBtn.addEventListener("click", () => {
+      commitLocal(() => {
+        bundle.statModifiers.push({ id: newId(), targetFieldId: null, op: "add", value: 0 });
+      });
+      refreshPanel();
+    });
+    panel.append(addModBtn);
+
+    // --- Dropdown access ---
+    const accessHeader = document.createElement("div");
+    accessHeader.className = "dropdown-choices-editor__mods-header";
+    accessHeader.textContent = "Dropdown Access";
+    panel.append(accessHeader);
+
+    bundle.dropdownAccess.forEach((rule, i) => {
+      const ruleWrap = document.createElement("div");
+      ruleWrap.className = "bundle-access-rule";
+
+      const targetRow = document.createElement("div");
+      targetRow.className = "bundle-mod-row";
+      const targetSelect = document.createElement("select");
+      const blankOpt = document.createElement("option");
+      blankOpt.value = "";
+      blankOpt.textContent = "Choose a dropdown…";
+      targetSelect.append(blankOpt);
+      dropdownFields.forEach((f) => {
+        const opt = document.createElement("option");
+        opt.value = f.id;
+        opt.textContent = f.label || "Dropdown";
+        if (f.id === rule.targetFieldId) opt.selected = true;
+        targetSelect.append(opt);
+      });
+      targetSelect.addEventListener("change", () => {
+        commitLocal(() => {
+          rule.targetFieldId = targetSelect.value || null;
+          rule.allowedChoiceIds = [];
+        });
+        refreshPanel();
+      });
+      const removeRuleBtn = document.createElement("button");
+      removeRuleBtn.type = "button";
+      removeRuleBtn.className = "btn formula-toolbar__btn";
+      removeRuleBtn.textContent = "✕";
+      removeRuleBtn.addEventListener("click", () => {
+        commitLocal(() => { bundle.dropdownAccess.splice(i, 1); });
+        refreshPanel();
+      });
+      targetRow.append(targetSelect, removeRuleBtn);
+      ruleWrap.append(targetRow);
+
+      const targetField = dropdownFields.find(f => f.id === rule.targetFieldId);
+      if (targetField) {
+        const checklist = document.createElement("div");
+        checklist.className = "bundle-access-checklist";
+        (targetField.choices || []).forEach((targetChoice) => {
+          const label = document.createElement("label");
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.checked = (rule.allowedChoiceIds || []).includes(targetChoice.id);
+          checkbox.addEventListener("change", () => {
+            commitLocal(() => {
+              const set = new Set(rule.allowedChoiceIds || []);
+              if (checkbox.checked) set.add(targetChoice.id);
+              else set.delete(targetChoice.id);
+              rule.allowedChoiceIds = [...set];
+            });
+          });
+          label.append(checkbox, document.createTextNode(" " + targetChoice.text));
+          checklist.append(label);
+        });
+        ruleWrap.append(checklist);
+      }
+
+      panel.append(ruleWrap);
+    });
+
+    const addAccessBtn = document.createElement("button");
+    addAccessBtn.type = "button";
+    addAccessBtn.className = "btn formula-toolbar__btn";
+    addAccessBtn.textContent = "+ Add Dropdown Rule";
+    addAccessBtn.addEventListener("click", () => {
+      commitLocal(() => {
+        bundle.dropdownAccess.push({ id: newId(), targetFieldId: null, allowedChoiceIds: [] });
+      });
+      refreshPanel();
+    });
+    panel.append(addAccessBtn);
+
+    return panel;
+  }
+
   function buildFieldToolbar(field, parentBlock, wrapperEl) {
     const bar = document.createElement("div");
     bar.className = "node-toolbar";
 
-    bar.append(buildStyleButton(field, wrapperEl));
+    // A picture has nothing text-stylable about it (no font/color/bg
+    // to set — its own image IS its content), so skip the style
+    // button entirely rather than showing a popover of controls that
+    // don't apply to it.
+    if (field.fieldType !== "picture") {
+      bar.append(buildStyleButton(field, wrapperEl));
+    }
 
-    if (field.fieldType !== "label") {
+    if (!CAPTIONLESS_FIELD_TYPES.has(field.fieldType)) {
       const cycleLabelBtn = document.createElement("button");
       cycleLabelBtn.type = "button";
       cycleLabelBtn.title = "Move label";
@@ -1706,7 +2358,14 @@ export function renderCustomSheet(root, character, store) {
   }
   document.addEventListener("pointerdown", (e) => {
     if (!e.target.closest(".style-popover, .field-type-menu, .node-toolbar button")) {
+      const hadPopover = !!document.querySelector(".style-popover, .field-type-menu");
       closeOpenPopovers();
+      // A dropdown's bundle editor makes all its edits with
+      // {render:false} (so it doesn't lose its place mid-edit — see
+      // openDropdownChoicesEditor) — catch up here, once, on whatever
+      // popover the person just clicked away from, so a race/class
+      // bonus or a newly-restricted dropdown actually shows up.
+      if (hadPopover) renderPageGrid();
     }
   });
 
@@ -2023,14 +2682,15 @@ export function renderCustomSheet(root, character, store) {
     menu.addEventListener("pointerdown", (e) => e.stopPropagation());
 
     const OPTIONS = [
-      { type: "text", label: "Text", preview: buildTextPreview },
+      { type: "checkbox", label: "Checkbox", preview: () => buildOptionPreview("checkbox", 1) },
+      { type: "dropdown", label: "Dropdown", preview: buildDropdownPreview },
       { type: "label", label: "Label", preview: buildLabelPreview },
+      { type: "picture", label: "Picture", preview: buildPicturePreview },
+      { type: "radio", label: "Radio Buttons", preview: () => buildOptionPreview("radio", 3) },
+      { type: "text", label: "Num Field", preview: buildTextPreview },
       { type: "textarea", label: "Text Area", preview: buildTextareaPreview },
       { type: "textlist", label: "Text List", preview: buildTextlistPreview },
-      { type: "dropdown", label: "Dropdown", preview: buildDropdownPreview },
-      { type: "radio", label: "Radio Buttons", preview: () => buildOptionPreview("radio", 3) },
-      { type: "checkbox", label: "Checkbox", preview: () => buildOptionPreview("checkbox", 1) },
-    ];
+    ].sort((a, b) => a.label.localeCompare(b.label));
 
     OPTIONS.forEach(({ type, label, preview }) => {
       const btn = document.createElement("button");
@@ -2097,6 +2757,13 @@ export function renderCustomSheet(root, character, store) {
     const el = document.createElement("span");
     el.className = "field-type-preview-dropdown";
     el.textContent = "▾";
+    return el;
+  }
+
+  function buildPicturePreview() {
+    const el = document.createElement("span");
+    el.className = "field-type-preview-picture";
+    el.innerHTML = personIconSvgMarkup();
     return el;
   }
 

@@ -59,6 +59,42 @@ onAuthChange(async (user) => {
   await renderCharacterList();
 });
 
+/** Same placeholder graphic as a picture field's own empty state (see
+ *  buildAvatarPlaceholderSvg in customSheet.js) — duplicated rather
+ *  than imported since it's a few lines of inline SVG and pulling in
+ *  all of customSheet.js here just for this would be overkill. */
+function buildPlaceholderPortraitSvg() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("preserveAspectRatio", "xMidYMid slice");
+  svg.innerHTML = `
+    <rect width="24" height="24" fill="#2a2520"/>
+    <circle cx="12" cy="9.5" r="4" fill="#4a4038"/>
+    <path d="M12 14.6c-4.8 0-8.2 3.2-8.2 7.7v1.7h16.4v-1.7c0-4.5-3.4-7.7-8.2-7.7z" fill="#4a4038"/>
+  `;
+  return svg;
+}
+
+/** Looks across every tab (or the legacy flat .layout, for characters
+ *  saved before tabs existed) for a picture field flagged as the
+ *  avatar — see the "Set as Avatar" button in customSheet.js. Only
+ *  ever one such field per character. */
+function findAvatarImageData(character) {
+  const tabs = Array.isArray(character.sheetTabs) && character.sheetTabs.length > 0
+    ? character.sheetTabs
+    : [{ layout: Array.isArray(character.layout) ? character.layout : [] }];
+  for (const tab of tabs) {
+    for (const block of (tab.layout || [])) {
+      for (const field of (block.children || [])) {
+        if (field.fieldType === "picture" && field.isAvatar && field.imageData) {
+          return field.imageData;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 async function renderCharacterList() {
   backBtn.style.display = "none";
   appRoot.innerHTML = "";
@@ -76,25 +112,29 @@ async function renderCharacterList() {
 
   const characters = await listMyCharacters();
   const list = document.createElement("div");
-  list.className = "card-list";
+  list.className = "character-card-grid";
 
   characters.forEach(c => {
     const card = document.createElement("div");
-    card.className = "card";
-    card.style.display = "flex";
-    card.style.justifyContent = "space-between";
-    card.style.alignItems = "center";
+    card.className = "character-card";
+    card.addEventListener("click", () => openCharacter(c.id));
 
-    const info = document.createElement("div");
-    info.style.cursor = "pointer";
-    const blockCount = c.layout ? c.layout.length : 0;
-    info.innerHTML = `<div class="card__title">${c.name || "Unnamed"}</div>
-      <div class="card__meta">${blockCount} block${blockCount === 1 ? "" : "s"}</div>`;
-    info.addEventListener("click", () => openCharacter(c.id));
+    const portrait = document.createElement("div");
+    portrait.className = "character-card__portrait";
+    const avatarData = findAvatarImageData(c);
+    if (avatarData) {
+      const img = document.createElement("img");
+      img.src = avatarData;
+      img.alt = "";
+      portrait.append(img);
+    } else {
+      portrait.append(buildPlaceholderPortraitSvg());
+    }
+    card.append(portrait);
 
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
-    deleteBtn.className = "btn btn--danger btn--icon";
+    deleteBtn.className = "character-card__delete";
     deleteBtn.textContent = "✕";
     deleteBtn.title = "Delete character";
     deleteBtn.addEventListener("click", async (e) => {
@@ -104,8 +144,20 @@ async function renderCharacterList() {
       await deleteCharacter(c.id);
       renderCharacterList();
     });
+    card.append(deleteBtn);
 
-    card.append(info, deleteBtn);
+    const info = document.createElement("div");
+    info.className = "character-card__info";
+    const nameEl = document.createElement("div");
+    nameEl.className = "character-card__name";
+    nameEl.textContent = c.name || "Unnamed";
+    const metaParts = [c.race, c.class, c.level ? `Level ${c.level}` : null].filter(Boolean);
+    const metaEl = document.createElement("div");
+    metaEl.className = "character-card__meta";
+    metaEl.textContent = metaParts.join(" • ") || "—";
+    info.append(nameEl, metaEl);
+    card.append(info);
+
     list.append(card);
   });
 
