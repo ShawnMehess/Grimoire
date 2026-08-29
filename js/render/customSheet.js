@@ -409,6 +409,86 @@ export function renderCustomSheet(root, character, store) {
     }
   }, true);
 
+  // --- Group toolbar (multi-selection) --------------------------------
+  //
+  // A single node's own toolbar is built fresh per-render as part of
+  // that node (see buildBlockToolbar/buildFieldToolbar) — this one is
+  // different, since it belongs to the SELECTION as a whole rather
+  // than to any one element, so it's created once here and just
+  // repositioned/shown/hidden, then re-appended at the end of every
+  // renderPageGrid() (which otherwise wipes it along with everything
+  // else via pageGrid.innerHTML).
+  const groupToolbar = document.createElement("div");
+  groupToolbar.className = "node-toolbar group-toolbar";
+  const groupBorderBtn = document.createElement("button");
+  groupBorderBtn.type = "button";
+  groupBorderBtn.title = "Toggle border for the whole selection";
+  groupBorderBtn.textContent = "▢";
+  groupBorderBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleBorderForSelection();
+  });
+  groupToolbar.append(groupBorderBtn);
+
+  function toggleBorderForSelection() {
+    const nodes = [...selectedIds]
+      .map((id) => findNode(globalLayout(), id) || findNode(currentLayout(), id))
+      .filter(Boolean);
+    if (nodes.length === 0) return;
+    // Based on the FIRST node's current state, so one click always
+    // moves the whole group to the SAME state together, rather than
+    // each node flipping independently off its own prior value.
+    const nextValue = styleForEditing(nodes[0]).showBorder === false;
+    commitMutation(() => {
+      nodes.forEach((node) => setNodeStyleValue(node, "showBorder", nextValue));
+    }, { render: false });
+    nodes.forEach((node) => {
+      const el = pageGrid.querySelector(`[data-node-id="${node.id}"]`);
+      if (el) applyNodeStyle(el, styleForEditing(node));
+    });
+  }
+
+  /** The pixel bounding box (relative to pageGrid) of every currently
+   *  selected element that's actually rendered right now — null if
+   *  fewer than two of them are (a single selection uses its own
+   *  ordinary per-node toolbar instead; see wireHoverToolbar). */
+  function selectionBoundingBox() {
+    if (selectedIds.size < 2) return null;
+    const pageRect = pageGrid.getBoundingClientRect();
+    const rects = [...selectedIds]
+      .map((id) => pageGrid.querySelector(`[data-node-id="${id}"]`))
+      .filter(Boolean)
+      .map((el) => el.getBoundingClientRect());
+    if (rects.length < 2) return null;
+    return {
+      left: Math.min(...rects.map((r) => r.left)) - pageRect.left,
+      top: Math.min(...rects.map((r) => r.top)) - pageRect.top,
+      right: Math.max(...rects.map((r) => r.right)) - pageRect.left,
+      bottom: Math.max(...rects.map((r) => r.bottom)) - pageRect.top,
+    };
+  }
+
+  // Hovering ANYWHERE within the selection's bounding box — including
+  // the gaps between separate selected elements, not just directly
+  // over one of them — shows the group toolbar at its top-right
+  // corner, the same "just outside the top-right corner" placement a
+  // single node's own toolbar uses (see positionNodeToolbar).
+  pageGrid.addEventListener("mousemove", (e) => {
+    if (!editMode) { groupToolbar.classList.remove("is-visible"); return; }
+    const box = selectionBoundingBox();
+    if (!box) { groupToolbar.classList.remove("is-visible"); return; }
+    const pageRect = pageGrid.getBoundingClientRect();
+    const mx = e.clientX - pageRect.left;
+    const my = e.clientY - pageRect.top;
+    if (mx < box.left || mx > box.right || my < box.top || my > box.bottom) {
+      groupToolbar.classList.remove("is-visible");
+      return;
+    }
+    positionFloatingToolbar(groupToolbar, box.right, box.top);
+    groupToolbar.classList.add("is-visible");
+  });
+  pageGrid.addEventListener("mouseleave", () => groupToolbar.classList.remove("is-visible"));
+
   function paintSelection() {
     pageGrid.querySelectorAll(".grid-node.is-selected").forEach((el) => el.classList.remove("is-selected"));
     blockFrame.querySelectorAll(".is-selected").forEach((el) => el.classList.remove("is-selected"));
@@ -1006,6 +1086,33 @@ export function renderCustomSheet(root, character, store) {
     return (a ?? null) === (b ?? null);
   }
 
+  /** Flips whether a block/field's own border is drawn at all (its
+   *  base color otherwise, transparent when hidden) — a plain on/off,
+   *  not tied to the popover's other style fields. Goes through
+   *  setNodeStyleValue like every other style property, so it
+   *  respects the same block-reference-override behavior as bg/font/
+   *  etc. Selection still shows through even with the border hidden —
+   *  see the .grid-node.is-selected CSS. */
+  function toggleBorderVisibility(node, wrapperEl) {
+    const nextValue = styleForEditing(node).showBorder === false;
+    commitMutation(() => {
+      setNodeStyleValue(node, "showBorder", nextValue);
+    }, { render: false });
+    applyNodeStyle(wrapperEl, styleForEditing(node));
+  }
+
+  function buildBorderToggleButton(node, wrapperEl) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.title = "Toggle border";
+    btn.textContent = "▢";
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleBorderVisibility(node, wrapperEl);
+    });
+    return btn;
+  }
+
   function mergeTextStyle(baseStyle = {}, localStyle = {}) {
     return {
       ...localStyle,
@@ -1141,6 +1248,7 @@ export function renderCustomSheet(root, character, store) {
     el.style.fontStyle = style.italic ? "italic" : "";
     el.style.textDecoration = style.underline ? "underline" : "";
     el.style.color = style.color || "";
+    el.classList.toggle("border-hidden", style.showBorder === false);
   }
 
   function renderPageGrid() {
@@ -1179,6 +1287,9 @@ export function renderCustomSheet(root, character, store) {
     paintSelection(); // a full render tears down and rebuilds every
       // .grid-node — repaint .is-selected on whichever ones still
       // exist, so selection survives an unrelated edit elsewhere
+    pageGrid.append(groupToolbar); // innerHTML="" above wiped it out along
+      // with everything else — it's a persistent element (created once,
+      // not per-render), so just put it back rather than rebuild it
   }
 
   function renderAll() {
@@ -1493,6 +1604,7 @@ export function renderCustomSheet(root, character, store) {
     bar.className = "node-toolbar";
 
     bar.append(buildStyleButton(block, wrapperEl));
+    bar.append(buildBorderToggleButton(block, wrapperEl));
 
     if (effectiveBlock(block).blockType !== "label") {
       const addFieldBtn = document.createElement("button");
@@ -2557,6 +2669,7 @@ export function renderCustomSheet(root, character, store) {
     if (field.fieldType !== "picture") {
       bar.append(buildStyleButton(field, wrapperEl));
     }
+    bar.append(buildBorderToggleButton(field, wrapperEl));
 
     if (!CAPTIONLESS_FIELD_TYPES.has(field.fieldType)) {
       const cycleLabelBtn = document.createElement("button");
@@ -2877,6 +2990,13 @@ export function renderCustomSheet(root, character, store) {
     function show() {
       if (!editMode) return;
       clearTimeout(hideTimer);
+      // If there's no real room above (the node is right up against
+      // the top of the visible scroll area), flip the toolbar to sit
+      // just below the node instead — otherwise it renders off the
+      // top of the viewport and is never actually visible.
+      const rect = triggerEl.getBoundingClientRect();
+      const scrollRect = scrollWrapper.getBoundingClientRect();
+      toolbarEl.classList.toggle("toolbar-flip-below", rect.top - scrollRect.top < 40);
       toolbarEl.classList.add("is-visible");
     }
     function scheduleHide() {
@@ -2892,6 +3012,24 @@ export function renderCustomSheet(root, character, store) {
     toolbarEl.addEventListener("mouseenter", show);
     toolbarEl.addEventListener("mouseleave", scheduleHide);
     toolbarEl._scheduleHide = scheduleHide;
+  }
+
+  /** Positions the group toolbar (see selectionBoundingBox above) at
+   *  the selection's top-right corner, just outside it — same idea as
+   *  a single node's own toolbar (see wireHoverToolbar's flip-below),
+   *  just computed from raw pixel coordinates since this toolbar is
+   *  appended straight to pageGrid rather than living inside any one
+   *  node's own wrapper. Approximates the toolbar's own width rather
+   *  than measuring it, since it's only ever a button or two — close
+   *  enough for a small floating control like this. */
+  function positionFloatingToolbar(el, rightEdgePx, topEdgePx, bottomEdgePx) {
+    const TOOLBAR_H = 28;
+    const GAP = 8; // more clearance than a single node's own toolbar offset,
+      // so the grid line between the toolbar and the selection stays visible
+    const fitsAbove = topEdgePx - TOOLBAR_H - GAP >= 0;
+    el.style.top = fitsAbove ? `${topEdgePx - TOOLBAR_H - GAP}px` : `${bottomEdgePx + GAP}px`;
+    el.style.right = "auto";
+    el.style.left = `${rightEdgePx - 90}px`;
   }
 
   /** Flips a just-appended popover to open leftward instead of

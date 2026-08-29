@@ -1,0 +1,58 @@
+UI polish - Stat blocks
+- Have stat elements be contained within stat blocks (ie, elements' borders need to be within the borders of the stat block
+
+UI Polish - Resizing
+- When stat blocks are resized, move elements so they retain their relative positioning inside of the block
+- When stat blocks are resized, if there is not enough resizing available for all elements, then just expand the elements from left to right and top to bottom (ie, if there are 3 elements arranged vertically, and we expand the stat block by 1 grid square, give the extra grid square to the topmost element, then to the middle element, then to the bottommost element)
+
+UI Polish - Stat elements
+- Group together stat elements in the "Add Element" window. Have a section for values, text, lists, shops, whatever. Try to keep this to 3 or 4 groups.
+- Replace the default, hard-coded block label with a "Label" element
+- Replace the default, hard-coded label for Num Fields with a label element
+- In the LHS list, make the default name of an unnamed element be whatever that element type is
+- When something is selected, make it so if the mouse is hovering over that element or something inside of it, the selected thing still shows that it's selected
+- Include the little icon, from the Add Element menu, that corresponds with the type of element, to the LHS list (so, for example, if the user places a checkbox, there should also be a checkbox icon for that checkbox element in the LHS list
+- All elements need to have a label element attached to them by default. This label element must be able to be deleted
+
+UI Polish - Num fields and Labels
+- Keep cursor centered when the Num Field or Label is empty
+
+Useability/Portability
+- Format a page to be printed. Ask user which tabs to print
+- Detect aspect ratio of view and adjust accordingly. Also allow manual override of aspect ratio
+- Also have another version in which stat blocks and their elements are simply laid out as rows. Columns could be added. Allow user to let some stat blocks override columns and take up the entire row
+
+Elements
+- Add a "Shop" element (not actual real-money, just something like an in-game repository of items, complete with portrait, description, cost, requirements, weight, etc. Or a repository of spells, etc.)
+- Add in something for feats (technically, this could be done as a dropdown, but there are so many feats that a description is necessary)
+- Dice: Let users click a button from the hover menu that allow dice rolling to be added to that element. Also let users specify rolling modifications (dis/advantage, flat adds, values of other fields being added, etc.)
+
+Custom Mounts (technically just a custom character page for something else, but the actual information is contained in this character sheet)
+	Although, the user could just create a tab for the mount, put in the full info, and then 
+
+Let users drag elements to the LHS list, even ones not in the Main tab
+Make the Main tab not-deleteable
+Make it so we can see the hover menu if the stat block/element is in the top row of the grid
+
+Race/class/origin/leveling effects
+- Add in an object that adds buffs and debuffs (ie, adds to or subtracts from stats and proficiencies); adds built-in spells, abilities, feats, languages, equipment proficiencies, etc.; and adds access to, or removes access from, options (so, for example, a cleric has access to different spells than a necromancer)
+	- This object needs to allow for more than one condition (ie, if someone is both an Orc AND a Rogue, then maybe they have access to specific Orc x Rogue abilities). This will also allow for leveling (ie, if you are a Rogue && Level 3, then 
+- Need a default tab for leveling info (ie, your character's racial/class/origin abilities, ordered by how they interact with your level)
+
+MAKING THE SITE EASIER FOR NEWBIES
+- Initial character creation walkthrough
+- Walkthrough for each level up
+- Optional description fields next to elements and blocks (with default text, but this can be edited by the user)
+
+Juice
+- Draw a ghost of an element or block when it is being moved
+
+Accessibility
+- Include fonts for people with dyslexia
+- Include color schemes for people with color blindness
+
+For fun
+- Have an option for different skins
+	- Punch up the fantasy art style. Consider more ornate borders, more fantastical skins, fantasy fonts, etc.
+	- Keep the current skin as a minimalist/basic skin
+	- Add an alternate skin that looks cyberpunk, with neon borders, cyberpunk fonts and textures, cyberpunk shapes for borders, etc.

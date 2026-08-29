@@ -259,6 +259,18 @@
   z-index: 4;
 }
 
+/* A block/field can have its own border turned off (see the ▢ toggle
+   in its toolbar / buildBorderToggleButton) — selection still shows
+   through even then, via the compound selector below outweighing
+   this one regardless of source order. */
+.grid-node.border-hidden {
+  border-color: transparent;
+}
+.grid-node.border-hidden.is-selected,
+.grid-node.border-hidden:focus-within {
+  border-color: var(--color-accent);
+}
+
 .grid-node--block {
   padding: var(--space-1);
   /* Semi-transparent rather than the fully-opaque .grid-node default —
@@ -822,7 +834,9 @@
 .node-toolbar {
   display: none;
   position: absolute;
-  top: -30px;
+  top: -36px; /* nudged up a bit further than before, so the grid line
+    between the toolbar and the node it belongs to stays visible
+    underneath it instead of the toolbar sitting flush on top of it */
   right: -2px;
   gap: 2px;
   background: var(--color-bg-inset);
@@ -833,6 +847,27 @@
   box-shadow: var(--shadow-sm);
 }
 .node-toolbar.is-visible {
+  display: flex;
+}
+/* Set in JS (wireHoverToolbar) when the node is close enough to the
+   top of the visible scroll area that the toolbar would otherwise
+   render above the viewport and never actually be seen — flips it to
+   sit just below the node instead. */
+.node-toolbar.toolbar-flip-below {
+  top: auto;
+  bottom: -36px;
+}
+
+/* The multi-selection toolbar (see the pageGrid mousemove listener
+   and selectionBoundingBox in customSheet.js) — appended straight to
+   pageGrid rather than living inside one node's own wrapper, so it's
+   positioned in raw pixels (positionFloatingToolbar) instead of the
+   relative -36px/-2px offsets above. */
+.group-toolbar {
+  position: absolute;
+  display: none;
+}
+.group-toolbar.is-visible {
   display: flex;
 }
 
