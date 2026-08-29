@@ -106,6 +106,12 @@ export function renderCustomSheet(root, character, store) {
   let activeTabId = character.sheetTabs[0].id;
   const undoStack = [];
   const redoStack = [];
+  // Multi-select: which block/field ids are currently selected. Most
+  // interactions keep this at size 0 or 1 (plain click, drag, resize —
+  // see selectOnly/selectBlockAndFields below); Ctrl/Shift-click grow it.
+  // Kept as the source of truth for Delete/Escape and for the
+  // .is-selected border styling — see paintSelection().
+  let selectedIds = new Set();
   // Recomputed at the start of every renderPageGrid() — id (or
   // id::checkboxIndex) -> current numeric value. Read by buildFieldValue
   // to display a formula field's computed result.
@@ -175,10 +181,7 @@ export function renderCustomSheet(root, character, store) {
   // draggable/relabelable grid. The character LIST view needs a
   // reliable "this is the name" field, and once everything on the
   // sheet itself can be freely relabeled and rearranged, there's no
-  // way to reconstruct that from the layout alone. Race/Class/Level
-  // are here for the same reason — the character-selection page shows
-  // them on each card, and needs somewhere guaranteed to find them
-  // regardless of how someone's built their custom layout.
+  // way to reconstruct that from the layout alone.
   const nameInput = document.createElement("input");
   nameInput.type = "text";
   nameInput.className = "input-group__control";
@@ -191,25 +194,62 @@ export function renderCustomSheet(root, character, store) {
   }, 400));
   toolbar.append(nameInput);
 
-  function buildIdentityInput(field, placeholder, { type = "text", maxWidth = "110px" } = {}) {
-    const input = document.createElement("input");
-    input.type = type;
-    input.className = "input-group__control";
-    input.style.maxWidth = maxWidth;
-    input.placeholder = placeholder;
-    input.value = character[field] ?? "";
-    input.addEventListener("input", debounce(() => {
-      const value = type === "number" ? (input.value === "" ? "" : Number(input.value)) : input.value;
-      character[field] = value;
-      saveWithStatus(field, value);
-    }, 400));
-    return input;
+  // Everything else the character-selection page shows on a card
+  // (Race, Class, Level, whatever) is NOT intrinsic — name is the
+  // only fixed identity field. Instead, drag any field here (from the
+  // sidebar, same drag payload it already uses for the grid) to
+  // designate it as one of the fields shown on that character's card;
+  // its value there always reflects whatever's currently on the sheet.
+  if (!character.cardFieldIds) character.cardFieldIds = [];
+  const cardFieldsWrap = document.createElement("div");
+  cardFieldsWrap.className = "identity-card-fields";
+  cardFieldsWrap.addEventListener("dragover", (e) => {
+    if (e.dataTransfer.types.includes("application/x-sheet-field")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  });
+  cardFieldsWrap.addEventListener("drop", (e) => {
+    const payload = e.dataTransfer.getData("application/x-sheet-field");
+    if (!payload) return;
+    e.preventDefault();
+    let parsed;
+    try { parsed = JSON.parse(payload); } catch { return; }
+    if (!parsed.fieldId || character.cardFieldIds.includes(parsed.fieldId)) return;
+    character.cardFieldIds.push(parsed.fieldId);
+    saveWithStatus("cardFieldIds", character.cardFieldIds);
+    renderCardFieldChips();
+  });
+
+  function renderCardFieldChips() {
+    cardFieldsWrap.innerHTML = "";
+    if (character.cardFieldIds.length === 0) {
+      const hint = document.createElement("span");
+      hint.className = "identity-card-fields__hint";
+      hint.textContent = "Drag fields here to show on the character list";
+      cardFieldsWrap.append(hint);
+      return;
+    }
+    character.cardFieldIds.forEach((id) => {
+      const field = resolveFieldById(id);
+      const chip = document.createElement("span");
+      chip.className = "identity-card-fields__chip" + (field ? "" : " identity-card-fields__chip--missing");
+      chip.append(document.createTextNode(field ? (field.label || "Field") : "deleted field"));
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.title = "Stop showing this on the character list";
+      removeBtn.textContent = "✕";
+      removeBtn.addEventListener("click", () => {
+        character.cardFieldIds = character.cardFieldIds.filter((x) => x !== id);
+        saveWithStatus("cardFieldIds", character.cardFieldIds);
+        renderCardFieldChips();
+      });
+      chip.append(removeBtn);
+      cardFieldsWrap.append(chip);
+    });
   }
-  toolbar.append(
-    buildIdentityInput("race", "Race"),
-    buildIdentityInput("class", "Class"),
-    buildIdentityInput("level", "Level", { type: "number", maxWidth: "70px" }),
-  );
+  renderCardFieldChips();
+  toolbar.append(cardFieldsWrap);
 
   // Visible save-state feedback — saves happen silently in the
   // background otherwise, which means a failed save (e.g. a
@@ -321,6 +361,110 @@ export function renderCustomSheet(root, character, store) {
     });
   });
 
+  // --- Selection ------------------------------------------------------
+  //
+  // selectedIds is the source of truth; native focus (tabIndex + the
+  // browser's own :focus-within) rides along as a secondary channel —
+  // refocusNodeById keeps SOME element in the current selection
+  // actually focused so keyboard-only flows (e.g. a screen reader,
+  // or just Tab-key navigation) still land somewhere sensible, but
+  // Delete/Escape/the .is-selected border all key off selectedIds.
+  //
+  // Capture phase (not the default bubble phase) is deliberate: a
+  // field's own text/value elements call stopPropagation() on
+  // pointerdown so clicking into them to type doesn't ALSO trigger the
+  // document-level popover-closer — which would otherwise stop this
+  // listener from ever seeing the click too, if it were attached the
+  // normal way. Capture-phase listeners run on the way DOWN to the
+  // target, before that stopPropagation() call happens, so they see
+  // every click regardless.
+  pageGrid.addEventListener("pointerdown", (e) => {
+    if (!editMode) return;
+    // Drag/resize handles do their own hierarchy-aware selection (a
+    // block's handle selects it WITH its fields; a field's doesn't) —
+    // this generic handler doesn't know that distinction, so let
+    // theirs be the only one that runs rather than have this one fire
+    // first (capture order) with the wrong answer and get immediately
+    // overwritten.
+    if (e.target.closest(".node-handle")) return;
+    const nodeEl = e.target.closest(".grid-node");
+    if (!nodeEl) return;
+    const id = nodeEl.dataset.nodeId;
+    if (!id) return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+      toggleSelected(id);
+      return;
+    }
+    // A plain click on something that's already the ENTIRE current
+    // selection is left alone here — that's what lets a plain
+    // click-drag on an existing multi-selection start moving the
+    // whole group, instead of every drag first collapsing it to one
+    // item. wireDrag/wireResize below handle re-selecting from a
+    // single item when a drag/resize actually starts on one.
+    if (selectedIds.size === 1 && selectedIds.has(id)) return;
+    if (nodeEl.dataset.nodeKind === "block") {
+      selectBlockAndFields(nodeEl);
+    } else {
+      selectOnly(id);
+    }
+  }, true);
+
+  function paintSelection() {
+    pageGrid.querySelectorAll(".grid-node.is-selected").forEach((el) => el.classList.remove("is-selected"));
+    blockFrame.querySelectorAll(".is-selected").forEach((el) => el.classList.remove("is-selected"));
+    selectedIds.forEach((id) => {
+      const el = pageGrid.querySelector(`[data-node-id="${id}"]`);
+      if (el) el.classList.add("is-selected");
+      const item = blockFrame.querySelector(`[data-highlight-id="${id}"]`);
+      if (item) item.classList.add("is-selected");
+    });
+  }
+
+  function selectOnly(id) {
+    selectedIds = new Set([id]);
+    paintSelection();
+    refocusNodeById(id);
+  }
+
+  /** Selects a block AND every field currently rendered inside it —
+   *  used wherever the action about to happen (clicking the block's
+   *  own chrome, or dragging it) affects the whole group together.
+   *  Deliberately DOM-driven (reads the block's own rendered
+   *  .grid-node--field descendants) rather than walking the data
+   *  model's own .children — a block can be a reference/clone of
+   *  another one (see sourceBlockFor), and what's actually on screen
+   *  for THIS block, with ids that exist in THIS tab's DOM, is what
+   *  selection needs to match; resolving through the data layer risks
+   *  picking up a different block's ids entirely. Takes the block's
+   *  own wrapper element; a null/missing element (e.g. a sidebar
+   *  click for a block that isn't on the currently-viewed tab) is a
+   *  harmless no-op. */
+  function selectBlockAndFields(blockEl) {
+    if (!blockEl) return;
+    const ids = new Set([blockEl.dataset.nodeId]);
+    blockEl.querySelectorAll(".grid-node--field[data-node-id]").forEach((fieldEl) => {
+      ids.add(fieldEl.dataset.nodeId);
+    });
+    selectedIds = ids;
+    paintSelection();
+    refocusNodeById(blockEl.dataset.nodeId);
+  }
+
+  function toggleSelected(id) {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    selectedIds = next;
+    paintSelection();
+    if (selectedIds.size > 0) refocusNodeById([...selectedIds].pop());
+  }
+
+  function clearSelectionState() {
+    selectedIds = new Set();
+    paintSelection();
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  }
+
   function normalizeTabs() {
     if (!Array.isArray(character.sheetTabs) || character.sheetTabs.length === 0) {
       character.sheetTabs = [{
@@ -393,18 +537,37 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function onShortcut(e) {
+    if (e.key === "Escape") {
+      if (document.activeElement && document.activeElement.blur) {
+        document.activeElement.blur();
+      }
+      clearSelectionState();
+      return;
+    }
+
     // Guards both cases below: while actually typing/editing text, Delete
     // and Backspace must only ever edit that text, never delete the
     // whole block/field it lives in.
     if (e.target.closest("input, textarea, select, [contenteditable='true']")) return;
 
     if (editMode && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "Delete" || e.key === "Backspace")) {
+      if (selectedIds.size > 0) {
+        e.preventDefault();
+        deleteSelectedNodes([...selectedIds]);
+        return;
+      }
       const nodeEl = e.target.closest(".grid-node");
       if (nodeEl && nodeEl.dataset.nodeId) {
         e.preventDefault();
         deleteSelectedNode(nodeEl);
         return;
       }
+    }
+
+    if (editMode && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "d") {
+      e.preventDefault();
+      duplicateSelection();
+      return;
     }
 
     if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return;
@@ -433,6 +596,153 @@ export function renderCustomSheet(root, character, store) {
     } else {
       deleteFieldNode(node);
     }
+  }
+
+  /** Multi-select Delete/Backspace — deletes every currently-selected
+   *  id. Reuses deleteSelectedNode(nodeEl) one id at a time rather
+   *  than a bulk mutation: each call re-renders (so a block's own
+   *  children disappearing out from under a later id in the same
+   *  batch is handled automatically — the DOM lookup for an id that's
+   *  already gone just comes back empty and is skipped) and a
+   *  non-empty block still asks for confirmation individually. That
+   *  last part means deleting several non-empty blocks at once means
+   *  several confirm() dialogs in a row rather than one combined
+   *  prompt — not ideal, but safe, and correct. */
+  function deleteSelectedNodes(ids) {
+    ids.forEach((id) => {
+      const nodeEl = pageGrid.querySelector(`[data-node-id="${id}"]`);
+      if (nodeEl) deleteSelectedNode(nodeEl);
+    });
+    clearSelectionState();
+  }
+
+  function boundingBox(nodes) {
+    return {
+      minX: Math.min(...nodes.map(n => n.x)),
+      minY: Math.min(...nodes.map(n => n.y)),
+      maxX: Math.max(...nodes.map(n => n.x + n.w)),
+      maxY: Math.max(...nodes.map(n => n.y + n.h)),
+      w: Math.max(...nodes.map(n => n.x + n.w)) - Math.min(...nodes.map(n => n.x)),
+      h: Math.max(...nodes.map(n => n.y + n.h)) - Math.min(...nodes.map(n => n.y)),
+    };
+  }
+
+  /** A JSON deep clone with fresh top-level ids (block/field, and each
+   *  of a block's own children) — everything nested underneath
+   *  (choice ids, bundle modifier ids, a formula's own {{tokens}})
+   *  stays as-is, since none of that is ever compared ACROSS two
+   *  different parent fields, only within one. isAvatar is explicitly
+   *  cleared on any duplicated picture field — only one field on a
+   *  whole character is supposed to hold that flag at a time (see
+   *  clearOtherAvatars), and a duplicate shouldn't silently create a
+   *  second one. */
+  function cloneWithNewIds(node) {
+    const clone = JSON.parse(JSON.stringify(node));
+    clone.id = newId();
+    if (clone.fieldType === "picture") clone.isAvatar = false;
+    if (Array.isArray(clone.children)) {
+      clone.children = clone.children.map((child) => {
+        const c = JSON.parse(JSON.stringify(child));
+        c.id = newId();
+        if (c.fieldType === "picture") c.isAvatar = false;
+        return c;
+      });
+    }
+    return clone;
+  }
+
+  /** Duplicates a set of top-level blocks, placed beside (or, if there's
+   *  no room to the right on the page, below) the group's own bounding
+   *  box — see the file-level note on why this is DOM-independent
+   *  bounding-box math rather than "just offset by one cell": the
+   *  whole selected GROUP moves as one placed block, not each item
+   *  individually nudged. The page grid already grows downward for
+   *  content that needs it (see contentHeight in renderPageGrid), so
+   *  landing below the group never needs an explicit resize here the
+   *  way the in-block field case below does. */
+  function duplicateBlocksOnGrid(blocks) {
+    if (blocks.length === 0) return [];
+    const box = boundingBox(blocks);
+    const fitsRight = box.maxX + box.w <= PAGE_COLS;
+    const dx = fitsRight ? box.w : 0;
+    const dy = fitsRight ? 0 : box.h;
+    return blocks.map((b) => {
+      const clone = cloneWithNewIds(b);
+      clone.x = b.x + dx;
+      clone.y = b.y + dy;
+      currentLayout().push(clone);
+      return clone;
+    });
+  }
+
+  /** Same idea as duplicateBlocksOnGrid, but for a set of fields
+   *  within ONE block — bounded by the block's own content area
+   *  instead of the page's columns, and — since a block doesn't
+   *  auto-grow the way the page does — explicitly grows the block
+   *  downward if landing below the group needs more room than it
+   *  currently has. */
+  function duplicateFieldsInBlock(block, fields) {
+    if (fields.length === 0) return [];
+    const box = boundingBox(fields);
+    const fitsRight = box.maxX + box.w <= block.w;
+    const dx = fitsRight ? box.w : 0;
+    const dy = fitsRight ? 0 : box.h;
+    if (!fitsRight) {
+      const contentRows = block.h - BLOCK_HEADER_ROWS;
+      const neededRows = box.minY + dy + box.h;
+      if (neededRows > contentRows) {
+        block.h += (neededRows - contentRows);
+      }
+    }
+    return fields.map((f) => {
+      const clone = cloneWithNewIds(f);
+      clone.x = f.x + dx;
+      clone.y = f.y + dy;
+      block.children.push(clone);
+      return clone;
+    });
+  }
+
+  /** Ctrl+D — duplicates whatever's currently selected. A block
+   *  selected as a whole (i.e. block.id itself is in selectedIds,
+   *  which is how clicking/dragging a block's own chrome selects it —
+   *  see selectBlockAndFields) duplicates as a complete block,
+   *  children included, placed beside the original. A field selected
+   *  on its own (without its parent block also selected) duplicates
+   *  just that field, grouped with any other independently-selected
+   *  fields from the SAME block so the whole little cluster moves
+   *  together as one placed group, same as the block case. Selects
+   *  the new copies afterward, same as most design tools' duplicate. */
+  function duplicateSelection() {
+    if (selectedIds.size === 0) return;
+    const blocksToDuplicate = currentLayout().filter((b) => selectedIds.has(b.id));
+    const coveredFieldIds = new Set();
+    blocksToDuplicate.forEach((b) => (b.children || []).forEach((f) => coveredFieldIds.add(f.id)));
+
+    const fieldGroups = new Map(); // block -> [fields], for fields selected independently of their block
+    currentLayout().forEach((block) => {
+      if (selectedIds.has(block.id)) return;
+      (block.children || []).forEach((f) => {
+        if (selectedIds.has(f.id) && !coveredFieldIds.has(f.id)) {
+          if (!fieldGroups.has(block)) fieldGroups.set(block, []);
+          fieldGroups.get(block).push(f);
+        }
+      });
+    });
+
+    if (blocksToDuplicate.length === 0 && fieldGroups.size === 0) return;
+
+    commitMutation(() => {
+      const newIds = new Set();
+      duplicateBlocksOnGrid(blocksToDuplicate).forEach((b) => {
+        newIds.add(b.id);
+        (b.children || []).forEach((f) => newIds.add(f.id));
+      });
+      fieldGroups.forEach((fields, block) => {
+        duplicateFieldsInBlock(block, fields).forEach((f) => newIds.add(f.id));
+      });
+      selectedIds = newIds;
+    });
   }
 
   function deleteBlockNode(block) {
@@ -508,6 +818,28 @@ export function renderCustomSheet(root, character, store) {
       (block.children || []).forEach(field => list.push(field));
     });
     return list;
+  }
+
+  /** Every field across EVERY tab — wider than flattenGlobalFields on
+   *  purpose, for the label-uniqueness check below: two fields with
+   *  the same label are ambiguous (as a formula variable, as a
+   *  character-card field) no matter which tabs they happen to live
+   *  on, not just within the global one. */
+  function flattenAllFieldsAcrossTabs() {
+    const list = [];
+    character.sheetTabs.forEach(tab => {
+      (tab.layout || []).forEach(block => {
+        (block.children || []).forEach(field => list.push(field));
+      });
+    });
+    return list;
+  }
+
+  function isLabelAlreadyInUse(label, excludeField) {
+    const norm = label.trim().toLowerCase();
+    return flattenAllFieldsAcrossTabs().some(
+      f => f !== excludeField && f.label && f.label.trim().toLowerCase() === norm
+    );
   }
 
   /** Migrates a dropdown's choices from the old plain-string shape to
@@ -757,12 +1089,45 @@ export function renderCustomSheet(root, character, store) {
   // normal "play mode" sizing pixel-identical to before.
   const NODE_INSET_PX = 3;
 
+  /** Focuses whichever .grid-node currently corresponds to `id` — used
+   *  after any action that rebuilds the grid's DOM (a full render)
+   *  where we want the same logical node to stay/become selected
+   *  rather than losing focus just because its old DOM element was
+   *  torn down and replaced. */
+  function refocusNodeById(id) {
+    if (!id) return;
+    const el = pageGrid.querySelector(`[data-node-id="${id}"]`);
+    if (el) el.focus();
+  }
+
   function applyRect(el, node, cw) {
     const inset = editMode ? NODE_INSET_PX : 0;
     el.style.left = `${node.x * (cw + GAP_PX) + inset}px`;
     el.style.top = `${node.y * (cw + GAP_PX) + inset}px`;
     el.style.width = `${node.w * cw + (node.w - 1) * GAP_PX - inset * 2}px`;
     el.style.height = `${node.h * cw + (node.h - 1) * GAP_PX - inset * 2}px`;
+  }
+
+  /** If a field's label no longer fits in its own reserved space (one
+   *  cell's worth, typically, when positioned left/right — or the
+   *  full field width, top/bottom), grow the FIELD sideways by a cell
+   *  rather than let the label clip or ellipsize. Self-correcting:
+   *  checked after every keystroke, so it just keeps adding a cell
+   *  until the current text fits. Only ever grows — deleting text back
+   *  down doesn't shrink the field back up, matching how this was
+   *  actually asked for ("if I type more than it can hold, expand").
+   *  No-ops without a parentBlock (e.g. mid-way through a label-
+   *  position cycle animation, where this isn't relevant yet). */
+  function growFieldIfLabelOverflows(labelEl, field, fieldEl, parentBlock) {
+    if (!parentBlock) return;
+    const maxW = parentBlock.w - field.x;
+    if (field.w >= maxW || labelEl.scrollWidth <= labelEl.clientWidth + 1) return;
+    commitMutation(() => {
+      while (labelEl.scrollWidth > labelEl.clientWidth + 1 && field.w < maxW) {
+        field.w += 1;
+        applyRect(fieldEl, field, colWidthPx());
+      }
+    }, { render: false });
   }
 
   function applyNodeStyle(el, style) {
@@ -810,6 +1175,10 @@ export function renderCustomSheet(root, character, store) {
         applyGridLines(bodyEl, cw, pageGrid);
       });
     }
+
+    paintSelection(); // a full render tears down and rebuilds every
+      // .grid-node — repaint .is-selected on whichever ones still
+      // exist, so selection survives an unrelated edit elsewhere
   }
 
   function renderAll() {
@@ -921,6 +1290,8 @@ export function renderCustomSheet(root, character, store) {
 
       const blockLine = document.createElement("div");
       blockLine.className = "sheet-block-list__line";
+      blockLine.dataset.highlightId = block.id;
+      blockLine.addEventListener("click", () => selectBlockAndFields(pageGrid.querySelector(`[data-node-id="${block.id}"]`)));
       const name = document.createElement("span");
       name.textContent = source.name || "Unnamed Block";
       blockLine.append(name);
@@ -937,6 +1308,11 @@ export function renderCustomSheet(root, character, store) {
         fieldItem.className = "sheet-block-list__field";
         fieldItem.textContent = field.label || "Unnamed Field";
         fieldItem.draggable = true;
+        fieldItem.dataset.highlightId = field.id;
+        fieldItem.addEventListener("click", (e) => {
+          e.stopPropagation();
+          selectOnly(field.id);
+        });
         fieldItem.addEventListener("dragstart", (e) => {
           e.stopPropagation();
           e.dataTransfer.setData("application/x-sheet-field", JSON.stringify({ blockId: block.id, fieldId: field.id }));
@@ -953,6 +1329,11 @@ export function renderCustomSheet(root, character, store) {
             cbItem.className = "sheet-block-list__field sheet-block-list__field--sub";
             cbItem.textContent = `↳ ${field.label || "Unnamed Field"} ${i + 1}`;
             cbItem.draggable = true;
+            cbItem.dataset.highlightId = field.id;
+            cbItem.addEventListener("click", (e) => {
+              e.stopPropagation();
+              selectOnly(field.id);
+            });
             cbItem.addEventListener("dragstart", (e) => {
               e.stopPropagation();
               e.dataTransfer.setData("application/x-sheet-field", JSON.stringify({ blockId: block.id, fieldId: field.id, checkboxIndex: i }));
@@ -1150,7 +1531,7 @@ export function renderCustomSheet(root, character, store) {
     const fieldStyle = mergeTextStyle(parentStyle, field.style || {});
     applyNodeStyle(el, fieldStyle);
 
-    renderFieldInner(el, field);
+    renderFieldInner(el, field, parentBlock, cw);
     applyTextStyleToOwnText(el, fieldStyle);
 
     el.append(buildDragHandle());
@@ -1191,7 +1572,7 @@ export function renderCustomSheet(root, character, store) {
    *  wrapper/handles/toolbar) — used both for the initial build and
    *  for the label-position cycle button's FLIP animation. Returns
    *  the label element so the caller can animate it. */
-  function renderFieldInner(fieldEl, field) {
+  function renderFieldInner(fieldEl, field, parentBlock) {
     const old = fieldEl.querySelector(".field-inner");
     if (old) old.remove();
 
@@ -1211,12 +1592,47 @@ export function renderCustomSheet(root, character, store) {
     labelEl.className = "field-label";
     labelEl.contentEditable = "true";
     labelEl.textContent = field.label;
+    let labelBeforeEdit = field.label;
+    labelEl.addEventListener("focus", () => {
+      labelBeforeEdit = field.label;
+    });
+    labelEl.addEventListener("keydown", (e) => {
+      // Plain Enter = done editing (blur); Shift+Enter = an actual new
+      // line in the label, left to the browser's normal contenteditable
+      // behavior.
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        labelEl.blur();
+      }
+    });
     labelEl.addEventListener("input", () => {
       commitMutation(() => {
         field.label = labelEl.textContent;
       }, { render: false });
       renderBlockFrame();
       updateFieldLabelVisibility(field, labelEl);
+      growFieldIfLabelOverflows(labelEl, field, fieldEl, parentBlock);
+    });
+    labelEl.addEventListener("blur", () => {
+      // Checked on blur (not per-keystroke) so typing itself is never
+      // interrupted — labels double as formula variable names (see
+      // formulaEditor.js's chips) and as the names droppable into the
+      // character-card fields, so two fields sharing one would be
+      // genuinely ambiguous in both places. Dragging a COPY of a field
+      // in (from the sidebar, onto this tab or another) is exempt —
+      // that goes through addFieldReferenceToActiveTab/
+      // addBlockReferenceToActiveTab, never through this rename path,
+      // so cloned duplicates are never blocked here.
+      const current = field.label.trim();
+      if (current && current !== labelBeforeEdit.trim() && isLabelAlreadyInUse(current, field)) {
+        window.alert(`The label "${current}" is already in use by another field — reverted to "${labelBeforeEdit}".`);
+        commitMutation(() => {
+          field.label = labelBeforeEdit;
+        }, { render: false });
+        labelEl.textContent = labelBeforeEdit;
+        labelEl.classList.toggle("is-ghost-default", labelBeforeEdit === "Stat");
+        updateFieldLabelVisibility(field, labelEl);
+      }
     });
     wireGhostDefault(labelEl, "Stat", (text) => {
       commitMutation(() => {
@@ -1246,7 +1662,11 @@ export function renderCustomSheet(root, character, store) {
   function updateFieldLabelVisibility(field, labelEl) {
     const isUnrenamedDefault = field.label === "Stat";
     const hasValue = field.fieldType === "text" && (field.formula ? true : hasVisibleText(field.value));
-    labelEl.style.display = (isUnrenamedDefault && hasValue) ? "none" : "";
+    // visibility, not display: the label's SPACE stays reserved either
+    // way, so the value box doesn't expand into it once the label
+    // (still just the unrenamed default) disappears — see the
+    // .field-label/.field-value comments in custom-sheet.css.
+    labelEl.style.visibility = (isUnrenamedDefault && hasValue) ? "hidden" : "";
   }
 
   function hasVisibleText(html) {
@@ -2145,7 +2565,7 @@ export function renderCustomSheet(root, character, store) {
       cycleLabelBtn.textContent = "↻";
       cycleLabelBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        cycleLabelPosition(field, wrapperEl);
+        cycleLabelPosition(field, parentBlock, wrapperEl);
       });
       bar.append(cycleLabelBtn);
     }
@@ -2211,7 +2631,7 @@ export function renderCustomSheet(root, character, store) {
     return hint;
   }
 
-  function cycleLabelPosition(field, fieldEl) {
+  function cycleLabelPosition(field, parentBlock, fieldEl) {
     const labelEl = fieldEl.querySelector(".field-label");
     const first = labelEl ? labelEl.getBoundingClientRect() : null;
 
@@ -2220,7 +2640,7 @@ export function renderCustomSheet(root, character, store) {
       field.labelPosition = LABEL_POSITIONS[(idx + 1) % LABEL_POSITIONS.length];
     }, { render: false });
 
-    const newLabelEl = renderFieldInner(fieldEl, field);
+    const newLabelEl = renderFieldInner(fieldEl, field, parentBlock);
     // Refresh the equation hint since it always sits opposite the label.
     const oldHint = fieldEl.querySelector(".equation-hint");
     if (oldHint) oldHint.remove();
@@ -2260,8 +2680,11 @@ export function renderCustomSheet(root, character, store) {
       e.preventDefault();
       e.stopPropagation();
       el.classList.add("is-dragging");
-      el.focus(); // grabbing something to move it selects it too — same
-        // highlight + Delete/Backspace behavior as clicking it directly
+      // Grabbing something to move it selects it too — a block also
+      // pulls in its fields, since moving the block moves them right
+      // along with it.
+      const isBlock = Array.isArray(node.children);
+      if (isBlock) selectBlockAndFields(el); else selectOnly(node.id);
       const before = snapshot();
       const startClientX = e.clientX, startClientY = e.clientY;
       const startX = node.x, startY = node.y;
@@ -2282,7 +2705,12 @@ export function renderCustomSheet(root, character, store) {
         updateHistoryButtons();
         normalizeTabs();
         persist();
-        onSettled();
+        onSettled(); // rebuilds the DOM (renderAll) — repaints selectedIds
+          // (see paintSelection at the end of renderPageGrid) but the old
+          // .grid-node elements themselves are gone, so re-select by id
+          // below to make sure the RIGHT thing (block+children, or just
+          // the field) is what ends up highlighted on the new elements
+        if (isBlock) selectBlockAndFields(el); else selectOnly(node.id);
       }
       document.addEventListener("pointermove", onMove);
       document.addEventListener("pointerup", onUp);
@@ -2297,7 +2725,44 @@ export function renderCustomSheet(root, character, store) {
       e.preventDefault();
       e.stopPropagation();
       el.classList.add("is-resizing");
-      el.focus(); // same reasoning as wireDrag above
+      const isBlock = Array.isArray(node.children);
+
+      // Which of this block's own fields (if any) scale ALONGSIDE the
+      // block's own resize:
+      //  - Shift+resize: all of them — the explicit "yes, resize
+      //    everything inside too" gesture.
+      //  - A plain resize normally scales nothing but the block
+      //    itself... UNLESS some of this block's fields were ALREADY
+      //    individually selected before this resize started, in which
+      //    case that pre-existing sub-selection is what scales, and
+      //    stays selected throughout the drag. That's what makes
+      //    "select two fields, then resize the block" a distinct,
+      //    meaningful gesture from a bare resize.
+      // Captured once here (not re-checked at pointerup, a separate
+      // event that could see different modifier keys) so letting go
+      // re-applies the same choice this drag started with.
+      let scaleFieldIds = [];
+      if (isBlock && e.shiftKey) {
+        scaleFieldIds = (node.children || []).map((f) => f.id);
+        selectBlockAndFields(el);
+      } else if (isBlock) {
+        const preselected = (node.children || []).map((f) => f.id).filter((id) => selectedIds.has(id));
+        if (preselected.length > 0) {
+          scaleFieldIds = preselected;
+          selectedIds = new Set([node.id, ...preselected]);
+          paintSelection();
+        } else {
+          selectOnly(node.id);
+        }
+      } else {
+        selectOnly(node.id);
+      }
+
+      const scaleFields = scaleFieldIds
+        .map((id) => (node.children || []).find((f) => f.id === id))
+        .filter(Boolean)
+        .map((f) => ({ field: f, startX: f.x, startY: f.y, startW: f.w, startH: f.h }));
+
       const before = snapshot();
       const startClientX = e.clientX, startClientY = e.clientY;
       const startW = node.w, startH = node.h;
@@ -2308,6 +2773,19 @@ export function renderCustomSheet(root, character, store) {
         node.w = Math.min(maxW, Math.max(minW, startW + dw));
         node.h = Math.min(maxH, Math.max(minH, startH + dh));
         applyRect(el, node, cw);
+
+        if (scaleFields.length > 0) {
+          const ratioW = node.w / startW;
+          const ratioH = node.h / startH;
+          scaleFields.forEach(({ field, startX, startY, startW: fw, startH: fh }) => {
+            field.x = Math.max(0, Math.round(startX * ratioW));
+            field.y = Math.max(0, Math.round(startY * ratioH));
+            field.w = Math.max(1, Math.round(fw * ratioW));
+            field.h = Math.max(1, Math.round(fh * ratioH));
+            const fieldEl = el.querySelector(`[data-node-id="${field.id}"]`);
+            if (fieldEl) applyRect(fieldEl, field, cw);
+          });
+        }
       }
       function onUp() {
         document.removeEventListener("pointermove", onMove);
@@ -2318,6 +2796,13 @@ export function renderCustomSheet(root, character, store) {
         updateHistoryButtons();
         normalizeTabs();
         onCommit();
+        if (scaleFieldIds.length > 0) {
+          selectedIds = new Set([node.id, ...scaleFieldIds]);
+          paintSelection();
+          refocusNodeById(node.id);
+        } else {
+          selectOnly(node.id);
+        }
       }
       document.addEventListener("pointermove", onMove);
       document.addEventListener("pointerup", onUp);
@@ -2366,6 +2851,13 @@ export function renderCustomSheet(root, character, store) {
       // popover the person just clicked away from, so a race/class
       // bonus or a newly-restricted dropdown actually shows up.
       if (hadPopover) renderPageGrid();
+      // Clicking outside any grid-node deselects — except a sidebar
+      // item, which sets its OWN selection via a "click" listener
+      // that fires right after this "pointerdown" one, so clearing it
+      // here first and then immediately setting it there is fine.
+      if (!e.target.closest(".grid-node, .sheet-block-list__line, .sheet-block-list__field")) {
+        clearSelectionState();
+      }
     }
   });
 
@@ -2685,7 +3177,7 @@ export function renderCustomSheet(root, character, store) {
       { type: "checkbox", label: "Checkbox", preview: () => buildOptionPreview("checkbox", 1) },
       { type: "dropdown", label: "Dropdown", preview: buildDropdownPreview },
       { type: "label", label: "Label", preview: buildLabelPreview },
-      { type: "picture", label: "Picture", preview: buildPicturePreview },
+      { type: "picture", label: "Image", preview: buildPicturePreview },
       { type: "radio", label: "Radio Buttons", preview: () => buildOptionPreview("radio", 3) },
       { type: "text", label: "Num Field", preview: buildTextPreview },
       { type: "textarea", label: "Text Area", preview: buildTextareaPreview },

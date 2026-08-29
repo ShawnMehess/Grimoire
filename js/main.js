@@ -4,6 +4,7 @@ import * as characterStore from "./state/characterStore.js";
 import { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, createCharacter, deleteCharacter, currentUserId, listSheetTemplates } from "./state/characterStore.js";
 import { createBlankCharacter } from "./data/schema.js";
 import { renderCustomSheet } from "./render/customSheet.js";
+import { computeAllFormulas } from "./data/formula.js";
 
 const appRoot = document.getElementById("app-main");
 const authArea = document.getElementById("auth-area");
@@ -75,24 +76,76 @@ function buildPlaceholderPortraitSvg() {
   return svg;
 }
 
-/** Looks across every tab (or the legacy flat .layout, for characters
- *  saved before tabs existed) for a picture field flagged as the
- *  avatar — see the "Set as Avatar" button in customSheet.js. Only
- *  ever one such field per character. */
-function findAvatarImageData(character) {
+/** Every field across every tab (or the legacy flat .layout) — same
+ *  tabs-normalization as findAvatarImageData above, just flattened
+ *  into one list instead of searching for one specific flag. */
+function flattenAllFields(character) {
   const tabs = Array.isArray(character.sheetTabs) && character.sheetTabs.length > 0
     ? character.sheetTabs
     : [{ layout: Array.isArray(character.layout) ? character.layout : [] }];
-  for (const tab of tabs) {
-    for (const block of (tab.layout || [])) {
-      for (const field of (block.children || [])) {
-        if (field.fieldType === "picture" && field.isAvatar && field.imageData) {
-          return field.imageData;
-        }
-      }
+  const fields = [];
+  tabs.forEach((tab) => {
+    (tab.layout || []).forEach((block) => {
+      (block.children || []).forEach((field) => fields.push(field));
+    });
+  });
+  return fields;
+}
+
+/** What to actually show for a field someone's dragged onto their
+ *  character-card list (see the identity-card-fields drop zone in
+ *  customSheet.js) — a dropdown shows its selected choice's text; a
+ *  plain (non-formula) text field shows its raw typed content as-is,
+ *  numeric or not, since it might just as easily be "Half-Elf" as
+ *  "14"; a formula field shows its computed result. Anything else
+ *  (radio/checkbox/etc.) isn't meaningful to show standalone, so it's
+ *  skipped. Returns null rather than a placeholder when there's
+ *  nothing to show, so the caller can filter empties out cleanly. */
+function displayValueForField(field, formulaValues) {
+  if (!field) return null;
+  if (field.fieldType === "dropdown") {
+    const choice = (field.choices || []).find((c) => c.id === field.selected);
+    return choice ? choice.text : null;
+  }
+  if (field.fieldType === "text") {
+    if (field.formula) {
+      const v = formulaValues[field.id];
+      return Number.isFinite(v) ? String(v) : null;
     }
+    const tmp = document.createElement("div");
+    tmp.innerHTML = field.value || "";
+    const text = tmp.textContent.trim();
+    return text || null;
   }
   return null;
+}
+
+/** The character's designated avatar image, if any — see the "Set as
+ *  Avatar" button on a picture field in customSheet.js. Only ever one
+ *  such field per character. */
+function findAvatarImageData(character) {
+  const match = flattenAllFields(character).find(
+    (f) => f.fieldType === "picture" && f.isAvatar && f.imageData
+  );
+  return match ? match.imageData : null;
+}
+
+/** Builds the character card's meta line ("Half-Elf • Ranger • Level
+ *  3") purely from whichever fields the DM dragged into the
+ *  identity-card-fields drop zone on that character's own sheet — see
+ *  the comment there. No fallback to any fixed race/class/level
+ *  properties; name is the only thing about a character that isn't
+ *  just "whatever field you chose to show here". */
+function buildCardMeta(character) {
+  const ids = Array.isArray(character.cardFieldIds) ? character.cardFieldIds : [];
+  if (ids.length === 0) return "—";
+  const allFields = flattenAllFields(character);
+  const formulaValues = computeAllFormulas(allFields);
+  const parts = ids
+    .map((id) => allFields.find((f) => f.id === id))
+    .map((f) => displayValueForField(f, formulaValues))
+    .filter(Boolean);
+  return parts.length ? parts.join(" • ") : "—";
 }
 
 async function renderCharacterList() {
@@ -151,10 +204,9 @@ async function renderCharacterList() {
     const nameEl = document.createElement("div");
     nameEl.className = "character-card__name";
     nameEl.textContent = c.name || "Unnamed";
-    const metaParts = [c.race, c.class, c.level ? `Level ${c.level}` : null].filter(Boolean);
     const metaEl = document.createElement("div");
     metaEl.className = "character-card__meta";
-    metaEl.textContent = metaParts.join(" • ") || "—";
+    metaEl.textContent = buildCardMeta(c);
     info.append(nameEl, metaEl);
     card.append(info);
 

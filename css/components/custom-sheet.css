@@ -22,6 +22,55 @@
   flex-wrap: wrap;
 }
 
+.identity-card-fields {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 26px;
+  padding: 2px 6px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  flex: 1 1 auto;
+  min-width: 160px;
+}
+
+.identity-card-fields__hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  font-style: italic;
+}
+
+.identity-card-fields__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--color-accent-muted);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  padding: 1px 4px 1px 8px;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.identity-card-fields__chip--missing {
+  background: transparent;
+  border: 1px dashed var(--color-negative);
+  color: var(--color-negative);
+  text-decoration: line-through;
+}
+.identity-card-fields__chip button {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 10px;
+  opacity: 0.75;
+}
+.identity-card-fields__chip button:hover {
+  opacity: 1;
+}
+
 .sheet-tabs {
   display: flex;
   align-items: center;
@@ -109,6 +158,9 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+  margin: -2px -4px;
 }
 
 .sheet-block-list__tabs {
@@ -125,11 +177,18 @@
   color: var(--color-text-muted);
   font-size: var(--text-xs);
   cursor: grab;
+  border-radius: var(--radius-sm);
 }
 
 .sheet-block-list__field--sub {
   margin-left: var(--space-6);
   color: var(--color-text-faint);
+}
+
+.sheet-block-list__line.is-selected,
+.sheet-block-list__field.is-selected {
+  background: var(--color-accent-muted);
+  color: var(--color-text);
 }
 
 /* Breaks out of .app-main's centered max-width column to span the full
@@ -185,16 +244,18 @@
   border-color: var(--color-border-strong);
 }
 
-/* Explicit selection chrome for a clicked/focused block or field —
-   deliberately NOT relying on the browser's default focus ring (which
-   some dark-mode browser extensions restore but plain Firefox/Chrome
-   render invisibly-faint against this theme's dark surfaces). Uses
-   :focus-within rather than :focus so this also lights up when the
-   thing that actually took focus is a child (the name/label/value
-   text, which is directly editable) rather than the wrapper itself. */
+/* Selection is shown by recoloring the node's OWN border, not a
+   separate outline drawn around it — requested explicitly so that a
+   future "hide this element's border" style option can still have
+   selection show through: the border comes back (in accent color)
+   the moment it's selected, even if it's otherwise set invisible.
+   .is-selected (see paintSelection/selectOnly/selectWithChildren in
+   customSheet.js) is the real source of truth; :focus-within rides
+   along as a fallback for keyboard-only navigation (Tab), which
+   doesn't go through that selection code at all. */
+.grid-node.is-selected,
 .grid-node:focus-within {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
+  border-color: var(--color-accent);
   z-index: 4;
 }
 
@@ -307,11 +368,22 @@
   outline: none;
   cursor: text;
   flex: 0 0 auto;
+  min-height: 1.3em; /* so clicking in to rename it (which clears its
+    ghosted default text — see wireGhostDefault) doesn't visibly
+    collapse the label's spot down to nothing until you start typing */
+  min-width: 1.5rem;
   display: flex;
-  align-items: center;
+  flex-direction: column; /* justify-content below centers vertically
+    (now the main axis); align-items stays at its default (stretch),
+    so the actual text content spans the full width and gets centered
+    by plain text-align — not by justify-content positioning a
+    shrink-to-fit flex item, which is what caused an empty/cleared
+    contenteditable's caret to render off in a corner instead of the
+    middle (see the matching comment on .field-value below) */
   justify-content: center;
   text-align: center;
   padding: 2px;
+  overflow: hidden;
 }
 .field-inner--left .field-label,
 .field-inner--right .field-label {
@@ -329,12 +401,10 @@
   outline: none;
   cursor: text;
   display: flex;
-  align-items: center; /* vertical centering via flex... */
-  text-align: center;  /* ...horizontal centering via text-align, NOT
-    justify-content: an empty flex container centered via
-    justify-content puts the caret at the container's edge instead of
-    its middle in some browsers — text-align positions the caret
-    itself, which behaves correctly even with no text yet typed */
+  flex-direction: column; /* see the .field-label comment above — same
+    fix, same reasoning, for the same empty-caret quirk */
+  justify-content: center;
+  text-align: center;
   padding: 2px 4px;
   overflow: auto;
 }
@@ -418,7 +488,11 @@
 }
 
 .field-value--textarea {
-  align-items: flex-start;
+  align-items: flex-start; /* cross-axis is now horizontal, since the base
+    rule is flex-direction:column — this still means "left-align" */
+  justify-content: flex-start; /* main-axis is now vertical — override the
+    base rule's centering so a multi-line textarea starts at the top
+    instead of vertically centering its content */
   text-align: left;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
