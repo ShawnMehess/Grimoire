@@ -334,7 +334,19 @@ function makeEditableField(initialText, resolveField, onTextChange, validateFn) 
  * @param onChange       (formulaTreeOrNull) => void — called (debounced) whenever
  *                        the tree changes, or immediately with null on Clear
  */
-export function openFormulaEditor(field, resolveField, onChange) {
+/**
+ * @param field         the field whose formula is being edited
+ * @param resolveField  (id) => field object or null, for chip labels/drop lookups
+ * @param onChange       (formulaTreeOrNull) => void — called (debounced) whenever
+ *                        the tree changes, or immediately with null on Clear
+ * @param uiOverrides    optional { title, hint } — lets a caller reuse this same
+ *                       editor for a formula that means something other than "this
+ *                       field's own value" (e.g. a radio field's button COUNT — see
+ *                       the "=" button in a radio field's toolbar in
+ *                       customSheet.js) without the title/intro text being wrong
+ *                       about what the formula actually controls.
+ */
+export function openFormulaEditor(field, resolveField, onChange, uiOverrides = {}) {
   let working = field.formula ? deepClone(field.formula) : { type: "expr", text: "" };
   const commitDebounced = debounce(() => onChange(deepClone(working)), 350);
 
@@ -352,7 +364,7 @@ export function openFormulaEditor(field, resolveField, onChange) {
   const titleRow = document.createElement("div");
   titleRow.className = "formula-editor-titlerow";
   const title = document.createElement("h3");
-  title.textContent = `Formula for "${field.label || "Field"}"`;
+  title.textContent = uiOverrides.title || `Formula for "${field.label || "Field"}"`;
   const closeX = document.createElement("button");
   closeX.type = "button";
   closeX.className = "formula-editor-close";
@@ -364,7 +376,7 @@ export function openFormulaEditor(field, resolveField, onChange) {
 
   const hint = document.createElement("p");
   hint.className = "modal-copy";
-  hint.textContent = "Drag stat fields in from the list on the left to use them as variables. Numbers, + − × ÷, parentheses, and the functions below all work.";
+  hint.textContent = uiOverrides.hint || "Drag stat fields in from the list on the left to use them as variables. Numbers, + − × ÷, parentheses, and the functions below all work.";
   box.append(hint);
 
   const body = document.createElement("div");

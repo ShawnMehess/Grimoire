@@ -21,7 +21,7 @@ function newId() {
   return crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export const FIELD_TYPES = ["text", "label", "textarea", "textlist", "dropdown", "picture", "radio", "checkbox"];
+export const FIELD_TYPES = ["text", "label", "textarea", "textlist", "dropdown", "picture", "catalog", "radio", "checkbox"];
 export const LABEL_POSITIONS = ["top", "right", "bottom", "left"];
 
 // A block's declared `h` (in blockModel.js) includes ONE reserved row
@@ -101,9 +101,23 @@ export function createField({ fieldType = "text", label = "Stat", x = 0, y = 0, 
   } else if (fieldType === "picture") {
     field.imageData = null;
     field.isAvatar = false;
+  } else if (fieldType === "catalog") {
+    // catalogSource: null (unconfigured) | { scope: "library", libraryId }
+    //   | { scope: "custom", tabs: [...] } — see catalogLibraryEditor.js
+    //   for the shared { id, name, tabs: [{ id, name, entries: [...] }] }
+    //   shape a catalog (library or custom) is built from.
+    field.catalogSource = null;
+    field.moneyFieldId = null;
   } else if (fieldType === "radio") {
     field.options = 3;
     field.selected = null;
+    // Optional — when set, the number of buttons actually shown is
+    // this formula's computed result instead of `options` above
+    // (which becomes just the fallback/default). See the "=" button
+    // on a radio field's own toolbar in customSheet.js — same
+    // formula tree shape as a Num Field's `formula`, just interpreted
+    // as a button COUNT rather than a value.
+    field.optionsFormula = null;
     syncOptionWidth(field);
   } else if (fieldType === "checkbox") {
     field.options = 3;

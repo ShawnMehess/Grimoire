@@ -206,6 +206,17 @@ export function openBundleLibraryManager(store, onChange) {
       valueInput.value = Number.isFinite(mod.value) ? mod.value : 0;
       valueInput.addEventListener("input", () => { mod.value = Number(valueInput.value) || 0; });
 
+      const minLevelInput = document.createElement("input");
+      minLevelInput.type = "number";
+      minLevelInput.title = "Min level (blank = always active)";
+      minLevelInput.placeholder = "Lvl";
+      minLevelInput.className = "bundle-mod-row__level";
+      minLevelInput.value = Number.isFinite(mod.minLevel) ? mod.minLevel : "";
+      minLevelInput.addEventListener("input", () => {
+        const n = Number(minLevelInput.value);
+        mod.minLevel = minLevelInput.value === "" || !Number.isFinite(n) ? null : n;
+      });
+
       const removeBtn = document.createElement("button");
       removeBtn.type = "button";
       removeBtn.className = "btn formula-toolbar__btn";
@@ -215,7 +226,7 @@ export function openBundleLibraryManager(store, onChange) {
         renderEditor();
       });
 
-      row.append(nameInput, opSelect, valueInput, removeBtn);
+      row.append(nameInput, opSelect, valueInput, minLevelInput, removeBtn);
       editorCol.append(row);
     });
 
@@ -224,7 +235,7 @@ export function openBundleLibraryManager(store, onChange) {
     addModBtn.className = "btn formula-toolbar__btn";
     addModBtn.textContent = "+ Add Modifier";
     addModBtn.addEventListener("click", () => {
-      selected.statModifiers.push({ id: newLocalId(), targetFieldName: "", op: "add", value: 0 });
+      selected.statModifiers.push({ id: newLocalId(), targetFieldName: "", op: "add", value: 0, minLevel: null });
       renderEditor();
     });
     editorCol.append(addModBtn);
@@ -248,6 +259,16 @@ export function openBundleLibraryManager(store, onChange) {
       targetInput.placeholder = "Dropdown name (e.g. Subclass)";
       targetInput.value = rule.targetFieldName || "";
       targetInput.addEventListener("input", () => { rule.targetFieldName = targetInput.value; });
+      const ruleMinLevelInput = document.createElement("input");
+      ruleMinLevelInput.type = "number";
+      ruleMinLevelInput.title = "Min level (blank = always active)";
+      ruleMinLevelInput.placeholder = "Lvl";
+      ruleMinLevelInput.className = "bundle-mod-row__level";
+      ruleMinLevelInput.value = Number.isFinite(rule.minLevel) ? rule.minLevel : "";
+      ruleMinLevelInput.addEventListener("input", () => {
+        const n = Number(ruleMinLevelInput.value);
+        rule.minLevel = ruleMinLevelInput.value === "" || !Number.isFinite(n) ? null : n;
+      });
       const removeBtn = document.createElement("button");
       removeBtn.type = "button";
       removeBtn.className = "btn formula-toolbar__btn";
@@ -256,7 +277,7 @@ export function openBundleLibraryManager(store, onChange) {
         selected.dropdownAccess.splice(i, 1);
         renderEditor();
       });
-      targetRow.append(targetInput, removeBtn);
+      targetRow.append(targetInput, ruleMinLevelInput, removeBtn);
       ruleWrap.append(targetRow);
 
       const choicesLabel = document.createElement("label");

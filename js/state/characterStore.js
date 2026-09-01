@@ -107,6 +107,8 @@ const PUBLIC_TEMPLATES_COLLECTION = "publicSheetTemplates";
 const USER_TEMPLATES_COLLECTION = "userSheetTemplates";
 const PUBLIC_BUNDLES_COLLECTION = "publicBundleLibraries";
 const USER_BUNDLES_COLLECTION = "userBundleLibraries";
+const PUBLIC_CATALOGS_COLLECTION = "publicCatalogs";
+const USER_CATALOGS_COLLECTION = "userCatalogs";
 const ADMINS_COLLECTION = "admins";
 
 // --- Auth -----------------------------------------------------------------
@@ -343,5 +345,84 @@ export async function deleteBundleLibrary(scope, id) {
   const ref = scope === "global"
     ? doc(db, PUBLIC_BUNDLES_COLLECTION, id)
     : doc(db, USER_BUNDLES_COLLECTION, uid, "bundles", id);
+  await deleteDoc(ref);
+}
+
+// --- Catalogs ----------------------------------------------------------
+//
+// A reusable list of things a player can browse and spend an in-sheet
+// currency on — "Common Weapons," a spell list, whatever — defined
+// ONCE here (same global/personal-scope pattern as bundle libraries
+// above) and linked to from a "Catalog" field on any character (see
+// catalogLibraryEditor.js and the "catalog" fieldType in
+// blockModel.js/customSheet.js). A catalog is
+// { id, name, tabs: [{ id, name, entries: [...] }] }, where each
+// entry is { id, name, description, imageData, cost }. Unlike a
+// bundle, nothing here references field ids or names at all — a
+// catalog doesn't know or care which character it's attached to; the
+// FIELD linking to it is what separately holds which money field on
+// THIS character purchases draw from.
+
+function catalogPayload(entry, ownerId) {
+  return {
+    ownerId,
+    name: entry.name || "Unnamed Catalog",
+    tabs: entry.tabs || [],
+    updatedAt: serverTimestamp(),
+  };
+}
+
+export async function listCatalogs() {
+  const uid = currentUserId();
+  if (!uid) return [];
+
+  const [globalSnap, personalSnap] = await Promise.all([
+    getDocs(collection(db, PUBLIC_CATALOGS_COLLECTION)),
+    getDocs(collection(db, USER_CATALOGS_COLLECTION, uid, "catalogs")),
+  ]);
+
+  const globals = globalSnap.docs.map(d => ({ id: d.id, scope: "global", ...d.data() }));
+  const personal = personalSnap.docs.map(d => ({ id: d.id, scope: "personal", ...d.data() }));
+
+  return [...globals, ...personal].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+}
+
+export async function loadCatalog(scope, id) {
+  const uid = currentUserId();
+  if (!uid) return null;
+  const ref = scope === "global"
+    ? doc(db, PUBLIC_CATALOGS_COLLECTION, id)
+    : doc(db, USER_CATALOGS_COLLECTION, uid, "catalogs", id);
+  const snap = await getDoc(ref);
+  return snap.exists() ? { id: snap.id, scope, ...snap.data() } : null;
+}
+
+/** Same shape/rules as saveBundleLibrary — global needs admin rights,
+ *  enforced here and again by firestore.rules. */
+export async function saveCatalog(scope, entry) {
+  const uid = currentUserId();
+  if (!uid) throw new Error("Not signed in");
+  if (scope === "global" && !(await isCurrentUserAdmin())) {
+    throw new Error("Only admins can save global catalogs");
+  }
+
+  const collectionRef = scope === "global"
+    ? collection(db, PUBLIC_CATALOGS_COLLECTION)
+    : collection(db, USER_CATALOGS_COLLECTION, uid, "catalogs");
+  const id = entry.id || doc(collectionRef).id;
+  const ref = scope === "global"
+    ? doc(db, PUBLIC_CATALOGS_COLLECTION, id)
+    : doc(db, USER_CATALOGS_COLLECTION, uid, "catalogs", id);
+
+  await setDoc(ref, catalogPayload(entry, uid));
+  return id;
+}
+
+export async function deleteCatalog(scope, id) {
+  const uid = currentUserId();
+  if (!uid) return;
+  const ref = scope === "global"
+    ? doc(db, PUBLIC_CATALOGS_COLLECTION, id)
+    : doc(db, USER_CATALOGS_COLLECTION, uid, "catalogs", id);
   await deleteDoc(ref);
 }

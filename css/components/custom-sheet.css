@@ -609,6 +609,38 @@
   background-repeat: no-repeat;
 }
 
+.field-value--catalog {
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.field-value--catalog:hover {
+  border-color: var(--color-accent);
+}
+
+.catalog-field-config {
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.catalog-field-config label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
+.catalog-field-config select {
+  width: 100%;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: 2px var(--space-2);
+  font-size: var(--text-sm);
+}
+
 .dropdown-choices-editor {
   width: 320px;
   display: flex;
@@ -737,6 +769,10 @@
 }
 .bundle-mod-row input[type="number"] {
   width: 56px;
+  flex: 0 0 auto;
+}
+.bundle-mod-row__level {
+  width: 44px !important;
   flex: 0 0 auto;
 }
 
@@ -870,6 +906,28 @@
 .group-toolbar.is-visible {
   display: flex;
 }
+.group-toolbar button.active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* One rectangle around the smallest box containing the whole
+   selection (see selectionBoundingBox/updateGroupBorderOverlay in
+   customSheet.js) — not each selected element getting its own
+   border. Purely visual/session-scoped: there's no persisted "group"
+   in the data model to attach a saved style to, so this resets
+   whenever the actual set of selected ids changes. */
+.group-border-overlay {
+  position: absolute;
+  display: none;
+  border: 2px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  z-index: 3;
+}
+.group-border-overlay.is-visible {
+  display: block;
+}
 
 .node-toolbar button {
   width: 22px;
@@ -890,6 +948,10 @@
 .node-toolbar button:hover {
   background: var(--color-bg-inset);
   border-color: var(--color-border-strong);
+}
+.node-toolbar button.active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 /* The equals icon sits on whichever edge is opposite the label. */
@@ -961,6 +1023,20 @@
 .style-popover.field-type-menu {
   width: max-content;
   max-width: 280px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.field-type-menu__group {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: var(--space-2) 0 2px;
+}
+.field-type-menu__group:first-child {
+  margin-top: 0;
 }
 
 .field-type-option {
@@ -1084,6 +1160,16 @@
   width: 100%;
   height: 100%;
   fill: currentColor;
+}
+
+.field-type-preview-catalog {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+  font-size: 12px;
 }
 
 /* Fixed label column + flexible value column, shared by every row —
@@ -1407,6 +1493,184 @@
   margin-top: var(--space-2);
   padding-top: var(--space-2);
   border-top: var(--border-width) solid var(--color-border);
+}
+
+/* --- Catalog library editor (tabs + entries) --- */
+
+.catalog-tab-section {
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.catalog-tab-section__header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.catalog-tab-section__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: 2px var(--space-2);
+  font-size: var(--text-sm);
+}
+.catalog-tab-section__count {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  white-space: nowrap;
+}
+
+.catalog-entry-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-inset);
+}
+
+.catalog-entry-row__thumb {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-faint);
+  cursor: pointer;
+  overflow: hidden;
+}
+.catalog-entry-row__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.catalog-entry-row__fields {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.catalog-entry-row__fields input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--color-bg-raised);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: 2px 4px;
+  font-size: var(--text-xs);
+}
+
+/* --- Catalog browser (player-facing purchase modal) --- */
+
+.modal-box--catalog-browser {
+  width: min(480px, calc(100vw - 32px));
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.catalog-browser__balance {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.catalog-browser__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.catalog-browser__tab.active {
+  background: var(--color-accent-muted);
+  border-color: var(--color-accent);
+}
+
+.catalog-browser__entries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.catalog-browser__empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  text-align: center;
+  padding: var(--space-3);
+}
+
+.catalog-browser__entry {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-inset);
+}
+
+.catalog-browser__entry-thumb {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-raised);
+  overflow: hidden;
+}
+.catalog-browser__entry-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.catalog-browser__entry-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.catalog-browser__entry-name {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+}
+.catalog-browser__entry-desc {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.catalog-browser__entry-cost {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-accent);
+  font-weight: 600;
+  min-width: 3ch;
+  text-align: right;
+}
+
+.catalog-browser__feedback {
+  position: relative;
+  margin-left: 6px;
+  font-size: var(--text-xs);
+  color: var(--color-positive);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.catalog-browser__feedback--warning {
+  color: var(--color-negative);
+}
+.catalog-browser__feedback.is-visible {
+  opacity: 1;
 }
 
 .formula-editor-body {

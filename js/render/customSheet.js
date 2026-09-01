@@ -60,6 +60,8 @@ import { contentHeight } from "./gridEngine.js";
 import { computeAllFormulas, evaluateFormulaNode, formatComputedValue } from "../data/formula.js";
 import { openFormulaEditor } from "./formulaEditor.js";
 import { openBundleLibraryManager } from "./bundleLibraryEditor.js";
+import { openCatalogLibraryManager } from "./catalogLibraryEditor.js";
+import { openCatalogBrowser } from "./catalogBrowser.js";
 
 const PAGE_COLS = 16;
 const GAP_PX = 8;
@@ -76,16 +78,17 @@ const DEFAULT_FIELD_SIZE = {
   textlist: { w: 3, h: 2 },
   dropdown: { w: 2, h: 1 },
   picture: { w: 3, h: 3 },
+  catalog: { w: 2, h: 1 },
   radio: { w: 1, h: 1 },
   checkbox: { w: 1, h: 1 },
 };
 // Radio/checkbox auto-size via syncOptionWidth (their w/h are derived
 // from option count, not user-resizable); every other field type can
 // be freely resized.
-const RESIZABLE_FIELD_TYPES = new Set(["text", "label", "textarea", "textlist", "dropdown", "picture"]);
+const RESIZABLE_FIELD_TYPES = new Set(["text", "label", "textarea", "textlist", "dropdown", "picture", "catalog"]);
 // Field types with no separate label/value split — just one element
 // filling the whole field (see renderFieldInner).
-const CAPTIONLESS_FIELD_TYPES = new Set(["label", "picture"]);
+const CAPTIONLESS_FIELD_TYPES = new Set(["label", "picture", "catalog"]);
 const MAX_IMAGE_BYTES = 250_000; // same Firestore-doc-size reasoning as MAX_BG_IMAGE_BYTES below
 
 function debounce(fn, delayMs = 500) {
@@ -116,6 +119,12 @@ export function renderCustomSheet(root, character, store) {
   // id::checkboxIndex) -> current numeric value. Read by buildFieldValue
   // to display a formula field's computed result.
   let formulaValues = {};
+  // Same idea, for a radio field's optional "how many buttons" formula
+  // (see field.optionsFormula, and the "=" button on a radio field's
+  // toolbar) — kept separate from formulaValues since a button COUNT
+  // isn't a meaningful variable for other formulas to reference the
+  // way a field's own value is.
+  let radioOptionCounts = {};
   // Cached list of reusable bundle-library entries (see
   // bundleLibraryEditor.js) — refreshed on load and whenever the
   // manager reports a save/delete, so the "Apply from Library" picker
@@ -126,6 +135,14 @@ export function renderCustomSheet(root, character, store) {
     bundleLibraryCache = await store.listBundleLibraries();
   }
   refreshBundleLibraryCache();
+  // Same idea, for Catalog fields' "which catalog" picker (see
+  // openCatalogFieldConfig below).
+  let catalogCache = [];
+  async function refreshCatalogCache() {
+    if (!store.listCatalogs) return;
+    catalogCache = await store.listCatalogs();
+  }
+  refreshCatalogCache();
 
   root.innerHTML = "";
 
@@ -176,6 +193,16 @@ export function renderCustomSheet(root, character, store) {
     openBundleLibraryManager(store, refreshBundleLibraryCache);
   });
   toolbar.append(bundleLibBtn);
+
+  const catalogLibBtn = document.createElement("button");
+  catalogLibBtn.type = "button";
+  catalogLibBtn.className = "btn";
+  catalogLibBtn.textContent = "Catalogs";
+  catalogLibBtn.title = "Manage reusable item/spell catalogs";
+  catalogLibBtn.addEventListener("click", () => {
+    openCatalogLibraryManager(store, refreshCatalogCache);
+  });
+  toolbar.append(catalogLibBtn);
 
   // A plain, non-customizable name field — deliberately outside the
   // draggable/relabelable grid. The character LIST view needs a
@@ -250,6 +277,60 @@ export function renderCustomSheet(root, character, store) {
   }
   renderCardFieldChips();
   toolbar.append(cardFieldsWrap);
+
+  // A separate single-field designation (not part of cardFieldIds
+  // above, which is about what shows on the character-list card) —
+  // this is what bundle stat modifiers/dropdown-access rules check
+  // against when they have a "Min Level" set (see currentLevel,
+  // applyBundleModifiers, getAllowedChoiceIds). Single slot, not a
+  // chip list: only one field can sensibly BE the character's level.
+  const levelFieldWrap = document.createElement("div");
+  levelFieldWrap.className = "identity-card-fields";
+  levelFieldWrap.addEventListener("dragover", (e) => {
+    if (e.dataTransfer.types.includes("application/x-sheet-field")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  });
+  levelFieldWrap.addEventListener("drop", (e) => {
+    const payload = e.dataTransfer.getData("application/x-sheet-field");
+    if (!payload) return;
+    e.preventDefault();
+    let parsed;
+    try { parsed = JSON.parse(payload); } catch { return; }
+    if (!parsed.fieldId) return;
+    character.levelFieldId = parsed.fieldId;
+    saveWithStatus("levelFieldId", character.levelFieldId);
+    renderLevelFieldChip();
+  });
+
+  function renderLevelFieldChip() {
+    levelFieldWrap.innerHTML = "";
+    if (!character.levelFieldId) {
+      const hint = document.createElement("span");
+      hint.className = "identity-card-fields__hint";
+      hint.textContent = "Drag a field here to designate it as Level (for bundle leveling)";
+      levelFieldWrap.append(hint);
+      return;
+    }
+    const field = resolveFieldById(character.levelFieldId);
+    const chip = document.createElement("span");
+    chip.className = "identity-card-fields__chip" + (field ? "" : " identity-card-fields__chip--missing");
+    chip.append(document.createTextNode(field ? (field.label || "Field") : "deleted field"));
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.title = "Unset the Level field";
+    removeBtn.textContent = "✕";
+    removeBtn.addEventListener("click", () => {
+      character.levelFieldId = null;
+      saveWithStatus("levelFieldId", character.levelFieldId);
+      renderLevelFieldChip();
+    });
+    chip.append(removeBtn);
+    levelFieldWrap.append(chip);
+  }
+  renderLevelFieldChip();
+  toolbar.append(levelFieldWrap);
 
   // Visible save-state feedback — saves happen silently in the
   // background otherwise, which means a failed save (e.g. a
@@ -409,7 +490,7 @@ export function renderCustomSheet(root, character, store) {
     }
   }, true);
 
-  // --- Group toolbar (multi-selection) --------------------------------
+  // --- Group toolbar + bounding-box border (multi-selection) ----------
   //
   // A single node's own toolbar is built fresh per-render as part of
   // that node (see buildBlockToolbar/buildFieldToolbar) — this one is
@@ -422,30 +503,39 @@ export function renderCustomSheet(root, character, store) {
   groupToolbar.className = "node-toolbar group-toolbar";
   const groupBorderBtn = document.createElement("button");
   groupBorderBtn.type = "button";
-  groupBorderBtn.title = "Toggle border for the whole selection";
+  groupBorderBtn.title = "Toggle a border around the whole selection";
   groupBorderBtn.textContent = "▢";
   groupBorderBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    toggleBorderForSelection();
+    groupBorderVisible = !groupBorderVisible;
+    groupBorderBtn.classList.toggle("active", groupBorderVisible);
+    updateGroupBorderOverlay();
   });
   groupToolbar.append(groupBorderBtn);
 
-  function toggleBorderForSelection() {
-    const nodes = [...selectedIds]
-      .map((id) => findNode(globalLayout(), id) || findNode(currentLayout(), id))
-      .filter(Boolean);
-    if (nodes.length === 0) return;
-    // Based on the FIRST node's current state, so one click always
-    // moves the whole group to the SAME state together, rather than
-    // each node flipping independently off its own prior value.
-    const nextValue = styleForEditing(nodes[0]).showBorder === false;
-    commitMutation(() => {
-      nodes.forEach((node) => setNodeStyleValue(node, "showBorder", nextValue));
-    }, { render: false });
-    nodes.forEach((node) => {
-      const el = pageGrid.querySelector(`[data-node-id="${node.id}"]`);
-      if (el) applyNodeStyle(el, styleForEditing(node));
-    });
+  // The border itself: not each selected element getting its own
+  // border, but one rectangle around the smallest box that contains
+  // all of them — a visible outline of the CURRENT selection, not a
+  // persisted style (there's no actual "group" object in the data
+  // model to attach a saved style to; select something else, or edit
+  // the selection, and this resets — see the signature check in
+  // paintSelection below).
+  const groupBorderOverlay = document.createElement("div");
+  groupBorderOverlay.className = "group-border-overlay";
+  let groupBorderVisible = false;
+  let lastSelectionSignature = "";
+
+  function updateGroupBorderOverlay() {
+    const box = groupBorderVisible ? selectionBoundingBox() : null;
+    if (!box) {
+      groupBorderOverlay.classList.remove("is-visible");
+      return;
+    }
+    groupBorderOverlay.style.left = `${box.left - 3}px`;
+    groupBorderOverlay.style.top = `${box.top - 3}px`;
+    groupBorderOverlay.style.width = `${box.right - box.left + 6}px`;
+    groupBorderOverlay.style.height = `${box.bottom - box.top + 6}px`;
+    groupBorderOverlay.classList.add("is-visible");
   }
 
   /** The pixel bounding box (relative to pageGrid) of every currently
@@ -498,6 +588,20 @@ export function renderCustomSheet(root, character, store) {
       const item = blockFrame.querySelector(`[data-highlight-id="${id}"]`);
       if (item) item.classList.add("is-selected");
     });
+    // The bounding-box border is tied to THIS selection, not a
+    // persisted style — switching to a genuinely different selection
+    // resets it off, rather than carrying a stale box over (or
+    // requiring an extra click to turn off a border that no longer
+    // makes sense for whatever's now selected). Re-painting the SAME
+    // selection after an unrelated edit elsewhere does NOT reset it —
+    // only an actual change to which ids are selected does.
+    const signature = [...selectedIds].sort().join(",");
+    if (signature !== lastSelectionSignature) {
+      groupBorderVisible = false;
+      groupBorderBtn.classList.remove("active");
+      lastSelectionSignature = signature;
+    }
+    updateGroupBorderOverlay();
   }
 
   function selectOnly(id) {
@@ -963,8 +1067,22 @@ export function renderCustomSheet(root, character, store) {
    *  A choice stays allowed unless some active bundle elsewhere
    *  explicitly restricts this field and excludes it — multiple
    *  restrictions intersect, they don't override each other. */
+  /** Reads the character-designated "Level" field's current value out
+   *  of a value map — used to gate any bundle modifier/access rule
+   *  that sets a minLevel (see renderModifiersPanel's "Min Level"
+   *  inputs). No level field designated (character.levelFieldId
+   *  unset) means nothing is gated — bundles built before leveling
+   *  existed, or on a sheet that doesn't use it, keep working exactly
+   *  as they did before this. */
+  function currentLevel(valueMap) {
+    if (!character.levelFieldId) return Infinity;
+    const v = valueMap[character.levelFieldId];
+    return Number.isFinite(v) ? v : 0;
+  }
+
   function getAllowedChoiceIds(field, allFields) {
     let allowed = new Set((field.choices || []).map(c => c.id));
+    const level = currentLevel(formulaValues);
     allFields.forEach((other) => {
       if (other.fieldType !== "dropdown" || other === field) return;
       const choice = (other.choices || []).find(c => c.id === other.selected);
@@ -972,6 +1090,7 @@ export function renderCustomSheet(root, character, store) {
       if (!bundle) return;
       (bundle.dropdownAccess || []).forEach((rule) => {
         if (rule.targetFieldId !== field.id) return;
+        if (rule.minLevel && level < rule.minLevel) return; // not unlocked yet
         const ruleSet = new Set(rule.allowedChoiceIds || []);
         allowed = new Set([...allowed].filter(id => ruleSet.has(id)));
       });
@@ -1016,6 +1135,7 @@ export function renderCustomSheet(root, character, store) {
    *  formulas then read off of — just not for a modifier aimed at a
    *  field that's itself computed. */
   function applyBundleModifiers(fields, valueMap) {
+    const level = currentLevel(valueMap);
     fields.forEach((field) => {
       if (field.fieldType !== "dropdown") return;
       const choice = (field.choices || []).find(c => c.id === field.selected);
@@ -1023,6 +1143,7 @@ export function renderCustomSheet(root, character, store) {
       if (!bundle) return;
       (bundle.statModifiers || []).forEach((mod) => {
         if (!mod.targetFieldId) return;
+        if (mod.minLevel && level < mod.minLevel) return; // not unlocked yet
         const current = Number.isFinite(valueMap[mod.targetFieldId]) ? valueMap[mod.targetFieldId] : 0;
         const amount = Number.isFinite(mod.value) ? mod.value : 0;
         switch (mod.op) {
@@ -1050,6 +1171,42 @@ export function renderCustomSheet(root, character, store) {
       });
     }
     return valueMap;
+  }
+
+  /** A radio field's optional optionsFormula (see the "=" button in
+   *  its own toolbar) computes how many buttons it shows, using the
+   *  SAME variable pool (valueMap) as every other formula on the
+   *  sheet — so a spell-slot radio group can reference the character's
+   *  Level field directly, no different from any Num Field's formula.
+   *  Clamped to zero or more and rounded, since a fractional or
+   *  negative button count isn't meaningful. */
+  function computeRadioOptionCounts(fields, valueMap) {
+    const counts = {};
+    fields.forEach((f) => {
+      if (f.fieldType === "radio" && f.optionsFormula) {
+        const result = evaluateFormulaNode(f.optionsFormula, valueMap);
+        counts[f.id] = Number.isFinite(result) ? Math.max(0, Math.round(result)) : 0;
+      }
+    });
+    return counts;
+  }
+
+  /** If a radio field's formula-driven button count just shrank below
+   *  its current selection (e.g. a spell-slot tier that goes away as
+   *  a multiclass split changes), clear the now out-of-range selection
+   *  rather than leave it silently pointing at a button that no longer
+   *  exists — same reasoning as normalizeDropdownSelections. */
+  function normalizeRadioSelections(fields, counts) {
+    let changed = false;
+    fields.forEach((f) => {
+      if (f.fieldType !== "radio" || !f.optionsFormula || f.selected == null) return;
+      const count = counts[f.id] || 0;
+      if (f.selected > count) {
+        f.selected = count > 0 ? count : null;
+        changed = true;
+      }
+    });
+    return changed;
   }
 
   function sourceBlockFor(block) {
@@ -1257,9 +1414,25 @@ export function renderCustomSheet(root, character, store) {
     const allFields = flattenGlobalFields();
     let needsNormalizedPersist = false;
     if (normalizeChoiceObjects(allFields)) needsNormalizedPersist = true;
-    if (normalizeDropdownSelections(allFields)) needsNormalizedPersist = true;
-    if (needsNormalizedPersist) persist();
+    // Computed BEFORE normalizing dropdown selections (not after, as
+    // you might expect) so that a minLevel-gated dropdown-access rule
+    // (see getAllowedChoiceIds) checks the level this render actually
+    // computed, not last render's — otherwise leveling up and a
+    // selection becoming valid/invalid again would always be one
+    // render behind. If normalizing invalidates a selection, that can
+    // in turn change which bundle is active, so it's recomputed once
+    // more afterward — same "a few passes to settle" idea
+    // computeSheetValues already uses internally.
     formulaValues = computeSheetValues(allFields);
+    if (normalizeDropdownSelections(allFields)) {
+      needsNormalizedPersist = true;
+      formulaValues = computeSheetValues(allFields);
+    }
+    radioOptionCounts = computeRadioOptionCounts(allFields, formulaValues);
+    if (normalizeRadioSelections(allFields, radioOptionCounts)) {
+      needsNormalizedPersist = true;
+    }
+    if (needsNormalizedPersist) persist();
     const cw = colWidthPx();
     const availableHeight = availableViewportHeight();
     scrollWrapper.style.height = `${availableHeight}px`;
@@ -1287,9 +1460,10 @@ export function renderCustomSheet(root, character, store) {
     paintSelection(); // a full render tears down and rebuilds every
       // .grid-node — repaint .is-selected on whichever ones still
       // exist, so selection survives an unrelated edit elsewhere
-    pageGrid.append(groupToolbar); // innerHTML="" above wiped it out along
-      // with everything else — it's a persistent element (created once,
-      // not per-render), so just put it back rather than rebuild it
+    pageGrid.append(groupToolbar, groupBorderOverlay); // innerHTML="" above
+      // wiped them out along with everything else — they're persistent
+      // elements (created once, not per-render), so just put them back
+      // rather than rebuild them
   }
 
   function renderAll() {
@@ -1890,12 +2064,23 @@ export function renderCustomSheet(root, character, store) {
       return buildPictureValue(field);
     }
 
+    if (field.fieldType === "catalog") {
+      return buildCatalogValue(field);
+    }
+
     const el = document.createElement("div");
     el.className = "field-value field-value--options";
-    el.style.gridTemplateColumns = `repeat(${Math.max(1, field.options || 1)}, minmax(0, 1fr))`;
+    // A formula-driven radio group's button count is whatever that
+    // formula currently computes (see computeRadioOptionCounts) —
+    // `options` becomes just the fallback default, used only while no
+    // formula is set.
+    const effectiveOptions = field.fieldType === "radio" && field.optionsFormula
+      ? (radioOptionCounts[field.id] ?? 0)
+      : (field.options || 1);
+    el.style.gridTemplateColumns = `repeat(${Math.max(1, effectiveOptions)}, minmax(0, 1fr))`;
 
     if (field.fieldType === "radio") {
-      for (let n = 1; n <= field.options; n++) {
+      for (let n = 1; n <= effectiveOptions; n++) {
         const wrap = document.createElement("label");
         wrap.className = "option-radio";
         const input = document.createElement("input");
@@ -2211,6 +2396,151 @@ export function renderCustomSheet(root, character, store) {
     return wrap;
   }
 
+  /** A "catalog" field is just a button — clicking it opens the
+   *  player-facing browser (catalogBrowser.js) if it's configured, or
+   *  the config popover (openCatalogFieldConfig) if it isn't yet. The
+   *  catalog itself lives in Firestore (see catalogCache/store), not
+   *  on the field — the field only holds WHICH one (scope + id) and
+   *  which of this character's own fields is the money it spends. */
+  function buildCatalogValue(field) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "field-value field-value--catalog";
+    btn.addEventListener("pointerdown", (e) => e.stopPropagation());
+    btn.textContent = field.catalogSource ? "Open Catalog" : "Set up a catalog…";
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!field.catalogSource) {
+        openCatalogFieldConfig(field, btn.closest(".grid-node"));
+        return;
+      }
+      const catalog = await store.loadCatalog(field.catalogSource.scope, field.catalogSource.id);
+      if (!catalog) {
+        window.alert("That catalog couldn't be found — it may have been deleted. Reconfigure this field from its ⚙ button.");
+        return;
+      }
+      const moneyField = field.moneyFieldId ? resolveFieldById(field.moneyFieldId) : null;
+      openCatalogBrowser({
+        catalog,
+        moneyLabel: moneyField ? moneyField.label : null,
+        getMoney: () => (moneyField && Number.isFinite(formulaValues[moneyField.id]) ? formulaValues[moneyField.id] : 0),
+        spendMoney: (amount) => {
+          if (!moneyField) return;
+          const next = (Number.isFinite(formulaValues[moneyField.id]) ? formulaValues[moneyField.id] : 0) - amount;
+          commitMutation(() => {
+            moneyField.value = String(next);
+          });
+        },
+      });
+    });
+    return btn;
+  }
+
+  /** Popover for a catalog field's own setup: which saved catalog it
+   *  links to, and which of this character's own text fields is the
+   *  money it spends from (dragged in from the sidebar, same
+   *  "application/x-sheet-field" payload every other field-drag uses). */
+  function openCatalogFieldConfig(field, wrapperEl) {
+    closeOpenPopovers();
+    if (!wrapperEl) return;
+
+    const pop = document.createElement("div");
+    pop.className = "style-popover catalog-field-config";
+    pop.addEventListener("pointerdown", (e) => e.stopPropagation());
+
+    const title = document.createElement("div");
+    title.className = "style-popover__badge";
+    title.textContent = "Catalog Setup";
+    pop.append(title);
+
+    const catalogLabel = document.createElement("label");
+    catalogLabel.textContent = "Catalog";
+    const catalogSelect = document.createElement("select");
+    const blankOpt = document.createElement("option");
+    blankOpt.value = "";
+    blankOpt.textContent = catalogCache.length ? "Choose a catalog…" : "No catalogs saved yet";
+    catalogSelect.append(blankOpt);
+    catalogCache.forEach((cat) => {
+      const opt = document.createElement("option");
+      opt.value = `${cat.scope}::${cat.id}`;
+      opt.textContent = cat.scope === "global" ? `${cat.name} (Global)` : cat.name;
+      if (field.catalogSource && field.catalogSource.scope === cat.scope && field.catalogSource.id === cat.id) {
+        opt.selected = true;
+      }
+      catalogSelect.append(opt);
+    });
+    catalogSelect.addEventListener("change", () => {
+      if (!catalogSelect.value) {
+        commitMutation(() => { field.catalogSource = null; }, { render: false });
+        return;
+      }
+      const [scope, id] = catalogSelect.value.split("::");
+      commitMutation(() => { field.catalogSource = { scope, id }; }, { render: false });
+    });
+    pop.append(catalogLabel, catalogSelect);
+
+    const manageBtn = document.createElement("button");
+    manageBtn.type = "button";
+    manageBtn.className = "btn formula-toolbar__btn";
+    manageBtn.textContent = "Manage Catalogs…";
+    manageBtn.addEventListener("click", () => {
+      openCatalogLibraryManager(store, refreshCatalogCache);
+    });
+    pop.append(manageBtn);
+
+    const moneyLabel = document.createElement("label");
+    moneyLabel.textContent = "Money field";
+    pop.append(moneyLabel);
+
+    const moneyDrop = document.createElement("div");
+    moneyDrop.className = "identity-card-fields";
+    function renderMoneyChip() {
+      moneyDrop.innerHTML = "";
+      if (!field.moneyFieldId) {
+        const hint = document.createElement("span");
+        hint.className = "identity-card-fields__hint";
+        hint.textContent = "Drag a Num Field here";
+        moneyDrop.append(hint);
+        return;
+      }
+      const moneyField = resolveFieldById(field.moneyFieldId);
+      const chip = document.createElement("span");
+      chip.className = "identity-card-fields__chip" + (moneyField ? "" : " identity-card-fields__chip--missing");
+      chip.append(document.createTextNode(moneyField ? (moneyField.label || "Field") : "deleted field"));
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.textContent = "✕";
+      removeBtn.addEventListener("click", () => {
+        commitMutation(() => { field.moneyFieldId = null; }, { render: false });
+        renderMoneyChip();
+      });
+      chip.append(removeBtn);
+      moneyDrop.append(chip);
+    }
+    moneyDrop.addEventListener("dragover", (e) => {
+      if (e.dataTransfer.types.includes("application/x-sheet-field")) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }
+    });
+    moneyDrop.addEventListener("drop", (e) => {
+      const payload = e.dataTransfer.getData("application/x-sheet-field");
+      if (!payload) return;
+      e.preventDefault();
+      let parsed;
+      try { parsed = JSON.parse(payload); } catch { return; }
+      if (!parsed.fieldId) return;
+      commitMutation(() => { field.moneyFieldId = parsed.fieldId; }, { render: false });
+      renderMoneyChip();
+    });
+    renderMoneyChip();
+    pop.append(moneyDrop);
+
+    wrapperEl.append(pop);
+    positionPopoverWithinViewport(pop);
+    toolbarWithOpenPopup = wrapperEl.querySelector(".node-toolbar");
+  }
+
   /** Popover for managing a dropdown field's choice list: add, remove,
    *  drag to reorder, and an Auto-Alphabetize toggle that keeps the
    *  list sorted (and disables manual dragging, since a fixed order
@@ -2253,6 +2583,7 @@ export function renderCustomSheet(root, character, store) {
         targetFieldId: match ? match.id : null,
         op: mod.op,
         value: mod.value,
+        minLevel: Number.isFinite(mod.minLevel) ? mod.minLevel : null,
       });
     });
 
@@ -2269,6 +2600,7 @@ export function renderCustomSheet(root, character, store) {
         id: newId(),
         targetFieldId: targetField ? targetField.id : null,
         allowedChoiceIds,
+        minLevel: Number.isFinite(rule.minLevel) ? rule.minLevel : null,
       });
     });
   }
@@ -2550,6 +2882,17 @@ export function renderCustomSheet(root, character, store) {
         commitLocal(() => { mod.value = Number(valueInput.value) || 0; });
       });
 
+      const minLevelInput = document.createElement("input");
+      minLevelInput.type = "number";
+      minLevelInput.title = "Min level (blank = always active)";
+      minLevelInput.placeholder = "Lvl";
+      minLevelInput.className = "bundle-mod-row__level";
+      minLevelInput.value = Number.isFinite(mod.minLevel) ? mod.minLevel : "";
+      minLevelInput.addEventListener("input", () => {
+        const n = Number(minLevelInput.value);
+        commitLocal(() => { mod.minLevel = minLevelInput.value === "" || !Number.isFinite(n) ? null : n; });
+      });
+
       const removeBtn = document.createElement("button");
       removeBtn.type = "button";
       removeBtn.className = "btn formula-toolbar__btn";
@@ -2559,7 +2902,7 @@ export function renderCustomSheet(root, character, store) {
         refreshPanel();
       });
 
-      row.append(targetSelect, opSelect, valueInput, removeBtn);
+      row.append(targetSelect, opSelect, valueInput, minLevelInput, removeBtn);
       panel.append(row);
     });
 
@@ -2569,7 +2912,7 @@ export function renderCustomSheet(root, character, store) {
     addModBtn.textContent = "+ Add Modifier";
     addModBtn.addEventListener("click", () => {
       commitLocal(() => {
-        bundle.statModifiers.push({ id: newId(), targetFieldId: null, op: "add", value: 0 });
+        bundle.statModifiers.push({ id: newId(), targetFieldId: null, op: "add", value: 0, minLevel: null });
       });
       refreshPanel();
     });
@@ -2606,6 +2949,16 @@ export function renderCustomSheet(root, character, store) {
         });
         refreshPanel();
       });
+      const minLevelInput = document.createElement("input");
+      minLevelInput.type = "number";
+      minLevelInput.title = "Min level (blank = always active)";
+      minLevelInput.placeholder = "Lvl";
+      minLevelInput.className = "bundle-mod-row__level";
+      minLevelInput.value = Number.isFinite(rule.minLevel) ? rule.minLevel : "";
+      minLevelInput.addEventListener("input", () => {
+        const n = Number(minLevelInput.value);
+        commitLocal(() => { rule.minLevel = minLevelInput.value === "" || !Number.isFinite(n) ? null : n; });
+      });
       const removeRuleBtn = document.createElement("button");
       removeRuleBtn.type = "button";
       removeRuleBtn.className = "btn formula-toolbar__btn";
@@ -2614,7 +2967,7 @@ export function renderCustomSheet(root, character, store) {
         commitLocal(() => { bundle.dropdownAccess.splice(i, 1); });
         refreshPanel();
       });
-      targetRow.append(targetSelect, removeRuleBtn);
+      targetRow.append(targetSelect, minLevelInput, removeRuleBtn);
       ruleWrap.append(targetRow);
 
       const targetField = dropdownFields.find(f => f.id === rule.targetFieldId);
@@ -2649,7 +3002,7 @@ export function renderCustomSheet(root, character, store) {
     addAccessBtn.textContent = "+ Add Dropdown Rule";
     addAccessBtn.addEventListener("click", () => {
       commitLocal(() => {
-        bundle.dropdownAccess.push({ id: newId(), targetFieldId: null, allowedChoiceIds: [] });
+        bundle.dropdownAccess.push({ id: newId(), targetFieldId: null, allowedChoiceIds: [], minLevel: null });
       });
       refreshPanel();
     });
@@ -2662,11 +3015,12 @@ export function renderCustomSheet(root, character, store) {
     const bar = document.createElement("div");
     bar.className = "node-toolbar";
 
-    // A picture has nothing text-stylable about it (no font/color/bg
-    // to set — its own image IS its content), so skip the style
-    // button entirely rather than showing a popover of controls that
-    // don't apply to it.
-    if (field.fieldType !== "picture") {
+    // A picture/catalog has nothing text-stylable about it (a picture's
+    // image IS its content; a catalog is just a button whose own label
+    // covers styling via the normal field-label path), so skip the
+    // style button entirely rather than showing a popover of controls
+    // that don't apply.
+    if (field.fieldType !== "picture" && field.fieldType !== "catalog") {
       bar.append(buildStyleButton(field, wrapperEl));
     }
     bar.append(buildBorderToggleButton(field, wrapperEl));
@@ -2693,6 +3047,44 @@ export function renderCustomSheet(root, character, store) {
         openDropdownChoicesEditor(field, wrapperEl);
       });
       bar.append(editChoicesBtn);
+    }
+
+    if (field.fieldType === "catalog") {
+      const configBtn = document.createElement("button");
+      configBtn.type = "button";
+      configBtn.title = "Configure catalog";
+      configBtn.textContent = "⚙";
+      configBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openCatalogFieldConfig(field, wrapperEl);
+      });
+      bar.append(configBtn);
+    }
+
+    if (field.fieldType === "radio") {
+      const slotFormulaBtn = document.createElement("button");
+      slotFormulaBtn.type = "button";
+      slotFormulaBtn.title = field.optionsFormula
+        ? "Edit the formula for how many buttons this has"
+        : "Set a formula for how many buttons this has (e.g. spell slots that scale with Level)";
+      slotFormulaBtn.textContent = "=";
+      slotFormulaBtn.className = field.optionsFormula ? "active" : "";
+      slotFormulaBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openFormulaEditor(
+          { id: field.id, label: field.label, formula: field.optionsFormula },
+          resolveFieldById,
+          (newFormula) => {
+            commitMutation(() => { field.optionsFormula = newFormula; }, { render: false });
+            renderPageGrid();
+          },
+          {
+            title: `Slot-Count Formula for "${field.label || "Field"}"`,
+            hint: "This computes how many radio buttons this group shows — not which one is selected. Good for something like spell slots that scale with Level. Drag stat fields in as variables, same as any other formula.",
+          }
+        );
+      });
+      bar.append(slotFormulaBtn);
     }
 
     if (field.fieldType === "radio" || field.fieldType === "checkbox") {
@@ -3311,34 +3703,54 @@ export function renderCustomSheet(root, character, store) {
     menu.className = "style-popover field-type-menu";
     menu.addEventListener("pointerdown", (e) => e.stopPropagation());
 
-    const OPTIONS = [
-      { type: "checkbox", label: "Checkbox", preview: () => buildOptionPreview("checkbox", 1) },
-      { type: "dropdown", label: "Dropdown", preview: buildDropdownPreview },
-      { type: "label", label: "Label", preview: buildLabelPreview },
-      { type: "picture", label: "Image", preview: buildPicturePreview },
-      { type: "radio", label: "Radio Buttons", preview: () => buildOptionPreview("radio", 3) },
-      { type: "text", label: "Num Field", preview: buildTextPreview },
-      { type: "textarea", label: "Text Area", preview: buildTextareaPreview },
-      { type: "textlist", label: "Text List", preview: buildTextlistPreview },
-    ].sort((a, b) => a.label.localeCompare(b.label));
+    // Grouped rather than one flat alphabetical list — nine field
+    // types is enough that a little structure helps you scan for the
+    // one you want. Still alphabetical WITHIN each group.
+    const GROUPS = [
+      { name: "Text", types: ["text", "label", "textarea", "textlist"] },
+      { name: "Choice", types: ["dropdown", "radio", "checkbox"] },
+      { name: "Media", types: ["picture"] },
+      { name: "Interactive", types: ["catalog"] },
+    ];
+    const OPTION_DEFS = {
+      text: { label: "Num Field", preview: buildTextPreview },
+      label: { label: "Label", preview: buildLabelPreview },
+      textarea: { label: "Text Area", preview: buildTextareaPreview },
+      textlist: { label: "Text List", preview: buildTextlistPreview },
+      dropdown: { label: "Dropdown", preview: buildDropdownPreview },
+      radio: { label: "Radio Buttons", preview: () => buildOptionPreview("radio", 3) },
+      checkbox: { label: "Checkbox", preview: () => buildOptionPreview("checkbox", 1) },
+      picture: { label: "Image", preview: buildPicturePreview },
+      catalog: { label: "Catalog", preview: buildCatalogPreview },
+    };
 
-    OPTIONS.forEach(({ type, label, preview }) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "btn field-type-option";
-      const labelSpan = document.createElement("span");
-      labelSpan.className = "field-type-option__label";
-      labelSpan.textContent = label;
-      const previewSpan = document.createElement("span");
-      previewSpan.className = "field-type-option__preview";
-      previewSpan.append(preview());
-      btn.append(labelSpan, previewSpan);
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        onChoose(type);
-        closeOpenPopovers();
-      });
-      menu.append(btn);
+    GROUPS.forEach((group) => {
+      const groupLabel = document.createElement("div");
+      groupLabel.className = "field-type-menu__group";
+      groupLabel.textContent = group.name;
+      menu.append(groupLabel);
+
+      group.types
+        .map((type) => ({ type, ...OPTION_DEFS[type] }))
+        .sort((a, b) => a.label.localeCompare(b.label))
+        .forEach(({ type, label, preview }) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "btn field-type-option";
+          const labelSpan = document.createElement("span");
+          labelSpan.className = "field-type-option__label";
+          labelSpan.textContent = label;
+          const previewSpan = document.createElement("span");
+          previewSpan.className = "field-type-option__preview";
+          previewSpan.append(preview());
+          btn.append(labelSpan, previewSpan);
+          btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            onChoose(type);
+            closeOpenPopovers();
+          });
+          menu.append(btn);
+        });
     });
 
     // Appended to the block/field itself, NOT to the toolbar — the
@@ -3394,6 +3806,13 @@ export function renderCustomSheet(root, character, store) {
     const el = document.createElement("span");
     el.className = "field-type-preview-picture";
     el.innerHTML = personIconSvgMarkup();
+    return el;
+  }
+
+  function buildCatalogPreview() {
+    const el = document.createElement("span");
+    el.className = "field-type-preview-catalog";
+    el.textContent = "☰";
     return el;
   }
 
