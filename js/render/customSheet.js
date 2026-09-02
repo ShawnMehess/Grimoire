@@ -1026,6 +1026,72 @@ export function renderCustomSheet(root, character, store) {
     );
   }
 
+  // In priority order — the first of these that exists wins, when
+  // scanning for a pre-existing money field (see detectMoneyFieldByName).
+  const MONEY_FIELD_NAMES = ["money", "gp", "currency", "$", "$$", "$$$"];
+
+  function detectMoneyFieldByName() {
+    const fields = flattenAllFieldsAcrossTabs().filter(f => f.fieldType === "text");
+    for (const name of MONEY_FIELD_NAMES) {
+      const match = fields.find(f => (f.label || "").trim().toLowerCase() === name);
+      if (match) return match;
+    }
+    return null;
+  }
+
+  /** Called only from the label blur handler (never on a timer or
+   *  every render) — and only actually does anything the FIRST time a
+   *  field ends up named one of the conventional money names, before
+   *  the character has any money field assigned at all (manually, via
+   *  a Catalog field's own picker, or automatically, by this same
+   *  function running earlier for some other field). Once
+   *  character.moneyFieldId is set, this is permanently a no-op —
+   *  exactly the "don't keep checking" behavior asked for. */
+  function maybeAutoRegisterMoneyField(field) {
+    if (character.moneyFieldId || field.fieldType !== "text") return;
+    if (MONEY_FIELD_NAMES.includes((field.label || "").trim().toLowerCase())) {
+      character.moneyFieldId = field.id;
+      saveWithStatus("moneyFieldId", character.moneyFieldId);
+    }
+  }
+
+  /** A Catalog field's own money-field choice, resolved with a
+   *  fallback chain: its own explicit pick, then the character-wide
+   *  default (set either by maybeAutoRegisterMoneyField above or a
+   *  previous call to this same function), then a fresh scan for an
+   *  existing Money/GP/etc. field if NEITHER of those exist yet. Only
+   *  ever WRITES field.moneyFieldId when it was empty to begin with —
+   *  an explicit choice is never overridden. */
+  function autoAssignMoneyFieldIfNeeded(field) {
+    if (field.moneyFieldId) return;
+    let detected = character.moneyFieldId
+      ? flattenAllFieldsAcrossTabs().find(f => f.id === character.moneyFieldId)
+      : null;
+    if (!detected) detected = detectMoneyFieldByName();
+    if (!detected) return;
+    commitMutation(() => {
+      field.moneyFieldId = detected.id;
+      if (!character.moneyFieldId) character.moneyFieldId = detected.id;
+    }, { render: false });
+  }
+
+  /** A field's current numeric value regardless of which tab it lives
+   *  on — formulaValues (see computeSheetValues) only ever covers the
+   *  global tab, since that's the only pool formulas/bundles can
+   *  reference, but a Catalog's money field can now be picked from
+   *  ANY tab. Prefers the live computed value for a global formula
+   *  field; otherwise parses its own plain typed value directly. */
+  function readFieldNumericValue(field) {
+    if (!field) return 0;
+    if (field.formula && Number.isFinite(formulaValues[field.id])) {
+      return formulaValues[field.id];
+    }
+    const tmp = document.createElement("div");
+    tmp.innerHTML = field.value || "";
+    const n = parseFloat((tmp.textContent || "").trim());
+    return Number.isFinite(n) ? n : 0;
+  }
+
   /** Migrates a dropdown's choices from the old plain-string shape to
    *  { id, text, bundle } objects (needed once bundles exist — a
    *  choice needs somewhere to hang stat/access modifiers off of) and
@@ -1918,6 +1984,8 @@ export function renderCustomSheet(root, character, store) {
         labelEl.textContent = labelBeforeEdit;
         labelEl.classList.toggle("is-ghost-default", labelBeforeEdit === "Stat");
         updateFieldLabelVisibility(field, labelEl);
+      } else {
+        maybeAutoRegisterMoneyField(field);
       }
     });
     wireGhostDefault(labelEl, "Stat", (text) => {
@@ -2419,14 +2487,15 @@ export function renderCustomSheet(root, character, store) {
         window.alert("That catalog couldn't be found — it may have been deleted. Reconfigure this field from its ⚙ button.");
         return;
       }
-      const moneyField = field.moneyFieldId ? resolveFieldById(field.moneyFieldId) : null;
+      autoAssignMoneyFieldIfNeeded(field);
+      const moneyField = field.moneyFieldId ? flattenAllFieldsAcrossTabs().find(f => f.id === field.moneyFieldId) : null;
       openCatalogBrowser({
         catalog,
         moneyLabel: moneyField ? moneyField.label : null,
-        getMoney: () => (moneyField && Number.isFinite(formulaValues[moneyField.id]) ? formulaValues[moneyField.id] : 0),
+        getMoney: () => readFieldNumericValue(moneyField),
         spendMoney: (amount) => {
           if (!moneyField) return;
-          const next = (Number.isFinite(formulaValues[moneyField.id]) ? formulaValues[moneyField.id] : 0) - amount;
+          const next = readFieldNumericValue(moneyField) - amount;
           commitMutation(() => {
             moneyField.value = String(next);
           });
@@ -2492,49 +2561,36 @@ export function renderCustomSheet(root, character, store) {
     moneyLabel.textContent = "Money field";
     pop.append(moneyLabel);
 
-    const moneyDrop = document.createElement("div");
-    moneyDrop.className = "identity-card-fields";
-    function renderMoneyChip() {
-      moneyDrop.innerHTML = "";
-      if (!field.moneyFieldId) {
-        const hint = document.createElement("span");
-        hint.className = "identity-card-fields__hint";
-        hint.textContent = "Drag a Num Field here";
-        moneyDrop.append(hint);
-        return;
-      }
-      const moneyField = resolveFieldById(field.moneyFieldId);
-      const chip = document.createElement("span");
-      chip.className = "identity-card-fields__chip" + (moneyField ? "" : " identity-card-fields__chip--missing");
-      chip.append(document.createTextNode(moneyField ? (moneyField.label || "Field") : "deleted field"));
-      const removeBtn = document.createElement("button");
-      removeBtn.type = "button";
-      removeBtn.textContent = "✕";
-      removeBtn.addEventListener("click", () => {
-        commitMutation(() => { field.moneyFieldId = null; }, { render: false });
-        renderMoneyChip();
+    // A <select> rather than a drop zone — dragging a field's own grid
+    // element only ever works within its own block (by design,
+    // elsewhere in this file), so a plain drag target here could only
+    // ever accept fields from the SAME block a Catalog field happens
+    // to live in. This lists every Num Field on the character, grouped
+    // by tab, so any of them is reachable regardless of that.
+    autoAssignMoneyFieldIfNeeded(field);
+    const moneySelect = document.createElement("select");
+    const blankMoneyOpt = document.createElement("option");
+    blankMoneyOpt.value = "";
+    blankMoneyOpt.textContent = "None";
+    moneySelect.append(blankMoneyOpt);
+    character.sheetTabs.forEach((tab) => {
+      const candidates = (tab.layout || []).flatMap((block) => (block.children || []).filter(f => f.fieldType === "text"));
+      if (candidates.length === 0) return;
+      const group = document.createElement("optgroup");
+      group.label = tab.name || "Tab";
+      candidates.forEach((f) => {
+        const opt = document.createElement("option");
+        opt.value = f.id;
+        opt.textContent = f.label || "Field";
+        if (field.moneyFieldId === f.id) opt.selected = true;
+        group.append(opt);
       });
-      chip.append(removeBtn);
-      moneyDrop.append(chip);
-    }
-    moneyDrop.addEventListener("dragover", (e) => {
-      if (e.dataTransfer.types.includes("application/x-sheet-field")) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "copy";
-      }
+      moneySelect.append(group);
     });
-    moneyDrop.addEventListener("drop", (e) => {
-      const payload = e.dataTransfer.getData("application/x-sheet-field");
-      if (!payload) return;
-      e.preventDefault();
-      let parsed;
-      try { parsed = JSON.parse(payload); } catch { return; }
-      if (!parsed.fieldId) return;
-      commitMutation(() => { field.moneyFieldId = parsed.fieldId; }, { render: false });
-      renderMoneyChip();
+    moneySelect.addEventListener("change", () => {
+      commitMutation(() => { field.moneyFieldId = moneySelect.value || null; }, { render: false });
     });
-    renderMoneyChip();
-    pop.append(moneyDrop);
+    pop.append(moneySelect);
 
     wrapperEl.append(pop);
     positionPopoverWithinViewport(pop);
