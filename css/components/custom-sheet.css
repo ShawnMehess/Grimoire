@@ -1495,6 +1495,59 @@
   border-top: var(--border-width) solid var(--color-border);
 }
 
+/* --- Catalog library manager (full grid-area panel) -----------------
+   Shares the bundle-library-body/list/editor markup and base rules
+   above (list on the left, editor filling the rest), but this panel's
+   top/left/width/height are set inline by JS to match the page grid's
+   own rect exactly (see positionOverGrid in catalogLibraryEditor.js),
+   so it fills that whole area instead of floating as a narrow column
+   over part of it. These overrides: (1) lift the base .modal-box
+   max-width cap that would otherwise clamp it back down, (2) let the
+   body/columns stretch to fill that full height instead of the
+   min-height:320px the compact bundle-library popup uses, and (3)
+   narrow the list column down to just fit a name like "Magic
+   Collection" — wrapping longer names instead of growing — so the
+   editor (where items actually get added) keeps the vast majority of
+   the width. */
+
+.modal-box--catalog-library {
+  max-width: none;
+  overflow: hidden;
+}
+
+.modal-box--catalog-library .bundle-library-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.modal-box--catalog-library .bundle-library-list {
+  flex: 0 0 150px;
+  width: 150px;
+}
+
+.modal-box--catalog-library .bundle-library-list__item {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 6px var(--space-2);
+}
+
+.modal-box--catalog-library .bundle-library-list__scope {
+  align-self: flex-end;
+}
+
+.catalog-list-item__name {
+  width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.25;
+}
+
+.modal-box--catalog-library .bundle-library-editor {
+  flex: 1 1 auto;
+}
+
 /* --- Catalog library editor (tabs + entries) --- */
 
 .catalog-tab-section {
@@ -1527,19 +1580,33 @@
   white-space: nowrap;
 }
 
+/* A grid (not flex) so the header row's labels line up exactly over
+   each row's fields regardless of how wide the panel gets — thumb,
+   name, description (the field that gets the most room to breathe),
+   cost, and the remove button each get their own column. */
 .catalog-entry-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 64px minmax(140px, 1fr) minmax(220px, 2.2fr) 96px 28px;
   align-items: center;
-  gap: var(--space-2);
-  padding: 4px;
+  gap: var(--space-3);
+  padding: var(--space-2);
   border-radius: var(--radius-sm);
   background: var(--color-bg-inset);
 }
 
+.catalog-entry-row--header {
+  background: transparent;
+  padding: 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .catalog-entry-row__thumb {
-  flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
+  width: 64px;
+  height: 64px;
   border-radius: var(--radius-sm);
   border: 1px dashed var(--color-border);
   display: flex;
@@ -1548,6 +1615,7 @@
   color: var(--color-text-faint);
   cursor: pointer;
   overflow: hidden;
+  font-size: var(--text-lg);
 }
 .catalog-entry-row__thumb img {
   width: 100%;
@@ -1555,22 +1623,25 @@
   object-fit: cover;
 }
 
-.catalog-entry-row__fields {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.catalog-entry-row__fields input {
+.catalog-entry-row__name,
+.catalog-entry-row__desc,
+.catalog-entry-row__cost {
   width: 100%;
+  min-width: 0;
   box-sizing: border-box;
   background: var(--color-bg-raised);
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-sm);
   color: var(--color-text);
-  padding: 2px 4px;
-  font-size: var(--text-xs);
+  padding: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.catalog-entry-row__remove {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-self: center;
 }
 
 /* --- Catalog browser (player-facing purchase modal) --- */

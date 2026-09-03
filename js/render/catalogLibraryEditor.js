@@ -57,8 +57,27 @@ export function openCatalogLibraryManager(store, onChange) {
   overlay.className = "formula-overlay";
 
   const box = document.createElement("div");
-  box.className = "modal-box modal-box--formula modal-box--bundle-library";
+  box.className = "modal-box modal-box--formula modal-box--catalog-library";
   box.addEventListener("click", (e) => e.stopPropagation());
+
+  // Rather than the fixed/viewport-relative sizing formula.css normally
+  // uses for this floating-panel pattern, this panel is pinned to
+  // exactly cover the page grid's own on-screen rect — same top/left/
+  // width/height the grid itself occupies — so it fills that whole
+  // area (leaving only the block-frame list and the toolbar above it
+  // visible) instead of floating as a narrow column over it. Recomputed
+  // on resize since the grid's rect can change (e.g. window resize
+  // changes how much of it fits on screen).
+  function positionOverGrid() {
+    const grid = document.querySelector(".page-grid-scroll");
+    if (!grid) return;
+    const rect = grid.getBoundingClientRect();
+    box.style.top = `${rect.top}px`;
+    box.style.left = `${rect.left}px`;
+    box.style.width = `${rect.width}px`;
+    box.style.height = `${rect.height}px`;
+  }
+  window.addEventListener("resize", positionOverGrid);
 
   const titleRow = document.createElement("div");
   titleRow.className = "formula-editor-titlerow";
@@ -92,7 +111,10 @@ export function openCatalogLibraryManager(store, onChange) {
   actions.className = "modal-actions bundle-library-actions";
   box.append(actions);
 
-  function close() { overlay.remove(); }
+  function close() {
+    window.removeEventListener("resize", positionOverGrid);
+    overlay.remove();
+  }
 
   let listLoadError = null;
 
@@ -148,7 +170,7 @@ export function openCatalogLibraryManager(store, onChange) {
       item.type = "button";
       item.className = "bundle-library-list__item" +
         (!isNew && selected.id === cat.id ? " active" : "");
-      item.innerHTML = `<span>${cat.name || "Unnamed"}</span><span class="bundle-library-list__scope">${cat.scope === "global" ? "Global" : "Mine"}</span>`;
+      item.innerHTML = `<span class="catalog-list-item__name">${cat.name || "Unnamed"}</span><span class="bundle-library-list__scope">${cat.scope === "global" ? "Global" : "Mine"}</span>`;
       item.addEventListener("click", () => selectEntry(cat, false));
       listCol.append(item);
     });
@@ -295,6 +317,7 @@ export function openCatalogLibraryManager(store, onChange) {
     section.append(header);
 
     if (expandedTabIds.has(tab.id)) {
+      if (tab.entries.length > 0) section.append(renderEntryHeaderRow());
       tab.entries.forEach((entry, entryIndex) => {
         section.append(renderEntryRow(tab, entry, entryIndex));
       });
@@ -310,6 +333,23 @@ export function openCatalogLibraryManager(store, onChange) {
     }
 
     return section;
+  }
+
+  // Column labels above the entry rows in an expanded tab — only shown
+  // once per tab (not per row), lined up with renderEntryRow's fields
+  // via the shared .catalog-entry-row grid-template-columns.
+  function renderEntryHeaderRow() {
+    const header = document.createElement("div");
+    header.className = "catalog-entry-row catalog-entry-row--header";
+    const blank = document.createElement("span");
+    const nameLabel = document.createElement("span");
+    nameLabel.textContent = "Name";
+    const descLabel = document.createElement("span");
+    descLabel.textContent = "Description";
+    const costLabel = document.createElement("span");
+    costLabel.textContent = "Cost";
+    header.append(blank, nameLabel, descLabel, costLabel);
+    return header;
   }
 
   function renderEntryRow(tab, entry, entryIndex) {
@@ -340,43 +380,42 @@ export function openCatalogLibraryManager(store, onChange) {
     thumb.addEventListener("click", () => fileInput.click());
     thumb.append(fileInput);
 
-    const fields = document.createElement("div");
-    fields.className = "catalog-entry-row__fields";
-
     const nameInput = document.createElement("input");
     nameInput.type = "text";
+    nameInput.className = "catalog-entry-row__name";
     nameInput.placeholder = "Item name";
     nameInput.value = entry.name;
     nameInput.addEventListener("input", () => { entry.name = nameInput.value; });
 
     const descInput = document.createElement("input");
     descInput.type = "text";
+    descInput.className = "catalog-entry-row__desc";
     descInput.placeholder = "Description";
     descInput.value = entry.description || "";
     descInput.addEventListener("input", () => { entry.description = descInput.value; });
 
     const costInput = document.createElement("input");
     costInput.type = "number";
+    costInput.className = "catalog-entry-row__cost";
     costInput.placeholder = "Cost";
     costInput.value = Number.isFinite(entry.cost) ? entry.cost : 0;
     costInput.addEventListener("input", () => { entry.cost = Number(costInput.value) || 0; });
 
-    fields.append(nameInput, descInput, costInput);
-
     const removeBtn = document.createElement("button");
     removeBtn.type = "button";
-    removeBtn.className = "btn formula-toolbar__btn";
+    removeBtn.className = "btn formula-toolbar__btn catalog-entry-row__remove";
     removeBtn.textContent = "✕";
     removeBtn.addEventListener("click", () => {
       tab.entries.splice(entryIndex, 1);
       renderEditor();
     });
 
-    row.append(thumb, fields, removeBtn);
+    row.append(thumb, nameInput, descInput, costInput, removeBtn);
     return row;
   }
 
   overlay.append(box);
   document.body.append(overlay);
+  positionOverGrid();
   refresh().then(() => renderEditor());
 }
