@@ -94,8 +94,17 @@ export function openCatalogLibraryManager(store, onChange) {
 
   function close() { overlay.remove(); }
 
+  let listLoadError = null;
+
   async function refresh() {
-    catalogs = await store.listCatalogs();
+    try {
+      catalogs = await store.listCatalogs();
+      listLoadError = null;
+    } catch (err) {
+      console.error("Failed to load catalogs:", err);
+      catalogs = [];
+      listLoadError = err.message || "Couldn't load catalogs — see the browser console for details.";
+    }
     renderList();
   }
 
@@ -117,7 +126,17 @@ export function openCatalogLibraryManager(store, onChange) {
     newBtn.addEventListener("click", () => selectEntry(null, true));
     listCol.append(newBtn);
 
-    if (catalogs.length === 0) {
+    if (listLoadError) {
+      const error = document.createElement("div");
+      error.className = "bundle-library-list__empty";
+      error.style.color = "var(--color-negative)";
+      error.textContent = listLoadError;
+      listCol.append(error);
+      // Existing catalogs may just be unreachable (e.g. a Firestore
+      // rules/permissions issue) — but creating a brand new one is a
+      // separate operation that doesn't depend on this list load
+      // having worked, so the rest of the panel still opens normally.
+    } else if (catalogs.length === 0) {
       const empty = document.createElement("div");
       empty.className = "bundle-library-list__empty";
       empty.textContent = "No catalogs yet.";

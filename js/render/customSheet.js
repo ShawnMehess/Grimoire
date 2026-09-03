@@ -132,7 +132,11 @@ export function renderCustomSheet(root, character, store) {
   let bundleLibraryCache = [];
   async function refreshBundleLibraryCache() {
     if (!store.listBundleLibraries) return;
-    bundleLibraryCache = await store.listBundleLibraries();
+    try {
+      bundleLibraryCache = await store.listBundleLibraries();
+    } catch (err) {
+      console.error("Failed to load bundle libraries:", err);
+    }
   }
   refreshBundleLibraryCache();
   // Same idea, for Catalog fields' "which catalog" picker (see
@@ -140,7 +144,11 @@ export function renderCustomSheet(root, character, store) {
   let catalogCache = [];
   async function refreshCatalogCache() {
     if (!store.listCatalogs) return;
-    catalogCache = await store.listCatalogs();
+    try {
+      catalogCache = await store.listCatalogs();
+    } catch (err) {
+      console.error("Failed to load catalogs:", err);
+    }
   }
   refreshCatalogCache();
 
