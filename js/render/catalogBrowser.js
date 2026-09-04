@@ -9,8 +9,29 @@
 // you're shopping, and centering it reads more like "here's an
 // interface," matching the request that prompted this.
 
+import { ensureCatalogShape, effectiveSectionRows } from "./catalogLibraryEditor.js";
+
 function fmtCost(n) {
   return Number.isFinite(n) ? n : 0;
+}
+
+// An item's Acquisition Costs section can hold any combination of
+// fields (gold, materials, a DM-defined thing, ...), not just one
+// number — so the balance line below sums whichever of those fields
+// parse as plain numbers (that's the only kind of cost this simple
+// money-field deduction can act on) while still *displaying* every
+// field, numeric or not, so a "3 iron ore" requirement is visible
+// even though it can't be auto-deducted.
+function acquisitionCosts(catalog, tab, entry) {
+  const rows = effectiveSectionRows(catalog, tab, entry, "acquisitionCosts");
+  const parts = rows
+    .map((row) => ({ label: row.label || "Cost", value: (entry.fieldValues && entry.fieldValues[row.id]) || "" }))
+    .filter((r) => r.value !== "");
+  const numericTotal = parts.reduce((sum, r) => {
+    const n = parseFloat(r.value);
+    return Number.isFinite(n) ? sum + n : sum;
+  }, 0);
+  return { parts, numericTotal };
 }
 
 /**
@@ -20,6 +41,7 @@ function fmtCost(n) {
  * @param moneyLabel   display label for the linked field, for the balance line
  */
 export function openCatalogBrowser({ catalog, getMoney, spendMoney, moneyLabel }) {
+  catalog = ensureCatalogShape(catalog);
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
@@ -92,10 +114,10 @@ export function openCatalogBrowser({ catalog, getMoney, spendMoney, moneyLabel }
       entryList.append(empty);
       return;
     }
-    entries.forEach((entry) => entryList.append(renderEntry(entry)));
+    entries.forEach((entry) => entryList.append(renderEntry(tab, entry)));
   }
 
-  function renderEntry(entry) {
+  function renderEntry(tab, entry) {
     const row = document.createElement("div");
     row.className = "catalog-browser__entry";
 
@@ -120,9 +142,12 @@ export function openCatalogBrowser({ catalog, getMoney, spendMoney, moneyLabel }
     info.append(nameEl, descEl);
     row.append(info);
 
+    const costs = acquisitionCosts(catalog, tab, entry);
     const costEl = document.createElement("div");
     costEl.className = "catalog-browser__entry-cost";
-    costEl.textContent = fmtCost(entry.cost);
+    costEl.textContent = costs.parts.length > 0
+      ? costs.parts.map((p) => `${p.label}: ${p.value}`).join(", ")
+      : "Free";
     row.append(costEl);
 
     const buyBtn = document.createElement("button");
@@ -130,7 +155,7 @@ export function openCatalogBrowser({ catalog, getMoney, spendMoney, moneyLabel }
     buyBtn.className = "btn btn--primary";
     buyBtn.textContent = "Acquire";
     buyBtn.addEventListener("click", () => {
-      const cost = fmtCost(entry.cost);
+      const cost = fmtCost(costs.numericTotal);
       if (getMoney() < cost) {
         flashFeedback(buyBtn, "Not enough!", true);
         return;

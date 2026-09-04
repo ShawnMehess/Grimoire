@@ -208,7 +208,7 @@ export function renderCustomSheet(root, character, store) {
   catalogLibBtn.textContent = "Catalogs";
   catalogLibBtn.title = "Manage reusable item/spell catalogs";
   catalogLibBtn.addEventListener("click", () => {
-    openCatalogLibraryManager(store, refreshCatalogCache);
+    openCatalogLibraryManager(store, refreshCatalogCache, resolveFieldById);
   });
   toolbar.append(catalogLibBtn);
 
@@ -2561,7 +2561,7 @@ export function renderCustomSheet(root, character, store) {
     manageBtn.className = "btn formula-toolbar__btn";
     manageBtn.textContent = "Manage Catalogs…";
     manageBtn.addEventListener("click", () => {
-      openCatalogLibraryManager(store, refreshCatalogCache);
+      openCatalogLibraryManager(store, refreshCatalogCache, resolveFieldById);
     });
     pop.append(manageBtn);
 
