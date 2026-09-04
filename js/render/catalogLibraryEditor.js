@@ -183,7 +183,7 @@ function linkedRowDisplayName(link) {
 // no resolveField function was passed to the manager — keeps this
 // gracefully degrading rather than throwing if a caller forgets it.
 
- * @param store    the characterStore module — needs
+/* @param store    the characterStore module — needs
  *                 listCatalogs/loadCatalog/saveCatalog/deleteCatalog
  * @param onChange  () => void, called after any save/delete
  * @param resolveField  (fieldId) => field object or null — lets an
