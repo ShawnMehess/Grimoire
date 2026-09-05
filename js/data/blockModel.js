@@ -210,14 +210,15 @@ function radioField(opts, options, id) {
 
 /**
  * The starter layout shown on a brand-new character — a working D&D
- * 5e core stat block (abilities, saves, skills, proficiency bonus,
- * combat numbers, spellcasting, attacks, inventory, and features), not
- * just a field-type demo. It replaces the fixed-schema system in
- * characterSheet.js/schema.js/formBuilder.js rather than reproducing
- * it field-for-field — same underlying D&D math (see rules.js, which
- * this mirrors formula-for-formula), but expressed as ordinary
- * blocks/fields/formulas so it's just as editable as anything a
- * person builds themselves.
+ * 5e sheet (abilities, saves, skills, proficiency bonus, combat
+ * numbers, spellcasting, attacks, inventory, features, and character
+ * details/personality), not just a field-type demo. It replaces the
+ * fixed-schema system in characterSheet.js/schema.js/formBuilder.js
+ * rather than reproducing it field-for-field — same underlying D&D
+ * math (see rules.js, which this mirrors formula-for-formula) and the
+ * same set of fields (see createBlankCharacter in schema.js), but
+ * expressed as ordinary blocks/fields/formulas so it's just as
+ * editable as anything a person builds themselves.
  *
  * Attacks/Inventory/Features are plain "textlist" fields (one line per
  * entry, freeform text) rather than structured rows — the block/field
@@ -238,6 +239,7 @@ export function createStarterLayout() {
       formula: { type: "expr", text: "roundup({{level}}/4)+1" },
     }, "profBonus"),
     toggleField({ label: "Inspiration", x: 2, y: 2, w: 1, h: 1, labelPosition: "right" }, "inspiration"),
+    field({ fieldType: "text", label: "Hit Dice", x: 3, y: 2, w: 1, h: 1, value: "" }),
   ];
 
   const abilities = createBlock({ name: "Abilities", x: 4, y: 0, w: 6, h: 3 });
@@ -325,6 +327,8 @@ export function createStarterLayout() {
       fieldType: "text", label: "Passive Perception", x: 0, y: 2, w: 3, h: 1,
       formula: { type: "expr", text: "10 + {{perceptionMod}}" },
     }, "passivePerception"),
+    field({ fieldType: "checkbox", label: "Death ✓", x: 3, y: 2, w: 1, h: 1 }, "deathSuccesses"),
+    field({ fieldType: "checkbox", label: "Death ✗", x: 4, y: 2, w: 1, h: 1 }, "deathFailures"),
   ];
 
   const attacks = createBlock({ name: "Attacks", x: 10, y: 3, w: 6, h: 5 });
@@ -347,7 +351,27 @@ export function createStarterLayout() {
     field({ fieldType: "textlist", label: "Features & Traits", x: 0, y: 0, w: 6, h: 5 }),
   ];
 
-  return [identity, abilities, spellcasting, saves, skills, combat, attacks, inventory, features];
+  const details = createBlock({ name: "Character Details", x: 4, y: 14, w: 6, h: 4 });
+  details.children = [
+    field({ fieldType: "text", label: "Race", x: 0, y: 0, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "Background", x: 2, y: 0, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "Alignment", x: 4, y: 0, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "Armor Prof.", x: 0, y: 1, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "Weapon Prof.", x: 2, y: 1, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "Tool Prof.", x: 4, y: 1, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "Languages", x: 0, y: 2, w: 6, h: 1 }),
+  ];
+
+  const personality = createBlock({ name: "Personality", x: 10, y: 14, w: 6, h: 7 });
+  personality.children = [
+    field({ fieldType: "textarea", label: "Personality Traits", x: 0, y: 0, w: 3, h: 2 }),
+    field({ fieldType: "textarea", label: "Ideals", x: 3, y: 0, w: 3, h: 2 }),
+    field({ fieldType: "textarea", label: "Bonds", x: 0, y: 2, w: 3, h: 2 }),
+    field({ fieldType: "textarea", label: "Flaws", x: 3, y: 2, w: 3, h: 2 }),
+    field({ fieldType: "textarea", label: "Notes", x: 0, y: 4, w: 6, h: 2 }),
+  ];
+
+  return [identity, abilities, spellcasting, saves, skills, combat, attacks, inventory, features, details, personality];
 }
 
 /** Find a top-level block, or a field nested one level inside a block. */
