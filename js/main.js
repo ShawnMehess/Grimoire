@@ -268,7 +268,12 @@ async function openNewCharacterDialog() {
   cancelBtn.addEventListener("click", close);
 
   blankBtn.addEventListener("click", async () => {
-    const id = await createCharacter({ ...createBlankCharacter(currentUserId()), layout: [] });
+    // No `layout` key here on purpose — renderCustomSheet seeds a
+    // fresh one (createStarterLayout(), now a real D&D core stat
+    // block) the first time a character has none. Explicitly setting
+    // layout: [] here used to defeat that check (an empty array is
+    // still truthy), so new "blank" characters silently got nothing.
+    const id = await createCharacter(createBlankCharacter(currentUserId()));
     close();
     openCharacter(id);
   });

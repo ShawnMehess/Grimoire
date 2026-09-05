@@ -1624,6 +1624,12 @@
   font-family: inherit;
 }
 
+.catalog-import__textarea {
+  min-height: 50vh;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-xs);
+}
+
 .catalog-entry-row__thumb {
   width: 64px;
   height: 64px;
@@ -1805,6 +1811,46 @@
   color: var(--color-text);
   padding: 4px var(--space-2);
   font-size: var(--text-sm);
+}
+
+/* Effects-only targeting cell (see renderEffectsValueCell in
+   catalogLibraryEditor.js) — the value widget plus a collapsible
+   Targeting toggle sit on one line; the expanded panel drops below. */
+.catalog-effect-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.catalog-effect-cell__widget-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.catalog-effect-targeting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-inset);
+}
+
+.catalog-effect-targeting__affects {
+  display: flex;
+  gap: var(--space-3);
+  padding-left: calc(1 * var(--space-2));
+}
+
+.catalog-effect-targeting__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-sm);
+  cursor: pointer;
 }
 
 /* --- Catalog browser (player-facing purchase modal) --- */

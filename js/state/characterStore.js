@@ -356,17 +356,22 @@ export async function deleteBundleLibrary(scope, id) {
 // above) and linked to from a "Catalog" field on any character (see
 // catalogLibraryEditor.js and the "catalog" fieldType in
 // blockModel.js/customSheet.js). A catalog is
-// { id, name, tabs: [{ id, name, entries: [...] }] }, where each
-// entry is { id, name, description, imageData, cost }. Unlike a
-// bundle, nothing here references field ids or names at all — a
-// catalog doesn't know or care which character it's attached to; the
-// FIELD linking to it is what separately holds which money field on
-// THIS character purchases draw from.
+// { id, name, archetype, tabs: [{ id, name, archetypeDiff, entries }] },
+// where archetype defines the (Acquisition Costs / Requirements /
+// Effects) fields every entry gets by default, and each entry is
+// { id, name, description, imageData, archetypeDiff, fieldValues }.
+// Unlike a bundle, nothing here references field IDS at all — a
+// catalog doesn't know or care which character it's attached to; a
+// linked archetype row stores a field NAME + shape snapshot (see
+// catalogLibraryEditor.js's linkFromField), and the FIELD linking to
+// the catalog itself separately holds which money field on THIS
+// character purchases draw from.
 
 function catalogPayload(entry, ownerId) {
   return {
     ownerId,
     name: entry.name || "Unnamed Catalog",
+    archetype: entry.archetype || null,
     tabs: entry.tabs || [],
     updatedAt: serverTimestamp(),
   };

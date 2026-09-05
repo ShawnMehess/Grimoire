@@ -1,0 +1,638 @@
+{
+  "name": "Spell List",
+  "archetype": {
+    "acquisitionCosts": [],
+    "requirements": [
+      {
+        "id": "castingTime",
+        "label": "Casting Time",
+        "kind": "text"
+      },
+      {
+        "id": "range",
+        "label": "Range",
+        "kind": "text"
+      },
+      {
+        "id": "duration",
+        "label": "Duration",
+        "kind": "text"
+      },
+      {
+        "id": "concentration",
+        "label": "Concentration",
+        "kind": "text"
+      }
+    ],
+    "effects": [
+      {
+        "id": "effect",
+        "label": "Effect",
+        "kind": "text"
+      }
+    ]
+  },
+  "tabs": [
+    {
+      "id": "cantrips",
+      "name": "Cantrips",
+      "archetypeDiff": {
+        "acquisitionCosts": {
+          "added": [],
+          "removed": []
+        },
+        "requirements": {
+          "added": [],
+          "removed": []
+        },
+        "effects": {
+          "added": [],
+          "removed": []
+        }
+      },
+      "entries": [
+        {
+          "id": null,
+          "name": "Fire Bolt",
+          "description": "A mote of fire streaks toward a target and bursts on impact.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 action",
+            "range": "120 ft",
+            "duration": "Instantaneous",
+            "concentration": "No",
+            "effect": "Ranged spell attack; deals fire damage that scales with character level."
+          },
+          "effectTargeting": {}
+        },
+        {
+          "id": null,
+          "name": "Mage Hand",
+          "description": "A ghostly, floating hand appears and does simple tasks at your direction.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 action",
+            "range": "30 ft",
+            "duration": "1 minute",
+            "concentration": "No",
+            "effect": "Conjures a spectral hand that can manipulate small objects at a distance."
+          },
+          "effectTargeting": {}
+        },
+        {
+          "id": null,
+          "name": "Prestidigitation",
+          "description": "A small, harmless bit of magic \u2014 a party trick for the arcane-minded.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 action",
+            "range": "10 ft",
+            "duration": "Up to 1 hour",
+            "concentration": "No",
+            "effect": "A minor magical effect \u2014 a sensory trick, cleaning/soiling, chilling, warming, or lighting a small flame."
+          },
+          "effectTargeting": {}
+        },
+        {
+          "id": null,
+          "name": "Guidance",
+          "description": "You touch a willing creature and whisper a word of insight.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 action",
+            "range": "Touch",
+            "duration": "Up to 1 minute",
+            "concentration": "Yes",
+            "effect": "The target can add a bonus die to one ability check before the spell ends."
+          },
+          "effectTargeting": {}
+        }
+      ]
+    },
+    {
+      "id": "level1",
+      "name": "1st Level",
+      "archetypeDiff": {
+        "acquisitionCosts": {
+          "added": [],
+          "removed": []
+        },
+        "requirements": {
+          "added": [],
+          "removed": []
+        },
+        "effects": {
+          "added": [],
+          "removed": []
+        }
+      },
+      "entries": [
+        {
+          "id": null,
+          "name": "Magic Missile",
+          "description": "Glowing darts of pure force streak unerringly toward their marks.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 action",
+            "range": "120 ft",
+            "duration": "Instantaneous",
+            "concentration": "No",
+            "effect": "Creates several darts of magical force that automatically strike their targets."
+          },
+          "effectTargeting": {
+            "effect": {
+              "scope": "target",
+              "radius": "",
+              "affectsSelf": false,
+              "affectsAllies": false,
+              "affectsEnemies": true,
+              "conditionNote": ""
+            }
+          }
+        },
+        {
+          "id": null,
+          "name": "Shield",
+          "description": "An invisible barrier of force springs up to deflect an incoming attack.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 reaction",
+            "range": "Self",
+            "duration": "1 round",
+            "concentration": "No",
+            "effect": "Grants a temporary bonus to AC and immunity to magic missile until the start of your next turn."
+          },
+          "effectTargeting": {
+            "effect": {
+              "scope": "self",
+              "radius": "",
+              "affectsSelf": false,
+              "affectsAllies": false,
+              "affectsEnemies": false,
+              "conditionNote": ""
+            }
+          }
+        },
+        {
+          "id": null,
+          "name": "Cure Wounds",
+          "description": "A touch of warm, restorative magic knits wounds shut.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 action",
+            "range": "Touch",
+            "duration": "Instantaneous",
+            "concentration": "No",
+            "effect": "Restores a number of hit points to the creature touched."
+          },
+          "effectTargeting": {
+            "effect": {
+              "scope": "target",
+              "radius": "",
+              "affectsSelf": true,
+              "affectsAllies": true,
+              "affectsEnemies": false,
+              "conditionNote": ""
+            }
+          }
+        },
+        {
+          "id": null,
+          "name": "Burning Hands",
+          "description": "A sheet of flame sweeps out from your outstretched fingers.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 action",
+            "range": "Self (15-ft cone)",
+            "duration": "Instantaneous",
+            "concentration": "No",
+            "effect": "Deals fire damage to everyone caught in a cone in front of the caster."
+          },
+          "effectTargeting": {
+            "effect": {
+              "scope": "aoe",
+              "radius": "15-ft cone",
+              "affectsSelf": false,
+              "affectsAllies": false,
+              "affectsEnemies": true,
+              "conditionNote": "Caster chooses whether allies caught in the cone take damage per table rules"
+            }
+          }
+        },
+        {
+          "id": null,
+          "name": "Feather Fall",
+          "description": "Gravity briefly loosens its grip on the chosen targets.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 reaction",
+            "range": "60 ft",
+            "duration": "1 minute",
+            "concentration": "No",
+            "effect": "Slows the descent of falling creatures to a harmless drift."
+          },
+          "effectTargeting": {}
+        }
+      ]
+    },
+    {
+      "id": "level2",
+      "name": "2nd Level",
+      "archetypeDiff": {
+        "acquisitionCosts": {
+          "added": [],
+          "removed": []
+        },
+        "requirements": {
+          "added": [],
+          "removed": []
+        },
+        "effects": {
+          "added": [],
+          "removed": []
+        }
+      },
+      "entries": [
+        {
+          "id": null,
+          "name": "Misty Step",
+          "description": "You blink out of existence in a puff of silver mist and reappear elsewhere.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 bonus action",
+            "range": "Self",
+            "duration": "Instantaneous",
+            "concentration": "No",
+            "effect": "Teleports the caster a short distance to an unoccupied space they can see."
+          },
+          "effectTargeting": {}
+        },
+        {
+          "id": null,
+          "name": "Scorching Ray",
+          "description": "Three streaking rays of fire leap from your hand toward your foes.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 action",
+            "range": "120 ft",
+            "duration": "Instantaneous",
+            "concentration": "No",
+            "effect": "Hurls multiple rays of fire, each requiring a separate attack roll."
+          },
+          "effectTargeting": {}
+        },
+        {
+          "id": null,
+          "name": "Invisibility",
+          "description": "The target fades from sight, their outline dissolving into nothing.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 action",
+            "range": "Touch",
+            "duration": "Up to 1 hour",
+            "concentration": "Yes",
+            "effect": "Turns the target invisible until the spell ends or they attack/cast a spell."
+          },
+          "effectTargeting": {}
+        },
+        {
+          "id": null,
+          "name": "Hold Person",
+          "description": "The target's limbs lock rigid, frozen by an unseen force.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 action",
+            "range": "60 ft",
+            "duration": "Up to 1 minute",
+            "concentration": "Yes",
+            "effect": "Paralyzes a humanoid target that fails its saving throw."
+          },
+          "effectTargeting": {}
+        }
+      ]
+    },
+    {
+      "id": "level3",
+      "name": "3rd Level",
+      "archetypeDiff": {
+        "acquisitionCosts": {
+          "added": [],
+          "removed": []
+        },
+        "requirements": {
+          "added": [],
+          "removed": []
+        },
+        "effects": {
+          "added": [],
+          "removed": []
+        }
+      },
+      "entries": [
+        {
+          "id": null,
+          "name": "Fireball",
+          "description": "A bead of fire flies to its point and erupts with a roar.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 action",
+            "range": "150 ft",
+            "duration": "Instantaneous",
+            "concentration": "No",
+            "effect": "A bright streak explodes into a fiery blast, dealing fire damage in a large radius."
+          },
+          "effectTargeting": {
+            "effect": {
+              "scope": "aoe",
+              "radius": "20 ft",
+              "affectsSelf": false,
+              "affectsAllies": true,
+              "affectsEnemies": true,
+              "conditionNote": "Anyone in the radius makes a save, allies included \u2014 no automatic filtering"
+            }
+          }
+        },
+        {
+          "id": null,
+          "name": "Fly",
+          "description": "The target's feet lift from the ground as if gravity briefly forgot them.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 action",
+            "range": "Touch",
+            "duration": "Up to 10 minutes",
+            "concentration": "Yes",
+            "effect": "Grants the target a flying speed for the duration."
+          },
+          "effectTargeting": {}
+        },
+        {
+          "id": null,
+          "name": "Counterspell",
+          "description": "You reach out and unravel another spell before it can take shape.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 reaction",
+            "range": "60 ft",
+            "duration": "Instantaneous",
+            "concentration": "No",
+            "effect": "Interrupts another creature in the process of casting a spell."
+          },
+          "effectTargeting": {}
+        },
+        {
+          "id": null,
+          "name": "Revivify",
+          "description": "A pulse of vital energy passes into the fallen, calling them back.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "castingTime": "1 action",
+            "range": "Touch",
+            "duration": "Instantaneous",
+            "concentration": "No",
+            "effect": "Returns a creature dead no longer than a minute to life with 1 hit point."
+          },
+          "effectTargeting": {}
+        }
+      ]
+    }
+  ]
+}

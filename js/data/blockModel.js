@@ -17,6 +17,8 @@
 // equals the container's own width in cells — so "one cell" means the
 // same physical size everywhere on the sheet, nested or not.
 
+import { ABILITIES, SKILLS } from "./schema.js";
+
 function newId() {
   return crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -143,38 +145,209 @@ export function syncOptionWidth(field) {
   }
 }
 
+/** Formula for a plain (non-proficiency-gated) ability modifier —
+ *  rounddown((score-10)/2), matching abilityModifier() in rules.js
+ *  exactly (this is the block-based engine's replacement for that
+ *  fixed-schema system — see the note on createStarterLayout below). */
+function abilityModFormula(scoreId) {
+  return { type: "expr", text: `rounddown(({{${scoreId}}}-10)/2)` };
+}
+
+/** Formula for a save/skill modifier: the ability modifier, plus the
+ *  proficiency bonus IF that save/skill's single proficiency checkbox
+ *  is checked. Matches skillModifier()/savingThrowModifier() in
+ *  rules.js. profCheckboxId must be a single-option (options: 1)
+ *  checkbox field — see toggleField() below — so `::0` is always the
+ *  right (only) index. */
+function proficientModFormula(scoreId, profCheckboxId) {
+  const base = `rounddown(({{${scoreId}}}-10)/2)`;
+  return {
+    type: "if",
+    condition: `{{${profCheckboxId}::0}} = 1`,
+    whenTrue: { type: "expr", text: `${base} + {{profBonus}}` },
+    whenFalse: { type: "expr", text: base },
+  };
+}
+
+/** createField() always overwrites `id` with a fresh random one, so a
+ *  formula elsewhere can't reference it by name in advance — this
+ *  wraps it to pin a caller-chosen id afterward, for every field the
+ *  starter layout's formulas cross-reference. */
+function field(opts, id) {
+  const f = createField(opts);
+  if (id) f.id = id;
+  if (opts.formula) f.formula = opts.formula;
+  if (opts.value !== undefined) f.value = opts.value;
+  if (opts.labelPosition) f.labelPosition = opts.labelPosition;
+  return f;
+}
+
+/** A single on/off proficiency marker — createField()'s own checkbox
+ *  default is a row of 3 (matching syncOptionWidth's "3 per cell"
+ *  rule), so this pares that down to exactly 1 before re-syncing the
+ *  width down to match. */
+function toggleField(opts, id) {
+  const f = createField({ ...opts, fieldType: "checkbox" });
+  f.options = 1;
+  f.checked = [false];
+  syncOptionWidth(f);
+  if (opts.labelPosition) f.labelPosition = opts.labelPosition;
+  if (id) f.id = id;
+  return f;
+}
+
+/** A radio field with a specific option count (createField()'s own
+ *  radio default is 3, which is right for some of these and wrong for
+ *  others — e.g. a level-5 spell slot tracker starting most
+ *  characters at 0-1 max, not 3). */
+function radioField(opts, options, id) {
+  const f = createField({ ...opts, fieldType: "radio" });
+  f.options = options;
+  syncOptionWidth(f);
+  if (id) f.id = id;
+  return f;
+}
+
 /**
- * A representative starter layout, shown on a brand-new character.
- * This is NOT an attempt to losslessly recreate every field the old
- * fixed-schema sheet had — this system replaces that one rather than
- * migrating it field-for-field. It just seeds a new sheet with one
- * real example of each field type so the builder isn't a blank,
- * confusing page on first load.
+ * The starter layout shown on a brand-new character — a working D&D
+ * 5e core stat block (abilities, saves, skills, proficiency bonus,
+ * combat numbers, spellcasting, attacks, inventory, and features), not
+ * just a field-type demo. It replaces the fixed-schema system in
+ * characterSheet.js/schema.js/formBuilder.js rather than reproducing
+ * it field-for-field — same underlying D&D math (see rules.js, which
+ * this mirrors formula-for-formula), but expressed as ordinary
+ * blocks/fields/formulas so it's just as editable as anything a
+ * person builds themselves.
+ *
+ * Attacks/Inventory/Features are plain "textlist" fields (one line per
+ * entry, freeform text) rather than structured rows — the block/field
+ * grid has no repeating-row primitive, so a real per-attack to-hit/
+ * damage formula or per-item weight isn't possible here the way it is
+ * for abilities/skills above. That's an honest limitation, not an
+ * oversight; a personal Catalog (see catalogLibraryEditor.js) is a
+ * heavier-weight option later for anyone who wants structured items.
  */
 export function createStarterLayout() {
-  const identity = createBlock({ name: "Identity", x: 0, y: 0, w: 4, h: 3 }); // 2 content rows + header
+  const identity = createBlock({ name: "Identity", x: 0, y: 0, w: 4, h: 4 });
   identity.children = [
-    createField({ fieldType: "text", label: "Name", x: 0, y: 0, w: 4, h: 1 }),
-    createField({ fieldType: "text", label: "Class", x: 0, y: 1, w: 2, h: 1 }),
-    createField({ fieldType: "text", label: "Level", x: 2, y: 1, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "Name", x: 0, y: 0, w: 4, h: 1 }),
+    field({ fieldType: "text", label: "Class", x: 0, y: 1, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "Level", x: 2, y: 1, w: 2, h: 1, value: "1" }, "level"),
+    field({
+      fieldType: "text", label: "Prof. Bonus", x: 0, y: 2, w: 2, h: 1,
+      formula: { type: "expr", text: "roundup({{level}}/4)+1" },
+    }, "profBonus"),
+    toggleField({ label: "Inspiration", x: 2, y: 2, w: 1, h: 1, labelPosition: "right" }, "inspiration"),
   ];
 
-  const abilities = createBlock({ name: "Abilities", x: 4, y: 0, w: 6, h: 3 }); // 2 content rows + header
-  abilities.children = ["STR", "DEX", "CON", "INT", "WIS", "CHA"].map((label, i) =>
-    createField({ fieldType: "text", label, x: i, y: 0, w: 1, h: 2 })
-  );
+  const abilities = createBlock({ name: "Abilities", x: 4, y: 0, w: 6, h: 3 });
+  abilities.children = ABILITIES.flatMap((ability, i) => {
+    const scoreId = `${ability.id}Score`;
+    return [
+      field({ fieldType: "text", label: ability.label.slice(0, 3).toUpperCase(), x: i, y: 0, w: 1, h: 1, value: "10" }, scoreId),
+      field({ fieldType: "text", label: "Mod", x: i, y: 1, w: 1, h: 1, formula: abilityModFormula(scoreId) }, `${ability.id}Mod`),
+    ];
+  });
 
-  const status = createBlock({ name: "Status", x: 0, y: 3, w: 4, h: 2 }); // 1 content row + header
-  status.children = [
-    createField({ fieldType: "checkbox", label: "Death Saves", x: 0, y: 0, w: 3, h: 1 }),
+  // 3 options = INT / WIS / CHA, in that order — the only three
+  // abilities D&D ever uses for spellcasting, so a plain 1/2/3 radio
+  // (rather than all 6 abilities) keeps spellAbilityMod's formula a
+  // 3-way, not 6-way, branch below.
+  const spellcasting = createBlock({ name: "Spellcasting", x: 10, y: 0, w: 6, h: 3 });
+  spellcasting.children = [
+    field({ fieldType: "radio", label: "Ability (1=INT 2=WIS 3=CHA)", x: 0, y: 0, w: 1, h: 1 }, "spellAbility"),
+    field({
+      fieldType: "text", label: "Mod", x: 1, y: 0, w: 1, h: 1,
+      formula: {
+        type: "if", condition: "{{spellAbility}} = 1",
+        whenTrue: { type: "expr", text: "{{intMod}}" },
+        whenFalse: {
+          type: "if", condition: "{{spellAbility}} = 2",
+          whenTrue: { type: "expr", text: "{{wisMod}}" },
+          whenFalse: {
+            type: "if", condition: "{{spellAbility}} = 3",
+            whenTrue: { type: "expr", text: "{{chaMod}}" },
+            whenFalse: { type: "expr", text: "0" },
+          },
+        },
+      },
+    }, "spellAbilityMod"),
+    field({
+      fieldType: "text", label: "Save DC", x: 2, y: 0, w: 1, h: 1,
+      formula: { type: "expr", text: "8 + {{profBonus}} + {{spellAbilityMod}}" },
+    }, "spellSaveDC"),
+    field({
+      fieldType: "text", label: "Attack", x: 3, y: 0, w: 1, h: 1,
+      formula: { type: "expr", text: "{{profBonus}} + {{spellAbilityMod}}" },
+    }, "spellAttackBonus"),
+    // Slot trackers: click the Nth button to mark N slots used (same
+    // convention as everywhere else radios are used as resource
+    // trackers on this sheet, e.g. death saves). Options default low
+    // (most level-1 characters need only a couple of 1st-level slots,
+    // none higher) — bump each one's option count as the character
+    // levels, the same way you'd resize any other radio field.
+    radioField({ label: "1st", x: 0, y: 1, w: 1, h: 1 }, 4, "slots1"),
+    radioField({ label: "2nd", x: 1, y: 1, w: 1, h: 1 }, 3, "slots2"),
+    radioField({ label: "3rd", x: 2, y: 1, w: 1, h: 1 }, 3, "slots3"),
+    radioField({ label: "4th", x: 3, y: 1, w: 1, h: 1 }, 2, "slots4"),
+    radioField({ label: "5th", x: 4, y: 1, w: 1, h: 1 }, 1, "slots5"),
   ];
 
-  const example = createBlock({ name: "Example Choice", x: 4, y: 3, w: 3, h: 2 }); // 1 content row + header
-  example.children = [
-    createField({ fieldType: "radio", label: "Pick One", x: 0, y: 0, w: 3, h: 1 }),
+  const saves = createBlock({ name: "Saving Throws", x: 0, y: 4, w: 2, h: 1 + ABILITIES.length });
+  saves.children = ABILITIES.flatMap((ability, i) => {
+    const scoreId = `${ability.id}Score`;
+    const profId = `${ability.id}SaveProf`;
+    return [
+      toggleField({ label: ability.label, x: 0, y: i, w: 1, h: 1, labelPosition: "right" }, profId),
+      field({ fieldType: "text", label: "", x: 1, y: i, w: 1, h: 1, formula: proficientModFormula(scoreId, profId) }, `${ability.id}SaveMod`),
+    ];
+  });
+
+  const skills = createBlock({ name: "Skills", x: 2, y: 4, w: 2, h: 1 + SKILLS.length });
+  skills.children = SKILLS.flatMap((skill, i) => {
+    const scoreId = `${skill.ability}Score`;
+    const profId = `${skill.id}Prof`;
+    return [
+      toggleField({ label: skill.label, x: 0, y: i, w: 1, h: 1, labelPosition: "right" }, profId),
+      field({ fieldType: "text", label: "", x: 1, y: i, w: 1, h: 1, formula: proficientModFormula(scoreId, profId) }, `${skill.id}Mod`),
+    ];
+  });
+
+  const combat = createBlock({ name: "Combat", x: 4, y: 3, w: 6, h: 4 });
+  combat.children = [
+    field({ fieldType: "text", label: "Armor Class", x: 0, y: 0, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "Initiative", x: 2, y: 0, w: 2, h: 1, formula: { type: "expr", text: "{{dexMod}}" } }, "initiative"),
+    field({ fieldType: "text", label: "Speed", x: 4, y: 0, w: 2, h: 1, value: "30" }),
+    field({ fieldType: "text", label: "HP Max", x: 0, y: 1, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "HP Current", x: 2, y: 1, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "Temp HP", x: 4, y: 1, w: 2, h: 1 }),
+    field({
+      fieldType: "text", label: "Passive Perception", x: 0, y: 2, w: 3, h: 1,
+      formula: { type: "expr", text: "10 + {{perceptionMod}}" },
+    }, "passivePerception"),
   ];
 
-  return [identity, abilities, status, example];
+  const attacks = createBlock({ name: "Attacks", x: 10, y: 3, w: 6, h: 5 });
+  attacks.children = [
+    field({ fieldType: "textlist", label: "Name — to hit — damage/type", x: 0, y: 0, w: 6, h: 4 }),
+  ];
+
+  const inventory = createBlock({ name: "Inventory", x: 4, y: 7, w: 6, h: 7 });
+  inventory.children = [
+    field({ fieldType: "text", label: "CP", x: 0, y: 0, w: 1, h: 1, value: "0" }),
+    field({ fieldType: "text", label: "SP", x: 1, y: 0, w: 1, h: 1, value: "0" }),
+    field({ fieldType: "text", label: "EP", x: 2, y: 0, w: 1, h: 1, value: "0" }),
+    field({ fieldType: "text", label: "GP", x: 3, y: 0, w: 1, h: 1, value: "0" }),
+    field({ fieldType: "text", label: "PP", x: 4, y: 0, w: 1, h: 1, value: "0" }),
+    field({ fieldType: "textlist", label: "Items", x: 0, y: 1, w: 6, h: 5 }),
+  ];
+
+  const features = createBlock({ name: "Features & Traits", x: 10, y: 8, w: 6, h: 6 });
+  features.children = [
+    field({ fieldType: "textlist", label: "Features & Traits", x: 0, y: 0, w: 6, h: 5 }),
+  ];
+
+  return [identity, abilities, spellcasting, saves, skills, combat, attacks, inventory, features];
 }
 
 /** Find a top-level block, or a field nested one level inside a block. */

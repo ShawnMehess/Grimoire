@@ -25,6 +25,29 @@ function deepClone(value) {
   return value ? JSON.parse(JSON.stringify(value)) : value;
 }
 
+// --- Effects targeting --------------------------------------------------
+// Only Effects rows get this — who/where an effect applies, kept as a
+// SEPARATE per-item map from fieldValues rather than folded into it,
+// since it's optional metadata about the value, not the value itself
+// (a "Damage: 2d6 fire" field's targeting varies per spell even when
+// two spells share the exact same Damage row). Left unset (scope: "")
+// by default rather than defaulting to "Self" — an unset scope reads
+// as "not specified yet," not as a claim about the item.
+function blankTargeting() {
+  return { scope: "", radius: "", affectsSelf: false, affectsAllies: false, affectsEnemies: false, conditionNote: "" };
+}
+
+function targetingSummary(t) {
+  if (!t || !t.scope) return "";
+  if (t.scope === "self") return "Self";
+  if (t.scope === "target") return "Single target";
+  if (t.scope === "aoe") {
+    const who = [t.affectsSelf && "Self", t.affectsAllies && "Allies", t.affectsEnemies && "Enemies"].filter(Boolean).join("/");
+    return `AoE${t.radius ? ` ${t.radius}` : ""}${who ? ` · ${who}` : ""}`;
+  }
+  return "";
+}
+
 function blankCatalogEntry() {
   return { id: null, scope: "personal", name: "", archetype: blankArchetype(), tabs: [] };
 }
@@ -122,6 +145,7 @@ export function ensureCatalogShape(cat) {
         });
       });
       if (!entry.fieldValues) entry.fieldValues = {};
+      if (!entry.effectTargeting) entry.effectTargeting = {};
       if (entry.cost !== undefined) {
         if (Object.keys(entry.fieldValues).length === 0) {
           const firstCostRow = effectiveSectionRows(cat, tab, entry, "acquisitionCosts")[0];
@@ -177,13 +201,8 @@ function linkedRowDisplayName(link) {
     : link.fieldName;
 }
 
-// Wires dragover/drop listeners for the "application/x-sheet-field"
-// payload onto `el`, calling onFieldDropped(field, checkboxIndex) with
-// the resolved field object. A no-op (drop target never activates) if
-// no resolveField function was passed to the manager — keeps this
-// gracefully degrading rather than throwing if a caller forgets it.
-
-/* @param store    the characterStore module — needs
+/**
+ * @param store    the characterStore module — needs
  *                 listCatalogs/loadCatalog/saveCatalog/deleteCatalog
  * @param onChange  () => void, called after any save/delete
  * @param resolveField  (fieldId) => field object or null — lets an
@@ -205,6 +224,8 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
   let expandedTabIds = new Set();
   let expandedTabFieldsIds = new Set();
   let expandedEntryIds = new Set();
+  let expandedTargetingIds = new Set();
+  let importMode = false;
 
   // Wires dragover/drop listeners for the "application/x-sheet-field"
   // payload onto `el`, calling onFieldDropped(field, checkboxIndex)
@@ -331,6 +352,123 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
     return input;
   }
 
+  // Effects-only: wraps the value widget with a collapsible "Targeting"
+  // toggle — who/where the effect applies. Collapsed by default so an
+  // item that doesn't need it (most Requirements/Acquisition Costs
+  // fields never call this at all — only Effects rows do) costs
+  // nothing visually; the button's own label previews the current
+  // setting once one exists, so you don't have to expand every row
+  // just to see what's already configured.
+  function renderEffectsValueCell(row, entry) {
+    const wrap = document.createElement("div");
+    wrap.className = "catalog-effect-cell";
+
+    const widgetRow = document.createElement("div");
+    widgetRow.className = "catalog-effect-cell__widget-row";
+    widgetRow.append(renderValueWidget(row, entry));
+
+    const key = `${entry.id}:${row.id}`;
+    const expanded = expandedTargetingIds.has(key);
+    const summary = targetingSummary(entry.effectTargeting[row.id]);
+    const targetBtn = document.createElement("button");
+    targetBtn.type = "button";
+    targetBtn.className = "btn formula-toolbar__btn";
+    targetBtn.textContent = expanded ? "▾ Targeting" : `▸ Targeting${summary ? `: ${summary}` : ""}`;
+    targetBtn.addEventListener("click", () => {
+      if (expanded) expandedTargetingIds.delete(key);
+      else expandedTargetingIds.add(key);
+      renderEditor();
+    });
+    widgetRow.append(targetBtn);
+    wrap.append(widgetRow);
+
+    if (expanded) wrap.append(renderTargetingPanel(row, entry));
+
+    return wrap;
+  }
+
+  function renderTargetingPanel(row, entry) {
+    if (!entry.effectTargeting[row.id]) entry.effectTargeting[row.id] = blankTargeting();
+    const t = entry.effectTargeting[row.id];
+
+    const panel = document.createElement("div");
+    panel.className = "catalog-effect-targeting";
+
+    const scopeRow = document.createElement("div");
+    scopeRow.className = "catalog-archetype__row";
+    const scopeLabel = document.createElement("span");
+    scopeLabel.className = "catalog-archetype__row-label";
+    scopeLabel.textContent = "Scope";
+    const scopeSelect = document.createElement("select");
+    scopeSelect.className = "catalog-archetype__widget-select";
+    [["", "— Not set —"], ["self", "Self"], ["target", "Single Target"], ["aoe", "Area of Effect"]].forEach(([val, text]) => {
+      const opt = document.createElement("option");
+      opt.value = val;
+      opt.textContent = text;
+      if (t.scope === val) opt.selected = true;
+      scopeSelect.append(opt);
+    });
+    scopeSelect.addEventListener("change", () => {
+      t.scope = scopeSelect.value;
+      renderEditor();
+    });
+    scopeRow.append(scopeLabel, scopeSelect);
+    panel.append(scopeRow);
+
+    if (t.scope === "aoe") {
+      const radiusRow = document.createElement("div");
+      radiusRow.className = "catalog-archetype__row";
+      const radiusLabel = document.createElement("span");
+      radiusLabel.className = "catalog-archetype__row-label";
+      radiusLabel.textContent = "Radius";
+      const radiusInput = document.createElement("input");
+      radiusInput.type = "text";
+      radiusInput.placeholder = "e.g. 20 ft";
+      radiusInput.value = t.radius || "";
+      radiusInput.addEventListener("input", () => { t.radius = radiusInput.value; });
+      radiusRow.append(radiusLabel, radiusInput);
+      panel.append(radiusRow);
+
+      const affectsRow = document.createElement("div");
+      affectsRow.className = "catalog-effect-targeting__affects";
+      [["affectsSelf", "Self"], ["affectsAllies", "Allies"], ["affectsEnemies", "Enemies"]].forEach(([key, text]) => {
+        const affectLabel = document.createElement("label");
+        affectLabel.className = "catalog-effect-targeting__checkbox";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = !!t[key];
+        cb.addEventListener("change", () => {
+          t[key] = cb.checked;
+          renderEditor();
+        });
+        affectLabel.append(cb, document.createTextNode(` ${text}`));
+        affectsRow.append(affectLabel);
+      });
+      panel.append(affectsRow);
+    }
+
+    // Free-text escape hatch for anything more specific than the
+    // scope/radius/affects checkboxes cover — "only affects creatures
+    // below half HP," "ignores anyone with fire resistance" — same
+    // reasoning as the plain-text fallback everywhere else in this
+    // file: modeling every possible condition as structured data would
+    // turn this into a rules engine, a free-text note doesn't.
+    const noteRow = document.createElement("div");
+    noteRow.className = "catalog-archetype__row";
+    const noteLabel = document.createElement("span");
+    noteLabel.className = "catalog-archetype__row-label";
+    noteLabel.textContent = "Conditions";
+    const noteInput = document.createElement("input");
+    noteInput.type = "text";
+    noteInput.placeholder = "e.g. only affects creatures below half HP";
+    noteInput.value = t.conditionNote || "";
+    noteInput.addEventListener("input", () => { t.conditionNote = noteInput.value; });
+    noteRow.append(noteLabel, noteInput);
+    panel.append(noteRow);
+
+    return panel;
+  }
+
   const overlay = document.createElement("div");
   overlay.className = "formula-overlay";
 
@@ -414,6 +552,8 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
     expandedTabIds = new Set();
     expandedTabFieldsIds = new Set();
     expandedEntryIds = new Set();
+    expandedTargetingIds = new Set();
+    importMode = false;
     renderList();
     renderEditor();
   }
@@ -427,6 +567,17 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
     newBtn.textContent = "+ New Catalog";
     newBtn.addEventListener("click", () => selectEntry(null, true));
     listCol.append(newBtn);
+
+    const importBtn = document.createElement("button");
+    importBtn.type = "button";
+    importBtn.className = "btn bundle-library-list__new";
+    importBtn.textContent = "Import JSON";
+    importBtn.title = "Paste a catalog exported/authored as JSON to create it as a new catalog";
+    importBtn.addEventListener("click", () => {
+      importMode = true;
+      renderEditor();
+    });
+    listCol.append(importBtn);
 
     if (listLoadError) {
       const error = document.createElement("div");
@@ -459,6 +610,11 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
   function renderEditor() {
     editorCol.innerHTML = "";
     actions.innerHTML = "";
+
+    if (importMode) {
+      renderImportForm();
+      return;
+    }
 
     const nameRow = document.createElement("div");
     nameRow.className = "bundle-library-field-row";
@@ -560,6 +716,81 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
       });
       actions.append(saveGlobalBtn);
     }
+  }
+
+  // A one-off "paste JSON, create a new catalog" path — meant for
+  // bulk-loading a hand-authored default catalog (see
+  // default-catalogs/*.json in the repo) without needing any Firebase
+  // credentials: it just calls store.saveCatalog with whatever the
+  // signed-in user is already allowed to write (their own admin
+  // session covers the "Import (Global)" case, same as the "Create
+  // (Global)" button below already requires).
+  function renderImportForm() {
+    const heading = document.createElement("div");
+    heading.className = "dropdown-choices-editor__mods-header";
+    heading.textContent = "Import Catalog from JSON";
+    editorCol.append(heading);
+
+    const hint = document.createElement("p");
+    hint.className = "modal-copy catalog-archetype__hint";
+    hint.textContent = "Paste a catalog's JSON here (the same { name, archetype, tabs } shape this editor saves) to create it as a brand-new catalog.";
+    editorCol.append(hint);
+
+    const textarea = document.createElement("textarea");
+    textarea.className = "catalog-entry-card__description catalog-import__textarea";
+    textarea.placeholder = '{ "name": "...", "archetype": { ... }, "tabs": [ ... ] }';
+    editorCol.append(textarea);
+
+    const statusLine = document.createElement("p");
+    statusLine.className = "modal-copy catalog-archetype__hint";
+    editorCol.append(statusLine);
+
+    async function doImport(scope) {
+      let parsed;
+      try {
+        parsed = JSON.parse(textarea.value);
+      } catch (err) {
+        statusLine.textContent = `That's not valid JSON: ${err.message}`;
+        return;
+      }
+      delete parsed.id;
+      ensureCatalogShape(parsed);
+      try {
+        const id = await store.saveCatalog(scope, { ...parsed, scope });
+        importMode = false;
+        await refresh();
+        const saved = catalogs.find((c) => c.id === id) || { ...parsed, id, scope };
+        selectEntry(saved, false);
+        onChange();
+      } catch (err) {
+        statusLine.textContent = err.message || "Couldn't import that catalog.";
+      }
+    }
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "btn";
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.addEventListener("click", () => {
+      importMode = false;
+      renderEditor();
+    });
+    actions.append(cancelBtn);
+
+    const importMineBtn = document.createElement("button");
+    importMineBtn.type = "button";
+    importMineBtn.className = "btn btn--primary";
+    importMineBtn.textContent = "Import (Mine)";
+    importMineBtn.addEventListener("click", () => doImport("personal"));
+    actions.append(importMineBtn);
+
+    const importGlobalBtn = document.createElement("button");
+    importGlobalBtn.type = "button";
+    importGlobalBtn.className = "btn";
+    importGlobalBtn.title = "Requires admin rights";
+    importGlobalBtn.textContent = "Import (Global)";
+    importGlobalBtn.addEventListener("click", () => doImport("global"));
+    actions.append(importGlobalBtn);
   }
 
   function renderArchetypeSection() {
@@ -783,7 +1014,9 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
       const nameSpan = document.createElement("span");
       nameSpan.className = "catalog-archetype__row-label";
       nameSpan.textContent = row.kind === "linked" ? `🔗 ${row.label || linkedRowDisplayName(row.link)}` : (row.label || "(unnamed)");
-      const widget = hidden ? document.createElement("span") : renderValueWidget(row, entry);
+      const widget = hidden
+        ? document.createElement("span")
+        : (sectionKey === "effects" ? renderEffectsValueCell(row, entry) : renderValueWidget(row, entry));
       const toggleBtn = document.createElement("button");
       toggleBtn.type = "button";
       toggleBtn.className = "btn formula-toolbar__btn";
@@ -794,6 +1027,7 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
         } else {
           entryDiff.removed.push(row.id);
           delete entry.fieldValues[row.id];
+          delete entry.effectTargeting[row.id];
         }
         renderEditor();
       });
@@ -807,9 +1041,10 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
       rowEl.append(renderDefinitionRow(row, () => {
         entryDiff.added.splice(rowIndex, 1);
         delete entry.fieldValues[row.id];
+        delete entry.effectTargeting[row.id];
         renderEditor();
       }));
-      rowEl.append(renderValueWidget(row, entry));
+      rowEl.append(sectionKey === "effects" ? renderEffectsValueCell(row, entry) : renderValueWidget(row, entry));
       group.append(rowEl);
     });
 
@@ -890,7 +1125,7 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
       addEntryBtn.className = "btn formula-toolbar__btn";
       addEntryBtn.textContent = "+ Add Item";
       addEntryBtn.addEventListener("click", () => {
-        tab.entries.push({ id: newLocalId(), name: "", description: "", imageData: null, archetypeDiff: blankDiffSet(), fieldValues: {} });
+        tab.entries.push({ id: newLocalId(), name: "", description: "", imageData: null, archetypeDiff: blankDiffSet(), fieldValues: {}, effectTargeting: {} });
         renderEditor();
       });
       section.append(addEntryBtn);
