@@ -370,6 +370,7 @@ export function openFormulaEditor(field, resolveField, onChange, uiOverrides = {
   closeX.className = "formula-editor-close";
   closeX.title = "Close";
   closeX.textContent = "✕";
+  closeX.setAttribute("aria-label", "Close");
   closeX.addEventListener("click", close);
   titleRow.append(title, closeX);
   box.append(titleRow);

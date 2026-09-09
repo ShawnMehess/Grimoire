@@ -1,0 +1,429 @@
+[
+  {
+    "name": "Barbarian",
+    "category": "Class",
+    "statModifiers": [
+      {
+        "id": "mod-036fe025",
+        "targetFieldName": "Strength",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-1dd35f03",
+        "targetFieldName": "Constitution",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [
+      {
+        "id": "acc-1e7cce16",
+        "targetFieldName": "Subclass",
+        "allowedChoiceNames": [
+          "Path of the Berserker",
+          "Path of the Totem Warrior"
+        ],
+        "minLevel": null
+      }
+    ],
+    "featureGrants": [
+      {
+        "name": "Rage",
+        "minLevel": 1,
+        "description": "In battle, you fight with primal ferocity. On your turn, you can enter a rage as a bonus action, gaining bonus melee damage, resistance to bludgeoning/piercing/slashing damage, and advantage on Strength checks and saves, for 1 minute."
+      },
+      {
+        "name": "Unarmored Defense",
+        "minLevel": 1,
+        "description": "While not wearing armor, your AC equals 10 + your Dexterity modifier + your Constitution modifier. You can use a shield and still gain this benefit."
+      },
+      {
+        "name": "Reckless Attack",
+        "minLevel": 2,
+        "description": "When you make your first attack on your turn, you can decide to attack recklessly, giving you advantage on melee weapon attack rolls using Strength this turn, but attack rolls against you have advantage until your next turn."
+      },
+      {
+        "name": "Danger Sense",
+        "minLevel": 2,
+        "description": "You have advantage on Dexterity saving throws against effects you can see, such as traps and spells, as long as you aren't blinded, deafened, or incapacitated."
+      }
+    ]
+  },
+  {
+    "name": "Bard",
+    "category": "Class",
+    "statModifiers": [
+      {
+        "id": "mod-3e49a6f0",
+        "targetFieldName": "Dexterity",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-34853cef",
+        "targetFieldName": "Charisma",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [
+      {
+        "id": "acc-e888683f",
+        "targetFieldName": "Subclass",
+        "allowedChoiceNames": [
+          "College of Lore",
+          "College of Valor"
+        ],
+        "minLevel": null
+      }
+    ]
+  },
+  {
+    "name": "Cleric",
+    "category": "Class",
+    "statModifiers": [
+      {
+        "id": "mod-cbd65f2d",
+        "targetFieldName": "Wisdom",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-41f83c75",
+        "targetFieldName": "Charisma",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [
+      {
+        "id": "acc-2d02e206",
+        "targetFieldName": "Subclass",
+        "allowedChoiceNames": [
+          "Knowledge Domain",
+          "Life Domain",
+          "Light Domain",
+          "Nature Domain",
+          "Tempest Domain",
+          "Trickery Domain",
+          "War Domain"
+        ],
+        "minLevel": null
+      }
+    ]
+  },
+  {
+    "name": "Druid",
+    "category": "Class",
+    "statModifiers": [
+      {
+        "id": "mod-ad92c39a",
+        "targetFieldName": "Intelligence",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-418a35f5",
+        "targetFieldName": "Wisdom",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [
+      {
+        "id": "acc-a3904068",
+        "targetFieldName": "Subclass",
+        "allowedChoiceNames": [
+          "Circle of the Land",
+          "Circle of the Moon"
+        ],
+        "minLevel": null
+      }
+    ]
+  },
+  {
+    "name": "Fighter",
+    "category": "Class",
+    "statModifiers": [
+      {
+        "id": "mod-c891401a",
+        "targetFieldName": "Strength",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-b11a2b5e",
+        "targetFieldName": "Constitution",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [
+      {
+        "id": "acc-e655c027",
+        "targetFieldName": "Subclass",
+        "allowedChoiceNames": [
+          "Champion",
+          "Battle Master",
+          "Eldritch Knight"
+        ],
+        "minLevel": null
+      }
+    ]
+  },
+  {
+    "name": "Monk",
+    "category": "Class",
+    "statModifiers": [
+      {
+        "id": "mod-7af778ab",
+        "targetFieldName": "Strength",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-cedb8f93",
+        "targetFieldName": "Dexterity",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [
+      {
+        "id": "acc-d14571cb",
+        "targetFieldName": "Subclass",
+        "allowedChoiceNames": [
+          "Way of the Open Hand",
+          "Way of Shadow",
+          "Way of the Four Elements"
+        ],
+        "minLevel": null
+      }
+    ]
+  },
+  {
+    "name": "Paladin",
+    "category": "Class",
+    "statModifiers": [
+      {
+        "id": "mod-7aa18ddf",
+        "targetFieldName": "Wisdom",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-016f32ce",
+        "targetFieldName": "Charisma",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [
+      {
+        "id": "acc-727f2d46",
+        "targetFieldName": "Subclass",
+        "allowedChoiceNames": [
+          "Oath of Devotion",
+          "Oath of the Ancients",
+          "Oath of Vengeance"
+        ],
+        "minLevel": null
+      }
+    ]
+  },
+  {
+    "name": "Ranger",
+    "category": "Class",
+    "statModifiers": [
+      {
+        "id": "mod-5c8368d1",
+        "targetFieldName": "Strength",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-8b62a405",
+        "targetFieldName": "Dexterity",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [
+      {
+        "id": "acc-5224d2a6",
+        "targetFieldName": "Subclass",
+        "allowedChoiceNames": [
+          "Hunter",
+          "Beast Master"
+        ],
+        "minLevel": null
+      }
+    ]
+  },
+  {
+    "name": "Rogue",
+    "category": "Class",
+    "statModifiers": [
+      {
+        "id": "mod-0574e094",
+        "targetFieldName": "Dexterity",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-5bcc40bd",
+        "targetFieldName": "Intelligence",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [
+      {
+        "id": "acc-38d05464",
+        "targetFieldName": "Subclass",
+        "allowedChoiceNames": [
+          "Thief",
+          "Assassin",
+          "Arcane Trickster"
+        ],
+        "minLevel": null
+      }
+    ]
+  },
+  {
+    "name": "Sorcerer",
+    "category": "Class",
+    "statModifiers": [
+      {
+        "id": "mod-6376188b",
+        "targetFieldName": "Constitution",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-6877e472",
+        "targetFieldName": "Charisma",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [
+      {
+        "id": "acc-f916d331",
+        "targetFieldName": "Subclass",
+        "allowedChoiceNames": [
+          "Draconic Bloodline",
+          "Wild Magic"
+        ],
+        "minLevel": null
+      }
+    ]
+  },
+  {
+    "name": "Warlock",
+    "category": "Class",
+    "statModifiers": [
+      {
+        "id": "mod-632a8055",
+        "targetFieldName": "Wisdom",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-8d2cbdc2",
+        "targetFieldName": "Charisma",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [
+      {
+        "id": "acc-90bbf577",
+        "targetFieldName": "Subclass",
+        "allowedChoiceNames": [
+          "The Archfey",
+          "The Fiend",
+          "The Great Old One"
+        ],
+        "minLevel": null
+      }
+    ]
+  },
+  {
+    "name": "Wizard",
+    "category": "Class",
+    "statModifiers": [
+      {
+        "id": "mod-6e330af0",
+        "targetFieldName": "Intelligence",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-cf272166",
+        "targetFieldName": "Wisdom",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [
+      {
+        "id": "acc-3eda4aed",
+        "targetFieldName": "Subclass",
+        "allowedChoiceNames": [
+          "School of Abjuration",
+          "School of Conjuration",
+          "School of Divination",
+          "School of Enchantment",
+          "School of Evocation",
+          "School of Illusion",
+          "School of Necromancy",
+          "School of Transmutation"
+        ],
+        "minLevel": null
+      }
+    ],
+    "featureGrants": [
+      {
+        "name": "Spellcasting",
+        "minLevel": 1,
+        "description": "You can cast wizard spells using Intelligence as your spellcasting ability, prepared from your spellbook."
+      },
+      {
+        "name": "Arcane Recovery",
+        "minLevel": 1,
+        "description": "Once per day when you finish a short rest, you can recover expended spell slots with a combined level equal to or less than half your wizard level (rounded up)."
+      },
+      {
+        "name": "Arcane Tradition",
+        "minLevel": 2,
+        "description": "You choose an arcane tradition, gaining features at 2nd level and again at 6th, 10th, and 14th level."
+      }
+    ]
+  }
+]

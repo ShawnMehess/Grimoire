@@ -10,6 +10,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
   padding-bottom: var(--space-3);
@@ -141,6 +142,30 @@
   padding: var(--space-2);
 }
 
+.sheet-block-frame.is-collapsed {
+  display: none;
+}
+
+/* Below this width there usually isn't room for a permanent 230px
+   sidebar alongside a usable grid — the grid itself already shrinks
+   its own cell size down to a floor (see colWidthPx/MIN_CELL_PX in
+   customSheet.js) and then scrolls horizontally, so once the sidebar
+   is ALSO competing for space that floor gets hit fast. Turning the
+   sidebar into a floating overlay (rather than hiding it outright)
+   keeps it reachable via the ☰ Blocks toggle without permanently
+   costing the grid any width when it's closed. */
+@media (max-width: 860px) {
+  .sheet-block-frame {
+    position: fixed;
+    top: 76px;
+    left: 16px;
+    bottom: 16px;
+    width: min(280px, calc(100vw - 32px));
+    z-index: 80;
+    box-shadow: var(--shadow-lg);
+  }
+}
+
 .sheet-block-frame__title {
   font-family: var(--font-display);
   font-size: var(--text-sm);
@@ -161,6 +186,35 @@
   border-radius: var(--radius-sm);
   padding: 2px 4px;
   margin: -2px -4px;
+}
+
+.sheet-block-list__title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sheet-block-list__collapse-toggle {
+  flex: 0 0 auto;
+  width: 14px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  line-height: 1;
+}
+.sheet-block-list__collapse-toggle:hover {
+  color: var(--color-text);
+}
+
+.sheet-block-list__fields {
+  display: flex;
+  flex-direction: column;
+}
+.sheet-block-list__fields[hidden] {
+  display: none;
 }
 
 .sheet-block-list__tabs {
@@ -221,10 +275,209 @@
   position: relative;
 }
 
+/* --- Leveling tab ---------------------------------------------------
+   Hardcoded rows, not the draggable block/field grid every other tab
+   uses — see the big comment above renderLevelingTab() in
+   customSheet.js for why. */
+
+.page-grid--leveling {
+  display: block;
+  padding: var(--space-4);
+}
+
+.leveling-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 900px;
+}
+
+.leveling-tab__intro {
+  margin: 0 0 var(--space-2) 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.leveling-tab__jump {
+  align-self: flex-start;
+}
+
+.level-guide {
+  border: var(--border-width) solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-raised);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-4);
+}
+
+.level-guide__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.level-guide h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+}
+
+.level-guide__status {
+  color: var(--color-accent-hover);
+  font-size: var(--text-sm);
+}
+
+.level-guide__summary {
+  margin: var(--space-2) 0 var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.level-guide__form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.level-guide__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.level-guide__field--wide {
+  grid-column: 1 / -1;
+}
+
+.level-guide__field textarea {
+  min-height: 4.5rem;
+  box-sizing: border-box;
+  resize: vertical;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: var(--space-2);
+  font: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.level-guide__feedback {
+  min-height: 1.3em;
+  margin: 0 0 var(--space-3);
+  color: var(--color-positive);
+  font-size: var(--text-sm);
+}
+
+.level-guide__feedback--error {
+  color: var(--color-negative);
+}
+
+.leveling-row--current {
+  border-color: var(--color-accent);
+}
+
+.leveling-row {
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-raised);
+}
+
+.leveling-row__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+.leveling-row__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.leveling-row__summary {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.leveling-row__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.leveling-row__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.leveling-row__field label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.leveling-row__field textarea {
+  min-height: 3.5em;
+  resize: vertical;
+  box-sizing: border-box;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: var(--space-2);
+  font-size: var(--text-sm);
+  font-family: inherit;
+}
+
 .save-status {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
   min-width: 6rem;
+}
+
+/* Replaces window.alert() for advisories/errors with no single
+   natural home for an inline status line (see showToast in
+   customSheet.js) — floats above everything, fades in/out, and
+   never blocks input the way a native alert dialog does. */
+.sheet-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 12px);
+  max-width: min(480px, calc(100vw - 32px));
+  background: var(--gradient-surface);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  z-index: 200;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+
+.sheet-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.sheet-toast--error {
+  border-color: var(--color-negative);
 }
 
 /* --- Node chrome (shared by top-level blocks and fields) --- */
@@ -817,11 +1070,22 @@
 .option-radio,
 .option-checkbox {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  font-size: 10px;
-  color: var(--color-text-faint);
-  gap: 2px;
+  justify-content: center;
+}
+
+/* A proficiency checkbox currently checked because a Race/Class/etc.
+   bundle grants it (see the "grant" op in applyBundleModifiers,
+   customSheet.js) rather than because the player checked it directly —
+   disabled, so a subtle dim + accent tint is enough to distinguish it
+   without needing color alone to carry the meaning (the title tooltip
+   set alongside this class explains why on hover). */
+.option-checkbox--granted {
+  opacity: 0.85;
+}
+.option-checkbox--granted input:disabled {
+  accent-color: var(--color-accent);
+  cursor: default;
 }
 
 /* --- Edit-mode-only chrome: drag handle, resize handle, hover toolbar --- */
@@ -830,7 +1094,15 @@
   display: none;
 }
 
-.is-edit-mode .node-handle {
+/* Shown only on hover — previously always-on for every block/field in
+   edit mode at once, which buried the sheet in little grab/resize
+   icons. Also kept visible for the duration of an actual drag/resize
+   (via the is-dragging/is-resizing classes wireDrag/wireResize already
+   toggle) so the handle doesn't vanish mid-gesture just because the
+   pointer has moved past the node's own edge while dragging it. */
+.is-edit-mode .grid-node:hover > .node-handle,
+.is-edit-mode .grid-node.is-dragging > .node-handle,
+.is-edit-mode .grid-node.is-resizing > .node-handle {
   display: flex;
 }
 
@@ -1311,6 +1583,17 @@
   gap: var(--space-2);
 }
 
+/* Inline validation/save-error text in the Catalogs and Bundle
+   Libraries managers' action bars — replaces what used to be
+   window.alert() for these (name-required, save failed, etc.).
+   flex:1 so it fills the space left of the buttons rather than
+   getting flex-end'd flush up against them. */
+.catalog-save-status {
+  flex: 1 1 auto;
+  align-self: center;
+  font-size: var(--text-sm);
+}
+
 /* --- Formula / equation editor --- */
 
 /* Deliberately NOT a full-screen dimmed modal — this panel floats
@@ -1373,11 +1656,27 @@
   background: var(--color-bg-inset);
 }
 
-/* --- Bundle library manager ---------------------------------------- */
-
-.modal-box--bundle-library {
-  width: min(640px, 60vw);
+/* --- Collection menu (shared by Catalogs + Bundle Libraries) ------- */
+/* See collectionMenuLayout.js for why this is a shared class instead
+   of each panel hand-rolling the same box. Self-contained rather than
+   layered on .modal-box--formula (which this superseded for these two
+   panels) so its top/overflow don't depend on cascade order against
+   that class. */
+.modal-box--collection-menu {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  max-width: none;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  pointer-events: auto;
+  animation: formula-slide-in 160ms ease;
 }
+
+/* --- Bundle library manager ---------------------------------------- */
 
 .bundle-library-body {
   display: flex;
@@ -1497,23 +1796,16 @@
 
 /* --- Catalog library manager (full grid-area panel) -----------------
    Shares the bundle-library-body/list/editor markup and base rules
-   above (list on the left, editor filling the rest), but this panel's
-   top/left/width/height are set inline by JS to match the page grid's
-   own rect exactly (see positionOverGrid in catalogLibraryEditor.js),
-   so it fills that whole area instead of floating as a narrow column
-   over part of it. These overrides: (1) lift the base .modal-box
-   max-width cap that would otherwise clamp it back down, (2) let the
-   body/columns stretch to fill that full height instead of the
-   min-height:320px the compact bundle-library popup uses, and (3)
+   above (list on the left, editor filling the rest); overall sizing
+   comes from .modal-box--collection-menu (shared with the Bundle
+   Library manager — see collectionMenuLayout.js), so this class is now
+   just the catalog-specific overrides on top of that: (1) let the
+   body/columns stretch to fill the full height instead of the
+   min-height:320px the compact bundle-library popup uses, and (2)
    narrow the list column down to just fit a name like "Magic
    Collection" — wrapping longer names instead of growing — so the
    editor (where items actually get added) keeps the vast majority of
    the width. */
-
-.modal-box--catalog-library {
-  max-width: none;
-  overflow: hidden;
-}
 
 .modal-box--catalog-library .bundle-library-body {
   flex: 1 1 auto;

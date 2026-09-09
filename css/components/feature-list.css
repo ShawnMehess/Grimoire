@@ -1,0 +1,59 @@
+/* ==========================================================================
+   feature-list.css
+   The "featureList" field type — a read-only, computed list of every
+   feature currently granted by the character's active bundles (Class,
+   Race, Background, etc.), gated by level. See collectGrantedFeatures/
+   buildFeatureListValue in customSheet.js.
+   ========================================================================== */
+
+.field-value--featurelist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-y: auto;
+  height: 100%;
+  padding: var(--space-1);
+}
+
+.featurelist-empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  font-style: italic;
+  padding: var(--space-2);
+}
+
+.featurelist-row {
+  padding: var(--space-2);
+  background: var(--color-bg-raised);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.featurelist-row__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.featurelist-row__name {
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+
+.featurelist-row__level {
+  flex: 0 0 auto;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  background: var(--color-bg-inset);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+}
+
+.featurelist-row__description {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  line-height: var(--leading-normal);
+  white-space: pre-wrap;
+}

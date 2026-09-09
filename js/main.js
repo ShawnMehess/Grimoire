@@ -13,7 +13,21 @@ const backBtn = document.createElement("button");
 backBtn.className = "btn";
 backBtn.textContent = "← Back";
 backBtn.style.display = "none";
-backBtn.addEventListener("click", renderCharacterList);
+// The currently-open character's { hasUnsavedChanges, destroy } (see
+// renderCustomSheet) — null when no character is open. Checked/torn
+// down below any time we're about to leave whichever character this
+// points at.
+let openSheet = null;
+function leaveCurrentSheet(next) {
+  if (openSheet && openSheet.hasUnsavedChanges() &&
+      !window.confirm("You have unsaved changes on this character. Leave anyway?")) {
+    return;
+  }
+  if (openSheet) openSheet.destroy();
+  openSheet = null;
+  next();
+}
+backBtn.addEventListener("click", () => leaveCurrentSheet(renderCharacterList));
 
 // Belt-and-suspenders for the "stuck on Loading..." problem: even with
 // the IndexedDB-probing fix in characterStore.js, this makes sure a
@@ -328,5 +342,5 @@ async function openCharacter(characterId) {
 
   const sheetRoot = document.createElement("div");
   appRoot.append(sheetRoot);
-  renderCustomSheet(sheetRoot, character, characterStore);
+  openSheet = renderCustomSheet(sheetRoot, character, characterStore);
 }

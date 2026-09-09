@@ -62,6 +62,8 @@ import { openFormulaEditor } from "./formulaEditor.js";
 import { openBundleLibraryManager } from "./bundleLibraryEditor.js";
 import { openCatalogLibraryManager } from "./catalogLibraryEditor.js";
 import { openCatalogBrowser } from "./catalogBrowser.js";
+import { getLevelUpPlan, getRulesetClass, listRulesets } from "../data/dnd5e.js";
+import { ABILITY_IDS, normalizeRulesState, resolveRulesState } from "../data/rulesEngine.js";
 
 const PAGE_COLS = 16;
 const GAP_PX = 8;
@@ -85,7 +87,7 @@ const DEFAULT_FIELD_SIZE = {
 // Radio/checkbox auto-size via syncOptionWidth (their w/h are derived
 // from option count, not user-resizable); every other field type can
 // be freely resized.
-const RESIZABLE_FIELD_TYPES = new Set(["text", "label", "textarea", "textlist", "dropdown", "picture", "catalog"]);
+const RESIZABLE_FIELD_TYPES = new Set(["text", "label", "textarea", "textlist", "dropdown", "picture", "catalog", "featureList"]);
 // Field types with no separate label/value split — just one element
 // filling the whole field (see renderFieldInner).
 const CAPTIONLESS_FIELD_TYPES = new Set(["label", "picture", "catalog"]);
@@ -100,13 +102,40 @@ function debounce(fn, delayMs = 500) {
 }
 
 export function renderCustomSheet(root, character, store) {
+  // Set (not yet saved — see needsLevelFieldAutosave below, which
+  // persists this once saveWithStatus/statusEl exist further down this
+  // function; calling saveWithStatus this early would throw, since it
+  // reads the `const statusEl` declared later in this same scope).
+  let needsLevelFieldAutosave = false;
   if (!character.layout) {
     character.layout = createStarterLayout();
+    // createStarterLayout() pins this field's id to the literal string
+    // "level" (see the `field(opts, "level")` call in blockModel.js) —
+    // stable and predictable specifically so callers like this one can
+    // reference it before the field has even been rendered once. Without
+    // this, currentLevel() has no designated field to read and every
+    // minLevel-gated bundle rule (stat grants, dropdown access, feature
+    // grants) treats the character as unlocked at every level — not
+    // wrong exactly, just not what "leveling" should mean by default.
+    // Only applies to brand-new characters; anyone who already
+    // (re)designated a different field, or unset it on purpose, keeps
+    // that choice — this only fires the one time layout itself is seeded.
+    if (!character.levelFieldId) {
+      character.levelFieldId = "level";
+      needsLevelFieldAutosave = true;
+    }
   }
   normalizeTabs();
 
   let editMode = false;
   let activeTabId = character.sheetTabs[0].id;
+  // Which blocks are collapsed in the sidebar's Stat Blocks list —
+  // lives here (not inside renderBlockFrame) since that function
+  // rebuilds the list from scratch on every call and would otherwise
+  // forget the state immediately.
+  const collapsedBlockIds = new Set();
+  // Same reasoning, for which Leveling-tab rows are expanded.
+  const expandedLevelUpRows = new Set();
   const undoStack = [];
   const redoStack = [];
   // Multi-select: which block/field ids are currently selected. Most
@@ -125,6 +154,23 @@ export function renderCustomSheet(root, character, store) {
   // isn't a meaningful variable for other formulas to reference the
   // way a field's own value is.
   let radioOptionCounts = {};
+  // Which checkboxes are currently checked because a Race/Class (or
+  // any dropdown) bundle grants them — "fieldId::index" strings — see
+  // the "grant" op in applyBundleModifiers. Recomputed alongside
+  // formulaValues/radioOptionCounts every render; buildFieldValue's
+  // checkbox branch ORs this into a checkbox's own field.checked
+  // state, and disables the box while granted (see the comment there
+  // for why a granted box isn't independently uncheckable).
+  let grantedCheckboxes = new Set();
+  // Every currently-unlocked feature grant across all active bundles, at
+  // the character's current level — [{ name, description, level, source }],
+  // sorted by level then source. Recomputed by collectGrantedFeatures
+  // alongside grantedCheckboxes each time computeSheetValues runs; read by
+  // buildFeatureListValue to render a "featureList" field. See the "grant"
+  // op comment on applyBundleModifiers for why this mirrors that mechanism
+  // rather than living in valueMap: like a granted checkbox, a feature's
+  // presence is a per-render computed fact, not stored character data.
+  let grantedFeatures = [];
   // Cached list of reusable bundle-library entries (see
   // bundleLibraryEditor.js) — refreshed on load and whenever the
   // manager reports a save/delete, so the "Apply from Library" picker
@@ -192,6 +238,24 @@ export function renderCustomSheet(root, character, store) {
   leftGroup.append(modeBtn, undoBtn, redoBtn, addBlockBtn);
   toolbar.append(leftGroup);
 
+  // Toggles the Stat Blocks sidebar closed — mainly useful on
+  // narrower screens (see the @media rule for .sheet-block-frame in
+  // custom-sheet.css), where it becomes a floating overlay instead of
+  // a permanent column, so hiding it gives the grid its full width
+  // back. Available at any width, not just narrow ones, since there's
+  // no harm in that.
+  let sidebarCollapsed = window.innerWidth <= 860; // starts hidden on narrow screens, matching the @media breakpoint below — desktop is unaffected (false, same as before this existed)
+  const sidebarToggleBtn = document.createElement("button");
+  sidebarToggleBtn.type = "button";
+  sidebarToggleBtn.className = "btn";
+  sidebarToggleBtn.textContent = "☰ Blocks";
+  sidebarToggleBtn.title = "Show/hide the Stat Blocks list";
+  sidebarToggleBtn.addEventListener("click", () => {
+    sidebarCollapsed = !sidebarCollapsed;
+    blockFrame.classList.toggle("is-collapsed", sidebarCollapsed);
+  });
+  toolbar.append(sidebarToggleBtn);
+
   const bundleLibBtn = document.createElement("button");
   bundleLibBtn.type = "button";
   bundleLibBtn.className = "btn";
@@ -223,11 +287,38 @@ export function renderCustomSheet(root, character, store) {
   nameInput.style.maxWidth = "220px";
   nameInput.placeholder = "Character name";
   nameInput.value = character.name || "";
+  nameInput.addEventListener("input", () => { unsavedChanges = true; });
   nameInput.addEventListener("input", debounce(() => {
     character.name = nameInput.value;
     saveWithStatus("name", nameInput.value);
   }, 400));
   toolbar.append(nameInput);
+
+  // Rulesets are data packs. The generic level-up guide and subclass
+  // dropdown use this saved selection instead of hardcoded class logic.
+  const rulesetSelect = document.createElement("select");
+  rulesetSelect.className = "input-group__control";
+  rulesetSelect.style.maxWidth = "220px";
+  rulesetSelect.title = "Ruleset used for guided leveling";
+  const rulesetPlaceholder = document.createElement("option");
+  rulesetPlaceholder.value = "";
+  rulesetPlaceholder.textContent = "Choose ruleset";
+  rulesetSelect.append(rulesetPlaceholder);
+  listRulesets().forEach((ruleset) => {
+    const option = document.createElement("option");
+    option.value = ruleset.id;
+    option.textContent = ruleset.name;
+    rulesetSelect.append(option);
+  });
+  rulesetSelect.value = character.rulesetId || "";
+  rulesetSelect.addEventListener("change", () => {
+    character.rulesetId = rulesetSelect.value || null;
+    character.rules = normalizeRulesState(character.rules);
+    character.rules.rulesetId = character.rulesetId;
+    saveWithStatus("rules", character.rules);
+    renderAll();
+  });
+  toolbar.append(rulesetSelect);
 
   // Everything else the character-selection page shows on a card
   // (Race, Class, Level, whatever) is NOT intrinsic — name is the
@@ -274,6 +365,7 @@ export function renderCustomSheet(root, character, store) {
       removeBtn.type = "button";
       removeBtn.title = "Stop showing this on the character list";
       removeBtn.textContent = "✕";
+      removeBtn.setAttribute("aria-label", "Stop showing this on the character list");
       removeBtn.addEventListener("click", () => {
         character.cardFieldIds = character.cardFieldIds.filter((x) => x !== id);
         saveWithStatus("cardFieldIds", character.cardFieldIds);
@@ -329,6 +421,7 @@ export function renderCustomSheet(root, character, store) {
     removeBtn.type = "button";
     removeBtn.title = "Unset the Level field";
     removeBtn.textContent = "✕";
+    removeBtn.setAttribute("aria-label", "Unset the Level field");
     removeBtn.addEventListener("click", () => {
       character.levelFieldId = null;
       saveWithStatus("levelFieldId", character.levelFieldId);
@@ -348,11 +441,23 @@ export function renderCustomSheet(root, character, store) {
   statusEl.className = "save-status";
   toolbar.append(statusEl);
 
+  // Tracks whether there's any edit not yet confirmed saved, for the
+  // unsaved-changes warning below (real browser navigation) and the
+  // in-app Back button (main.js checks hasUnsavedChanges() before
+  // leaving). Set on every edit; cleared on every successful save
+  // completion, from whichever of the save channels below finishes.
+  // Simple, not perfectly race-proof across two channels saving
+  // concurrently (rare, low-stakes if it happens — the worst case is
+  // one missed warning in a sub-second window), which is a fine trade
+  // against the complexity of exactly tracking multiple in-flight
+  // saves for what's ultimately just a courtesy "are you sure" prompt.
+  let unsavedChanges = false;
+
   function saveWithStatus(fieldId, value) {
     statusEl.textContent = "Saving…";
     statusEl.style.color = "";
     store.saveCharacterField(character.id, fieldId, value)
-      .then(() => { statusEl.textContent = "Saved"; })
+      .then(() => { statusEl.textContent = "Saved"; unsavedChanges = false; })
       .catch((err) => {
         console.error(`Failed to save "${fieldId}":`, err);
         statusEl.textContent = "⚠ Save failed — see console";
@@ -361,6 +466,30 @@ export function renderCustomSheet(root, character, store) {
   }
 
   const persist = debounce(persistSheetState);
+
+  // See needsLevelFieldAutosave at the top of this function — this is
+  // the earliest point saveWithStatus is safe to call from (it reads
+  // statusEl, a const declared just above).
+  if (needsLevelFieldAutosave) saveWithStatus("levelFieldId", character.levelFieldId);
+
+  // A brief, non-blocking message — for advisories and errors that
+  // happen somewhere scattered across the grid (an oversized image
+  // upload, a field rename collision, a missing catalog) where there's
+  // no single natural place to put a persistent inline status line the
+  // way the Catalogs/Bundle Libraries managers' Save buttons have.
+  // Replaces what used to be window.alert() for these.
+  function showToast(message, { isError = false } = {}) {
+    const toast = document.createElement("div");
+    toast.className = "sheet-toast" + (isError ? " sheet-toast--error" : "");
+    toast.textContent = message;
+    toast.setAttribute("role", "status");
+    root.append(toast);
+    requestAnimationFrame(() => toast.classList.add("is-visible"));
+    setTimeout(() => {
+      toast.classList.remove("is-visible");
+      setTimeout(() => toast.remove(), 200);
+    }, 5000);
+  }
 
   root.append(toolbar);
 
@@ -391,7 +520,7 @@ export function renderCustomSheet(root, character, store) {
   root.append(workbench);
 
   const blockFrame = document.createElement("aside");
-  blockFrame.className = "sheet-block-frame";
+  blockFrame.className = "sheet-block-frame" + (sidebarCollapsed ? " is-collapsed" : "");
   workbench.append(blockFrame);
 
   const scrollWrapper = document.createElement("div");
@@ -662,14 +791,30 @@ export function renderCustomSheet(root, character, store) {
       character.sheetTabs = [{
         id: newId(),
         name: "Main",
+        kind: "main",
         layout: Array.isArray(character.layout) ? character.layout : [],
       }];
     }
     character.sheetTabs.forEach((tab, index) => {
       if (!tab.id) tab.id = newId();
-      if (!tab.name) tab.name = index === 0 ? "Main" : `Tab ${index + 1}`;
+      if (index === 0 && !tab.kind) tab.kind = "main";
+      if (!tab.name) tab.name = tab.kind === "main" ? "Main" : tab.kind === "rules" ? "Character" : tab.kind === "leveling" ? "Leveling" : `Tab ${index + 1}`;
       if (!Array.isArray(tab.layout)) tab.layout = [];
     });
+    // Mandatory, same as Main — every character gets one, right after
+    // Main, and (see the delete/reorder guards below, both keyed off
+    // tab.kind rather than a hardcoded index now) it can't be deleted
+    // or dragged away from that spot.
+    if (!character.sheetTabs.some(tab => tab.kind === "rules")) {
+      character.sheetTabs.splice(1, 0, { id: newId(), name: "Character", kind: "rules", layout: [] });
+    }
+    if (!character.sheetTabs.some(tab => tab.kind === "leveling")) {
+      character.sheetTabs.splice(2, 0, { id: newId(), name: "Leveling", kind: "leveling", layout: [] });
+    }
+    if (!character.levelUps || typeof character.levelUps !== "object") {
+      character.levelUps = {};
+    }
+    character.rules = normalizeRulesState(character.rules);
     mirrorFirstTabLayout();
   }
 
@@ -699,27 +844,92 @@ export function renderCustomSheet(root, character, store) {
     persistSheetState();
   }
 
+  // How long a burst of rapid edits (typing, repeatedly clicking the
+  // same checkbox, etc.) gets coalesced into a single undo step. Was
+  // previously not coalesced at all — every keystroke pushed its own
+  // full snapshot, so Ctrl+Z undid one character at a time and a long
+  // session's undo stack grew without bound. A pause longer than this
+  // between edits starts a fresh undo step.
+  const UNDO_COALESCE_MS = 800;
+  const MAX_UNDO_STEPS = 100;
+  let lastMutationAt = 0;
+
   function commitMutation(fn, { render = true, save = true } = {}) {
-    undoStack.push(snapshot());
+    if (save) unsavedChanges = true;
+    const now = Date.now();
+    if (undoStack.length === 0 || now - lastMutationAt > UNDO_COALESCE_MS) {
+      undoStack.push(snapshot());
+      if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
+    }
+    lastMutationAt = now;
     redoStack.length = 0;
     fn();
     normalizeTabs();
     updateHistoryButtons();
     if (save) persist();
     if (render) renderAll();
+    // Even a render:false mutation (typing into a plain text field,
+    // say) can be something a Num Field's formula elsewhere depends
+    // on — recompute and patch those in place so they stay live
+    // without the full-grid rebuild render:false exists to avoid
+    // (which would blow away the cursor/selection currently mid-edit).
+    else refreshComputedValues();
   }
+
+  /** Recomputes every formula and patches just the already-rendered
+   *  computed-value text in place — no DOM rebuild, so it's safe to
+   *  call after every keystroke without disturbing whatever's
+   *  currently focused. Doesn't touch a radio field's own button COUNT
+   *  (an optionsFormula changing how many buttons a slot tracker shows,
+   *  say) since resizing that requires actually adding/removing
+   *  buttons, not just patching text — a full render still does that,
+   *  but debounced (scheduleOptionCountSync below) so it lands shortly
+   *  after typing settles rather than interrupting it. */
+  function refreshComputedValues() {
+    const allFields = flattenGlobalFields();
+    const previousRadioOptionCounts = radioOptionCounts;
+    const previousGrantedCheckboxes = grantedCheckboxes;
+    const previousGrantedFeatures = grantedFeatures;
+    formulaValues = computeSheetValues(allFields); // also refreshes grantedCheckboxes/grantedFeatures as a side effect
+    radioOptionCounts = computeRadioOptionCounts(allFields, formulaValues);
+    pageGrid.querySelectorAll(".field-value--computed[data-field-id]").forEach((el) => {
+      el.textContent = formatComputedValue(formulaValues[el.dataset.fieldId]);
+    });
+    const optionCountsChanged = allFields.some((f) =>
+      f.fieldType === "radio" && f.optionsFormula && radioOptionCounts[f.id] !== previousRadioOptionCounts[f.id]
+    );
+    const grantsChanged = grantedCheckboxes.size !== previousGrantedCheckboxes.size ||
+      [...grantedCheckboxes].some((key) => !previousGrantedCheckboxes.has(key));
+    const featuresChanged = grantedFeatures.length !== previousGrantedFeatures.length ||
+      grantedFeatures.some((f, i) => f.name !== previousGrantedFeatures[i]?.name);
+    if (optionCountsChanged || grantsChanged || featuresChanged) scheduleDeferredRender();
+  }
+
+  // A full render actually adds/removes the radio buttons an
+  // optionsFormula count change calls for, and actually re-disables/
+  // checks a proficiency box a bundle's minLevel-gated "grant" just
+  // turned on or off (e.g. typing a new Level past that threshold) —
+  // but doing either on every keystroke would reintroduce the exact
+  // focus-loss problem render:false exists to avoid. Debouncing it
+  // means the grid catches up shortly after typing pauses instead of
+  // on every keystroke.
+  const scheduleDeferredRender = debounce(() => renderAll(), 500);
 
   function undo() {
     if (undoStack.length === 0) return;
     redoStack.push(snapshot());
+    if (redoStack.length > MAX_UNDO_STEPS) redoStack.shift();
     restoreSnapshot(undoStack.pop());
+    lastMutationAt = 0; // next edit always starts a fresh undo step, never coalesced into the just-restored state
     updateHistoryButtons();
   }
 
   function redo() {
     if (redoStack.length === 0) return;
     undoStack.push(snapshot());
+    if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
     restoreSnapshot(redoStack.pop());
+    lastMutationAt = 0;
     updateHistoryButtons();
   }
 
@@ -966,7 +1176,7 @@ export function renderCustomSheet(root, character, store) {
         layout: character.layout,
         sheetTabs: character.sheetTabs,
       })
-        .then(() => { statusEl.textContent = "Saved"; })
+        .then(() => { statusEl.textContent = "Saved"; unsavedChanges = false; })
         .catch((err) => {
           console.error("Failed to save sheet state:", err);
           statusEl.textContent = "⚠ Save failed — see console";
@@ -1169,6 +1379,21 @@ export function renderCustomSheet(root, character, store) {
         allowed = new Set([...allowed].filter(id => ruleSet.has(id)));
       });
     });
+    // A selected ruleset can also constrain the standard Subclass field.
+    // This is resolved fresh from content each render, so it works on a
+    // new character without manually attaching a Class bundle first.
+    if (field.id === "subclass" || field.label === "Subclass") {
+      const className = selectedChoiceName("class", "Class");
+      const classEntry = getRulesetClass(character.rules?.rulesetId || character.rulesetId, className);
+      const level = currentCharacterLevel();
+      if (classEntry && level != null) {
+        const names = level >= classEntry.subclassLevel ? new Set(classEntry.subclasses) : new Set();
+        allowed = new Set([...allowed].filter((id) => {
+          const choice = (field.choices || []).find((candidate) => candidate.id === id);
+          return names.has(choice?.text);
+        }));
+      }
+    }
     return allowed;
   }
 
@@ -1207,8 +1432,19 @@ export function renderCustomSheet(root, character, store) {
    *  That's actually the right behavior for the common case — a race
    *  bonus modifying a plainly-typed ability score, which other
    *  formulas then read off of — just not for a modifier aimed at a
-   *  field that's itself computed. */
-  function applyBundleModifiers(fields, valueMap) {
+   *  field that's itself computed.
+   *
+   *  A "grant" op is different in kind from the numeric ones — it
+   *  doesn't touch valueMap at all, since a checkbox's rendered state
+   *  comes straight from field.checked, not from any computed value
+   *  the way a formula field's display does. It adds to
+   *  grantedCheckboxes instead (a Set of "fieldId::index" strings),
+   *  which buildFieldValue's checkbox branch reads to OR into its
+   *  normal checked state — same "recomputed fresh every render, not
+   *  a permanent mutation" model as the numeric ops, just via a
+   *  different mechanism because checkboxes don't have a formula-style
+   *  computed layer to hook into. */
+  function applyBundleModifiers(fields, valueMap, grantedCheckboxes) {
     const level = currentLevel(valueMap);
     fields.forEach((field) => {
       if (field.fieldType !== "dropdown") return;
@@ -1218,6 +1454,19 @@ export function renderCustomSheet(root, character, store) {
       (bundle.statModifiers || []).forEach((mod) => {
         if (!mod.targetFieldId) return;
         if (mod.minLevel && level < mod.minLevel) return; // not unlocked yet
+        if (mod.op === "grant") {
+          // Also write into valueMap (same 1/0 encoding checkbox
+          // values already use), not just grantedCheckboxes — a
+          // dependent formula (a skill/save's own Mod field, checking
+          // "is this checkbox checked?") reads valueMap, not the
+          // rendering-side grant overlay, so without this the box
+          // would visually show granted while its actual proficiency
+          // bonus silently failed to apply.
+          const key = `${mod.targetFieldId}::${mod.targetIndex || 0}`;
+          grantedCheckboxes.add(key);
+          valueMap[key] = 1;
+          return;
+        }
         const current = Number.isFinite(valueMap[mod.targetFieldId]) ? valueMap[mod.targetFieldId] : 0;
         const amount = Number.isFinite(mod.value) ? mod.value : 0;
         switch (mod.op) {
@@ -1231,9 +1480,45 @@ export function renderCustomSheet(root, character, store) {
     });
   }
 
+  /** Companion to applyBundleModifiers, same "walk every dropdown's
+   *  selected bundle" shape, but for featureGrants instead of
+   *  statModifiers — these are display-only (a name + description
+   *  string, e.g. "Rage"), so unlike statModifiers/the "grant" op they
+   *  never touch valueMap, just the returned list. Multiple bundles
+   *  (Class AND Race AND Background, say) can each contribute features
+   *  at the same render; entries are tagged with `source` (the
+   *  dropdown field's label) so a duplicate feature name from two
+   *  different bundles still shows twice rather than silently
+   *  colliding. Sorted by level then source so a level-up visibly adds
+   *  new entries at the bottom of "so far" rather than reshuffling
+   *  the whole list. */
+  function collectGrantedFeatures(fields, valueMap) {
+    const level = currentLevel(valueMap);
+    const features = [];
+    fields.forEach((field) => {
+      if (field.fieldType !== "dropdown") return;
+      const choice = (field.choices || []).find(c => c.id === field.selected);
+      const bundle = choice && choice.bundle;
+      if (!bundle) return;
+      (bundle.featureGrants || []).forEach((grant) => {
+        if (grant.minLevel && level < grant.minLevel) return; // not unlocked yet
+        features.push({
+          name: grant.name,
+          description: grant.description || "",
+          level: Number.isFinite(grant.minLevel) ? grant.minLevel : 0,
+          source: field.label,
+        });
+      });
+    });
+    features.sort((a, b) => a.level - b.level || a.source.localeCompare(b.source));
+    return features;
+  }
+
   function computeSheetValues(fields) {
     const valueMap = computeAllFormulas(fields);
-    applyBundleModifiers(fields, valueMap);
+    grantedCheckboxes = new Set();
+    applyBundleModifiers(fields, valueMap, grantedCheckboxes);
+    grantedFeatures = collectGrantedFeatures(fields, valueMap);
     // One more settle pass so anything a bundle modifier just changed
     // (e.g. a race bonus on Strength) flows through to formulas that
     // reference it (e.g. a Strength-based skill).
@@ -1507,9 +1792,22 @@ export function renderCustomSheet(root, character, store) {
       needsNormalizedPersist = true;
     }
     if (needsNormalizedPersist) persist();
-    const cw = colWidthPx();
     const availableHeight = availableViewportHeight();
     scrollWrapper.style.height = `${availableHeight}px`;
+
+    if (activeTab().kind === "leveling" || activeTab().kind === "rules") {
+      pageGrid.classList.add("page-grid--leveling");
+      pageGrid.style.width = "";
+      pageGrid.style.height = "";
+      pageGrid.style.backgroundImage = "";
+      pageGrid.style.backgroundPosition = "";
+      if (activeTab().kind === "rules") renderRulesTab();
+      else renderLevelingTab();
+      return;
+    }
+    pageGrid.classList.remove("page-grid--leveling");
+
+    const cw = colWidthPx();
     // Explicit width so the grid can exceed the wrapper's width (and
     // scroll) once cw hits its floor, rather than being crushed to fit.
     pageGrid.style.width = `${PAGE_COLS * cw + (PAGE_COLS - 1) * GAP_PX}px`;
@@ -1540,6 +1838,442 @@ export function renderCustomSheet(root, character, store) {
       // rather than rebuild them
   }
 
+  // --- Leveling tab --------------------------------------------------
+  //
+  // Deliberately NOT built from the draggable block/field grid every
+  // other tab uses — a fixed, hand-laid-out list of rows (one per
+  // character level) instead. Nothing here can be moved, resized, or
+  // relabeled the way a normal block can; that's a conscious trade for
+  // a much more usable layout for "fill in a form for level 7" than
+  // the general-purpose grid would give without a lot of manual
+  // block/field setup. Values live in character.levelUps (a plain
+  // { "1": {...}, "2": {...} } object keyed by level, saved the same
+  // standalone way character.name is — NOT through commitMutation/
+  // undo-redo, since this isn't sheet-structure editing) rather than
+  // in any tab's layout, and are always editable regardless of edit
+  // mode, same as any other field's value.
+
+  const LEVEL_UP_FIELDS = [
+    { key: "hp", label: "HP Gained", placeholder: "e.g. +7, or rolled 1d8+2" },
+    { key: "asiFeat", label: "Ability Score Improvement / Feat", placeholder: "e.g. +2 STR, or the Alert feat" },
+    { key: "subclass", label: "Subclass", placeholder: "e.g. Champion" },
+    { key: "skillProfs", label: "Skill Proficiencies Gained", placeholder: "e.g. Persuasion, Insight" },
+    { key: "itemProfs", label: "Tool / Weapon / Armor Proficiencies Gained", placeholder: "e.g. Thieves' Tools" },
+    { key: "spells", label: "Spells Learned / Prepared", placeholder: "e.g. Fireball, Misty Step" },
+    { key: "features", label: "Features Gained", placeholder: "e.g. Extra Attack, Uncanny Dodge" },
+    { key: "notes", label: "Notes", placeholder: "Anything else worth remembering" },
+  ];
+
+  const saveLevelUps = debounce(() => saveWithStatus("levelUps", character.levelUps), 400);
+
+  /** The character's current level, read straight off the "level"
+   *  field our own starter layout creates (see createStarterLayout in
+   *  blockModel.js) — null if that field's been removed/renamed or
+   *  doesn't hold a plain 1-20 number, so callers should treat this as
+   *  "unknown" and degrade gracefully rather than assume it exists. */
+  function currentCharacterLevel() {
+    const levelField = flattenGlobalFields().find((f) => f.id === "level");
+    if (!levelField) return null;
+    const n = parseInt(levelField.value, 10);
+    return Number.isFinite(n) && n >= 1 && n <= 20 ? n : null;
+  }
+
+  function selectedChoiceName(fieldId, label) {
+    const field = flattenGlobalFields().find((candidate) => candidate.id === fieldId)
+      || flattenGlobalFields().find((candidate) => candidate.fieldType === "dropdown" && candidate.label === label);
+    if (!field || field.fieldType !== "dropdown") return "";
+    return (field.choices || []).find((choice) => choice.id === field.selected)?.text || "";
+  }
+
+  function findStarterField(id, label) {
+    return flattenGlobalFields().find((field) => field.id === id)
+      || flattenGlobalFields().find((field) => field.label === label);
+  }
+
+  // Older starter sheets only had slot fields through fifth level. When a
+  // compatible standard Spellcasting block is present, extend it in place
+  // rather than making a high-level full caster rebuild their sheet.
+  function ensureStandardSpellSlotFields(slotChanges) {
+    const spellcasting = globalLayout().find((block) => block.name === "Spellcasting");
+    if (!spellcasting) return;
+    slotChanges.forEach((change) => {
+      if (findStarterField(change.fieldId, change.label)) return;
+      const match = change.fieldId.match(/^slots([6-9])$/);
+      if (!match) return;
+      const field = createField({ fieldType: "radio", label: change.label, x: Number(match[1]) - 6, y: 2, w: 1, h: 1 });
+      field.id = change.fieldId;
+      field.options = 0;
+      field.selected = null;
+      syncOptionWidth(field);
+      spellcasting.children.push(field);
+      spellcasting.h = Math.max(spellcasting.h, 4);
+    });
+  }
+
+  function numericFieldValue(field) {
+    if (!field) return 0;
+    const holder = document.createElement("div");
+    holder.innerHTML = field.value || "";
+    const value = Number.parseInt(holder.textContent, 10);
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  function appendUniqueTextListItem(field, item) {
+    if (!field || field.fieldType !== "textlist" || !item) return;
+    if (!Array.isArray(field.items)) field.items = [];
+    if (!field.items.includes(item)) field.items.push(item);
+  }
+
+  function renderRulesTab() {
+    const state = character.rules = normalizeRulesState(character.rules);
+    const resolved = resolveRulesState(state);
+    const wrap = document.createElement("section");
+    wrap.className = "leveling-tab character-rules";
+    const title = document.createElement("h2");
+    title.textContent = "Character Setup";
+    const copy = document.createElement("p");
+    copy.className = "leveling-tab__intro";
+    copy.textContent = "These choices are the character's rules state. The sheet layout can be customized independently.";
+    wrap.append(title, copy);
+    const form = document.createElement("div");
+    form.className = "level-guide__form";
+    const saveRules = debounce(() => saveWithStatus("rules", character.rules), 400);
+    const field = (label, control) => {
+      const group = document.createElement("label");
+      group.className = "level-guide__field";
+      group.textContent = label;
+      group.append(control);
+      form.append(group);
+    };
+    const update = (key, value) => {
+      character.rules[key] = value;
+      character.rules = normalizeRulesState(character.rules);
+      saveRules();
+      renderPageGrid();
+    };
+
+    const ruleset = document.createElement("select");
+    ruleset.className = "input-group__control";
+    const blank = document.createElement("option"); blank.value = ""; blank.textContent = "Choose ruleset"; ruleset.append(blank);
+    listRulesets().forEach((entry) => { const option = document.createElement("option"); option.value = entry.id; option.textContent = entry.name; ruleset.append(option); });
+    ruleset.value = state.rulesetId || "";
+    ruleset.addEventListener("change", () => {
+      character.rulesetId = ruleset.value || null;
+      update("rulesetId", character.rulesetId);
+    });
+    field("Ruleset", ruleset);
+
+    const classSelect = document.createElement("select");
+    classSelect.className = "input-group__control";
+    const classBlank = document.createElement("option"); classBlank.value = ""; classBlank.textContent = "Choose class"; classSelect.append(classBlank);
+    (resolved.ruleset?.classes || []).forEach((entry) => { const option = document.createElement("option"); option.value = entry.name; option.textContent = entry.name; classSelect.append(option); });
+    classSelect.value = state.className || "";
+    classSelect.addEventListener("change", () => update("className", classSelect.value));
+    field("Class", classSelect);
+
+    const level = document.createElement("input");
+    level.type = "number"; level.min = "1"; level.max = "20"; level.value = String(state.level); level.className = "input-group__control";
+    level.addEventListener("change", () => update("level", level.value));
+    field("Level", level);
+
+    const subclass = document.createElement("select");
+    subclass.className = "input-group__control";
+    const subclassBlank = document.createElement("option"); subclassBlank.value = ""; subclassBlank.textContent = resolved.availableSubclasses.length ? "Choose subclass" : "Not available yet"; subclass.append(subclassBlank);
+    resolved.availableSubclasses.forEach((name) => { const option = document.createElement("option"); option.value = name; option.textContent = name; subclass.append(option); });
+    subclass.value = state.subclass || ""; subclass.disabled = !resolved.availableSubclasses.length;
+    subclass.addEventListener("change", () => update("subclass", subclass.value));
+    field("Subclass", subclass);
+
+    ["Species", "Background"].forEach((label) => {
+      const input = document.createElement("input"); input.type = "text"; input.className = "input-group__control";
+      const key = label.toLowerCase(); input.value = state[key] || ""; input.addEventListener("change", () => update(key, input.value)); field(label, input);
+    });
+    ABILITY_IDS.forEach((id) => {
+      const input = document.createElement("input"); input.type = "number"; input.min = "1"; input.max = "30"; input.className = "input-group__control"; input.value = String(state.abilityScores[id]);
+      input.addEventListener("change", () => { character.rules.abilityScores[id] = Number(input.value) || 10; saveRules(); renderPageGrid(); });
+      field(id.toUpperCase(), input);
+    });
+    wrap.append(form);
+    const derived = document.createElement("p");
+    derived.className = "level-guide__summary";
+    const parts = [];
+    if (resolved.derived.preparedSpellLimit != null) parts.push(`Prepared druid spells: ${resolved.derived.preparedSpellLimit}`);
+    resolved.derived.resources.forEach((resource) => parts.push(`${resource.name}: ${resource.maximum}`));
+    derived.textContent = parts.length ? parts.join(" · ") : "Choose a ruleset and class to see derived character resources.";
+    wrap.append(derived);
+    const sync = document.createElement("button");
+    sync.type = "button"; sync.className = "btn btn--primary"; sync.textContent = "Sync Rules To Sheet";
+    sync.addEventListener("click", async () => {
+      const classField = findStarterField("class", "Class"); const levelField = findStarterField("level", "Level"); const subclassField = findStarterField("subclass", "Subclass");
+      const choose = (target, value) => { const choice = target?.choices?.find((entry) => entry.text === value); if (choice) target.selected = choice.id; };
+      choose(classField, character.rules.className); choose(subclassField, character.rules.subclass);
+      if (levelField) levelField.value = String(character.rules.level);
+      ABILITY_IDS.forEach((id) => { const target = findStarterField(`${id}Score`, id.toUpperCase()); if (target) target.value = String(character.rules.abilityScores[id]); });
+      (resolved.plan?.slotChanges || []).forEach((change) => { const target = findStarterField(change.fieldId, change.label); if (target) { target.options = change.options; syncOptionWidth(target); } });
+      mirrorFirstTabLayout();
+      await store.saveCharacterFields(character.id, { rules: character.rules, rulesetId: character.rules.rulesetId, layout: character.layout, sheetTabs: character.sheetTabs });
+      statusEl.textContent = "Saved"; renderAll();
+    });
+    wrap.append(sync);
+    pageGrid.append(wrap);
+  }
+
+  function renderRulesetLevelGuide() {
+    const className = selectedChoiceName("class", "Class");
+    const level = currentCharacterLevel();
+    const selectedSubclass = selectedChoiceName("subclass", "Subclass");
+    const plan = getLevelUpPlan(character.rules?.rulesetId || character.rulesetId, className, level, selectedSubclass);
+    if (!plan) return null;
+
+    const priorLevelUp = character.levelUps?.[String(level)] || {};
+    const panel = document.createElement("section");
+    panel.className = "level-guide";
+
+    const heading = document.createElement("div");
+    heading.className = "level-guide__heading";
+    const title = document.createElement("h2");
+    title.textContent = `${className} Level ${level}`;
+    const status = document.createElement("span");
+    status.className = "level-guide__status";
+    status.textContent = plan.needsSubclass ? "Subclass choice needed" : selectedSubclass || plan.ruleset.name;
+    heading.append(title, status);
+    panel.append(heading);
+
+    const summary = document.createElement("p");
+    summary.className = "level-guide__summary";
+    const slots = plan.slotChanges.map((change) => `${change.options} ${change.label}-level`).join(", ");
+    summary.textContent = slots
+      ? `Record the HP gained for this level. This ruleset will set spell slots to ${slots}.`
+      : "Record the HP gained and any class features from your ruleset source.";
+    panel.append(summary);
+
+    if (priorLevelUp.appliedRulesetId === plan.ruleset.id) {
+      const complete = document.createElement("p");
+      complete.className = "level-guide__feedback";
+      complete.textContent = `This level was already applied using ${plan.ruleset.name}.`;
+      panel.append(complete);
+      return panel;
+    }
+
+    const form = document.createElement("div");
+    form.className = "level-guide__form";
+    let subclassSelect = null;
+    if (plan.needsSubclass) {
+      const subclassGroup = document.createElement("label");
+      subclassGroup.className = "level-guide__field";
+      subclassGroup.textContent = "Subclass";
+      subclassSelect = document.createElement("select");
+      subclassSelect.className = "input-group__control";
+      plan.subclassChoices.forEach((name) => {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        subclassSelect.append(option);
+      });
+      subclassGroup.append(subclassSelect);
+      form.append(subclassGroup);
+    }
+
+    const hpGroup = document.createElement("label");
+    hpGroup.className = "level-guide__field";
+    hpGroup.textContent = "HP Gained";
+    const hpInput = document.createElement("input");
+    hpInput.type = "number";
+    hpInput.min = "1";
+    hpInput.step = "1";
+    hpInput.required = true;
+    hpInput.placeholder = "Rolled or average";
+    hpInput.className = "input-group__control";
+    hpGroup.append(hpInput);
+    form.append(hpGroup);
+
+    const benefitsGroup = document.createElement("label");
+    benefitsGroup.className = "level-guide__field level-guide__field--wide";
+    benefitsGroup.textContent = "Features and Choices to Record";
+    const benefitsInput = document.createElement("textarea");
+    benefitsInput.placeholder = "Record features, spells, proficiencies, or other choices from your source book.";
+    benefitsGroup.append(benefitsInput);
+    form.append(benefitsGroup);
+    panel.append(form);
+
+    const feedback = document.createElement("p");
+    feedback.className = "level-guide__feedback";
+    panel.append(feedback);
+    const applyBtn = document.createElement("button");
+    applyBtn.type = "button";
+    applyBtn.className = "btn btn--primary";
+    applyBtn.textContent = `Apply Level ${level} Changes`;
+    applyBtn.addEventListener("click", async () => {
+      const hpGain = Number.parseInt(hpInput.value, 10);
+      if (!Number.isFinite(hpGain) || hpGain < 1) {
+        feedback.textContent = "Enter the HP gained for this level before applying it.";
+        feedback.classList.add("level-guide__feedback--error");
+        hpInput.focus();
+        return;
+      }
+      const subclassField = findStarterField("subclass", "Subclass");
+      const selectedSubclassName = subclassSelect?.value || selectedSubclass;
+      const subclassChoice = selectedSubclassName && (subclassField?.choices || []).find((choice) => choice.text === selectedSubclassName);
+      ensureStandardSpellSlotFields(plan.slotChanges);
+      const missingSlots = plan.slotChanges.filter((change) => !findStarterField(change.fieldId, change.label));
+      if (plan.needsSubclass && (!subclassField || !subclassChoice)) {
+        feedback.textContent = "This sheet needs a Subclass dropdown containing the ruleset's available choices.";
+        feedback.classList.add("level-guide__feedback--error");
+        return;
+      }
+      if (missingSlots.length > 0) {
+        feedback.textContent = `This sheet is missing the ${missingSlots.map((change) => change.label).join(", ")} spell-slot field(s) needed for this level.`;
+        feedback.classList.add("level-guide__feedback--error");
+        return;
+      }
+
+      const before = clone({ layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps });
+      const hpMax = findStarterField(null, "HP Max");
+      const hpCurrent = findStarterField(null, "HP Current");
+      const features = findStarterField(null, "Features & Traits");
+      const notes = benefitsInput.value.trim();
+      const featureEntry = notes ? `${className} level ${level}: ${notes}` : `${className} level ${level}`;
+      applyBtn.disabled = true;
+      feedback.textContent = "Applying changes…";
+      feedback.classList.remove("level-guide__feedback--error");
+      if (subclassChoice) subclassField.selected = subclassChoice.id;
+      plan.slotChanges.forEach((change) => {
+        const field = findStarterField(change.fieldId, change.label);
+        field.options = change.options;
+        syncOptionWidth(field);
+      });
+      if (hpMax) hpMax.value = String(numericFieldValue(hpMax) + hpGain);
+      if (hpCurrent) hpCurrent.value = String(numericFieldValue(hpCurrent) + hpGain);
+      appendUniqueTextListItem(features, featureEntry);
+      character.levelUps[String(level)] = {
+        ...(character.levelUps[String(level)] || {}),
+        hp: `+${hpGain}`,
+        subclass: selectedSubclassName || "",
+        spells: slots ? `Spell slots: ${slots}.` : "",
+        features: featureEntry,
+        appliedRulesetId: plan.ruleset.id,
+      };
+      mirrorFirstTabLayout();
+      unsavedChanges = true;
+      try {
+        await store.saveCharacterFields(character.id, { layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps });
+        unsavedChanges = false;
+        statusEl.textContent = "Saved";
+        renderAll();
+      } catch (err) {
+        console.error("Failed to apply level-up changes:", err);
+        character.layout = before.layout;
+        character.sheetTabs = before.sheetTabs;
+        character.levelUps = before.levelUps;
+        feedback.textContent = "The update could not be saved. Please try again.";
+        feedback.classList.add("level-guide__feedback--error");
+        applyBtn.disabled = false;
+      }
+    });
+    panel.append(applyBtn);
+    return panel;
+  }
+
+  function renderLevelingTab() {
+    const wrap = document.createElement("div");
+    wrap.className = "leveling-tab";
+
+    const intro = document.createElement("p");
+    intro.className = "leveling-tab__intro";
+    intro.textContent = "Come back here whenever your level goes up. Fill in whatever applies for your class at that level — leave the rest blank.";
+    wrap.append(intro);
+
+    const rulesetGuide = renderRulesetLevelGuide();
+    if (rulesetGuide) wrap.append(rulesetGuide);
+
+    const currentLevel = currentCharacterLevel();
+    if (currentLevel) {
+      const jumpBtn = document.createElement("button");
+      jumpBtn.type = "button";
+      jumpBtn.className = "btn leveling-tab__jump";
+      jumpBtn.textContent = `↓ Jump to Level ${currentLevel}`;
+      jumpBtn.addEventListener("click", () => {
+        expandedLevelUpRows.add(currentLevel);
+        renderPageGrid();
+        requestAnimationFrame(() => {
+          pageGrid.querySelector(`[data-level="${currentLevel}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      });
+      wrap.append(jumpBtn);
+    }
+
+    for (let level = 1; level <= 20; level++) {
+      wrap.append(renderLevelUpRow(level, level === currentLevel));
+    }
+
+    pageGrid.append(wrap);
+  }
+
+  function renderLevelUpRow(level, isCurrent) {
+    const key = String(level);
+    if (!character.levelUps[key] || typeof character.levelUps[key] !== "object") {
+      character.levelUps[key] = {};
+    }
+    const data = character.levelUps[key];
+
+    const row = document.createElement("div");
+    row.className = "leveling-row" + (isCurrent ? " leveling-row--current" : "");
+    row.dataset.level = String(level);
+
+    const header = document.createElement("div");
+    header.className = "leveling-row__header";
+
+    const expanded = expandedLevelUpRows.has(level);
+    const toggleBtn = document.createElement("button");
+    toggleBtn.type = "button";
+    toggleBtn.className = "btn formula-toolbar__btn leveling-row__toggle";
+    toggleBtn.textContent = expanded ? "▾" : "▸";
+    toggleBtn.setAttribute("aria-label", expanded ? `Collapse level ${level}` : `Expand level ${level}`);
+    toggleBtn.addEventListener("click", () => {
+      if (expanded) expandedLevelUpRows.delete(level);
+      else expandedLevelUpRows.add(level);
+      renderPageGrid();
+    });
+    header.append(toggleBtn);
+
+    const title = document.createElement("span");
+    title.className = "leveling-row__title";
+    title.textContent = `Level ${level}`;
+    header.append(title);
+
+    const filledCount = LEVEL_UP_FIELDS.filter((f) => (data[f.key] || "").trim() !== "").length;
+    const summary = document.createElement("span");
+    summary.className = "leveling-row__summary";
+    summary.textContent = filledCount > 0 ? `${filledCount} filled in` : "Nothing yet";
+    header.append(summary);
+
+    row.append(header);
+
+    if (expanded) {
+      const fields = document.createElement("div");
+      fields.className = "leveling-row__fields";
+      LEVEL_UP_FIELDS.forEach((f) => {
+        const group = document.createElement("div");
+        group.className = "leveling-row__field";
+        const label = document.createElement("label");
+        label.textContent = f.label;
+        const textarea = document.createElement("textarea");
+        textarea.value = data[f.key] || "";
+        textarea.placeholder = f.placeholder || "";
+        textarea.addEventListener("input", () => {
+          unsavedChanges = true;
+          data[f.key] = textarea.value;
+          saveLevelUps();
+        });
+        group.append(label, textarea);
+        fields.append(group);
+      });
+      row.append(fields);
+    }
+
+    return row;
+  }
+
   function renderAll() {
     renderTabs();
     renderBlockFrame();
@@ -1552,7 +2286,7 @@ export function renderCustomSheet(root, character, store) {
       const tabBtn = document.createElement("button");
       tabBtn.type = "button";
       tabBtn.className = `sheet-tab${tab.id === activeTab().id ? " active" : ""}`;
-      tabBtn.draggable = editMode;
+      tabBtn.draggable = editMode && !tab.kind;
       tabBtn.dataset.tabId = tab.id;
 
       const nameEl = document.createElement("span");
@@ -1562,7 +2296,7 @@ export function renderCustomSheet(root, character, store) {
       nameEl.addEventListener("pointerdown", (e) => e.stopPropagation());
       nameEl.addEventListener("input", () => {
         commitMutation(() => {
-          tab.name = nameEl.textContent.trim() || (index === 0 ? "Main" : `Tab ${index + 1}`);
+          tab.name = nameEl.textContent.trim() || (tab.kind === "main" ? "Main" : tab.kind === "rules" ? "Character" : tab.kind === "leveling" ? "Leveling" : `Tab ${index + 1}`);
         }, { render: false });
         renderBlockFrame();
       });
@@ -1572,7 +2306,7 @@ export function renderCustomSheet(root, character, store) {
         renderAll();
       });
       tabBtn.addEventListener("dragstart", (e) => {
-        if (!editMode) return;
+        if (!editMode || tab.kind) return;
         e.dataTransfer.setData("application/x-sheet-tab", tab.id);
         e.dataTransfer.effectAllowed = "move";
       });
@@ -1586,16 +2320,17 @@ export function renderCustomSheet(root, character, store) {
         if (!draggedId || draggedId === tab.id) return;
         e.preventDefault();
         commitMutation(() => {
+          const lockedCount = character.sheetTabs.filter(t => t.kind).length;
           const from = character.sheetTabs.findIndex(t => t.id === draggedId);
           const to = character.sheetTabs.findIndex(t => t.id === tab.id);
-          if (from <= 0 || to < 0) return;
+          if (from < lockedCount || to < 0) return;
           const [moved] = character.sheetTabs.splice(from, 1);
-          character.sheetTabs.splice(Math.max(1, to), 0, moved);
+          character.sheetTabs.splice(Math.max(lockedCount, to), 0, moved);
         });
       });
 
       tabBtn.append(nameEl);
-      if (editMode && index > 0) {
+      if (editMode && !tab.kind) {
         const deleteBtn = document.createElement("span");
         deleteBtn.className = "sheet-tab__delete";
         deleteBtn.textContent = "×";
@@ -1651,9 +2386,30 @@ export function renderCustomSheet(root, character, store) {
       blockLine.className = "sheet-block-list__line";
       blockLine.dataset.highlightId = block.id;
       blockLine.addEventListener("click", () => selectBlockAndFields(pageGrid.querySelector(`[data-node-id="${block.id}"]`)));
+
+      const titleRow = document.createElement("div");
+      titleRow.className = "sheet-block-list__title-row";
+
+      const collapsed = collapsedBlockIds.has(block.id);
+      const toggleBtn = document.createElement("button");
+      toggleBtn.type = "button";
+      toggleBtn.className = "sheet-block-list__collapse-toggle";
+      toggleBtn.textContent = collapsed ? "▸" : "▾";
+      toggleBtn.title = collapsed ? "Expand" : "Collapse";
+      toggleBtn.setAttribute("aria-label", collapsed ? "Expand" : "Collapse");
+      toggleBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (collapsedBlockIds.has(block.id)) collapsedBlockIds.delete(block.id);
+        else collapsedBlockIds.add(block.id);
+        renderBlockFrame();
+      });
+      titleRow.append(toggleBtn);
+
       const name = document.createElement("span");
       name.textContent = source.name || "Unnamed Block";
-      blockLine.append(name);
+      titleRow.append(name);
+      blockLine.append(titleRow);
+
       if (character.sheetTabs.length > 1) {
         const tabs = document.createElement("span");
         tabs.className = "sheet-block-list__tabs";
@@ -1661,6 +2417,10 @@ export function renderCustomSheet(root, character, store) {
         blockLine.append(tabs);
       }
       blockItem.append(blockLine);
+
+      const fieldsWrap = document.createElement("div");
+      fieldsWrap.className = "sheet-block-list__fields";
+      if (collapsed) fieldsWrap.hidden = true;
 
       (source.children || []).forEach(field => {
         const fieldItem = document.createElement("div");
@@ -1677,7 +2437,7 @@ export function renderCustomSheet(root, character, store) {
           e.dataTransfer.setData("application/x-sheet-field", JSON.stringify({ blockId: block.id, fieldId: field.id }));
           e.dataTransfer.effectAllowed = "copy";
         });
-        blockItem.append(fieldItem);
+        fieldsWrap.append(fieldItem);
 
         // Each checkbox in a checkbox field is its own boolean
         // variable for formulas — exposed as its own draggable row,
@@ -1698,10 +2458,11 @@ export function renderCustomSheet(root, character, store) {
               e.dataTransfer.setData("application/x-sheet-field", JSON.stringify({ blockId: block.id, fieldId: field.id, checkboxIndex: i }));
               e.dataTransfer.effectAllowed = "copy";
             });
-            blockItem.append(cbItem);
+            fieldsWrap.append(cbItem);
           });
         }
       });
+      blockItem.append(fieldsWrap);
 
       blockFrame.append(blockItem);
     });
@@ -1985,7 +2746,7 @@ export function renderCustomSheet(root, character, store) {
       // so cloned duplicates are never blocked here.
       const current = field.label.trim();
       if (current && current !== labelBeforeEdit.trim() && isLabelAlreadyInUse(current, field)) {
-        window.alert(`The label "${current}" is already in use by another field — reverted to "${labelBeforeEdit}".`);
+        showToast(`The label "${current}" is already in use by another field — reverted to "${labelBeforeEdit}".`, { isError: true });
         commitMutation(() => {
           field.label = labelBeforeEdit;
         }, { render: false });
@@ -2077,6 +2838,7 @@ export function renderCustomSheet(root, character, store) {
       if (field.formula) {
         el.className = "field-value field-value--computed";
         el.contentEditable = "false";
+        el.dataset.fieldId = field.id;
         el.textContent = formatComputedValue(formulaValues[field.id]);
       } else {
         el.className = "field-value";
@@ -2144,6 +2906,10 @@ export function renderCustomSheet(root, character, store) {
       return buildCatalogValue(field);
     }
 
+    if (field.fieldType === "featureList") {
+      return buildFeatureListValue(field);
+    }
+
     const el = document.createElement("div");
     el.className = "field-value field-value--options";
     // A formula-driven radio group's button count is whatever that
@@ -2156,29 +2922,57 @@ export function renderCustomSheet(root, character, store) {
     el.style.gridTemplateColumns = `repeat(${Math.max(1, effectiveOptions)}, minmax(0, 1fr))`;
 
     if (field.fieldType === "radio") {
+      // Filled left-to-right up through whichever one was clicked
+      // (n <= field.selected), not just that one alone — these are
+      // used as a "how many of N used" meter (spell slots, death
+      // saves), not a real mutually-exclusive choice, even though
+      // they're built from <input type="radio"> for the free grouping
+      // behavior that gives. A plain click only ever checks the one
+      // clicked (that's the browser's own native behavior firing
+      // before our "change" handler even runs), so the rest of the
+      // fill has to be patched in manually right after, via the same
+      // `inputs` this loop is already building.
+      const inputs = [];
       for (let n = 1; n <= effectiveOptions; n++) {
         const wrap = document.createElement("label");
         wrap.className = "option-radio";
         const input = document.createElement("input");
         input.type = "radio";
         input.name = field.id;
-        input.checked = field.selected === n;
+        input.checked = field.selected !== null && n <= field.selected;
         input.addEventListener("change", () => {
           commitMutation(() => {
             field.selected = n;
           }, { render: false });
+          inputs.forEach((otherInput, idx) => {
+            otherInput.checked = idx + 1 <= n;
+          });
         });
         input.addEventListener("pointerdown", (e) => e.stopPropagation());
-        wrap.append(input, document.createTextNode(String(n)));
+        wrap.append(input);
         el.append(wrap);
+        inputs.push(input);
       }
     } else if (field.fieldType === "checkbox") {
       for (let i = 0; i < field.options; i++) {
         const wrap = document.createElement("label");
         wrap.className = "option-checkbox";
+        const granted = grantedCheckboxes.has(`${field.id}::${i}`);
         const input = document.createElement("input");
         input.type = "checkbox";
-        input.checked = !!field.checked[i];
+        input.checked = !!field.checked[i] || granted;
+        if (granted) {
+          // Not independently uncheckable while granted — same
+          // reasoning as the numeric ops overwriting a formula field's
+          // own value: this box's visible state is a computed result
+          // (of the currently-selected Race/Class/etc.), not this
+          // box's own stored data, while it's active. field.checked[i]
+          // underneath is untouched, so a manually-checked box stays
+          // checked on its own after the granting choice changes away.
+          input.disabled = true;
+          wrap.classList.add("option-checkbox--granted");
+          wrap.title = "Granted automatically by a selected Race/Class/etc. — change that selection to remove it";
+        }
         input.addEventListener("change", () => {
           commitMutation(() => {
             field.checked[i] = input.checked;
@@ -2259,6 +3053,7 @@ export function renderCustomSheet(root, character, store) {
         removeBtn.className = "textlist-item__remove";
         removeBtn.title = "Remove item";
         removeBtn.textContent = "✕";
+        removeBtn.setAttribute("aria-label", "Remove item");
         removeBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
         removeBtn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -2341,9 +3136,7 @@ export function renderCustomSheet(root, character, store) {
     const reader = new FileReader();
     reader.onload = () => {
       if (reader.result.length > MAX_IMAGE_BYTES) {
-        window.alert(
-          "That image is large enough that it (plus the rest of this character) may not fit in a single Firestore document (1MB limit). It'll be applied, but saving might fail — try a smaller image if so."
-        );
+        showToast("That image is large enough that it (plus the rest of this character) may not fit in a single Firestore document (1MB limit). It'll be applied, but saving might fail — try a smaller image if so.");
       }
       onLoaded(reader.result);
     };
@@ -2492,7 +3285,7 @@ export function renderCustomSheet(root, character, store) {
       }
       const catalog = await store.loadCatalog(field.catalogSource.scope, field.catalogSource.id);
       if (!catalog) {
-        window.alert("That catalog couldn't be found — it may have been deleted. Reconfigure this field from its ⚙ button.");
+        showToast("That catalog couldn't be found — it may have been deleted. Reconfigure this field from its ⚙ button.", { isError: true });
         return;
       }
       autoAssignMoneyFieldIfNeeded(field);
@@ -2511,6 +3304,61 @@ export function renderCustomSheet(root, character, store) {
       });
     });
     return btn;
+  }
+
+  /** Read-only — this field has no configuration or stored data of its
+   *  own (see createField's featureList branch in blockModel.js). It
+   *  just re-renders whatever collectGrantedFeatures currently
+   *  computed for the whole character: every feature grant unlocked
+   *  by the level-gated bundles on the character's dropdown choices
+   *  (Class, Race, Background, etc.), sorted by level. Same "computed
+   *  fresh every render" model as a granted checkbox — nothing here is
+   *  ever written back to field or bundle data. */
+  function buildFeatureListValue(field) {
+    const el = document.createElement("div");
+    el.className = "field-value field-value--featurelist";
+    el.addEventListener("pointerdown", (e) => e.stopPropagation());
+
+    if (grantedFeatures.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "featurelist-empty";
+      empty.textContent = "No features yet — pick a Class/Race/Background with feature grants, or level up.";
+      el.append(empty);
+      return el;
+    }
+
+    grantedFeatures.forEach((feature) => {
+      const row = document.createElement("div");
+      row.className = "featurelist-row";
+
+      const header = document.createElement("div");
+      header.className = "featurelist-row__header";
+
+      const name = document.createElement("span");
+      name.className = "featurelist-row__name";
+      name.textContent = feature.name;
+      header.append(name);
+
+      if (feature.level > 0) {
+        const level = document.createElement("span");
+        level.className = "featurelist-row__level";
+        level.textContent = `Lvl ${feature.level}`;
+        header.append(level);
+      }
+
+      row.append(header);
+
+      if (feature.description) {
+        const desc = document.createElement("div");
+        desc.className = "featurelist-row__description";
+        desc.textContent = feature.description;
+        row.append(desc);
+      }
+
+      el.append(row);
+    });
+
+    return el;
   }
 
   /** Popover for a catalog field's own setup: which saved catalog it
@@ -2617,14 +3465,16 @@ export function renderCustomSheet(root, character, store) {
   ];
 
   function ensureBundle(choice) {
-    if (!choice.bundle) choice.bundle = { statModifiers: [], dropdownAccess: [] };
+    if (!choice.bundle) choice.bundle = { statModifiers: [], dropdownAccess: [], featureGrants: [] };
     if (!choice.bundle.statModifiers) choice.bundle.statModifiers = [];
     if (!choice.bundle.dropdownAccess) choice.bundle.dropdownAccess = [];
+    if (!choice.bundle.featureGrants) choice.bundle.featureGrants = [];
     return choice.bundle;
   }
 
   function bundleIsEmpty(bundle) {
-    return !bundle || ((bundle.statModifiers || []).length === 0 && (bundle.dropdownAccess || []).length === 0);
+    return !bundle || ((bundle.statModifiers || []).length === 0 && (bundle.dropdownAccess || []).length === 0
+      && (bundle.featureGrants || []).length === 0);
   }
 
   /** Materializes a reusable library bundle (see bundleLibraryEditor.js
@@ -2641,10 +3491,20 @@ export function renderCustomSheet(root, character, store) {
     const norm = (s) => (s || "").trim().toLowerCase();
 
     (libraryEntry.statModifiers || []).forEach((mod) => {
-      const match = allFields.find(f => f.fieldType === "text" && norm(f.label) === norm(mod.targetFieldName));
+      // "grant" targets a proficiency-style checkbox (single-option,
+      // per the toggleField convention createStarterLayout uses for
+      // every skill/save proficiency marker) by label, same as a
+      // numeric op targets a plain text field by label — everything
+      // else about the resolution is identical. Falls back to
+      // whichever fieldType actually matches so a stray text field
+      // named the same as a checkbox (or vice versa) doesn't silently
+      // resolve to the wrong kind of target.
+      const wantType = mod.op === "grant" ? "checkbox" : "text";
+      const match = allFields.find(f => f.fieldType === wantType && norm(f.label) === norm(mod.targetFieldName));
       bundle.statModifiers.push({
         id: newId(),
         targetFieldId: match ? match.id : null,
+        targetIndex: mod.op === "grant" ? 0 : null,
         op: mod.op,
         value: mod.value,
         minLevel: Number.isFinite(mod.minLevel) ? mod.minLevel : null,
@@ -2665,6 +3525,20 @@ export function renderCustomSheet(root, character, store) {
         targetFieldId: targetField ? targetField.id : null,
         allowedChoiceIds,
         minLevel: Number.isFinite(rule.minLevel) ? rule.minLevel : null,
+      });
+    });
+
+    // Feature grants are just display text (name + description) — unlike
+    // statModifiers/dropdownAccess they don't target any field on this
+    // character, so there's no name-resolution step: copy straight
+    // through with a fresh id, same as everything else here treats the
+    // library entry as a template rather than a shared reference.
+    (libraryEntry.featureGrants || []).forEach((grant) => {
+      bundle.featureGrants.push({
+        id: newId(),
+        name: grant.name,
+        description: grant.description || "",
+        minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
       });
     });
   }
@@ -2794,6 +3668,7 @@ export function renderCustomSheet(root, character, store) {
         removeBtn.type = "button";
         removeBtn.className = "btn formula-toolbar__btn";
         removeBtn.textContent = "✕";
+        removeBtn.setAttribute("aria-label", "Remove");
         removeBtn.addEventListener("click", () => {
           commitLocal(() => {
             if (field.selected === choice.id) field.selected = null;
@@ -2862,6 +3737,12 @@ export function renderCustomSheet(root, character, store) {
     panel.className = "dropdown-choices-editor__mods";
 
     const textFields = flattenGlobalFields().filter(f => f.fieldType === "text");
+    // Single-option checkboxes only (see toggleField in blockModel.js)
+    // — the proficiency-marker convention every skill/save uses. A
+    // "grant" modifier always targets index 0, so a multi-option
+    // checkbox (like Death Saves) wouldn't have one unambiguous box to
+    // grant and is left out rather than guessing which one.
+    const grantableFields = flattenGlobalFields().filter(f => f.fieldType === "checkbox" && f.options === 1);
     // Excludes this same field — a dropdown restricting its own
     // choices based on its own current selection doesn't make sense.
     const dropdownFields = flattenGlobalFields().filter(f => f.fieldType === "dropdown" && f.id !== field.id);
@@ -2914,9 +3795,10 @@ export function renderCustomSheet(root, character, store) {
       const targetSelect = document.createElement("select");
       const blankOpt = document.createElement("option");
       blankOpt.value = "";
-      blankOpt.textContent = "Choose a stat…";
+      blankOpt.textContent = mod.op === "grant" ? "Choose a proficiency…" : "Choose a stat…";
       targetSelect.append(blankOpt);
-      textFields.forEach((f) => {
+      const targetFieldPool = mod.op === "grant" ? grantableFields : textFields;
+      targetFieldPool.forEach((f) => {
         const opt = document.createElement("option");
         opt.value = f.id;
         opt.textContent = f.label || "Stat";
@@ -2936,14 +3818,17 @@ export function renderCustomSheet(root, character, store) {
         opSelect.append(opt);
       });
       opSelect.addEventListener("change", () => {
-        commitLocal(() => { mod.op = opSelect.value; });
-      });
-
-      const valueInput = document.createElement("input");
-      valueInput.type = "number";
-      valueInput.value = Number.isFinite(mod.value) ? mod.value : 0;
-      valueInput.addEventListener("input", () => {
-        commitLocal(() => { mod.value = Number(valueInput.value) || 0; });
+        // Switching op also switches which field POOL the target
+        // select offers (stats vs. proficiencies) — the old
+        // targetFieldId almost never makes sense in the new pool, so
+        // clear it rather than leave a stale, invisible-to-the-UI
+        // reference behind.
+        commitLocal(() => {
+          mod.op = opSelect.value;
+          mod.targetFieldId = null;
+          if (mod.op === "grant") mod.targetIndex = 0;
+        });
+        refreshPanel();
       });
 
       const minLevelInput = document.createElement("input");
@@ -2961,12 +3846,23 @@ export function renderCustomSheet(root, character, store) {
       removeBtn.type = "button";
       removeBtn.className = "btn formula-toolbar__btn";
       removeBtn.textContent = "✕";
+      removeBtn.setAttribute("aria-label", "Remove modifier");
       removeBtn.addEventListener("click", () => {
         commitLocal(() => { bundle.statModifiers.splice(i, 1); });
         refreshPanel();
       });
 
-      row.append(targetSelect, opSelect, valueInput, minLevelInput, removeBtn);
+      row.append(targetSelect, opSelect);
+      if (mod.op !== "grant") {
+        const valueInput = document.createElement("input");
+        valueInput.type = "number";
+        valueInput.value = Number.isFinite(mod.value) ? mod.value : 0;
+        valueInput.addEventListener("input", () => {
+          commitLocal(() => { mod.value = Number(valueInput.value) || 0; });
+        });
+        row.append(valueInput);
+      }
+      row.append(minLevelInput, removeBtn);
       panel.append(row);
     });
 
@@ -3027,6 +3923,7 @@ export function renderCustomSheet(root, character, store) {
       removeRuleBtn.type = "button";
       removeRuleBtn.className = "btn formula-toolbar__btn";
       removeRuleBtn.textContent = "✕";
+      removeRuleBtn.setAttribute("aria-label", "Remove rule");
       removeRuleBtn.addEventListener("click", () => {
         commitLocal(() => { bundle.dropdownAccess.splice(i, 1); });
         refreshPanel();
@@ -3382,11 +4279,16 @@ export function renderCustomSheet(root, character, store) {
     const h = document.createElement("div");
     h.className = "node-handle drag-handle";
     h.textContent = "⠿";
+    // Mouse/touch-drag only — there's no keyboard equivalent for
+    // repositioning a block, so hiding this from assistive tech is
+    // more honest than labeling it as if it were operable.
+    h.setAttribute("aria-hidden", "true");
     return h;
   }
   function buildResizeHandle() {
     const h = document.createElement("div");
     h.className = "node-handle resize-handle";
+    h.setAttribute("aria-hidden", "true"); // see buildDragHandle
     return h;
   }
 
@@ -3440,12 +4342,26 @@ export function renderCustomSheet(root, character, store) {
    *  the instant the pointer crossed that gap. Apply this to any
    *  future toolbar-hosted popup the same way style-popover and
    *  field-type-menu already do — no per-popup logic needed beyond
-   *  setting toolbarWithOpenPopup when it opens. */
+   *  setting toolbarWithOpenPopup when it opens.
+   *
+   *  Only one of these toolbars is ever meant to be on screen at once:
+   *  activeHoverToolbar tracks whichever one is currently shown, and a
+   *  newly-shown toolbar closes it immediately (skipping its own grace
+   *  period) rather than letting both stay visible for up to 250ms
+   *  while the old one's hide timer runs down — e.g. moving the mouse
+   *  from one stat block straight to another used to leave the first
+   *  block's menu lingering on screen until its own timeout caught up. */
+  let activeHoverToolbar = null;
+
   function wireHoverToolbar(triggerEl, toolbarEl) {
     let hideTimer = null;
     function show() {
       if (!editMode) return;
       clearTimeout(hideTimer);
+      if (activeHoverToolbar && activeHoverToolbar !== toolbarEl && toolbarWithOpenPopup !== activeHoverToolbar) {
+        activeHoverToolbar.classList.remove("is-visible");
+      }
+      activeHoverToolbar = toolbarEl;
       // If there's no real room above (the node is right up against
       // the top of the visible scroll area), flip the toolbar to sit
       // just below the node instead — otherwise it renders off the
@@ -3460,6 +4376,7 @@ export function renderCustomSheet(root, character, store) {
       hideTimer = setTimeout(() => {
         if (toolbarWithOpenPopup !== toolbarEl) {
           toolbarEl.classList.remove("is-visible");
+          if (activeHoverToolbar === toolbarEl) activeHoverToolbar = null;
         }
       }, 250);
     }
@@ -3569,9 +4486,7 @@ export function renderCustomSheet(root, character, store) {
       const reader = new FileReader();
       reader.onload = () => {
         if (reader.result.length > MAX_BG_IMAGE_BYTES) {
-          window.alert(
-            "That image is large enough that it (plus the rest of this character) may not fit in a single Firestore document (1MB limit). It'll be applied, but saving might fail — try a smaller image if so."
-          );
+          showToast("That image is large enough that it (plus the rest of this character) may not fit in a single Firestore document (1MB limit). It'll be applied, but saving might fail — try a smaller image if so.");
         }
         commitMutation(() => {
           setNodeStyleValue(node, "bgImage", reader.result);
@@ -3774,7 +4689,7 @@ export function renderCustomSheet(root, character, store) {
       { name: "Text", types: ["text", "label", "textarea", "textlist"] },
       { name: "Choice", types: ["dropdown", "radio", "checkbox"] },
       { name: "Media", types: ["picture"] },
-      { name: "Interactive", types: ["catalog"] },
+      { name: "Interactive", types: ["catalog", "featureList"] },
     ];
     const OPTION_DEFS = {
       text: { label: "Num Field", preview: buildTextPreview },
@@ -3786,6 +4701,7 @@ export function renderCustomSheet(root, character, store) {
       checkbox: { label: "Checkbox", preview: () => buildOptionPreview("checkbox", 1) },
       picture: { label: "Image", preview: buildPicturePreview },
       catalog: { label: "Catalog", preview: buildCatalogPreview },
+      featureList: { label: "Feature List", preview: buildFeatureListPreview },
     };
 
     GROUPS.forEach((group) => {
@@ -3880,6 +4796,13 @@ export function renderCustomSheet(root, character, store) {
     return el;
   }
 
+  function buildFeatureListPreview() {
+    const el = document.createElement("span");
+    el.className = "field-type-preview-catalog"; // same glyph treatment, no dedicated CSS needed
+    el.textContent = "★";
+    return el;
+  }
+
   /** A small, non-interactive preview of `count` empty radio buttons
    *  or checkboxes in a row — same purpose as buildTextPreview above. */
   function buildOptionPreview(kind, count) {
@@ -3896,5 +4819,33 @@ export function renderCustomSheet(root, character, store) {
   // --- Boot + responsive re-render ---------------------------------------
 
   renderAll();
-  window.addEventListener("resize", debounce(renderPageGrid, 150));
+  const onResize = debounce(renderPageGrid, 150);
+  window.addEventListener("resize", onResize);
+
+  function hasUnsavedChanges() {
+    return unsavedChanges;
+  }
+
+  // Covers real browser navigation (tab close, refresh, typing a new
+  // URL) — the in-app "← Back" button is a plain DOM swap, not a real
+  // navigation, so it doesn't trigger this at all; main.js checks
+  // hasUnsavedChanges() itself before leaving for that case.
+  const onBeforeUnload = (e) => {
+    if (!hasUnsavedChanges()) return;
+    e.preventDefault();
+    e.returnValue = "";
+  };
+  window.addEventListener("beforeunload", onBeforeUnload);
+
+  // main.js calls this before swapping this character's DOM out (for
+  // another character, or back to the list) — without it, the resize
+  // and beforeunload listeners above would just keep piling up, one
+  // more per character opened in the same session, each holding onto
+  // a whole stale render closure.
+  function destroy() {
+    window.removeEventListener("resize", onResize);
+    window.removeEventListener("beforeunload", onBeforeUnload);
+  }
+
+  return { hasUnsavedChanges, destroy };
 }

@@ -14,13 +14,18 @@
 // bundle to an actual dropdown choice — which resolves those names
 // against one specific character's fields — happens from the
 // per-choice "Modifiers" editor in customSheet.js
-// (applyBundleLibraryToChoice).
+// (applyBundleLibraryToChoice). Now shares its overall sizing/position
+// with the Catalogs manager (see collectionMenuLayout.js) rather than
+// the old narrow fixed-width floating panel.
+
+import { positionCollectionMenu } from "./collectionMenuLayout.js";
 
 const MODIFIER_OPS = [
   { value: "add", label: "+ Add" },
   { value: "subtract", label: "− Subtract" },
   { value: "multiply", label: "× Multiply" },
   { value: "set", label: "= Set to" },
+  { value: "grant", label: "✓ Grant proficiency" },
 ];
 
 function deepClone(value) {
@@ -39,6 +44,13 @@ function blankLibraryEntry() {
     category: "",
     statModifiers: [],
     dropdownAccess: [],
+    // No editor UI here yet for feature grants (name/description/minLevel
+    // display-only entries — see collectGrantedFeatures in customSheet.js).
+    // Kept present and initialized so a bundle created in this UI has the
+    // same shape as one with grants set some other way (paste-import,
+    // hand-edited JSON), rather than needing an ensureBundle-style patch
+    // the first time this editor touches it.
+    featureGrants: [],
   };
 }
 
@@ -54,13 +66,16 @@ export function openBundleLibraryManager(store, onChange) {
   let libraries = [];
   let selected = blankLibraryEntry();
   let isNew = true;
+  let importMode = false;
 
   const overlay = document.createElement("div");
   overlay.className = "formula-overlay";
 
   const box = document.createElement("div");
-  box.className = "modal-box modal-box--formula modal-box--bundle-library";
+  box.className = "modal-box modal-box--collection-menu";
   box.addEventListener("click", (e) => e.stopPropagation());
+
+  const stopPositioning = positionCollectionMenu(box);
 
   const titleRow = document.createElement("div");
   titleRow.className = "formula-editor-titlerow";
@@ -71,6 +86,7 @@ export function openBundleLibraryManager(store, onChange) {
   closeX.className = "formula-editor-close";
   closeX.title = "Close";
   closeX.textContent = "✕";
+  closeX.setAttribute("aria-label", "Close");
   closeX.addEventListener("click", close);
   titleRow.append(title, closeX);
   box.append(titleRow);
@@ -90,7 +106,10 @@ export function openBundleLibraryManager(store, onChange) {
   editorCol.className = "bundle-library-editor";
   body.append(listCol, editorCol);
 
-  function close() { overlay.remove(); }
+  function close() {
+    stopPositioning();
+    overlay.remove();
+  }
 
   async function refresh() {
     libraries = await store.listBundleLibraries();
@@ -100,6 +119,7 @@ export function openBundleLibraryManager(store, onChange) {
   function selectEntry(entry, entryIsNew) {
     selected = entry ? deepClone(entry) : blankLibraryEntry();
     isNew = entryIsNew;
+    importMode = false;
     renderList();
     renderEditor();
   }
@@ -113,6 +133,17 @@ export function openBundleLibraryManager(store, onChange) {
     newBtn.textContent = "+ New Bundle";
     newBtn.addEventListener("click", () => selectEntry(null, true));
     listCol.append(newBtn);
+
+    const importBtn = document.createElement("button");
+    importBtn.type = "button";
+    importBtn.className = "btn bundle-library-list__new";
+    importBtn.textContent = "Import JSON";
+    importBtn.title = "Paste a bundle exported/authored as JSON to create it as a new bundle";
+    importBtn.addEventListener("click", () => {
+      importMode = true;
+      renderEditor();
+    });
+    listCol.append(importBtn);
 
     const grouped = new Map();
     libraries.forEach((lib) => {
@@ -148,6 +179,11 @@ export function openBundleLibraryManager(store, onChange) {
 
   function renderEditor() {
     editorCol.innerHTML = "";
+
+    if (importMode) {
+      renderImportForm();
+      return;
+    }
 
     const nameRow = document.createElement("div");
     nameRow.className = "bundle-library-field-row";
@@ -187,7 +223,7 @@ export function openBundleLibraryManager(store, onChange) {
 
       const nameInput = document.createElement("input");
       nameInput.type = "text";
-      nameInput.placeholder = "Stat name (e.g. Strength)";
+      nameInput.placeholder = mod.op === "grant" ? "Skill/save name (e.g. Athletics)" : "Stat name (e.g. Strength)";
       nameInput.value = mod.targetFieldName || "";
       nameInput.addEventListener("input", () => { mod.targetFieldName = nameInput.value; });
 
@@ -199,12 +235,10 @@ export function openBundleLibraryManager(store, onChange) {
         if (value === mod.op) opt.selected = true;
         opSelect.append(opt);
       });
-      opSelect.addEventListener("change", () => { mod.op = opSelect.value; });
-
-      const valueInput = document.createElement("input");
-      valueInput.type = "number";
-      valueInput.value = Number.isFinite(mod.value) ? mod.value : 0;
-      valueInput.addEventListener("input", () => { mod.value = Number(valueInput.value) || 0; });
+      opSelect.addEventListener("change", () => {
+        mod.op = opSelect.value;
+        renderEditor(); // the value input only makes sense for a numeric op — see below
+      });
 
       const minLevelInput = document.createElement("input");
       minLevelInput.type = "number";
@@ -221,12 +255,24 @@ export function openBundleLibraryManager(store, onChange) {
       removeBtn.type = "button";
       removeBtn.className = "btn formula-toolbar__btn";
       removeBtn.textContent = "✕";
+      removeBtn.setAttribute("aria-label", "Remove modifier");
       removeBtn.addEventListener("click", () => {
         selected.statModifiers.splice(i, 1);
         renderEditor();
       });
 
-      row.append(nameInput, opSelect, valueInput, minLevelInput, removeBtn);
+      row.append(nameInput, opSelect);
+      // "Grant proficiency" is a yes/no, not an amount — a number
+      // input next to it would just be confusing dead UI, so only show
+      // it for the numeric ops.
+      if (mod.op !== "grant") {
+        const valueInput = document.createElement("input");
+        valueInput.type = "number";
+        valueInput.value = Number.isFinite(mod.value) ? mod.value : 0;
+        valueInput.addEventListener("input", () => { mod.value = Number(valueInput.value) || 0; });
+        row.append(valueInput);
+      }
+      row.append(minLevelInput, removeBtn);
       editorCol.append(row);
     });
 
@@ -273,6 +319,7 @@ export function openBundleLibraryManager(store, onChange) {
       removeBtn.type = "button";
       removeBtn.className = "btn formula-toolbar__btn";
       removeBtn.textContent = "✕";
+      removeBtn.setAttribute("aria-label", "Remove rule");
       removeBtn.addEventListener("click", () => {
         selected.dropdownAccess.splice(i, 1);
         renderEditor();
@@ -328,13 +375,18 @@ export function openBundleLibraryManager(store, onChange) {
       actions.append(deleteBtn);
     }
 
+    const saveStatus = document.createElement("span");
+    saveStatus.className = "modal-copy catalog-save-status";
+    actions.append(saveStatus);
+
     const saveBtn = document.createElement("button");
     saveBtn.type = "button";
     saveBtn.className = "btn btn--primary";
     saveBtn.textContent = isNew ? "Create (Mine)" : "Save";
     saveBtn.addEventListener("click", async () => {
+      saveStatus.style.color = "";
       if (!selected.name.trim()) {
-        window.alert("Give this bundle a name first.");
+        saveStatus.textContent = "Give this bundle a name first.";
         return;
       }
       const scope = isNew ? "personal" : selected.scope;
@@ -343,10 +395,12 @@ export function openBundleLibraryManager(store, onChange) {
         selected.id = id;
         selected.scope = scope;
         isNew = false;
+        saveStatus.textContent = "";
         await refresh();
         onChange();
       } catch (err) {
-        window.alert(err.message || "Couldn't save that bundle.");
+        saveStatus.style.color = "var(--color-negative)";
+        saveStatus.textContent = err.message || "Couldn't save that bundle.";
       }
     });
     actions.append(saveBtn);
@@ -358,8 +412,9 @@ export function openBundleLibraryManager(store, onChange) {
       saveGlobalBtn.title = "Requires admin rights";
       saveGlobalBtn.textContent = "Create (Global)";
       saveGlobalBtn.addEventListener("click", async () => {
+        saveStatus.style.color = "";
         if (!selected.name.trim()) {
-          window.alert("Give this bundle a name first.");
+          saveStatus.textContent = "Give this bundle a name first.";
           return;
         }
         try {
@@ -367,16 +422,104 @@ export function openBundleLibraryManager(store, onChange) {
           selected.id = id;
           selected.scope = "global";
           isNew = false;
+          saveStatus.textContent = "";
           await refresh();
           onChange();
         } catch (err) {
-          window.alert(err.message || "Couldn't save that bundle — only admins can create global bundles.");
+          saveStatus.style.color = "var(--color-negative)";
+          saveStatus.textContent = err.message || "Couldn't save that bundle — only admins can create global bundles.";
         }
       });
       actions.append(saveGlobalBtn);
     }
 
     editorCol.append(actions);
+  }
+
+  // A one-off "paste JSON, create a new bundle" path, same pattern as
+  // (and reusing the same visual style classes as) the Catalogs
+  // manager's importer — see the comment there for why: bulk-loading a
+  // hand-authored default bundle without needing any Firebase
+  // credentials.
+  function renderImportForm() {
+    const heading = document.createElement("div");
+    heading.className = "dropdown-choices-editor__mods-header";
+    heading.textContent = "Import Bundle from JSON";
+    editorCol.append(heading);
+
+    const hint = document.createElement("p");
+    hint.className = "modal-copy catalog-archetype__hint";
+    hint.textContent = "Paste a bundle's JSON here (the same { name, category, statModifiers, dropdownAccess, featureGrants } shape this editor saves), or an array of several, to create them as brand-new bundles.";
+    editorCol.append(hint);
+
+    const textarea = document.createElement("textarea");
+    textarea.className = "catalog-entry-card__description catalog-import__textarea";
+    textarea.placeholder = '{ "name": "...", "category": "...", "statModifiers": [ ... ] }\nor: [ { ... }, { ... } ]';
+    editorCol.append(textarea);
+
+    const statusLine = document.createElement("p");
+    statusLine.className = "modal-copy catalog-archetype__hint";
+    editorCol.append(statusLine);
+
+    async function doImport(scope) {
+      let parsed;
+      try {
+        parsed = JSON.parse(textarea.value);
+      } catch (err) {
+        statusLine.textContent = `That's not valid JSON: ${err.message}`;
+        return;
+      }
+      const entries = Array.isArray(parsed) ? parsed : [parsed];
+      let lastId = null;
+      let lastEntry = null;
+      try {
+        for (const entry of entries) {
+          delete entry.id;
+          if (!Array.isArray(entry.statModifiers)) entry.statModifiers = [];
+          if (!Array.isArray(entry.dropdownAccess)) entry.dropdownAccess = [];
+          if (!Array.isArray(entry.featureGrants)) entry.featureGrants = [];
+          lastId = await store.saveBundleLibrary(scope, { ...entry, scope });
+          lastEntry = entry;
+        }
+        importMode = false;
+        await refresh();
+        const saved = libraries.find((l) => l.id === lastId) || { ...lastEntry, id: lastId, scope };
+        selectEntry(saved, false);
+        onChange();
+      } catch (err) {
+        statusLine.textContent = err.message || "Couldn't import that.";
+      }
+    }
+
+    const importActions = document.createElement("div");
+    importActions.className = "modal-actions bundle-library-actions";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "btn";
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.addEventListener("click", () => {
+      importMode = false;
+      renderEditor();
+    });
+    importActions.append(cancelBtn);
+
+    const importMineBtn = document.createElement("button");
+    importMineBtn.type = "button";
+    importMineBtn.className = "btn btn--primary";
+    importMineBtn.textContent = "Import (Mine)";
+    importMineBtn.addEventListener("click", () => doImport("personal"));
+    importActions.append(importMineBtn);
+
+    const importGlobalBtn = document.createElement("button");
+    importGlobalBtn.type = "button";
+    importGlobalBtn.className = "btn";
+    importGlobalBtn.title = "Requires admin rights";
+    importGlobalBtn.textContent = "Import (Global)";
+    importGlobalBtn.addEventListener("click", () => doImport("global"));
+    importActions.append(importGlobalBtn);
+
+    editorCol.append(importActions);
   }
 
   overlay.append(box);

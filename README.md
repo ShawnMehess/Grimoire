@@ -193,6 +193,30 @@ homebrew, both for coverage and to stay on clean licensing ground.
 
 ## Extending it
 
+### Rulesets and guided leveling
+
+`js/data/dnd5e.js` is a small ruleset registry, consumed by the generic
+Leveling tab rather than by the sheet builder itself. A ruleset provides a
+name plus class entries shaped like this:
+
+```js
+{
+  name: "Druid",
+  subclassLevel: 3,
+  subclasses: ["Circle of the Land", "Circle of the Moon"],
+  caster: "full", // "full", "half", or null
+}
+```
+
+The character toolbar stores the chosen ruleset id on that character. The
+guide then filters its Subclass dropdown, presents the right subclass choice
+at the configured level, and applies HP and supported spell-slot progression.
+The bundled 2014 PHB ruleset contains the core class/subclass roster; the
+2024 entry is intentionally a data-pack starting point, with Druid seeded for
+the current campaign. Add the remaining 2024 class records there as you add
+that content. New games can use the same registry shape without changing the
+sheet renderer.
+
 - **New field on the sheet** → add an entry to `schema.js`. Done.
 - **New field *type* not covered yet** (e.g. a dice-roll button) → add
   a case to `buildControl()` in `formBuilder.js`, plus one new CSS

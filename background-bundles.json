@@ -1,0 +1,275 @@
+[
+  {
+    "name": "Acolyte",
+    "category": "Background",
+    "statModifiers": [
+      {
+        "id": "mod-e3967cef",
+        "targetFieldName": "Insight",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-fd3bba78",
+        "targetFieldName": "Religion",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": []
+  },
+  {
+    "name": "Charlatan",
+    "category": "Background",
+    "statModifiers": [
+      {
+        "id": "mod-db6e13c0",
+        "targetFieldName": "Deception",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-17e2e585",
+        "targetFieldName": "Sleight of Hand",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": []
+  },
+  {
+    "name": "Criminal",
+    "category": "Background",
+    "statModifiers": [
+      {
+        "id": "mod-c682b042",
+        "targetFieldName": "Deception",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-a6ce3e81",
+        "targetFieldName": "Stealth",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": []
+  },
+  {
+    "name": "Entertainer",
+    "category": "Background",
+    "statModifiers": [
+      {
+        "id": "mod-fbcd16b6",
+        "targetFieldName": "Acrobatics",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-056cadc0",
+        "targetFieldName": "Performance",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": []
+  },
+  {
+    "name": "Folk Hero",
+    "category": "Background",
+    "statModifiers": [
+      {
+        "id": "mod-16652c66",
+        "targetFieldName": "Animal Handling",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-c0124e8e",
+        "targetFieldName": "Survival",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": []
+  },
+  {
+    "name": "Guild Artisan",
+    "category": "Background",
+    "statModifiers": [
+      {
+        "id": "mod-acb0c6de",
+        "targetFieldName": "Insight",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-7561cf10",
+        "targetFieldName": "Persuasion",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": []
+  },
+  {
+    "name": "Hermit",
+    "category": "Background",
+    "statModifiers": [
+      {
+        "id": "mod-7174120e",
+        "targetFieldName": "Medicine",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-dbcff7ba",
+        "targetFieldName": "Religion",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": []
+  },
+  {
+    "name": "Noble",
+    "category": "Background",
+    "statModifiers": [
+      {
+        "id": "mod-58d3821b",
+        "targetFieldName": "History",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-7eb4aaf1",
+        "targetFieldName": "Persuasion",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": []
+  },
+  {
+    "name": "Outlander",
+    "category": "Background",
+    "statModifiers": [
+      {
+        "id": "mod-b42f89e2",
+        "targetFieldName": "Athletics",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-747af8f6",
+        "targetFieldName": "Survival",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": []
+  },
+  {
+    "name": "Sage",
+    "category": "Background",
+    "statModifiers": [
+      {
+        "id": "mod-e20a35fb",
+        "targetFieldName": "Arcana",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-b10e9a56",
+        "targetFieldName": "History",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": []
+  },
+  {
+    "name": "Sailor",
+    "category": "Background",
+    "statModifiers": [
+      {
+        "id": "mod-63d66b26",
+        "targetFieldName": "Athletics",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-bbf0e750",
+        "targetFieldName": "Perception",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": []
+  },
+  {
+    "name": "Soldier",
+    "category": "Background",
+    "statModifiers": [
+      {
+        "id": "mod-250c3ad4",
+        "targetFieldName": "Athletics",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-627bf6fd",
+        "targetFieldName": "Intimidation",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": []
+  },
+  {
+    "name": "Urchin",
+    "category": "Background",
+    "statModifiers": [
+      {
+        "id": "mod-b31afbc9",
+        "targetFieldName": "Sleight of Hand",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      },
+      {
+        "id": "mod-66b558f7",
+        "targetFieldName": "Stealth",
+        "op": "grant",
+        "value": null,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": []
+  }
+]

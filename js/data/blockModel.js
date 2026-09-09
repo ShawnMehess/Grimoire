@@ -19,11 +19,52 @@
 
 import { ABILITIES, SKILLS } from "./schema.js";
 
+// Starter choices for the Race/Class dropdowns below — the core PHB
+// list, not exhaustive (no subraces/archetypes) since this is a
+// starting point the player edits via the dropdown's own "Edit
+// choices" popover, same as any dropdown they'd build themselves. Each
+// choice's `bundle` starts unset — a race/class granting real stat
+// bonuses (a Hill Dwarf's +2 CON, say) means attaching a Bundle to
+// that choice afterward via the same popover, not something seeded
+// here (no bundles exist yet for a brand-new character to reference).
+const STARTER_RACES = ["Human", "Elf", "Dwarf", "Halfling", "Dragonborn", "Gnome", "Half-Elf", "Half-Orc", "Tiefling"];
+const STARTER_CLASSES = ["Barbarian", "Bard", "Cleric", "Druid", "Fighter", "Monk", "Paladin", "Ranger", "Rogue", "Sorcerer", "Warlock", "Wizard"];
+const STARTER_BACKGROUNDS = ["Acolyte", "Charlatan", "Criminal", "Entertainer", "Folk Hero", "Guild Artisan", "Hermit", "Noble", "Outlander", "Sage", "Sailor", "Soldier", "Urchin"];
+
+// Every core-PHB subclass, keyed by class — flattened into one dropdown
+// (see the Subclass field in createStarterLayout) with the per-class
+// split enforced entirely by dropdownAccess rules on the matching
+// Class bundle in default-bundles/classes.json, not by anything here.
+// Kept as its own map (rather than inlined) so that file's README can
+// point at a single source of truth for "what subclass names exist."
+const SUBCLASSES_BY_CLASS = {
+  Barbarian: ["Path of the Berserker", "Path of the Totem Warrior"],
+  Bard: ["College of Lore", "College of Valor"],
+  Cleric: ["Knowledge Domain", "Life Domain", "Light Domain", "Nature Domain", "Tempest Domain", "Trickery Domain", "War Domain"],
+  Druid: ["Circle of the Land", "Circle of the Moon"],
+  Fighter: ["Champion", "Battle Master", "Eldritch Knight"],
+  Monk: ["Way of the Open Hand", "Way of Shadow", "Way of the Four Elements"],
+  Paladin: ["Oath of Devotion", "Oath of the Ancients", "Oath of Vengeance"],
+  Ranger: ["Hunter", "Beast Master"],
+  Rogue: ["Thief", "Assassin", "Arcane Trickster"],
+  Sorcerer: ["Draconic Bloodline", "Wild Magic"],
+  Warlock: ["The Archfey", "The Fiend", "The Great Old One"],
+  Wizard: ["School of Abjuration", "School of Conjuration", "School of Divination", "School of Enchantment", "School of Evocation", "School of Illusion", "School of Necromancy", "School of Transmutation"],
+};
+
+function makeChoices(names) {
+  return names.map((text) => ({ id: newId(), text, bundle: null }));
+}
+
+function makeSubclassChoices() {
+  return Object.values(SUBCLASSES_BY_CLASS).flat().map((text) => ({ id: newId(), text, bundle: null }));
+}
+
 function newId() {
   return crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export const FIELD_TYPES = ["text", "label", "textarea", "textlist", "dropdown", "picture", "catalog", "radio", "checkbox"];
+export const FIELD_TYPES = ["text", "label", "textarea", "textlist", "dropdown", "picture", "catalog", "radio", "checkbox", "featureList"];
 export const LABEL_POSITIONS = ["top", "right", "bottom", "left"];
 
 // A block's declared `h` (in blockModel.js) includes ONE reserved row
@@ -125,6 +166,11 @@ export function createField({ fieldType = "text", label = "Stat", x = 0, y = 0, 
     field.options = 3;
     field.checked = [false, false, false];
     syncOptionWidth(field);
+  } else if (fieldType === "featureList") {
+    // No own stored data — fully computed each render from whichever
+    // bundles (Class/Race/Background/etc. dropdown choices) are active
+    // and unlocked at the character's current level. See
+    // collectGrantedFeatures/buildFeatureListValue in customSheet.js.
   }
   return field;
 }
@@ -146,17 +192,16 @@ export function syncOptionWidth(field) {
 }
 
 /** Formula for a plain (non-proficiency-gated) ability modifier —
- *  rounddown((score-10)/2), matching abilityModifier() in rules.js
- *  exactly (this is the block-based engine's replacement for that
- *  fixed-schema system — see the note on createStarterLayout below). */
+ *  rounddown((score-10)/2), the standard D&D 5e ability modifier
+ *  formula (this is the block-based engine's replacement for the old
+ *  fixed-schema sheet system, which no longer exists in this repo). */
 function abilityModFormula(scoreId) {
   return { type: "expr", text: `rounddown(({{${scoreId}}}-10)/2)` };
 }
 
 /** Formula for a save/skill modifier: the ability modifier, plus the
  *  proficiency bonus IF that save/skill's single proficiency checkbox
- *  is checked. Matches skillModifier()/savingThrowModifier() in
- *  rules.js. profCheckboxId must be a single-option (options: 1)
+ *  is checked. profCheckboxId must be a single-option (options: 1)
  *  checkbox field — see toggleField() below — so `::0` is always the
  *  right (only) index. */
 function proficientModFormula(scoreId, profCheckboxId) {
@@ -179,6 +224,7 @@ function field(opts, id) {
   if (opts.formula) f.formula = opts.formula;
   if (opts.value !== undefined) f.value = opts.value;
   if (opts.labelPosition) f.labelPosition = opts.labelPosition;
+  if (opts.choices) f.choices = opts.choices;
   return f;
 }
 
@@ -212,13 +258,15 @@ function radioField(opts, options, id) {
  * The starter layout shown on a brand-new character — a working D&D
  * 5e sheet (abilities, saves, skills, proficiency bonus, combat
  * numbers, spellcasting, attacks, inventory, features, and character
- * details/personality), not just a field-type demo. It replaces the
- * fixed-schema system in characterSheet.js/schema.js/formBuilder.js
- * rather than reproducing it field-for-field — same underlying D&D
- * math (see rules.js, which this mirrors formula-for-formula) and the
- * same set of fields (see createBlankCharacter in schema.js), but
- * expressed as ordinary blocks/fields/formulas so it's just as
- * editable as anything a person builds themselves.
+ * details/personality), not just a field-type demo. This is the
+ * block-based engine's own take on standard D&D math (standard 5e
+ * ability-modifier/proficiency-bonus formulas) and the same set of
+ * fields createBlankCharacter (schema.js) still seeds on a new
+ * character, expressed as ordinary blocks/fields/formulas so it's
+ * just as editable as anything a person builds themselves. An earlier,
+ * fixed-schema rendering of this same data (characterSheet.js/
+ * formBuilder.js/rules.js) was removed once this replaced it — nothing
+ * imports those anymore.
  *
  * Attacks/Inventory/Features are plain "textlist" fields (one line per
  * entry, freeform text) rather than structured rows — the block/field
@@ -232,7 +280,7 @@ export function createStarterLayout() {
   const identity = createBlock({ name: "Identity", x: 0, y: 0, w: 4, h: 4 });
   identity.children = [
     field({ fieldType: "text", label: "Name", x: 0, y: 0, w: 4, h: 1 }),
-    field({ fieldType: "text", label: "Class", x: 0, y: 1, w: 2, h: 1 }),
+    field({ fieldType: "dropdown", label: "Class", x: 0, y: 1, w: 2, h: 1, choices: makeChoices(STARTER_CLASSES) }),
     field({ fieldType: "text", label: "Level", x: 2, y: 1, w: 2, h: 1, value: "1" }, "level"),
     field({
       fieldType: "text", label: "Prof. Bonus", x: 0, y: 2, w: 2, h: 1,
@@ -255,7 +303,7 @@ export function createStarterLayout() {
   // abilities D&D ever uses for spellcasting, so a plain 1/2/3 radio
   // (rather than all 6 abilities) keeps spellAbilityMod's formula a
   // 3-way, not 6-way, branch below.
-  const spellcasting = createBlock({ name: "Spellcasting", x: 10, y: 0, w: 6, h: 3 });
+  const spellcasting = createBlock({ name: "Spellcasting", x: 10, y: 0, w: 6, h: 4 });
   spellcasting.children = [
     field({ fieldType: "radio", label: "Ability (1=INT 2=WIS 3=CHA)", x: 0, y: 0, w: 1, h: 1 }, "spellAbility"),
     field({
@@ -293,6 +341,10 @@ export function createStarterLayout() {
     radioField({ label: "3rd", x: 2, y: 1, w: 1, h: 1 }, 3, "slots3"),
     radioField({ label: "4th", x: 3, y: 1, w: 1, h: 1 }, 2, "slots4"),
     radioField({ label: "5th", x: 4, y: 1, w: 1, h: 1 }, 1, "slots5"),
+    radioField({ label: "6th", x: 0, y: 2, w: 1, h: 1 }, 0, "slots6"),
+    radioField({ label: "7th", x: 1, y: 2, w: 1, h: 1 }, 0, "slots7"),
+    radioField({ label: "8th", x: 2, y: 2, w: 1, h: 1 }, 0, "slots8"),
+    radioField({ label: "9th", x: 3, y: 2, w: 1, h: 1 }, 0, "slots9"),
   ];
 
   const saves = createBlock({ name: "Saving Throws", x: 0, y: 4, w: 2, h: 1 + ABILITIES.length });
@@ -348,18 +400,31 @@ export function createStarterLayout() {
 
   const features = createBlock({ name: "Features & Traits", x: 10, y: 8, w: 6, h: 6 });
   features.children = [
-    field({ fieldType: "textlist", label: "Features & Traits", x: 0, y: 0, w: 6, h: 5 }),
+    // Computed, not manually typed — see collectGrantedFeatures in
+    // customSheet.js. Shows whatever the character's Class/Race/
+    // Background/etc. dropdown choices currently grant, gated by the
+    // Level field. A saved character from before this field type
+    // existed keeps its old plain "Features & Traits" textlist as-is;
+    // this only applies to brand-new characters going forward.
+    field({ fieldType: "featureList", label: "Features & Traits", x: 0, y: 0, w: 6, h: 5 }),
   ];
 
-  const details = createBlock({ name: "Character Details", x: 4, y: 14, w: 6, h: 4 });
+  const details = createBlock({ name: "Character Details", x: 4, y: 14, w: 6, h: 5 });
   details.children = [
-    field({ fieldType: "text", label: "Race", x: 0, y: 0, w: 2, h: 1 }),
-    field({ fieldType: "text", label: "Background", x: 2, y: 0, w: 2, h: 1 }),
+    field({ fieldType: "dropdown", label: "Race", x: 0, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_RACES) }),
+    field({ fieldType: "dropdown", label: "Background", x: 2, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_BACKGROUNDS) }),
     field({ fieldType: "text", label: "Alignment", x: 4, y: 0, w: 2, h: 1 }),
     field({ fieldType: "text", label: "Armor Prof.", x: 0, y: 1, w: 2, h: 1 }),
     field({ fieldType: "text", label: "Weapon Prof.", x: 2, y: 1, w: 2, h: 1 }),
     field({ fieldType: "text", label: "Tool Prof.", x: 4, y: 1, w: 2, h: 1 }),
     field({ fieldType: "text", label: "Languages", x: 0, y: 2, w: 6, h: 1 }),
+    // Every core-class subclass in one flat list — which of them show
+    // up here at all depends entirely on a Class-bundle dropdownAccess
+    // rule (see default-bundles/classes.json) filtering by whichever
+    // Class is currently selected; nothing here does that filtering
+    // itself. Unfiltered (no Class bundle applied yet, or Class blank),
+    // every subclass from every class is offered.
+    field({ fieldType: "dropdown", label: "Subclass", x: 0, y: 3, w: 6, h: 1, choices: makeSubclassChoices() }, "subclass"),
   ];
 
   const personality = createBlock({ name: "Personality", x: 10, y: 14, w: 6, h: 7 });

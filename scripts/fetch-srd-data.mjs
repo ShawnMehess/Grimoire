@@ -104,6 +104,52 @@ async function fetchEquipment() {
   }));
 }
 
+// --- Class features: per-class, per-level feature grants (e.g. Barbarian
+//     level 1 -> Rage, Unarmored Defense). Written as data/class-features.json,
+//     keyed by class index, so it can be merged into a class's bundle
+//     (default-bundles/classes.json) as level-gated grants alongside the
+//     existing statModifiers/dropdownAccess. --------------------------------
+
+/** Cache feature detail fetches — a handful of features (e.g. Extra Attack)
+ *  are shared across classes/subclasses, no need to fetch them twice. */
+const featureDetailCache = new Map();
+
+async function fetchFeatureDescription(index) {
+  if (featureDetailCache.has(index)) return featureDetailCache.get(index);
+  const detail = await fetchJson(`${API_BASE}/features/${index}`);
+  const description = (detail.desc || []).join("\n\n");
+  featureDetailCache.set(index, description);
+  return description;
+}
+
+async function fetchClassFeatures() {
+  console.log("Fetching class list for features...");
+  const { results: classList } = await fetchJson(`${API_BASE}/classes`);
+  const byClass = {};
+
+  for (const classRef of classList) {
+    console.log(`Fetching ${classRef.name} levels...`);
+    const levels = await fetchJson(`https://www.dnd5eapi.co${classRef.url}/levels`);
+    // The levels endpoint mixes base-class level entries with subclass-gated
+    // ones for the same level number (a subclass entry carries a truthy
+    // "subclass" field) — only base-class features belong in this file.
+    const baseLevels = levels.filter((lvl) => !lvl.subclass);
+
+    const entries = [];
+    for (const lvl of baseLevels) {
+      for (const feature of lvl.features || []) {
+        const description = await fetchFeatureDescription(feature.index);
+        entries.push({ level: lvl.level, name: feature.name, description });
+        await sleep(DELAY_MS);
+      }
+    }
+    byClass[classRef.index] = entries;
+    console.log(`  ${entries.length} features across ${baseLevels.length} levels`);
+  }
+
+  return byClass;
+}
+
 // --- Backgrounds: not exposed by this API. Seed with the standard SRD list. -
 
 const SRD_BACKGROUNDS = [
@@ -140,6 +186,9 @@ async function main() {
 
   const equipment = await fetchEquipment();
   await writeData("equipment.json", equipment);
+
+  const classFeatures = await fetchClassFeatures();
+  await writeData("class-features.json", classFeatures);
 
   console.log("\nDone. Re-run any time to refresh from the live API.");
 }

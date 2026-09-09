@@ -15,6 +15,8 @@
 // separately holds which of THAT character's own fields is the
 // "money" the catalog spends from.
 
+import { positionCollectionMenu } from "./collectionMenuLayout.js";
+
 const MAX_IMAGE_BYTES = 250_000; // same Firestore-doc-size reasoning as elsewhere
 
 function newLocalId() {
@@ -473,27 +475,10 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
   overlay.className = "formula-overlay";
 
   const box = document.createElement("div");
-  box.className = "modal-box modal-box--formula modal-box--catalog-library";
+  box.className = "modal-box modal-box--collection-menu modal-box--catalog-library";
   box.addEventListener("click", (e) => e.stopPropagation());
 
-  // Rather than the fixed/viewport-relative sizing formula.css normally
-  // uses for this floating-panel pattern, this panel is pinned to
-  // exactly cover the page grid's own on-screen rect — same top/left/
-  // width/height the grid itself occupies — so it fills that whole
-  // area (leaving only the block-frame list and the toolbar above it
-  // visible) instead of floating as a narrow column over it. Recomputed
-  // on resize since the grid's rect can change (e.g. window resize
-  // changes how much of it fits on screen).
-  function positionOverGrid() {
-    const grid = document.querySelector(".page-grid-scroll");
-    if (!grid) return;
-    const rect = grid.getBoundingClientRect();
-    box.style.top = `${rect.top}px`;
-    box.style.left = `${rect.left}px`;
-    box.style.width = `${rect.width}px`;
-    box.style.height = `${rect.height}px`;
-  }
-  window.addEventListener("resize", positionOverGrid);
+  const stopPositioning = positionCollectionMenu(box);
 
   const titleRow = document.createElement("div");
   titleRow.className = "formula-editor-titlerow";
@@ -504,6 +489,7 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
   closeX.className = "formula-editor-close";
   closeX.title = "Close";
   closeX.textContent = "✕";
+  closeX.setAttribute("aria-label", "Close");
   closeX.addEventListener("click", close);
   titleRow.append(title, closeX);
   box.append(titleRow);
@@ -528,7 +514,7 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
   box.append(actions);
 
   function close() {
-    window.removeEventListener("resize", positionOverGrid);
+    stopPositioning();
     overlay.remove();
   }
 
@@ -669,13 +655,18 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
       actions.append(deleteBtn);
     }
 
+    const saveStatus = document.createElement("span");
+    saveStatus.className = "modal-copy catalog-save-status";
+    actions.append(saveStatus);
+
     const saveBtn = document.createElement("button");
     saveBtn.type = "button";
     saveBtn.className = "btn btn--primary";
     saveBtn.textContent = isNew ? "Create (Mine)" : "Save";
     saveBtn.addEventListener("click", async () => {
+      saveStatus.style.color = "";
       if (!selected.name.trim()) {
-        window.alert("Give this catalog a name first.");
+        saveStatus.textContent = "Give this catalog a name first.";
         return;
       }
       const scope = isNew ? "personal" : selected.scope;
@@ -684,10 +675,12 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
         selected.id = id;
         selected.scope = scope;
         isNew = false;
+        saveStatus.textContent = "";
         await refresh();
         onChange();
       } catch (err) {
-        window.alert(err.message || "Couldn't save that catalog.");
+        saveStatus.style.color = "var(--color-negative)";
+        saveStatus.textContent = err.message || "Couldn't save that catalog.";
       }
     });
     actions.append(saveBtn);
@@ -699,8 +692,9 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
       saveGlobalBtn.title = "Requires admin rights";
       saveGlobalBtn.textContent = "Create (Global)";
       saveGlobalBtn.addEventListener("click", async () => {
+        saveStatus.style.color = "";
         if (!selected.name.trim()) {
-          window.alert("Give this catalog a name first.");
+          saveStatus.textContent = "Give this catalog a name first.";
           return;
         }
         try {
@@ -708,10 +702,12 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
           selected.id = id;
           selected.scope = "global";
           isNew = false;
+          saveStatus.textContent = "";
           await refresh();
           onChange();
         } catch (err) {
-          window.alert(err.message || "Couldn't save that catalog — only admins can create global catalogs.");
+          saveStatus.style.color = "var(--color-negative)";
+          saveStatus.textContent = err.message || "Couldn't save that catalog — only admins can create global catalogs.";
         }
       });
       actions.append(saveGlobalBtn);
@@ -733,12 +729,12 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
 
     const hint = document.createElement("p");
     hint.className = "modal-copy catalog-archetype__hint";
-    hint.textContent = "Paste a catalog's JSON here (the same { name, archetype, tabs } shape this editor saves) to create it as a brand-new catalog.";
+    hint.textContent = "Paste a catalog's JSON here (the same { name, archetype, tabs } shape this editor saves), or an array of several, to create them as brand-new catalogs.";
     editorCol.append(hint);
 
     const textarea = document.createElement("textarea");
     textarea.className = "catalog-entry-card__description catalog-import__textarea";
-    textarea.placeholder = '{ "name": "...", "archetype": { ... }, "tabs": [ ... ] }';
+    textarea.placeholder = '{ "name": "...", "archetype": { ... }, "tabs": [ ... ] }\nor: [ { ... }, { ... } ]';
     editorCol.append(textarea);
 
     const statusLine = document.createElement("p");
@@ -753,17 +749,23 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
         statusLine.textContent = `That's not valid JSON: ${err.message}`;
         return;
       }
-      delete parsed.id;
-      ensureCatalogShape(parsed);
+      const entries = Array.isArray(parsed) ? parsed : [parsed];
+      let lastId = null;
+      let lastEntry = null;
       try {
-        const id = await store.saveCatalog(scope, { ...parsed, scope });
+        for (const entry of entries) {
+          delete entry.id;
+          ensureCatalogShape(entry);
+          lastId = await store.saveCatalog(scope, { ...entry, scope });
+          lastEntry = entry;
+        }
         importMode = false;
         await refresh();
-        const saved = catalogs.find((c) => c.id === id) || { ...parsed, id, scope };
+        const saved = catalogs.find((c) => c.id === lastId) || { ...lastEntry, id: lastId, scope };
         selectEntry(saved, false);
         onChange();
       } catch (err) {
-        statusLine.textContent = err.message || "Couldn't import that catalog.";
+        statusLine.textContent = err.message || "Couldn't import that.";
       }
     }
 
@@ -853,6 +855,7 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
     removeBtn.type = "button";
     removeBtn.className = "btn formula-toolbar__btn";
     removeBtn.textContent = "✕";
+    removeBtn.setAttribute("aria-label", "Remove");
     removeBtn.addEventListener("click", onRemove);
     rowEl.append(removeBtn);
 
@@ -1104,6 +1107,7 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
     removeTabBtn.type = "button";
     removeTabBtn.className = "btn formula-toolbar__btn";
     removeTabBtn.textContent = "✕";
+    removeTabBtn.setAttribute("aria-label", "Remove tab");
     removeTabBtn.addEventListener("click", () => {
       if (tab.entries.length > 0 && !window.confirm(`Delete tab "${tab.name}" and its ${tab.entries.length} item(s)?`)) return;
       selected.tabs.splice(tabIndex, 1);
@@ -1187,6 +1191,7 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
     removeBtn.type = "button";
     removeBtn.className = "btn formula-toolbar__btn catalog-entry-row__remove";
     removeBtn.textContent = "✕";
+    removeBtn.setAttribute("aria-label", "Remove item");
     removeBtn.addEventListener("click", () => {
       tab.entries.splice(entryIndex, 1);
       renderEditor();
@@ -1224,6 +1229,6 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
 
   overlay.append(box);
   document.body.append(overlay);
-  positionOverGrid();
+  // positioning is already applied by positionCollectionMenu() above
   refresh().then(() => renderEditor());
 }
