@@ -69,6 +69,7 @@ export function openBundleLibraryManager(store, onChange) {
   let selected = blankLibraryEntry();
   let isNew = true;
   let importMode = false;
+  let clearImportDropGuard = null; // set by renderImportForm while its file dropzone is live
 
   const overlay = document.createElement("div");
   overlay.className = "formula-overlay";
@@ -109,6 +110,7 @@ export function openBundleLibraryManager(store, onChange) {
   body.append(listCol, editorCol);
 
   function close() {
+    if (clearImportDropGuard) clearImportDropGuard();
     stopPositioning();
     overlay.remove();
   }
@@ -180,6 +182,7 @@ export function openBundleLibraryManager(store, onChange) {
   }
 
   function renderEditor() {
+    if (clearImportDropGuard) clearImportDropGuard();
     editorCol.innerHTML = "";
 
     if (importMode) {
@@ -463,13 +466,8 @@ export function openBundleLibraryManager(store, onChange) {
 
     const hint = document.createElement("p");
     hint.className = "modal-copy catalog-archetype__hint";
-    hint.textContent = "Paste a bundle's JSON here, or drop/choose .json files below. Bundles can include statModifiers, dropdownAccess, featureGrants, resourceGrants, and choiceGroups; import one object or an array, per file or pasted.";
+    hint.textContent = `Drop .json file(s) below, or click to browse (up to ${MAX_IMPORT_FILES} files, ${formatBytes(MAX_IMPORT_BYTES)} total). Bundles can include statModifiers, dropdownAccess, featureGrants, resourceGrants, and choiceGroups; each file can hold one bundle object or an array of them.`;
     editorCol.append(hint);
-
-    const textarea = document.createElement("textarea");
-    textarea.className = "catalog-entry-card__description catalog-import__textarea";
-    textarea.placeholder = '{ "name": "...", "category": "...", "statModifiers": [ ... ] }\nor: [ { ... }, { ... } ]';
-    editorCol.append(textarea);
 
     // --- File drop zone -------------------------------------------------
     let pendingFileEntries = []; // flattened bundle objects successfully parsed from files
@@ -552,6 +550,18 @@ export function openBundleLibraryManager(store, onChange) {
       renderFileStatus(rows, summary);
     }
 
+    // Drag events fire on whatever element the cursor is over, so every
+    // stage (dragenter AND dragover, not just one) needs its default
+    // prevented on THIS element or the browser never arms the drop —
+    // it just shows the "can't drop here" cursor and the drop event
+    // never fires at all, which looks like "nothing happens" on the
+    // page. stopPropagation keeps a drop that lands a pixel off the
+    // zone (still inside editorCol) from bubbling up and getting
+    // swallowed by the page-level guard registered below.
+    function armDrag(e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     dropZone.addEventListener("click", () => fileInput.click());
     dropZone.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -559,8 +569,12 @@ export function openBundleLibraryManager(store, onChange) {
         fileInput.click();
       }
     });
+    dropZone.addEventListener("dragenter", (e) => {
+      armDrag(e);
+      dropZone.classList.add("bundle-import-dropzone--active");
+    });
     dropZone.addEventListener("dragover", (e) => {
-      e.preventDefault();
+      armDrag(e);
       e.dataTransfer.dropEffect = "copy";
       dropZone.classList.add("bundle-import-dropzone--active");
     });
@@ -568,7 +582,7 @@ export function openBundleLibraryManager(store, onChange) {
       dropZone.classList.remove("bundle-import-dropzone--active");
     });
     dropZone.addEventListener("drop", (e) => {
-      e.preventDefault();
+      armDrag(e);
       dropZone.classList.remove("bundle-import-dropzone--active");
       handleFiles(e.dataTransfer.files);
     });
@@ -577,33 +591,30 @@ export function openBundleLibraryManager(store, onChange) {
       fileInput.value = ""; // allow re-selecting the same file(s) after a fix
     });
 
+    // Browsers default to navigating the whole tab to a dropped file
+    // if the drop event reaches them un-prevented — which can look
+    // exactly like "nothing happened" if the drop landed just outside
+    // dropZone's edge (e.g. on the hint text above it) rather than on
+    // dropZone itself. Blanket-guard the rest of this panel for as
+    // long as the import form is showing; cleared by renderEditor()/
+    // close() above.
+    function pageDropGuard(e) {
+      if (!dropZone.contains(e.target)) e.preventDefault();
+    }
+    window.addEventListener("dragover", pageDropGuard);
+    window.addEventListener("drop", pageDropGuard);
+    clearImportDropGuard = () => {
+      window.removeEventListener("dragover", pageDropGuard);
+      window.removeEventListener("drop", pageDropGuard);
+      clearImportDropGuard = null;
+    };
+
     // --- Import -----------------------------------------------------
 
-    function collectEntries() {
-      const entries = [];
-      if (textarea.value.trim()) {
-        let parsed;
-        try {
-          parsed = JSON.parse(textarea.value);
-        } catch (err) {
-          throw new Error(`Pasted JSON: ${err.message}`);
-        }
-        entries.push(...(Array.isArray(parsed) ? parsed : [parsed]));
-      }
-      entries.push(...pendingFileEntries);
-      return entries;
-    }
-
     async function doImport(scope) {
-      let entries;
-      try {
-        entries = collectEntries();
-      } catch (err) {
-        statusLine.textContent = err.message;
-        return;
-      }
+      const entries = pendingFileEntries;
       if (!entries.length) {
-        statusLine.textContent = "Nothing to import yet — paste JSON or add file(s) above.";
+        statusLine.textContent = "Nothing to import yet — drop or choose file(s) above.";
         return;
       }
       let lastId = null;
