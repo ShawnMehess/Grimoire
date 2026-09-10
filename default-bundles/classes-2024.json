@@ -4,14 +4,14 @@
     "category": "Class",
     "statModifiers": [
       {
-        "id": "mod-000028",
+        "id": "mod-000073",
         "targetFieldName": "Strength",
         "op": "grant",
         "value": null,
         "minLevel": null
       },
       {
-        "id": "mod-000029",
+        "id": "mod-000074",
         "targetFieldName": "Constitution",
         "op": "grant",
         "value": null,
@@ -20,7 +20,7 @@
     ],
     "dropdownAccess": [
       {
-        "id": "acc-00002a",
+        "id": "acc-000075",
         "targetFieldName": "Subclass",
         "allowedChoiceNames": [
           "Path of the Berserker"
@@ -151,21 +151,133 @@
       }
     ],
     "resourceGrants": [],
-    "choiceGroups": []
+    "choiceGroups": [
+      {
+        "id": "barbarian-2024-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "barbarian-2024-skill-skill-animal-handling",
+            "name": "Animal Handling",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000076",
+                "targetFieldId": null,
+                "targetFieldName": "Animal Handling",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "barbarian-2024-skill-skill-athletics",
+            "name": "Athletics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000077",
+                "targetFieldId": null,
+                "targetFieldName": "Athletics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "barbarian-2024-skill-skill-intimidation",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000078",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "barbarian-2024-skill-skill-nature",
+            "name": "Nature",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000079",
+                "targetFieldId": null,
+                "targetFieldName": "Nature",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "barbarian-2024-skill-skill-perception",
+            "name": "Perception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00007a",
+                "targetFieldId": null,
+                "targetFieldName": "Perception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "barbarian-2024-skill-skill-survival",
+            "name": "Survival",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00007b",
+                "targetFieldId": null,
+                "targetFieldName": "Survival",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Bard (2024)",
     "category": "Class",
     "statModifiers": [
       {
-        "id": "mod-00002b",
+        "id": "mod-00007c",
         "targetFieldName": "Dexterity",
         "op": "grant",
         "value": null,
         "minLevel": null
       },
       {
-        "id": "mod-00002c",
+        "id": "mod-00007d",
         "targetFieldName": "Charisma",
         "op": "grant",
         "value": null,
@@ -174,7 +286,7 @@
     ],
     "dropdownAccess": [
       {
-        "id": "acc-00002d",
+        "id": "acc-00007e",
         "targetFieldName": "Subclass",
         "allowedChoiceNames": [
           "College of Lore"
@@ -257,21 +369,337 @@
       }
     ],
     "resourceGrants": [],
-    "choiceGroups": []
+    "choiceGroups": [
+      {
+        "id": "bard-2024-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 3,
+        "maxSelections": 3,
+        "options": [
+          {
+            "id": "bard-2024-skill-skill-acrobatics",
+            "name": "Acrobatics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00007f",
+                "targetFieldId": null,
+                "targetFieldName": "Acrobatics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-animal-handling",
+            "name": "Animal Handling",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000080",
+                "targetFieldId": null,
+                "targetFieldName": "Animal Handling",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-arcana",
+            "name": "Arcana",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000081",
+                "targetFieldId": null,
+                "targetFieldName": "Arcana",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-athletics",
+            "name": "Athletics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000082",
+                "targetFieldId": null,
+                "targetFieldName": "Athletics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-deception",
+            "name": "Deception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000083",
+                "targetFieldId": null,
+                "targetFieldName": "Deception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-history",
+            "name": "History",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000084",
+                "targetFieldId": null,
+                "targetFieldName": "History",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000085",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-intimidation",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000086",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-investigation",
+            "name": "Investigation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000087",
+                "targetFieldId": null,
+                "targetFieldName": "Investigation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-medicine",
+            "name": "Medicine",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000088",
+                "targetFieldId": null,
+                "targetFieldName": "Medicine",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-nature",
+            "name": "Nature",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000089",
+                "targetFieldId": null,
+                "targetFieldName": "Nature",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-perception",
+            "name": "Perception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00008a",
+                "targetFieldId": null,
+                "targetFieldName": "Perception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-performance",
+            "name": "Performance",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00008b",
+                "targetFieldId": null,
+                "targetFieldName": "Performance",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-persuasion",
+            "name": "Persuasion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00008c",
+                "targetFieldId": null,
+                "targetFieldName": "Persuasion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00008d",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-sleight-of-hand",
+            "name": "Sleight of Hand",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00008e",
+                "targetFieldId": null,
+                "targetFieldName": "Sleight of Hand",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-stealth",
+            "name": "Stealth",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00008f",
+                "targetFieldId": null,
+                "targetFieldName": "Stealth",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-2024-skill-skill-survival",
+            "name": "Survival",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000090",
+                "targetFieldId": null,
+                "targetFieldName": "Survival",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Cleric (2024)",
     "category": "Class",
     "statModifiers": [
       {
-        "id": "mod-00002e",
+        "id": "mod-000091",
         "targetFieldName": "Wisdom",
         "op": "grant",
         "value": null,
         "minLevel": null
       },
       {
-        "id": "mod-00002f",
+        "id": "mod-000092",
         "targetFieldName": "Charisma",
         "op": "grant",
         "value": null,
@@ -280,7 +708,7 @@
     ],
     "dropdownAccess": [
       {
-        "id": "acc-000030",
+        "id": "acc-000093",
         "targetFieldName": "Subclass",
         "allowedChoiceNames": [
           "Life Domain"
@@ -357,21 +785,116 @@
       }
     ],
     "resourceGrants": [],
-    "choiceGroups": []
+    "choiceGroups": [
+      {
+        "id": "cleric-2024-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "cleric-2024-skill-skill-history",
+            "name": "History",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000094",
+                "targetFieldId": null,
+                "targetFieldName": "History",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "cleric-2024-skill-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000095",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "cleric-2024-skill-skill-medicine",
+            "name": "Medicine",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000096",
+                "targetFieldId": null,
+                "targetFieldName": "Medicine",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "cleric-2024-skill-skill-persuasion",
+            "name": "Persuasion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000097",
+                "targetFieldId": null,
+                "targetFieldName": "Persuasion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "cleric-2024-skill-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000098",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Druid (2024)",
     "category": "Class",
     "statModifiers": [
       {
-        "id": "mod-000031",
+        "id": "mod-000099",
         "targetFieldName": "Intelligence",
         "op": "grant",
         "value": null,
         "minLevel": null
       },
       {
-        "id": "mod-000032",
+        "id": "mod-00009a",
         "targetFieldName": "Wisdom",
         "op": "grant",
         "value": null,
@@ -380,7 +903,7 @@
     ],
     "dropdownAccess": [
       {
-        "id": "acc-000033",
+        "id": "acc-00009b",
         "targetFieldName": "Subclass",
         "allowedChoiceNames": [
           "Circle of the Land"
@@ -469,21 +992,167 @@
       }
     ],
     "resourceGrants": [],
-    "choiceGroups": []
+    "choiceGroups": [
+      {
+        "id": "druid-2024-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "druid-2024-skill-skill-arcana",
+            "name": "Arcana",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00009c",
+                "targetFieldId": null,
+                "targetFieldName": "Arcana",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "druid-2024-skill-skill-animal-handling",
+            "name": "Animal Handling",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00009d",
+                "targetFieldId": null,
+                "targetFieldName": "Animal Handling",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "druid-2024-skill-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00009e",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "druid-2024-skill-skill-medicine",
+            "name": "Medicine",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00009f",
+                "targetFieldId": null,
+                "targetFieldName": "Medicine",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "druid-2024-skill-skill-nature",
+            "name": "Nature",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000a0",
+                "targetFieldId": null,
+                "targetFieldName": "Nature",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "druid-2024-skill-skill-perception",
+            "name": "Perception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000a1",
+                "targetFieldId": null,
+                "targetFieldName": "Perception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "druid-2024-skill-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000a2",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "druid-2024-skill-skill-survival",
+            "name": "Survival",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000a3",
+                "targetFieldId": null,
+                "targetFieldName": "Survival",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Fighter (2024)",
     "category": "Class",
     "statModifiers": [
       {
-        "id": "mod-000034",
+        "id": "mod-0000a4",
         "targetFieldName": "Strength",
         "op": "grant",
         "value": null,
         "minLevel": null
       },
       {
-        "id": "mod-000035",
+        "id": "mod-0000a5",
         "targetFieldName": "Constitution",
         "op": "grant",
         "value": null,
@@ -492,7 +1161,7 @@
     ],
     "dropdownAccess": [
       {
-        "id": "acc-000036",
+        "id": "acc-0000a6",
         "targetFieldName": "Subclass",
         "allowedChoiceNames": [
           "Champion"
@@ -593,21 +1262,167 @@
       }
     ],
     "resourceGrants": [],
-    "choiceGroups": []
+    "choiceGroups": [
+      {
+        "id": "fighter-2024-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "fighter-2024-skill-skill-acrobatics",
+            "name": "Acrobatics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000a7",
+                "targetFieldId": null,
+                "targetFieldName": "Acrobatics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "fighter-2024-skill-skill-animal-handling",
+            "name": "Animal Handling",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000a8",
+                "targetFieldId": null,
+                "targetFieldName": "Animal Handling",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "fighter-2024-skill-skill-athletics",
+            "name": "Athletics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000a9",
+                "targetFieldId": null,
+                "targetFieldName": "Athletics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "fighter-2024-skill-skill-history",
+            "name": "History",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000aa",
+                "targetFieldId": null,
+                "targetFieldName": "History",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "fighter-2024-skill-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000ab",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "fighter-2024-skill-skill-intimidation",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000ac",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "fighter-2024-skill-skill-perception",
+            "name": "Perception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000ad",
+                "targetFieldId": null,
+                "targetFieldName": "Perception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "fighter-2024-skill-skill-survival",
+            "name": "Survival",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000ae",
+                "targetFieldId": null,
+                "targetFieldName": "Survival",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Monk (2024)",
     "category": "Class",
     "statModifiers": [
       {
-        "id": "mod-000037",
+        "id": "mod-0000af",
         "targetFieldName": "Strength",
         "op": "grant",
         "value": null,
         "minLevel": null
       },
       {
-        "id": "mod-000038",
+        "id": "mod-0000b0",
         "targetFieldName": "Dexterity",
         "op": "grant",
         "value": null,
@@ -616,7 +1431,7 @@
     ],
     "dropdownAccess": [
       {
-        "id": "acc-000039",
+        "id": "acc-0000b1",
         "targetFieldName": "Subclass",
         "allowedChoiceNames": [
           "Warrior of the Open Hand"
@@ -759,21 +1574,133 @@
       }
     ],
     "resourceGrants": [],
-    "choiceGroups": []
+    "choiceGroups": [
+      {
+        "id": "monk-2024-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "monk-2024-skill-skill-acrobatics",
+            "name": "Acrobatics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000b2",
+                "targetFieldId": null,
+                "targetFieldName": "Acrobatics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "monk-2024-skill-skill-athletics",
+            "name": "Athletics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000b3",
+                "targetFieldId": null,
+                "targetFieldName": "Athletics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "monk-2024-skill-skill-history",
+            "name": "History",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000b4",
+                "targetFieldId": null,
+                "targetFieldName": "History",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "monk-2024-skill-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000b5",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "monk-2024-skill-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000b6",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "monk-2024-skill-skill-stealth",
+            "name": "Stealth",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000b7",
+                "targetFieldId": null,
+                "targetFieldName": "Stealth",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Paladin (2024)",
     "category": "Class",
     "statModifiers": [
       {
-        "id": "mod-00003a",
+        "id": "mod-0000b8",
         "targetFieldName": "Wisdom",
         "op": "grant",
         "value": null,
         "minLevel": null
       },
       {
-        "id": "mod-00003b",
+        "id": "mod-0000b9",
         "targetFieldName": "Charisma",
         "op": "grant",
         "value": null,
@@ -782,7 +1709,7 @@
     ],
     "dropdownAccess": [
       {
-        "id": "acc-00003c",
+        "id": "acc-0000ba",
         "targetFieldName": "Subclass",
         "allowedChoiceNames": [
           "Oath of Devotion"
@@ -895,21 +1822,133 @@
       }
     ],
     "resourceGrants": [],
-    "choiceGroups": []
+    "choiceGroups": [
+      {
+        "id": "paladin-2024-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "paladin-2024-skill-skill-athletics",
+            "name": "Athletics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000bb",
+                "targetFieldId": null,
+                "targetFieldName": "Athletics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "paladin-2024-skill-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000bc",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "paladin-2024-skill-skill-intimidation",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000bd",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "paladin-2024-skill-skill-medicine",
+            "name": "Medicine",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000be",
+                "targetFieldId": null,
+                "targetFieldName": "Medicine",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "paladin-2024-skill-skill-persuasion",
+            "name": "Persuasion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000bf",
+                "targetFieldId": null,
+                "targetFieldName": "Persuasion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "paladin-2024-skill-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000c0",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Ranger (2024)",
     "category": "Class",
     "statModifiers": [
       {
-        "id": "mod-00003d",
+        "id": "mod-0000c1",
         "targetFieldName": "Strength",
         "op": "grant",
         "value": null,
         "minLevel": null
       },
       {
-        "id": "mod-00003e",
+        "id": "mod-0000c2",
         "targetFieldName": "Dexterity",
         "op": "grant",
         "value": null,
@@ -918,7 +1957,7 @@
     ],
     "dropdownAccess": [
       {
-        "id": "acc-00003f",
+        "id": "acc-0000c3",
         "targetFieldName": "Subclass",
         "allowedChoiceNames": [
           "Hunter"
@@ -1031,21 +2070,167 @@
       }
     ],
     "resourceGrants": [],
-    "choiceGroups": []
+    "choiceGroups": [
+      {
+        "id": "ranger-2024-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 3,
+        "maxSelections": 3,
+        "options": [
+          {
+            "id": "ranger-2024-skill-skill-animal-handling",
+            "name": "Animal Handling",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000c4",
+                "targetFieldId": null,
+                "targetFieldName": "Animal Handling",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "ranger-2024-skill-skill-athletics",
+            "name": "Athletics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000c5",
+                "targetFieldId": null,
+                "targetFieldName": "Athletics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "ranger-2024-skill-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000c6",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "ranger-2024-skill-skill-investigation",
+            "name": "Investigation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000c7",
+                "targetFieldId": null,
+                "targetFieldName": "Investigation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "ranger-2024-skill-skill-nature",
+            "name": "Nature",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000c8",
+                "targetFieldId": null,
+                "targetFieldName": "Nature",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "ranger-2024-skill-skill-perception",
+            "name": "Perception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000c9",
+                "targetFieldId": null,
+                "targetFieldName": "Perception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "ranger-2024-skill-skill-stealth",
+            "name": "Stealth",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000ca",
+                "targetFieldId": null,
+                "targetFieldName": "Stealth",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "ranger-2024-skill-skill-survival",
+            "name": "Survival",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000cb",
+                "targetFieldId": null,
+                "targetFieldName": "Survival",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Rogue (2024)",
     "category": "Class",
     "statModifiers": [
       {
-        "id": "mod-000040",
+        "id": "mod-0000cc",
         "targetFieldName": "Dexterity",
         "op": "grant",
         "value": null,
         "minLevel": null
       },
       {
-        "id": "mod-000041",
+        "id": "mod-0000cd",
         "targetFieldName": "Intelligence",
         "op": "grant",
         "value": null,
@@ -1054,7 +2239,7 @@
     ],
     "dropdownAccess": [
       {
-        "id": "acc-000042",
+        "id": "acc-0000ce",
         "targetFieldName": "Subclass",
         "allowedChoiceNames": [
           "Thief"
@@ -1173,21 +2358,218 @@
       }
     ],
     "resourceGrants": [],
-    "choiceGroups": []
+    "choiceGroups": [
+      {
+        "id": "rogue-2024-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 4,
+        "maxSelections": 4,
+        "options": [
+          {
+            "id": "rogue-2024-skill-skill-acrobatics",
+            "name": "Acrobatics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000cf",
+                "targetFieldId": null,
+                "targetFieldName": "Acrobatics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-2024-skill-skill-athletics",
+            "name": "Athletics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000d0",
+                "targetFieldId": null,
+                "targetFieldName": "Athletics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-2024-skill-skill-deception",
+            "name": "Deception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000d1",
+                "targetFieldId": null,
+                "targetFieldName": "Deception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-2024-skill-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000d2",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-2024-skill-skill-intimidation",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000d3",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-2024-skill-skill-investigation",
+            "name": "Investigation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000d4",
+                "targetFieldId": null,
+                "targetFieldName": "Investigation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-2024-skill-skill-perception",
+            "name": "Perception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000d5",
+                "targetFieldId": null,
+                "targetFieldName": "Perception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-2024-skill-skill-performance",
+            "name": "Performance",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000d6",
+                "targetFieldId": null,
+                "targetFieldName": "Performance",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-2024-skill-skill-persuasion",
+            "name": "Persuasion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000d7",
+                "targetFieldId": null,
+                "targetFieldName": "Persuasion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-2024-skill-skill-sleight-of-hand",
+            "name": "Sleight of Hand",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000d8",
+                "targetFieldId": null,
+                "targetFieldName": "Sleight of Hand",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-2024-skill-skill-stealth",
+            "name": "Stealth",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000d9",
+                "targetFieldId": null,
+                "targetFieldName": "Stealth",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Sorcerer (2024)",
     "category": "Class",
     "statModifiers": [
       {
-        "id": "mod-000043",
+        "id": "mod-0000da",
         "targetFieldName": "Constitution",
         "op": "grant",
         "value": null,
         "minLevel": null
       },
       {
-        "id": "mod-000044",
+        "id": "mod-0000db",
         "targetFieldName": "Charisma",
         "op": "grant",
         "value": null,
@@ -1196,7 +2578,7 @@
     ],
     "dropdownAccess": [
       {
-        "id": "acc-000045",
+        "id": "acc-0000dc",
         "targetFieldName": "Subclass",
         "allowedChoiceNames": [
           "Draconic Sorcery"
@@ -1267,21 +2649,133 @@
       }
     ],
     "resourceGrants": [],
-    "choiceGroups": []
+    "choiceGroups": [
+      {
+        "id": "sorcerer-2024-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "sorcerer-2024-skill-skill-arcana",
+            "name": "Arcana",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000dd",
+                "targetFieldId": null,
+                "targetFieldName": "Arcana",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "sorcerer-2024-skill-skill-deception",
+            "name": "Deception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000de",
+                "targetFieldId": null,
+                "targetFieldName": "Deception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "sorcerer-2024-skill-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000df",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "sorcerer-2024-skill-skill-intimidation",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000e0",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "sorcerer-2024-skill-skill-persuasion",
+            "name": "Persuasion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000e1",
+                "targetFieldId": null,
+                "targetFieldName": "Persuasion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "sorcerer-2024-skill-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000e2",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Warlock (2024)",
     "category": "Class",
     "statModifiers": [
       {
-        "id": "mod-000046",
+        "id": "mod-0000e3",
         "targetFieldName": "Wisdom",
         "op": "grant",
         "value": null,
         "minLevel": null
       },
       {
-        "id": "mod-000047",
+        "id": "mod-0000e4",
         "targetFieldName": "Charisma",
         "op": "grant",
         "value": null,
@@ -1290,7 +2784,7 @@
     ],
     "dropdownAccess": [
       {
-        "id": "acc-000048",
+        "id": "acc-0000e5",
         "targetFieldName": "Subclass",
         "allowedChoiceNames": [
           "Fiend Patron"
@@ -1355,21 +2849,150 @@
       }
     ],
     "resourceGrants": [],
-    "choiceGroups": []
+    "choiceGroups": [
+      {
+        "id": "warlock-2024-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "warlock-2024-skill-skill-arcana",
+            "name": "Arcana",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000e6",
+                "targetFieldId": null,
+                "targetFieldName": "Arcana",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "warlock-2024-skill-skill-deception",
+            "name": "Deception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000e7",
+                "targetFieldId": null,
+                "targetFieldName": "Deception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "warlock-2024-skill-skill-history",
+            "name": "History",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000e8",
+                "targetFieldId": null,
+                "targetFieldName": "History",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "warlock-2024-skill-skill-intimidation",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000e9",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "warlock-2024-skill-skill-investigation",
+            "name": "Investigation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000ea",
+                "targetFieldId": null,
+                "targetFieldName": "Investigation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "warlock-2024-skill-skill-nature",
+            "name": "Nature",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000eb",
+                "targetFieldId": null,
+                "targetFieldName": "Nature",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "warlock-2024-skill-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000ec",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Wizard (2024)",
     "category": "Class",
     "statModifiers": [
       {
-        "id": "mod-000049",
+        "id": "mod-0000ed",
         "targetFieldName": "Intelligence",
         "op": "grant",
         "value": null,
         "minLevel": null
       },
       {
-        "id": "mod-00004a",
+        "id": "mod-0000ee",
         "targetFieldName": "Wisdom",
         "op": "grant",
         "value": null,
@@ -1378,7 +3001,7 @@
     ],
     "dropdownAccess": [
       {
-        "id": "acc-00004b",
+        "id": "acc-0000ef",
         "targetFieldName": "Subclass",
         "allowedChoiceNames": [
           "Evoker"
@@ -1449,6 +3072,118 @@
       }
     ],
     "resourceGrants": [],
-    "choiceGroups": []
+    "choiceGroups": [
+      {
+        "id": "wizard-2024-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "wizard-2024-skill-skill-arcana",
+            "name": "Arcana",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000f0",
+                "targetFieldId": null,
+                "targetFieldName": "Arcana",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "wizard-2024-skill-skill-history",
+            "name": "History",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000f1",
+                "targetFieldId": null,
+                "targetFieldName": "History",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "wizard-2024-skill-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000f2",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "wizard-2024-skill-skill-investigation",
+            "name": "Investigation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000f3",
+                "targetFieldId": null,
+                "targetFieldName": "Investigation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "wizard-2024-skill-skill-medicine",
+            "name": "Medicine",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000f4",
+                "targetFieldId": null,
+                "targetFieldName": "Medicine",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "wizard-2024-skill-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-0000f5",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
   }
 ]

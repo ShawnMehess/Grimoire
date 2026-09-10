@@ -106,6 +106,51 @@ async function writeCatalog(filename, data) {
 //     and folded into one pass since both inputs are already in the
 //     shape the bundle expects. ---------------------------------------
 
+// --- Class skill-proficiency choices ("choose 2 from this list") ---
+//
+// classes-2024.json's `proficiency_choices` already has exactly what a
+// choiceGroup needs (a count + a flat option list) for the common case:
+// a plain "pick N skills" choice, expressed as `option_type: "reference"`
+// entries all named "Skill: X". Anything else in that field — nested
+// "choice" options (Monk's second entry), or a list that isn't skills at
+// all (Bard's "3 musical instruments") — has no matching field on the
+// starter sheet to grant against, so those are skipped rather than
+// guessed at; they still show up as free text via the existing
+// "Skill Proficiencies Gained" field on the Leveling tab, same as before
+// this script existed.
+function skillChoiceGroups(cls) {
+  return (cls.proficiency_choices || [])
+    .map((pc, index) => {
+      const options = pc.from?.options || [];
+      const allSkills = options.length > 0 && options.every((o) => (
+        o.option_type === "reference" && o.item?.name?.startsWith("Skill: ")
+      ));
+      if (!allSkills) return null;
+      return {
+        id: `${cls.index}-2024-skills-${index}`,
+        label: "Skill Proficiencies",
+        minLevel: 1,
+        minSelections: pc.choose,
+        maxSelections: pc.choose,
+        options: options.map((o) => {
+          const skillName = stripProficiencyPrefix(o.item.name);
+          return {
+            id: `${cls.index}-2024-skill-${o.item.index}`,
+            name: skillName,
+            description: "",
+            statModifiers: [{
+              id: shortId("mod"), targetFieldId: null, targetFieldName: skillName,
+              op: "grant", value: null, minLevel: null,
+            }],
+            featureGrants: [],
+            resourceGrants: [],
+          };
+        }),
+      };
+    })
+    .filter(Boolean);
+}
+
 async function compileClasses() {
   const classes = await readJson("classes-2024.json");
   const featuresByClass = await readJson("class-features-2024.json");
@@ -148,7 +193,7 @@ async function compileClasses() {
       dropdownAccess,
       featureGrants,
       resourceGrants: [],
-      choiceGroups: [],
+      choiceGroups: skillChoiceGroups(cls),
     };
   });
 }

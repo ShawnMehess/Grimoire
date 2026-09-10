@@ -66,7 +66,7 @@ import { getLevelUpPlan, getRulesetClass, listRulesets } from "../data/dnd5e.js"
 import { ABILITY_IDS, normalizeRulesState, resolveRulesState } from "../data/rulesEngine.js";
 
 const PAGE_COLS = 16;
-const GAP_PX = 8;
+const GAP_PX = 10;
 const MIN_CELL_PX = 40; // below this, the page scrolls horizontally instead of squishing cells
 const MAX_BG_IMAGE_BYTES = 250_000; // warn above this — Firestore caps a whole doc at 1MB
 
@@ -154,6 +154,17 @@ export function renderCustomSheet(root, character, store) {
   // isn't a meaningful variable for other formulas to reference the
   // way a field's own value is.
   let radioOptionCounts = {};
+  // Reset at the start of every renderPageGrid() and filled in by
+  // renderFieldInner as it builds each field's labelEl. A field just
+  // built is off-DOM (not yet appended anywhere), so checking its
+  // labelEl's scrollWidth/clientWidth right then is meaningless —
+  // both read 0 until the element actually has layout. Queuing the
+  // check here and running it once everything is appended (see the
+  // end of renderPageGrid) is what makes a too-long DEFAULT label
+  // (one nobody typed, so the existing input-event listener never
+  // fires for it) grow to fit on first paint, the same way one a
+  // person edits by hand already does.
+  let pendingLabelOverflowChecks = [];
   // Which checkboxes are currently checked because a Race/Class (or
   // any dropdown) bundle grants them — "fieldId::index" strings — see
   // the "grant" op in applyBundleModifiers. Recomputed alongside
@@ -1805,25 +1816,45 @@ export function renderCustomSheet(root, character, store) {
     el.style.height = `${node.h * cw + (node.h - 1) * GAP_PX - inset * 2}px`;
   }
 
-  /** If a field's label no longer fits in its own reserved space (one
-   *  cell's worth, typically, when positioned left/right — or the
-   *  full field width, top/bottom), grow the FIELD sideways by a cell
-   *  rather than let the label clip or ellipsize. Self-correcting:
-   *  checked after every keystroke, so it just keeps adding a cell
-   *  until the current text fits. Only ever grows — deleting text back
-   *  down doesn't shrink the field back up, matching how this was
-   *  actually asked for ("if I type more than it can hold, expand").
-   *  No-ops without a parentBlock (e.g. mid-way through a label-
-   *  position cycle animation, where this isn't relevant yet). */
+  /** The actual width-growing loop: if a field's label no longer fits
+   *  in its own reserved space (one cell's worth, typically, when
+   *  positioned left/right — or the full field width, top/bottom),
+   *  grow the FIELD sideways by a cell rather than let the label clip
+   *  or ellipsize, one cell at a time until the current text fits (or
+   *  the field has consumed the rest of its parent block's width, if
+   *  that comes first). Only ever grows — deleting text back down
+   *  doesn't shrink the field back up. No-ops without a parentBlock
+   *  (e.g. mid-way through a label-position cycle animation, where
+   *  this isn't relevant yet), and reads/writes field.w and fieldEl
+   *  directly without going through commitMutation — that part's up
+   *  to whichever of the two callers below is using it, since they
+   *  need different answers for "does this count as an edit". Returns
+   *  whether it actually grew anything. */
+  function growFieldToFitLabel(labelEl, field, fieldEl, parentBlock) {
+    if (!parentBlock) return false;
+    const maxW = parentBlock.w - field.x;
+    if (field.w >= maxW || labelEl.scrollWidth <= labelEl.clientWidth + 1) return false;
+    while (labelEl.scrollWidth > labelEl.clientWidth + 1 && field.w < maxW) {
+      field.w += 1;
+      applyRect(fieldEl, field, colWidthPx());
+    }
+    return true;
+  }
+
+  /** Same fit-check as growFieldToFitLabel, used after a person edits
+   *  a label by hand (typing past what its cell can hold) — wrapped in
+   *  commitMutation so the wider field is persisted and folds into the
+   *  same undo step as the edit that caused it, the way any other
+   *  consequence of an edit would. The plain pre-check before
+   *  commitMutation (mirroring growFieldToFitLabel's own guard) means
+   *  an already-fitting label never touches the undo stack or triggers
+   *  a save for doing nothing. */
   function growFieldIfLabelOverflows(labelEl, field, fieldEl, parentBlock) {
     if (!parentBlock) return;
     const maxW = parentBlock.w - field.x;
     if (field.w >= maxW || labelEl.scrollWidth <= labelEl.clientWidth + 1) return;
     commitMutation(() => {
-      while (labelEl.scrollWidth > labelEl.clientWidth + 1 && field.w < maxW) {
-        field.w += 1;
-        applyRect(fieldEl, field, colWidthPx());
-      }
+      growFieldToFitLabel(labelEl, field, fieldEl, parentBlock);
     }, { render: false });
   }
 
@@ -1844,6 +1875,7 @@ export function renderCustomSheet(root, character, store) {
   function renderPageGrid() {
     pageGrid.innerHTML = "";
     pageGrid.classList.toggle("is-edit-mode", editMode);
+    pendingLabelOverflowChecks = [];
     const allFields = flattenGlobalFields();
     let needsNormalizedPersist = false;
     if (normalizeChoiceObjects(allFields)) needsNormalizedPersist = true;
@@ -1893,6 +1925,19 @@ export function renderCustomSheet(root, character, store) {
     applyGridLines(pageGrid, cw);
     currentLayout().forEach(block => {
       pageGrid.append(renderBlockNode(block, cw));
+    });
+
+    // Every field is now actually in the document and has real layout,
+    // so this is the first point where checking a label against its
+    // cell means anything (see the comment on pendingLabelOverflowChecks
+    // above, and on growFieldToFitLabel). Deliberately not wrapped in
+    // commitMutation/persist — this is a fresh, idempotent fit-up of
+    // whatever's on screen right now, not a discrete edit worth its own
+    // undo step, and it isn't needed for correctness on the next load
+    // either: an unpersisted grow just gets recomputed the same way
+    // next time this runs.
+    pendingLabelOverflowChecks.forEach(({ labelEl, field, fieldEl, parentBlock }) => {
+      growFieldToFitLabel(labelEl, field, fieldEl, parentBlock);
     });
 
     // Now that every block is actually laid out, re-anchor each one's
@@ -2754,10 +2799,14 @@ export function renderCustomSheet(root, character, store) {
     nameEl.style.height = `${headerPx}px`;
     nameEl.contentEditable = "true";
     nameEl.textContent = viewBlock.name;
+    nameEl.title = viewBlock.name; // belt-and-suspenders: a native
+      // tooltip for the full name on hover even where the ellipsis
+      // (see .block-name in custom-sheet.css) has to cut it short
     nameEl.addEventListener("input", () => {
       commitMutation(() => {
         sourceBlockFor(block).name = nameEl.textContent;
       }, { render: false });
+      nameEl.title = nameEl.textContent;
       renderBlockFrame();
     });
     wireGhostDefault(nameEl, "New Block", (text) => {
@@ -2842,7 +2891,15 @@ export function renderCustomSheet(root, character, store) {
     const fieldStyle = mergeTextStyle(parentStyle, field.style || {});
     applyNodeStyle(el, fieldStyle);
 
-    renderFieldInner(el, field, parentBlock, cw);
+    const labelEl = renderFieldInner(el, field, parentBlock, cw);
+    // el isn't attached to the document yet at this point (the caller
+    // appends it further up the tree once it's built) — labelEl has no
+    // real layout yet either, so checking scrollWidth/clientWidth here
+    // would just compare 0 to 0. Queue it and let renderPageGrid check
+    // it once the whole grid is actually in the DOM (see
+    // pendingLabelOverflowChecks above and its drain at the end of
+    // renderPageGrid).
+    if (labelEl) pendingLabelOverflowChecks.push({ labelEl, field, fieldEl: el, parentBlock });
     applyTextStyleToOwnText(el, fieldStyle);
 
     el.append(buildDragHandle());
@@ -2903,6 +2960,8 @@ export function renderCustomSheet(root, character, store) {
     labelEl.className = "field-label";
     labelEl.contentEditable = "true";
     labelEl.textContent = field.label;
+    labelEl.title = field.label; // same belt-and-suspenders tooltip as
+      // block-name above, for whenever a label doesn't fit its cell
     let labelBeforeEdit = field.label;
     labelEl.addEventListener("focus", () => {
       labelBeforeEdit = field.label;
@@ -2920,6 +2979,7 @@ export function renderCustomSheet(root, character, store) {
       commitMutation(() => {
         field.label = labelEl.textContent;
       }, { render: false });
+      labelEl.title = labelEl.textContent;
       renderBlockFrame();
       updateFieldLabelVisibility(field, labelEl);
       growFieldIfLabelOverflows(labelEl, field, fieldEl, parentBlock);
@@ -4354,6 +4414,11 @@ export function renderCustomSheet(root, character, store) {
     }, { render: false });
 
     const newLabelEl = renderFieldInner(fieldEl, field, parentBlock);
+    // Unlike the initial-build call in renderFieldNode, fieldEl here is
+    // already attached to the live document (we're editing an existing
+    // node in place), so newLabelEl already has real layout and this
+    // can run immediately rather than needing to be queued.
+    if (newLabelEl) growFieldIfLabelOverflows(newLabelEl, field, fieldEl, parentBlock);
     // Refresh the equation hint since it always sits opposite the label.
     const oldHint = fieldEl.querySelector(".equation-hint");
     if (oldHint) oldHint.remove();

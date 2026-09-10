@@ -128,8 +128,14 @@ the underlying `/data/*-2024.json` files.
 - `classes-2024.json` — all 12 2024 classes, each granting its two fixed
   saving-throw proficiencies and filtering the Subclass dropdown to that
   class's SRD subclass (every 2024 class gets its subclass at level 3,
-  unlike 2014's per-class range) — same skill-choice gap as the 2014
-  classes above. `featureGrants` come straight from `class-features-2024.json`.
+  unlike 2014's per-class range). `featureGrants` come straight from
+  `class-features-2024.json`. Skill proficiency choices ("choose 2 from
+  this list") ARE included as a real `choiceGroups` entry, sourced from
+  `proficiency_choices` — unlike the 2014 classes above, which leave this
+  as a gap. The one thing still skipped here: a proficiency choice that
+  isn't a flat list of skills (Bard's "3 musical instruments" entry, and
+  Monk's nested weapon-or-tool choice) — no per-item field exists on the
+  starter sheet for those, so they're left as free text same as before.
 
 - `species-2024.json` — the 9 core 2024 species. 2024 moved ability-score
   bonuses from Species to Background, so unlike `races.json` above these

@@ -254,6 +254,21 @@ function radioField(opts, options, id) {
   return f;
 }
 
+/** A plain, borderless caption — a "label" field pinned to a specific
+ *  spot rather than a checkbox/radio's own cramped inline label.
+ *  Used below for things like a skill/save's full name, which needs
+ *  real width of its own: a checkbox or radio's w/h is dictated
+ *  entirely by its option count (see syncOptionWidth) and can't grow
+ *  to fit an inline label, so "Strength" or "Sleight of Hand" next to
+ *  one just clips instead of wrapping (a single word has nowhere to
+ *  break). Giving the name its own field sidesteps that rather than
+ *  fighting it. */
+function nameLabel(text, x, y, w, h = 1) {
+  const f = createField({ fieldType: "label", label: "Label", x, y, w, h });
+  f.value = text;
+  return f;
+}
+
 /**
  * The starter layout shown on a brand-new character — a working D&D
  * 5e sheet (abilities, saves, skills, proficiency bonus, combat
@@ -277,7 +292,10 @@ function radioField(opts, options, id) {
  * heavier-weight option later for anyone who wants structured items.
  */
 export function createStarterLayout() {
-  const identity = createBlock({ name: "Identity", x: 0, y: 0, w: 4, h: 4 });
+  // NOTE h: 5, not 4 — the extra content row is what gives Inspiration
+  // room for a real "Inspiration" caption next to its checkbox instead
+  // of squeezing both into one cell (see the nameLabel() comment).
+  const identity = createBlock({ name: "Identity", x: 0, y: 0, w: 4, h: 5 });
   identity.children = [
     field({ fieldType: "text", label: "Name", x: 0, y: 0, w: 4, h: 1 }),
     field({ fieldType: "dropdown", label: "Class", x: 0, y: 1, w: 2, h: 1, choices: makeChoices(STARTER_CLASSES) }),
@@ -286,8 +304,9 @@ export function createStarterLayout() {
       fieldType: "text", label: "Prof. Bonus", x: 0, y: 2, w: 2, h: 1,
       formula: { type: "expr", text: "roundup({{level}}/4)+1" },
     }, "profBonus"),
-    toggleField({ label: "Inspiration", x: 2, y: 2, w: 1, h: 1, labelPosition: "right" }, "inspiration"),
-    field({ fieldType: "text", label: "Hit Dice", x: 3, y: 2, w: 1, h: 1, value: "" }),
+    field({ fieldType: "text", label: "Hit Dice", x: 2, y: 2, w: 2, h: 1, value: "" }),
+    toggleField({ label: "", x: 0, y: 3, w: 1, h: 1 }, "inspiration"),
+    nameLabel("Inspiration", 1, 3, 3),
   ];
 
   const abilities = createBlock({ name: "Abilities", x: 4, y: 0, w: 6, h: 3 });
@@ -305,9 +324,17 @@ export function createStarterLayout() {
   // 3-way, not 6-way, branch below.
   const spellcasting = createBlock({ name: "Spellcasting", x: 10, y: 0, w: 6, h: 4 });
   spellcasting.children = [
-    field({ fieldType: "radio", label: "Ability (1=INT 2=WIS 3=CHA)", x: 0, y: 0, w: 1, h: 1 }, "spellAbility"),
+    // The old inline label "Ability (1=INT 2=WIS 3=CHA)" was 27
+    // characters trying to fit in this radio's own single cell (a
+    // radio's w/h tracks its option count only — see syncOptionWidth
+    // — not its label). Split it: a short "Ability" label on the
+    // radio itself, and the 1/2/3 legend as its own caption with
+    // proper width, in the two cells this row already had going
+    // unused (x4-6, in the original layout).
+    field({ fieldType: "radio", label: "Ability", x: 0, y: 0, w: 1, h: 1 }, "spellAbility"),
+    nameLabel("1=INT 2=WIS 3=CHA", 1, 0, 2),
     field({
-      fieldType: "text", label: "Mod", x: 1, y: 0, w: 1, h: 1,
+      fieldType: "text", label: "Mod", x: 3, y: 0, w: 1, h: 1,
       formula: {
         type: "if", condition: "{{spellAbility}} = 1",
         whenTrue: { type: "expr", text: "{{intMod}}" },
@@ -323,11 +350,11 @@ export function createStarterLayout() {
       },
     }, "spellAbilityMod"),
     field({
-      fieldType: "text", label: "Save DC", x: 2, y: 0, w: 1, h: 1,
+      fieldType: "text", label: "Save DC", x: 4, y: 0, w: 1, h: 1,
       formula: { type: "expr", text: "8 + {{profBonus}} + {{spellAbilityMod}}" },
     }, "spellSaveDC"),
     field({
-      fieldType: "text", label: "Attack", x: 3, y: 0, w: 1, h: 1,
+      fieldType: "text", label: "Attack", x: 5, y: 0, w: 1, h: 1,
       formula: { type: "expr", text: "{{profBonus}} + {{spellAbilityMod}}" },
     }, "spellAttackBonus"),
     // Slot trackers: click the Nth button to mark N slots used (same
@@ -347,23 +374,33 @@ export function createStarterLayout() {
     radioField({ label: "9th", x: 3, y: 2, w: 1, h: 1 }, 0, "slots9"),
   ];
 
-  const saves = createBlock({ name: "Saving Throws", x: 0, y: 4, w: 2, h: 1 + ABILITIES.length });
+  // Saves and Skills are stacked (not side by side, as an earlier pass
+  // had them) — a skill/save name needs a real 2-cell-wide caption of
+  // its own (see nameLabel() above) to show a full word like
+  // "Investigation" or "Sleight of Hand" without clipping, and two
+  // such lists side by side at half the width just reproduces the
+  // same clipping one column over. Stacked, both keep the same width
+  // as Identity above them (x0, w4) and the sheet stays a clean single
+  // left-hand column instead of a cramped double one.
+  const saves = createBlock({ name: "Saving Throws", x: 0, y: 5, w: 4, h: 1 + ABILITIES.length });
   saves.children = ABILITIES.flatMap((ability, i) => {
     const scoreId = `${ability.id}Score`;
     const profId = `${ability.id}SaveProf`;
     return [
-      toggleField({ label: ability.label, x: 0, y: i, w: 1, h: 1, labelPosition: "right" }, profId),
-      field({ fieldType: "text", label: "", x: 1, y: i, w: 1, h: 1, formula: proficientModFormula(scoreId, profId) }, `${ability.id}SaveMod`),
+      toggleField({ label: "Prof.", x: 0, y: i, w: 1, h: 1 }, profId),
+      nameLabel(ability.label, 1, i, 2),
+      field({ fieldType: "text", label: "", x: 3, y: i, w: 1, h: 1, formula: proficientModFormula(scoreId, profId) }, `${ability.id}SaveMod`),
     ];
   });
 
-  const skills = createBlock({ name: "Skills", x: 2, y: 4, w: 2, h: 1 + SKILLS.length });
+  const skills = createBlock({ name: "Skills", x: 0, y: saves.y + saves.h, w: 4, h: 1 + SKILLS.length });
   skills.children = SKILLS.flatMap((skill, i) => {
     const scoreId = `${skill.ability}Score`;
     const profId = `${skill.id}Prof`;
     return [
-      toggleField({ label: skill.label, x: 0, y: i, w: 1, h: 1, labelPosition: "right" }, profId),
-      field({ fieldType: "text", label: "", x: 1, y: i, w: 1, h: 1, formula: proficientModFormula(scoreId, profId) }, `${skill.id}Mod`),
+      toggleField({ label: "Prof.", x: 0, y: i, w: 1, h: 1 }, profId),
+      nameLabel(skill.label, 1, i, 2),
+      field({ fieldType: "text", label: "", x: 3, y: i, w: 1, h: 1, formula: proficientModFormula(scoreId, profId) }, `${skill.id}Mod`),
     ];
   });
 

@@ -572,6 +572,13 @@
   border-radius: var(--radius-md);
   border: var(--border-width) solid var(--color-border);
   background: var(--gradient-surface);
+  /* Gives every block/field actual weight on the page instead of
+     sitting perfectly flush with the background behind it — subtle,
+     but it's the difference between "cards" and "outlines". Blocks
+     get a bigger radius + deeper shadow below (.grid-node--block) so
+     they read as the "container", one visual step up from the
+     fields sitting on top of them. */
+  box-shadow: var(--shadow-sm);
   overflow: visible;
   transition: left 120ms ease, top 120ms ease, width 120ms ease, height 120ms ease,
               box-shadow var(--transition-fast), border-color var(--transition-fast);
@@ -580,6 +587,7 @@
 
 .is-edit-mode .grid-node:hover {
   border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-md);
 }
 
 /* Selection is shown by recoloring the node's OWN border, not a
@@ -611,6 +619,12 @@
 
 .grid-node--block {
   padding: var(--space-1);
+  border-radius: var(--radius-lg);
+  border-color: var(--color-border-strong);
+  /* One step up from a field's shadow-sm — a block is the "container"
+     sitting above the page grid, fields sit on top of IT, so it gets
+     a bit more visual lift than they do. */
+  box-shadow: var(--shadow-md);
   /* Semi-transparent rather than the fully-opaque .grid-node default —
      a block should still visibly sit on top of the page grid behind
      it, but not black it out completely. Deliberately not
@@ -664,11 +678,18 @@
   position: absolute;
   top: 0; left: 0; right: 0;
   /* height set inline in JS — exactly one grid row's worth of pixels */
+  display: flex;
+  align-items: center;
   font-family: var(--font-display);
   font-size: var(--text-sm);
-  color: var(--color-text-muted);
-  padding: 2px 4px;
-  border-radius: var(--radius-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-accent-hover);
+  background: linear-gradient(180deg, rgba(179,73,43,0.14), rgba(179,73,43,0.03));
+  border-bottom: var(--border-width) solid var(--color-border-strong);
+  padding: 2px 10px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   outline: none;
   cursor: text;
   overflow: hidden;
@@ -745,9 +766,14 @@
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  background: var(--color-bg-inset);
+  background: linear-gradient(180deg, var(--color-bg-inset), rgba(15,13,11,0.7));
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-sm);
+  /* A faint carved-in look for the writable area, distinguishing it
+     from the flat parchment-on-ink of the block behind it — this is
+     --shadow-inset's only real use on the sheet, everywhere else
+     relies on the plain border alone. */
+  box-shadow: var(--shadow-inset);
   outline: none;
   cursor: text;
   display: flex;
@@ -757,9 +783,11 @@
   text-align: center;
   padding: 2px 4px;
   overflow: auto;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 .field-value:focus {
   border-color: var(--color-accent);
+  box-shadow: var(--shadow-inset), var(--shadow-glow-accent);
 }
 
 .field-value--computed {
@@ -1157,6 +1185,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Bare native inputs otherwise render in the browser/OS's own default
+   accent color (often blue or green) — jarring against the sealing-
+   wax-red theme everywhere else on the sheet. Slightly enlarged too:
+   a native checkbox/radio at its default ~13px is a small target for
+   what's often the single most-clicked control on the sheet
+   (proficiency toggles, spell slots, death saves). */
+.option-radio input,
+.option-checkbox input {
+  accent-color: var(--color-accent);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
 /* A proficiency checkbox currently checked because a Race/Class/etc.
