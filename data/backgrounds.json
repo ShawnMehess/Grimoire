@@ -1,54 +1,299 @@
-[
-  {
-    "value": "acolyte",
-    "label": "Acolyte"
+{
+  "name": "Backgrounds",
+  "archetype": {
+    "acquisitionCosts": [],
+    "requirements": [],
+    "effects": [
+      {
+        "id": "skillProficiencies",
+        "label": "Skill Proficiencies",
+        "kind": "text"
+      },
+      {
+        "id": "toolProficiencies",
+        "label": "Tool Proficiencies",
+        "kind": "text"
+      },
+      {
+        "id": "languages",
+        "label": "Languages",
+        "kind": "text"
+      },
+      {
+        "id": "equipment",
+        "label": "Equipment",
+        "kind": "text"
+      },
+      {
+        "id": "feature",
+        "label": "Feature",
+        "kind": "text"
+      }
+    ]
   },
-  {
-    "value": "charlatan",
-    "label": "Charlatan"
-  },
-  {
-    "value": "criminal",
-    "label": "Criminal"
-  },
-  {
-    "value": "entertainer",
-    "label": "Entertainer"
-  },
-  {
-    "value": "folk-hero",
-    "label": "Folk Hero"
-  },
-  {
-    "value": "guild-artisan",
-    "label": "Guild Artisan"
-  },
-  {
-    "value": "hermit",
-    "label": "Hermit"
-  },
-  {
-    "value": "noble",
-    "label": "Noble"
-  },
-  {
-    "value": "outlander",
-    "label": "Outlander"
-  },
-  {
-    "value": "sage",
-    "label": "Sage"
-  },
-  {
-    "value": "sailor",
-    "label": "Sailor"
-  },
-  {
-    "value": "soldier",
-    "label": "Soldier"
-  },
-  {
-    "value": "urchin",
-    "label": "Urchin"
-  }
-]
+  "tabs": [
+    {
+      "id": "backgrounds",
+      "name": "Backgrounds",
+      "archetypeDiff": {
+        "acquisitionCosts": {
+          "added": [],
+          "removed": []
+        },
+        "requirements": {
+          "added": [],
+          "removed": []
+        },
+        "effects": {
+          "added": [],
+          "removed": []
+        }
+      },
+      "entries": [
+        {
+          "id": null,
+          "name": "Acolyte",
+          "description": "You have spent your life in the service of a temple to a specific god or pantheon of gods.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "skillProficiencies": "Insight, Religion",
+            "toolProficiencies": "None",
+            "languages": "Two of your choice",
+            "equipment": "A holy symbol (a gift to you when you entered the priesthood), a Prayer Book or Prayer Wheel, 5 Sticks of Incense, Vestments, a set of Common Clothes, and a pouch containing 15gp",
+            "feature": "Shelter the Faithful\nAs an acolyte, you command the respect of those who share your faith, and you can perform the religious ceremonies of your deity. You and your adventuring companions can expect to receive free healing and care at a temple, shrine, or other established presence of your faith, though you must provide any material components needed for spells. Those who share your religion will support you (but only you) at a modest lifestyle.\n\nYou might also have ties to a specific temple dedicated to your chosen deity or pantheon, and you have a residence there. This could be the temple where you used to serve, if you remain on good terms with it, or a temple where you have found a new home. While near your temple, you can call upon the priests for assistance, provided the assistance you ask for is not hazardous and you remain in good standing with your temple."
+          }
+        },
+        {
+          "id": null,
+          "name": "Entertainer",
+          "description": "You thrive in front of an audience.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "skillProficiencies": "Acrobatics, Performance",
+            "toolProficiencies": "Disguise kit, one type of musical instrument",
+            "languages": "None",
+            "equipment": "A Musical Instrument (one of your choice), the favor of an admirer (love letter, lock of hair, or trinket), a Costume, and a pouch containing 15gp",
+            "feature": "By Popular Demand\nYou can always find a place to perform, usually in an inn or tavern but possibly with a circus, at a theater, or even in a noble's court. At such a place, you receive free lodging and food of a modest or comfortable standard (depending on the quality of the establishment), as long as you perform each night. In addition, your performance makes you something of a local figure. When strangers recognize you in a town where you have performed, they typically take a liking to you.\n\nEntertainer Routines\nA good entertainer is versatile, spicing up every performance with a variety of different routines. Choose one to three routines or roll on the table below to define your expertise as an entertainer.\n\nd10\nEntertainer Routine\n\n1\nActor\n\n2\nDancer\n\n3\nFire-eater\n\n4\nJester\n\n5\nJuggler\n\n6\nInstrumental\n\n7\nPoet\n\n8\nSinger\n\n9\nStoryteller\n\n10\nTumbler\n\nBy Popular Demand\nYou can always find a place to perform, usually in an inn or tavern but possibly with a circus, at a theater, or even in a noble's court. At such a place, you receive free lodging and food of a modest or comfortable standard (depending on the quality of the establishment), as long as you perform each night. In addition, your performance makes you something of a local figure. When strangers recognize you in a town where you have performed, they typically take a liking to you."
+          }
+        },
+        {
+          "id": null,
+          "name": "Folk Hero",
+          "description": "You come from a humble social rank, but you are destined for so much more.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "skillProficiencies": "Animal Handling, Survival",
+            "toolProficiencies": "One type of artisan's tools, vehicles (land)",
+            "languages": "None",
+            "equipment": "A set of Artisan's Tools (one of your choice), a Shovel, an Iron Pot, a set of Common Clothes, and a pouch containing 10gp",
+            "feature": "Defining Event\nYou previously pursued a simple profession among the peasantry, perhaps as a farmer, miner, servant, shepherd, woodcutter, or gravedigger. But something happened that set you on a different path and marked you for greater things. Choose or randomly determine a defining event that marked you as a hero of the people.\n\nd10\nDefining Event\n\n1\nI stood up to a tyrant's agents.\n\n2\nI saved people during a natural disaster.\n\n3\nI stood alone against a terrible monster.\n\n4\nI stole from a corrupt merchant to help the poor.\n\n5\nI led a militia to fight off an invading army.\n\n6\nI broke into a tyrant's castle and stole weapons to arm the people.\n\n7\nI trained the peasantry to use farm implements as weapons against a tyrant's soldiers.\n\n8\nA lord rescinded an unpopular decree after I led a symbolic act of protect against it.\n\n9\nA celestial, fey, or similar creature gave me a blessing or revealed my secret origin.\n\n10\nRecruited into a lord's army, I rose to leadership and was commended for my heroism.\n\nRustic Hospitality\nSince you come from the ranks of the common folk, you fit in among them with ease. You can find a place to hide, rest, or recuperate among other commoners, unless you have shown yourself to be a danger to them. They will shield you from the law or anyone else searching for you, though they will not risk their lives for you."
+          }
+        },
+        {
+          "id": null,
+          "name": "Guild Artisan",
+          "description": "Text  Skill Proficiencies: Insight, Persuasion  Tool Proficiencies: One type of artisan's tools  Languages: One of your choice  Equipment: A set of Artisan's\u2026",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "skillProficiencies": "Insight, Persuasion",
+            "toolProficiencies": "One type of artisan's tools",
+            "languages": "One of your choice",
+            "equipment": "A set of Artisan's Tools (one of your choice), a letter of introduction from your guild, a set of Traveler's Clothes, and a pouch containing 15gp",
+            "feature": "Guild Business\nGuilds are generally found in cities large enough to support several artisans practicing the same trade. However, your guild might instead be a loose network of artisans who each work in a different village within a larger realm. Work with your DM to determine the nature of your guild. You can select your guild business from the Guild Business table or roll randomly.\n\nd20\nGuild Business\n\n1\nAlchemists and apothecaries\n\n2\nArmorers, locksmiths, and finesmiths\n\n3\nBrewers, distillers, and vintners\n\n4\nCalligraphers, scribes, and scriveners\n\n5\nCarpenters, roofers, and plasterers\n\n6\nCartographers, surveyors, and chart-makers\n\n7\nCobblers and shoemakers\n\n8\nCooks and bakers\n\n9\nGlassblowers and glaziers\n\n10\nJewelers and gemcutters\n\n11\nLeatherworkers, skinners, and tanners\n\n12\nMasons and stonecutters\n\n13\nPainters, limners, and sign-makers\n\n14\nPotters and tile-makers\n\n15\nShipwrights and sailmakers\n\n16\nSmiths and metal-forgers\n\n17\nTinkers, pewterers, and casters\n\n18\nWagon-makers and wheelwrights\n\n19\nWeavers and dyers\n\n20\nWoodcarvers, coopers, and bowyers\n\nAs a member of your guild, you know the skills needed to create finished items from raw materials (reflected in your proficiency with a certain kind of artisan's tools), as well as the principles of trade and good business practices. The question now is whether you abandon your trade for adventure, or take on the extra effort to weave adventuring and trade together.\n\nGuild Membership\nAs an established and respected member of a guild, you can rely on certain benefits that membership provides. Your fellow guild members will provide you with lodging and food if necessary, and pay for your funeral if needed. In some cities and towns, a guildhall offers a central place to meet other members of your profession, which can be a good place to meet potential patrons, allies, or hirelings.\n\nGuilds often wield tremendous political power. If you are accused of a crime, your guild will support you if a good case can be made for your innocence or the crime is justifiable. You can also gain access to powerful political figures through the guild, if you are a member in good standing. Such connections might require the donation of money or magic items to the guild's coffers.\n\nYou must pay dues of 5 gp per month to the guild. If you miss payments, you must make up back dues to remain in the guild's good graces."
+          }
+        },
+        {
+          "id": null,
+          "name": "Noble",
+          "description": "You understand wealth, power, and privilege.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "skillProficiencies": "History, Persuasion",
+            "toolProficiencies": "One type of gaming set",
+            "languages": "One of your choice",
+            "equipment": "A set of Fine Clothes, a Signet Ring, a scroll of pedigree, and a purse containing 25gp",
+            "feature": "Position of Privilege\nThanks to your noble birth, people are inclined to think the best of you. You are welcome in high society, and people assume you have the right to be wherever you are. The common folk make every effort to accommodate you and avoid your displeasure, and other people of high birth treat you as a member of the same social sphere. You can secure an audience with a local noble if you need to.\n\nRetainers\nIf your character has a noble background, you may select this background feature instead of Position of Privilege.\n\nYou have the service of three retainers loyal to your family. These retainers can be attendants or messengers, and one might be a majordomo. Your retainers are commoners who can perform mundane tasks for you, but they do not fight for you, will not follow you into obviously dangerous areas (such as dungeons), and will leave if they are frequently endangered or abused."
+          }
+        },
+        {
+          "id": null,
+          "name": "Outlander",
+          "description": "You grew up in the wilds, far from civilization and the comforts of town and technology.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "skillProficiencies": "Athletics, Survival",
+            "toolProficiencies": "One type of musical instrument",
+            "languages": "One of your choice",
+            "equipment": "A Staff, a Hunting Trap, a trophy from an animal you killed, a set of Traveler's Clothes}, and a pouch containing 10gp",
+            "feature": "Origin\nYou've been to strange places and seen things that others cannot begin to fathom. Consider some of the distant lands you have visited, and how they impacted you. You can roll on the following table to determine your occupation during your time in the wild, or choose one that best fits your character.\n\nd10\nOrigin\n\n1\nForester\n\n2\nTrapper\n\n3\nHomesteader\n\n4\nGuide\n\n5\nExile or outcast\n\n6\nBounty hunter\n\n7\nPilgrim\n\n8\nTribal nomad\n\n9\nHunter-gatherer\n\n10\nTribal marauder\n\nWanderer\nYou have an excellent memory for maps and geography, and you can always recall the general layout of terrain, settlements, and other features around you. In addition, you can find food and fresh water for yourself and up to five other people each day, provided that the land offers berries, small game, water, and so forth."
+          }
+        },
+        {
+          "id": null,
+          "name": "Sage",
+          "description": "You spent years learning the lore of the multiverse.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "skillProficiencies": "Arcana, History",
+            "toolProficiencies": "None",
+            "languages": "Two of your choice",
+            "equipment": "Ink Bottle, Quill, Small Knife, Common Clothes,\u00a0 a letter from a dead colleague posing a question you have not yet been able to answer, and a pouch containing 10 gp",
+            "feature": "Specialty\nTo determine the Nature\u00a0of your scholarly Training, roll a d8 or choose from the options in the table below.\n\nd8\nSpecialty\n\n1\nAlchemist\n\n2\nAstronomer\n\n3\nDiscredited Academic\n\n4\nLibrarian\n\n5\nProfessor\n\n6\nResearcher\n\n7\nWizard's Apprentice\n\n8\nScribe\n\nResearcher\nWhen you attempt to learn or recall a piece of lore, if you do not know that information, you often know where and from whom you can obtain it. Usually, this information comes from a library, scriptorium, university, or a sage or other learned person or creature. Your DM might rule that the knowledge you seek is secreted away in an almost inaccessible place, or that it simply cannot be found. Unearthing the deepest secrets of the multiverse can require an adventure or even a whole campaign."
+          }
+        },
+        {
+          "id": null,
+          "name": "Sailor",
+          "description": "You sailed on a seagoing vessel for years.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "skillProficiencies": "Athletics, Perception",
+            "toolProficiencies": "Navigator's tools, vehicles (water)",
+            "languages": "None",
+            "equipment": "A Belaying Pin (club), Silk Rope (50 ft.), a lucky charm such as a rabbit foot or a small stone with a hole in the center (or you may roll for a random trinket on the Trinkets table in chapter 5), a set of Common Clothes, and a pouch containing 10gp",
+            "feature": "Ship's Passage\nWhen you need to, you can secure free passage on a sailing ship for yourself and your adventuring companions. You might sail on the ship you served on, or another ship you have good relations with (perhaps one captained by a former crewmate). Because you're calling in a favor, you can't be certain of a schedule or route that will meet your every need. Your DM will determine how long it takes to get where you need to go. In return for your free passage, you and your companions are expected to assist the crew during the voyage.\n\nBad Reputation\nIf your character has a pirate background, you may select this background feature instead of Ship's Passage.\n\nNo matter where you go, people are afraid of you due to your reputation. When you are in a civilized settlement, you can get away with minor criminal offenses, such as refusing to pay for food at a tavern or breaking down doors at a local shop, since most people will not report your activity to the authorities."
+          }
+        },
+        {
+          "id": null,
+          "name": "Urban Bounty Hunter",
+          "description": "Before you became an adventurer, your life was already full of conflict and excitement, because you made a living tracking down people for pay.",
+          "imageData": null,
+          "archetypeDiff": {
+            "acquisitionCosts": {
+              "added": [],
+              "removed": []
+            },
+            "requirements": {
+              "added": [],
+              "removed": []
+            },
+            "effects": {
+              "added": [],
+              "removed": []
+            }
+          },
+          "fieldValues": {
+            "skillProficiencies": "Choose two from among Deception, Insight, Persuasion, and Stealth",
+            "toolProficiencies": "Choose two from among one type of gaming set, one musical instrument, and thieves' tools",
+            "languages": "None",
+            "equipment": "A set of clothes appropriate to your duties and a pouch containing 20gp",
+            "feature": "Ear to the Ground\nYou are in frequent contact with people in the segment of society that your chosen quarries move through. These people might be associated with the criminal underworld, the rough-and-tumble folk of the streets, or members of high society. This connection comes in the form of a contact in any city you visit, a person who provides information about the people and places of the local area."
+          }
+        }
+      ]
+    }
+  ]
+}

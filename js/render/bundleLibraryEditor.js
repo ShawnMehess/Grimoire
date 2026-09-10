@@ -442,7 +442,19 @@ export function openBundleLibraryManager(store, onChange) {
   // (and reusing the same visual style classes as) the Catalogs
   // manager's importer — see the comment there for why: bulk-loading a
   // hand-authored default bundle without needing any Firebase
-  // credentials.
+  // credentials. Also accepts one or more .json files, dropped or
+  // browsed for, as an alternative to pasting — capped at
+  // MAX_IMPORT_FILES files and MAX_IMPORT_BYTES total so a drop can't
+  // accidentally hang the tab or blow past Firestore write limits.
+  const MAX_IMPORT_FILES = 100;
+  const MAX_IMPORT_BYTES = 100 * 1024 * 1024; // 100 MB
+
+  function formatBytes(bytes) {
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${bytes} B`;
+  }
+
   function renderImportForm() {
     const heading = document.createElement("div");
     heading.className = "dropdown-choices-editor__mods-header";
@@ -451,7 +463,7 @@ export function openBundleLibraryManager(store, onChange) {
 
     const hint = document.createElement("p");
     hint.className = "modal-copy catalog-archetype__hint";
-    hint.textContent = "Paste a bundle's JSON here. Bundles can include statModifiers, dropdownAccess, featureGrants, resourceGrants, and choiceGroups; import one object or an array.";
+    hint.textContent = "Paste a bundle's JSON here, or drop/choose .json files below. Bundles can include statModifiers, dropdownAccess, featureGrants, resourceGrants, and choiceGroups; import one object or an array, per file or pasted.";
     editorCol.append(hint);
 
     const textarea = document.createElement("textarea");
@@ -459,19 +471,141 @@ export function openBundleLibraryManager(store, onChange) {
     textarea.placeholder = '{ "name": "...", "category": "...", "statModifiers": [ ... ] }\nor: [ { ... }, { ... } ]';
     editorCol.append(textarea);
 
+    // --- File drop zone -------------------------------------------------
+    let pendingFileEntries = []; // flattened bundle objects successfully parsed from files
+
+    const dropZone = document.createElement("div");
+    dropZone.className = "bundle-import-dropzone";
+    dropZone.tabIndex = 0;
+    dropZone.setAttribute("role", "button");
+    dropZone.textContent = `Drag .json files here, or click to browse (up to ${MAX_IMPORT_FILES} files, ${formatBytes(MAX_IMPORT_BYTES)} total)`;
+    editorCol.append(dropZone);
+
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = ".json,application/json";
+    fileInput.multiple = true;
+    fileInput.style.display = "none";
+    editorCol.append(fileInput);
+
+    const fileStatusBox = document.createElement("div");
+    fileStatusBox.className = "bundle-import-filestatus";
+    editorCol.append(fileStatusBox);
+
     const statusLine = document.createElement("p");
     statusLine.className = "modal-copy catalog-archetype__hint";
     editorCol.append(statusLine);
 
-    async function doImport(scope) {
-      let parsed;
-      try {
-        parsed = JSON.parse(textarea.value);
-      } catch (err) {
-        statusLine.textContent = `That's not valid JSON: ${err.message}`;
+    function renderFileStatus(rows, summary) {
+      fileStatusBox.innerHTML = "";
+      if (!rows.length) return;
+      rows.forEach(({ name, size, ok, message }) => {
+        const row = document.createElement("div");
+        row.className = "bundle-import-filestatus__row" + (ok ? "" : " bundle-import-filestatus__row--error");
+        row.textContent = `${ok ? "✓" : "✗"} ${name} (${formatBytes(size)})${message ? ` — ${message}` : ""}`;
+        fileStatusBox.append(row);
+      });
+      if (summary) {
+        const summaryRow = document.createElement("div");
+        summaryRow.className = "bundle-import-filestatus__summary";
+        summaryRow.textContent = summary;
+        fileStatusBox.append(summaryRow);
+      }
+    }
+
+    async function handleFiles(fileList) {
+      const files = Array.from(fileList || []);
+      if (!files.length) return;
+
+      if (files.length > MAX_IMPORT_FILES) {
+        pendingFileEntries = [];
+        renderFileStatus([], `Too many files selected (${files.length}) — max is ${MAX_IMPORT_FILES}. Nothing was loaded.`);
         return;
       }
-      const entries = Array.isArray(parsed) ? parsed : [parsed];
+      const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+      if (totalBytes > MAX_IMPORT_BYTES) {
+        pendingFileEntries = [];
+        renderFileStatus([], `Total size ${formatBytes(totalBytes)} exceeds the ${formatBytes(MAX_IMPORT_BYTES)} limit. Nothing was loaded.`);
+        return;
+      }
+
+      const rows = [];
+      const collected = [];
+      for (const file of files) {
+        try {
+          const text = await file.text();
+          const parsed = JSON.parse(text);
+          const entries = Array.isArray(parsed) ? parsed : [parsed];
+          collected.push(...entries);
+          rows.push({ name: file.name, size: file.size, ok: true, message: `${entries.length} bundle${entries.length === 1 ? "" : "s"}` });
+        } catch (err) {
+          rows.push({ name: file.name, size: file.size, ok: false, message: err.message || "not valid JSON" });
+        }
+      }
+
+      pendingFileEntries = collected;
+      const failedCount = rows.filter((r) => !r.ok).length;
+      const summary = collected.length
+        ? `${collected.length} bundle${collected.length === 1 ? "" : "s"} ready from ${files.length - failedCount} file${files.length - failedCount === 1 ? "" : "s"}` +
+          (failedCount ? `; ${failedCount} file${failedCount === 1 ? "" : "s"} failed to parse and will be skipped.` : ".")
+        : "No bundles could be read from these files.";
+      renderFileStatus(rows, summary);
+    }
+
+    dropZone.addEventListener("click", () => fileInput.click());
+    dropZone.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        fileInput.click();
+      }
+    });
+    dropZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      dropZone.classList.add("bundle-import-dropzone--active");
+    });
+    dropZone.addEventListener("dragleave", () => {
+      dropZone.classList.remove("bundle-import-dropzone--active");
+    });
+    dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZone.classList.remove("bundle-import-dropzone--active");
+      handleFiles(e.dataTransfer.files);
+    });
+    fileInput.addEventListener("change", () => {
+      handleFiles(fileInput.files);
+      fileInput.value = ""; // allow re-selecting the same file(s) after a fix
+    });
+
+    // --- Import -----------------------------------------------------
+
+    function collectEntries() {
+      const entries = [];
+      if (textarea.value.trim()) {
+        let parsed;
+        try {
+          parsed = JSON.parse(textarea.value);
+        } catch (err) {
+          throw new Error(`Pasted JSON: ${err.message}`);
+        }
+        entries.push(...(Array.isArray(parsed) ? parsed : [parsed]));
+      }
+      entries.push(...pendingFileEntries);
+      return entries;
+    }
+
+    async function doImport(scope) {
+      let entries;
+      try {
+        entries = collectEntries();
+      } catch (err) {
+        statusLine.textContent = err.message;
+        return;
+      }
+      if (!entries.length) {
+        statusLine.textContent = "Nothing to import yet — paste JSON or add file(s) above.";
+        return;
+      }
       let lastId = null;
       let lastEntry = null;
       try {
