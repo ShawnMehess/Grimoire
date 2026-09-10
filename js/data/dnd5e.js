@@ -33,6 +33,29 @@ const HALF_CASTER_SLOTS = [
   [4, 3, 3, 3, 2], [4, 3, 3, 3, 2],
 ];
 
+// Sourced from data/classes-2024.json (via scripts/compile-2024-content.mjs)
+// for subclass names, and features-2024.json for subclassLevel — every
+// 2024 class grants its subclass at level 3 (unlike 2014, where it
+// varied 1-3 per class). Subclass lists here are only whatever's in the
+// free SRD (one per class); add the rest by hand as splatbook content,
+// same as the 2014 registry above. caster ("full"/"half"/null) isn't in
+// the SRD class JSON itself, so it's set from known 5e/5.24 rules the
+// same way the 2014 list above is.
+const PHB_2024_CLASSES = [
+  ["Barbarian", ["Path of the Berserker"]],
+  ["Bard", ["College of Lore"], "full"],
+  ["Cleric", ["Life Domain"], "full"],
+  ["Druid", ["Circle of the Land"], "full"],
+  ["Fighter", ["Champion"]],
+  ["Monk", ["Warrior of the Open Hand"]],
+  ["Paladin", ["Oath of Devotion"], "half"],
+  ["Ranger", ["Hunter"], "half"],
+  ["Rogue", ["Thief"]],
+  ["Sorcerer", ["Draconic Sorcery"], "full"],
+  ["Warlock", ["Fiend Patron"], "full"],
+  ["Wizard", ["Evoker"], "full"],
+].map(([name, subclasses, caster]) => ({ name, subclassLevel: 3, subclasses, caster: caster || null }));
+
 export const RULESETS = [
   {
     id: "dnd5e-2014-phb",
@@ -42,14 +65,7 @@ export const RULESETS = [
   {
     id: "dnd5e-2024-phb",
     name: "D&D 5e (2024 PHB)",
-    // The structure is ready for the rest of the 2024 class data. Druid
-    // is included now because it is the immediate player-facing need.
-    classes: [{
-      name: "Druid",
-      subclassLevel: 3,
-      subclasses: ["Circle of the Land", "Circle of the Moon"],
-      caster: "full",
-    }],
+    classes: PHB_2024_CLASSES,
   },
 ];
 

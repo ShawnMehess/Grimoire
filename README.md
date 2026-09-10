@@ -211,11 +211,29 @@ name plus class entries shaped like this:
 The character toolbar stores the chosen ruleset id on that character. The
 guide then filters its Subclass dropdown, presents the right subclass choice
 at the configured level, and applies HP and supported spell-slot progression.
-The bundled 2014 PHB ruleset contains the core class/subclass roster; the
-2024 entry is intentionally a data-pack starting point, with Druid seeded for
-the current campaign. Add the remaining 2024 class records there as you add
-that content. New games can use the same registry shape without changing the
-sheet renderer.
+Both the 2014 PHB and 2024 PHB rulesets now contain the full 12-class roster
+(see `PHB_2024_CLASSES` in `js/data/dnd5e.js`), though each class's subclass
+list is only whatever's in the free SRD (one per class) — add the rest by
+hand as splatbook content. New games can use the same registry shape without
+changing the sheet renderer.
+
+### Importing 2024 SRD content into the Bundle Library / Catalogs
+
+`scripts/compile-2024-content.mjs` turns the raw 2024 SRD dumps in `/data/*-2024.json`
+into the same hand-authored bundle/catalog JSON shapes `default-bundles/`
+and `default-catalogs/` already use — classes, species, and backgrounds as
+importable bundles, feats as a browsable catalog. Run it, then import the
+output the same way as any other file in those folders (see their READMEs):
+
+```
+node scripts/compile-2024-content.mjs
+```
+
+It does not (and can't, from raw SRD text alone) express class skill
+*choices* or feat *effects* mechanically — those land as reference text,
+same limitation the 2014 pipeline already has. See the script's file-level
+comment and `default-bundles/README.md` for exactly what is and isn't
+covered.
 
 - **New field on the sheet** → add an entry to `schema.js`. Done.
 - **New field *type* not covered yet** (e.g. a dice-roll button) → add

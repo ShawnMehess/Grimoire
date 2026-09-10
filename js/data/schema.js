@@ -104,6 +104,7 @@ export function createBlankCharacter(ownerId) {
       subclass: "",
       abilityScores: Object.fromEntries(ABILITIES.map(a => [a.id, 10])),
       choices: {},
+      resourceUses: {},
       appliedLevels: {},
     },
     createdAt: null,  // set server-side via serverTimestamp()

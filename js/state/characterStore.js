@@ -292,6 +292,9 @@ function bundleLibraryPayload(entry, ownerId) {
     category: entry.category || "",
     statModifiers: entry.statModifiers || [],
     dropdownAccess: entry.dropdownAccess || [],
+    featureGrants: entry.featureGrants || [],
+    resourceGrants: entry.resourceGrants || [],
+    choiceGroups: entry.choiceGroups || [],
     updatedAt: serverTimestamp(),
   };
 }

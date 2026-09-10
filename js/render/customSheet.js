@@ -1444,6 +1444,61 @@ export function renderCustomSheet(root, character, store) {
    *  a permanent mutation" model as the numeric ops, just via a
    *  different mechanism because checkboxes don't have a formula-style
    *  computed layer to hook into. */
+  function applyStatModifiers(modifiers, valueMap, checkboxGrants, level) {
+    (modifiers || []).forEach((mod) => {
+      if (!mod.targetFieldId) return;
+      if (mod.minLevel && level < mod.minLevel) return;
+      if (mod.op === "grant") {
+        const key = `${mod.targetFieldId}::${mod.targetIndex || 0}`;
+        checkboxGrants.add(key);
+        valueMap[key] = 1;
+        return;
+      }
+      const current = Number.isFinite(valueMap[mod.targetFieldId]) ? valueMap[mod.targetFieldId] : 0;
+      const amount = Number.isFinite(mod.value) ? mod.value : 0;
+      switch (mod.op) {
+        case "add": valueMap[mod.targetFieldId] = current + amount; break;
+        case "subtract": valueMap[mod.targetFieldId] = current - amount; break;
+        case "multiply": valueMap[mod.targetFieldId] = current * amount; break;
+        case "set": valueMap[mod.targetFieldId] = amount; break;
+        default: break;
+      }
+    });
+  }
+
+  function activeRuleChoiceGroups(fields, valueMap) {
+    const level = currentLevel(valueMap);
+    const groups = [];
+    fields.forEach((field) => {
+      if (field.fieldType !== "dropdown") return;
+      const choice = (field.choices || []).find((candidate) => candidate.id === field.selected);
+      const bundle = choice?.bundle;
+      (bundle?.choiceGroups || []).forEach((group, index) => {
+        if (group.minLevel && level < group.minLevel) return;
+        if (!Array.isArray(group.options) || group.options.length === 0) return;
+        groups.push({
+          ...group,
+          key: `${field.id}:${choice.id}:${group.id || index}`,
+          source: choice.text || field.label,
+          minLevel: Number.isFinite(group.minLevel) ? group.minLevel : 0,
+          maxSelections: Math.max(1, Number.parseInt(group.maxSelections, 10) || 1),
+          minSelections: Math.max(0, Number.parseInt(group.minSelections, 10) || 0),
+        });
+      });
+    });
+    return groups;
+  }
+
+  function selectedRuleOptions(fields, valueMap) {
+    const selections = character.rules?.choices || {};
+    return activeRuleChoiceGroups(fields, valueMap).flatMap((group) => {
+      const selected = new Set(Array.isArray(selections[group.key]) ? selections[group.key] : []);
+      return group.options
+        .filter((option) => selected.has(option.id))
+        .map((option) => ({ option, group }));
+    });
+  }
+
   function applyBundleModifiers(fields, valueMap, grantedCheckboxes) {
     const level = currentLevel(valueMap);
     fields.forEach((field) => {
@@ -1451,32 +1506,10 @@ export function renderCustomSheet(root, character, store) {
       const choice = (field.choices || []).find(c => c.id === field.selected);
       const bundle = choice && choice.bundle;
       if (!bundle) return;
-      (bundle.statModifiers || []).forEach((mod) => {
-        if (!mod.targetFieldId) return;
-        if (mod.minLevel && level < mod.minLevel) return; // not unlocked yet
-        if (mod.op === "grant") {
-          // Also write into valueMap (same 1/0 encoding checkbox
-          // values already use), not just grantedCheckboxes — a
-          // dependent formula (a skill/save's own Mod field, checking
-          // "is this checkbox checked?") reads valueMap, not the
-          // rendering-side grant overlay, so without this the box
-          // would visually show granted while its actual proficiency
-          // bonus silently failed to apply.
-          const key = `${mod.targetFieldId}::${mod.targetIndex || 0}`;
-          grantedCheckboxes.add(key);
-          valueMap[key] = 1;
-          return;
-        }
-        const current = Number.isFinite(valueMap[mod.targetFieldId]) ? valueMap[mod.targetFieldId] : 0;
-        const amount = Number.isFinite(mod.value) ? mod.value : 0;
-        switch (mod.op) {
-          case "add": valueMap[mod.targetFieldId] = current + amount; break;
-          case "subtract": valueMap[mod.targetFieldId] = current - amount; break;
-          case "multiply": valueMap[mod.targetFieldId] = current * amount; break;
-          case "set": valueMap[mod.targetFieldId] = amount; break;
-          default: break;
-        }
-      });
+      applyStatModifiers(bundle.statModifiers, valueMap, grantedCheckboxes, level);
+    });
+    selectedRuleOptions(fields, valueMap).forEach(({ option }) => {
+      applyStatModifiers(option.statModifiers, valueMap, grantedCheckboxes, level);
     });
   }
 
@@ -1510,8 +1543,49 @@ export function renderCustomSheet(root, character, store) {
         });
       });
     });
+    selectedRuleOptions(fields, valueMap).forEach(({ option, group }) => {
+      (option.featureGrants || []).forEach((grant) => {
+        features.push({
+          name: grant.name,
+          description: grant.description || "",
+          level: group.minLevel,
+          source: option.name || group.label || group.source,
+        });
+      });
+    });
     features.sort((a, b) => a.level - b.level || a.source.localeCompare(b.source));
     return features;
+  }
+
+  function collectResourceGrants(fields, valueMap) {
+    const level = currentLevel(valueMap);
+    const resources = [];
+    const add = (grant, key, source) => {
+      if (grant.minLevel && level < grant.minLevel) return;
+      const maximum = Math.max(0, Number.parseInt(grant.maximum, 10) || 0);
+      if (!grant.name || maximum < 1) return;
+      resources.push({
+        key,
+        name: grant.name,
+        maximum,
+        reset: grant.reset || "rest",
+        source,
+      });
+    };
+    fields.forEach((field) => {
+      if (field.fieldType !== "dropdown") return;
+      const choice = (field.choices || []).find((candidate) => candidate.id === field.selected);
+      const bundle = choice?.bundle;
+      (bundle?.resourceGrants || []).forEach((grant, index) => {
+        add(grant, `${field.id}:${choice.id}:resource:${grant.id || index}`, choice.text || field.label);
+      });
+    });
+    selectedRuleOptions(fields, valueMap).forEach(({ option, group }) => {
+      (option.resourceGrants || []).forEach((grant, index) => {
+        add(grant, `${group.key}:${option.id}:resource:${grant.id || index}`, option.name || group.label || group.source);
+      });
+    });
+    return resources;
   }
 
   function computeSheetValues(fields) {
@@ -2023,7 +2097,9 @@ export function renderCustomSheet(root, character, store) {
     const level = currentCharacterLevel();
     const selectedSubclass = selectedChoiceName("subclass", "Subclass");
     const plan = getLevelUpPlan(character.rules?.rulesetId || character.rulesetId, className, level, selectedSubclass);
-    if (!plan) return null;
+    const contentGroups = level == null ? [] : activeRuleChoiceGroups(flattenGlobalFields(), formulaValues)
+      .filter((group) => group.minLevel <= level);
+    if (!plan && contentGroups.length === 0) return null;
 
     const priorLevelUp = character.levelUps?.[String(level)] || {};
     const panel = document.createElement("section");
@@ -2032,22 +2108,22 @@ export function renderCustomSheet(root, character, store) {
     const heading = document.createElement("div");
     heading.className = "level-guide__heading";
     const title = document.createElement("h2");
-    title.textContent = `${className} Level ${level}`;
+    title.textContent = `${className || "Character"} Level ${level}`;
     const status = document.createElement("span");
     status.className = "level-guide__status";
-    status.textContent = plan.needsSubclass ? "Subclass choice needed" : selectedSubclass || plan.ruleset.name;
+    status.textContent = plan?.needsSubclass ? "Subclass choice needed" : selectedSubclass || plan?.ruleset.name || "Content choices";
     heading.append(title, status);
     panel.append(heading);
 
     const summary = document.createElement("p");
     summary.className = "level-guide__summary";
-    const slots = plan.slotChanges.map((change) => `${change.options} ${change.label}-level`).join(", ");
+    const slots = (plan?.slotChanges || []).map((change) => `${change.options} ${change.label}-level`).join(", ");
     summary.textContent = slots
       ? `Record the HP gained for this level. This ruleset will set spell slots to ${slots}.`
-      : "Record the HP gained and any class features from your ruleset source.";
+      : "Record the HP gained and choose any features or options granted at this level.";
     panel.append(summary);
 
-    if (priorLevelUp.appliedRulesetId === plan.ruleset.id) {
+    if (plan && priorLevelUp.appliedRulesetId === plan.ruleset.id) {
       const complete = document.createElement("p");
       complete.className = "level-guide__feedback";
       complete.textContent = `This level was already applied using ${plan.ruleset.name}.`;
@@ -2057,8 +2133,58 @@ export function renderCustomSheet(root, character, store) {
 
     const form = document.createElement("div");
     form.className = "level-guide__form";
+    const pendingChoices = new Map(contentGroups.map((group) => [
+      group.key,
+      [...(character.rules?.choices?.[group.key] || [])],
+    ]));
+
+    contentGroups.forEach((group) => {
+      const choiceGroup = document.createElement("fieldset");
+      choiceGroup.className = "level-guide__choices";
+      const legend = document.createElement("legend");
+      const count = group.minSelections === group.maxSelections
+        ? `Choose ${group.maxSelections}`
+        : `Choose up to ${group.maxSelections}`;
+      legend.textContent = `${group.label || "Choose an option"} (${count})`;
+      choiceGroup.append(legend);
+      const source = document.createElement("p");
+      source.className = "level-guide__choice-source";
+      source.textContent = group.source;
+      choiceGroup.append(source);
+
+      group.options.forEach((option) => {
+        const optionLabel = document.createElement("label");
+        optionLabel.className = "level-guide__choice-option";
+        const input = document.createElement("input");
+        input.type = group.maxSelections === 1 ? "radio" : "checkbox";
+        input.name = `rule-choice-${group.key}`;
+        input.value = option.id;
+        input.checked = pendingChoices.get(group.key).includes(option.id);
+        input.addEventListener("change", () => {
+          const selected = pendingChoices.get(group.key);
+          if (input.type === "radio") {
+            pendingChoices.set(group.key, input.checked ? [option.id] : []);
+          } else if (input.checked) {
+            if (!selected.includes(option.id)) selected.push(option.id);
+          } else {
+            pendingChoices.set(group.key, selected.filter((id) => id !== option.id));
+          }
+        });
+        const text = document.createElement("span");
+        text.textContent = option.name || "Unnamed option";
+        optionLabel.append(input, text);
+        if (option.description) {
+          const description = document.createElement("span");
+          description.className = "level-guide__choice-description";
+          description.textContent = option.description;
+          optionLabel.append(description);
+        }
+        choiceGroup.append(optionLabel);
+      });
+      form.append(choiceGroup);
+    });
     let subclassSelect = null;
-    if (plan.needsSubclass) {
+    if (plan?.needsSubclass) {
       const subclassGroup = document.createElement("label");
       subclassGroup.className = "level-guide__field";
       subclassGroup.textContent = "Subclass";
@@ -2111,12 +2237,21 @@ export function renderCustomSheet(root, character, store) {
         hpInput.focus();
         return;
       }
+      for (const group of contentGroups) {
+        const selected = pendingChoices.get(group.key) || [];
+        if (selected.length < group.minSelections || selected.length > group.maxSelections) {
+          feedback.textContent = `${group.label || "This choice"} needs ${group.minSelections === group.maxSelections ? group.maxSelections : `${group.minSelections}-${group.maxSelections}`} selection(s).`;
+          feedback.classList.add("level-guide__feedback--error");
+          return;
+        }
+      }
       const subclassField = findStarterField("subclass", "Subclass");
       const selectedSubclassName = subclassSelect?.value || selectedSubclass;
       const subclassChoice = selectedSubclassName && (subclassField?.choices || []).find((choice) => choice.text === selectedSubclassName);
-      ensureStandardSpellSlotFields(plan.slotChanges);
-      const missingSlots = plan.slotChanges.filter((change) => !findStarterField(change.fieldId, change.label));
-      if (plan.needsSubclass && (!subclassField || !subclassChoice)) {
+      const slotChanges = plan?.slotChanges || [];
+      ensureStandardSpellSlotFields(slotChanges);
+      const missingSlots = slotChanges.filter((change) => !findStarterField(change.fieldId, change.label));
+      if (plan?.needsSubclass && (!subclassField || !subclassChoice)) {
         feedback.textContent = "This sheet needs a Subclass dropdown containing the ruleset's available choices.";
         feedback.classList.add("level-guide__feedback--error");
         return;
@@ -2127,7 +2262,7 @@ export function renderCustomSheet(root, character, store) {
         return;
       }
 
-      const before = clone({ layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps });
+      const before = clone({ layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps, rules: character.rules });
       const hpMax = findStarterField(null, "HP Max");
       const hpCurrent = findStarterField(null, "HP Current");
       const features = findStarterField(null, "Features & Traits");
@@ -2137,7 +2272,11 @@ export function renderCustomSheet(root, character, store) {
       feedback.textContent = "Applying changes…";
       feedback.classList.remove("level-guide__feedback--error");
       if (subclassChoice) subclassField.selected = subclassChoice.id;
-      plan.slotChanges.forEach((change) => {
+      character.rules = normalizeRulesState(character.rules);
+      contentGroups.forEach((group) => {
+        character.rules.choices[group.key] = [...(pendingChoices.get(group.key) || [])];
+      });
+      slotChanges.forEach((change) => {
         const field = findStarterField(change.fieldId, change.label);
         field.options = change.options;
         syncOptionWidth(field);
@@ -2151,12 +2290,12 @@ export function renderCustomSheet(root, character, store) {
         subclass: selectedSubclassName || "",
         spells: slots ? `Spell slots: ${slots}.` : "",
         features: featureEntry,
-        appliedRulesetId: plan.ruleset.id,
+        appliedRulesetId: plan?.ruleset?.id || "content",
       };
       mirrorFirstTabLayout();
       unsavedChanges = true;
       try {
-        await store.saveCharacterFields(character.id, { layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps });
+        await store.saveCharacterFields(character.id, { layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps, rules: character.rules });
         unsavedChanges = false;
         statusEl.textContent = "Saved";
         renderAll();
@@ -2165,6 +2304,7 @@ export function renderCustomSheet(root, character, store) {
         character.layout = before.layout;
         character.sheetTabs = before.sheetTabs;
         character.levelUps = before.levelUps;
+        character.rules = before.rules;
         feedback.textContent = "The update could not be saved. Please try again.";
         feedback.classList.add("level-guide__feedback--error");
         applyBtn.disabled = false;
@@ -2172,6 +2312,54 @@ export function renderCustomSheet(root, character, store) {
     });
     panel.append(applyBtn);
     return panel;
+  }
+
+  function renderResourceTrackers() {
+    const resources = collectResourceGrants(flattenGlobalFields(), formulaValues);
+    if (resources.length === 0) return null;
+    character.rules = normalizeRulesState(character.rules);
+    const section = document.createElement("section");
+    section.className = "rule-resources";
+    const title = document.createElement("h2");
+    title.textContent = "Feature Uses";
+    section.append(title);
+    resources.forEach((resource) => {
+      const row = document.createElement("div");
+      row.className = "rule-resources__row";
+      const label = document.createElement("span");
+      label.className = "rule-resources__name";
+      label.textContent = resource.name;
+      const reset = document.createElement("span");
+      reset.className = "rule-resources__reset";
+      reset.textContent = `Resets: ${resource.reset}`;
+      const value = document.createElement("input");
+      value.type = "number";
+      value.min = "0";
+      value.max = String(resource.maximum);
+      value.className = "rule-resources__value";
+      const saved = Number.parseInt(character.rules.resourceUses[resource.key], 10);
+      value.value = String(Number.isFinite(saved) ? Math.min(resource.maximum, Math.max(0, saved)) : resource.maximum);
+      value.addEventListener("change", () => {
+        character.rules.resourceUses[resource.key] = Math.min(resource.maximum, Math.max(0, Number.parseInt(value.value, 10) || 0));
+        value.value = String(character.rules.resourceUses[resource.key]);
+        saveWithStatus("rules", character.rules);
+      });
+      const maximum = document.createElement("span");
+      maximum.className = "rule-resources__maximum";
+      maximum.textContent = `/ ${resource.maximum}`;
+      const restore = document.createElement("button");
+      restore.type = "button";
+      restore.className = "btn formula-toolbar__btn";
+      restore.textContent = "Restore";
+      restore.addEventListener("click", () => {
+        character.rules.resourceUses[resource.key] = resource.maximum;
+        value.value = String(resource.maximum);
+        saveWithStatus("rules", character.rules);
+      });
+      row.append(label, reset, value, maximum, restore);
+      section.append(row);
+    });
+    return section;
   }
 
   function renderLevelingTab() {
@@ -2185,6 +2373,8 @@ export function renderCustomSheet(root, character, store) {
 
     const rulesetGuide = renderRulesetLevelGuide();
     if (rulesetGuide) wrap.append(rulesetGuide);
+    const resources = renderResourceTrackers();
+    if (resources) wrap.append(resources);
 
     const currentLevel = currentCharacterLevel();
     if (currentLevel) {
@@ -3465,16 +3655,19 @@ export function renderCustomSheet(root, character, store) {
   ];
 
   function ensureBundle(choice) {
-    if (!choice.bundle) choice.bundle = { statModifiers: [], dropdownAccess: [], featureGrants: [] };
+    if (!choice.bundle) choice.bundle = { statModifiers: [], dropdownAccess: [], featureGrants: [], resourceGrants: [], choiceGroups: [] };
     if (!choice.bundle.statModifiers) choice.bundle.statModifiers = [];
     if (!choice.bundle.dropdownAccess) choice.bundle.dropdownAccess = [];
     if (!choice.bundle.featureGrants) choice.bundle.featureGrants = [];
+    if (!choice.bundle.resourceGrants) choice.bundle.resourceGrants = [];
+    if (!choice.bundle.choiceGroups) choice.bundle.choiceGroups = [];
     return choice.bundle;
   }
 
   function bundleIsEmpty(bundle) {
     return !bundle || ((bundle.statModifiers || []).length === 0 && (bundle.dropdownAccess || []).length === 0
-      && (bundle.featureGrants || []).length === 0);
+      && (bundle.featureGrants || []).length === 0 && (bundle.resourceGrants || []).length === 0
+      && (bundle.choiceGroups || []).length === 0);
   }
 
   /** Materializes a reusable library bundle (see bundleLibraryEditor.js
@@ -3539,6 +3732,60 @@ export function renderCustomSheet(root, character, store) {
         name: grant.name,
         description: grant.description || "",
         minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
+      });
+    });
+
+    (libraryEntry.resourceGrants || []).forEach((grant) => {
+      bundle.resourceGrants.push({
+        id: newId(),
+        name: grant.name || "",
+        maximum: Number.isFinite(grant.maximum) ? grant.maximum : 0,
+        reset: grant.reset || "rest",
+        minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
+      });
+    });
+
+    // Choice options use the same name-based library format as ordinary
+    // modifiers. Resolve them once while attaching to a sheet so later
+    // play only reads stable field ids, even if the library is edited.
+    const materializeModifiers = (modifiers) => (modifiers || []).map((mod) => {
+      const wantType = mod.op === "grant" ? "checkbox" : "text";
+      const match = allFields.find((field) => field.fieldType === wantType && norm(field.label) === norm(mod.targetFieldName));
+      return {
+        id: newId(),
+        targetFieldId: match ? match.id : null,
+        targetIndex: mod.op === "grant" ? 0 : null,
+        op: mod.op,
+        value: mod.value,
+        minLevel: Number.isFinite(mod.minLevel) ? mod.minLevel : null,
+      };
+    });
+    (libraryEntry.choiceGroups || []).forEach((group) => {
+      bundle.choiceGroups.push({
+        id: group.id || newId(),
+        label: group.label || "Choose an option",
+        minLevel: Number.isFinite(group.minLevel) ? group.minLevel : null,
+        minSelections: Number.isFinite(group.minSelections) ? group.minSelections : 0,
+        maxSelections: Number.isFinite(group.maxSelections) ? group.maxSelections : 1,
+        options: (group.options || []).map((option) => ({
+          id: option.id || newId(),
+          name: option.name || "Unnamed option",
+          description: option.description || "",
+          statModifiers: materializeModifiers(option.statModifiers),
+          featureGrants: (option.featureGrants || []).map((grant) => ({
+            id: grant.id || newId(),
+            name: grant.name || "",
+            description: grant.description || "",
+            minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
+          })),
+          resourceGrants: (option.resourceGrants || []).map((grant) => ({
+            id: grant.id || newId(),
+            name: grant.name || "",
+            maximum: Number.isFinite(grant.maximum) ? grant.maximum : 0,
+            reset: grant.reset || "rest",
+            minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
+          })),
+        })),
       });
     });
   }

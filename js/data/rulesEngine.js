@@ -16,6 +16,7 @@ export function createRulesState() {
     subclass: "",
     abilityScores: Object.fromEntries(ABILITY_IDS.map((id) => [id, 10])),
     choices: {},
+    resourceUses: {},
     appliedLevels: {},
   };
 }
@@ -25,6 +26,7 @@ export function normalizeRulesState(value) {
   const state = { ...defaults, ...(value || {}) };
   state.abilityScores = { ...defaults.abilityScores, ...(value?.abilityScores || {}) };
   state.choices = { ...(value?.choices || {}) };
+  state.resourceUses = { ...(value?.resourceUses || {}) };
   state.appliedLevels = { ...(value?.appliedLevels || {}) };
   state.level = Math.min(20, Math.max(1, Number.parseInt(state.level, 10) || 1));
   return state;

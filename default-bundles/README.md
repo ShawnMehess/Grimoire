@@ -34,6 +34,46 @@ library bundle later won't retroactively change what's already been
 applied to a choice (each "Apply" copies the bundle's rules onto that
 choice at that moment, resolved against that character's own fields).
 
+## Level-up choices and feature uses
+
+A bundle can also declare `choiceGroups` and `resourceGrants`. These are
+content-only JSON fields: import them with the same Bundle Libraries importer,
+then attach the bundle to the matching Class/Subclass/Race/etc. sheet choice.
+The Leveling tab renders applicable choice groups at their `minLevel`; chosen
+options persist on the character and apply their declared modifiers, features,
+and resources.
+
+```json
+{
+  "name": "Fighter",
+  "category": "Class",
+  "resourceGrants": [
+    { "name": "Second Wind", "maximum": 1, "reset": "short rest", "minLevel": 1 }
+  ],
+  "choiceGroups": [{
+    "id": "fighter-level-4-asi",
+    "label": "Ability Score Improvement or Feat",
+    "minLevel": 4,
+    "minSelections": 1,
+    "maxSelections": 1,
+    "options": [{
+      "id": "increase-strength",
+      "name": "+2 Strength",
+      "statModifiers": [{ "targetFieldName": "STR", "op": "add", "value": 2 }],
+      "featureGrants": [],
+      "resourceGrants": []
+    }]
+  }]
+}
+```
+
+An option may declare `statModifiers`, `featureGrants`, and `resourceGrants`
+in the same way as its parent bundle. Modifiers use `targetFieldName` because
+they are resolved against the shared template when the bundle is attached.
+For choices such as feats, put each feat in the choice group's `options` list;
+the selected feat then appears in the sheet's Feature List and its declared
+effects apply automatically.
+
 ## Files
 
 - `races.json` — the 9 core PHB races with their standard ability score
@@ -75,6 +115,38 @@ choice at that moment, resolved against that character's own fields).
   class skills, background skills in 5e *are* a fixed, non-chosen pair,
   so unlike the class bundles above, there's nothing left out here.
   Apply the same way, from the Background field's own choices.
+
+## 2024/5.5e files
+
+`classes-2024.json`, `species-2024.json`, and `backgrounds-2024.json` are
+generated (not hand-authored) by `scripts/compile-2024-content.mjs` from
+`data/*-2024.json`, the 2024 SRD dump. Same import steps as above; each
+entry's name is suffixed `(2024)` so it doesn't collide with the 2014
+entries above in your library. Re-run the script any time you refresh
+the underlying `/data/*-2024.json` files.
+
+- `classes-2024.json` — all 12 2024 classes, each granting its two fixed
+  saving-throw proficiencies and filtering the Subclass dropdown to that
+  class's SRD subclass (every 2024 class gets its subclass at level 3,
+  unlike 2014's per-class range) — same skill-choice gap as the 2014
+  classes above. `featureGrants` come straight from `class-features-2024.json`.
+
+- `species-2024.json` — the 9 core 2024 species. 2024 moved ability-score
+  bonuses from Species to Background, so unlike `races.json` above these
+  carry no `statModifiers` at all — just `featureGrants` for size/speed
+  and each trait. Trait descriptions are blank: the SRD API only gives
+  trait *names*, not their text, so these are closer to a checklist than
+  full reference text until filled in by hand.
+
+- `backgrounds-2024.json` — the 4 backgrounds in the free 2024 SRD (2024
+  documents far fewer than the 13 in the 2014 SRD). Each grants its fixed
+  skill proficiencies the same way `backgrounds.json` above does, plus a
+  `featureGrants` entry for its tool proficiency (no per-tool checkbox
+  exists on the starter sheet to "grant" against) and its origin feat
+  (text copied from `feats-2024.json`). Unlike 2014's Half-Elf gap, the
+  2024 background ability-score bonus (+2/+1 split, or +1/+1/+1, across
+  three listed abilities — a real player choice) IS fully expressed, as
+  a 7-option `choiceGroups` entry rather than a partial guess.
 
 ## A caveat worth knowing
 

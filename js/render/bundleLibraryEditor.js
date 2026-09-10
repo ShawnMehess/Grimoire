@@ -51,6 +51,8 @@ function blankLibraryEntry() {
     // hand-edited JSON), rather than needing an ensureBundle-style patch
     // the first time this editor touches it.
     featureGrants: [],
+    resourceGrants: [],
+    choiceGroups: [],
   };
 }
 
@@ -449,7 +451,7 @@ export function openBundleLibraryManager(store, onChange) {
 
     const hint = document.createElement("p");
     hint.className = "modal-copy catalog-archetype__hint";
-    hint.textContent = "Paste a bundle's JSON here (the same { name, category, statModifiers, dropdownAccess, featureGrants } shape this editor saves), or an array of several, to create them as brand-new bundles.";
+    hint.textContent = "Paste a bundle's JSON here. Bundles can include statModifiers, dropdownAccess, featureGrants, resourceGrants, and choiceGroups; import one object or an array.";
     editorCol.append(hint);
 
     const textarea = document.createElement("textarea");
@@ -478,6 +480,8 @@ export function openBundleLibraryManager(store, onChange) {
           if (!Array.isArray(entry.statModifiers)) entry.statModifiers = [];
           if (!Array.isArray(entry.dropdownAccess)) entry.dropdownAccess = [];
           if (!Array.isArray(entry.featureGrants)) entry.featureGrants = [];
+          if (!Array.isArray(entry.resourceGrants)) entry.resourceGrants = [];
+          if (!Array.isArray(entry.choiceGroups)) entry.choiceGroups = [];
           lastId = await store.saveBundleLibrary(scope, { ...entry, scope });
           lastEntry = entry;
         }
