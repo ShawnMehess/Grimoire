@@ -196,6 +196,17 @@ export function renderCustomSheet(root, character, store) {
     }
   }
   refreshBundleLibraryCache();
+  // One-off cleanup, run once when the sheet first loads (not on every
+  // refreshBundleLibraryCache() call — repeat uploads are prevented up
+  // front instead, see bundleLibraryEditor.js) to clear out duplicate
+  // bundles that already exist in the library.
+  if (store.dedupeBundleLibraries) {
+    store.dedupeBundleLibraries()
+      .then(({ removed }) => {
+        if (removed > 0) refreshBundleLibraryCache();
+      })
+      .catch((err) => console.error("Failed to dedupe bundle libraries:", err));
+  }
   // Same idea, for Catalog fields' "which catalog" picker (see
   // openCatalogFieldConfig below).
   let catalogCache = [];

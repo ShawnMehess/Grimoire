@@ -351,6 +351,55 @@ export async function deleteBundleLibrary(scope, id) {
   await deleteDoc(ref);
 }
 
+/** Two bundles are "the same" for dedupe purposes if they share a scope
+ *  (personal bundles and global bundles are separate namespaces —
+ *  having both a personal and a global "Fighter" isn't a duplicate,
+ *  it's an override) plus a case/whitespace-insensitive name and
+ *  category. Exported so both the upload-time duplicate check in
+ *  bundleLibraryEditor.js and dedupeBundleLibraries below use the
+ *  exact same notion of "duplicate". */
+export function bundleDedupeKey(entry) {
+  return [
+    entry.scope || "",
+    (entry.category || "").trim().toLowerCase(),
+    (entry.name || "").trim().toLowerCase(),
+  ].join("::");
+}
+
+/** One-off cleanup pass: lists every bundle library (personal + global,
+ *  same as listBundleLibraries), keeps the first entry seen per
+ *  bundleDedupeKey, and deletes the rest. Meant to be run once when a
+ *  character sheet first loads (see customSheet.js) to clear out
+ *  duplicates that already exist, not on every refresh — repeat
+ *  uploads are instead prevented up front in bundleLibraryEditor.js.
+ *  Global duplicates only actually get removed if the signed-in user
+ *  is an admin; deleteDoc calls that firestore.rules rejects for a
+ *  non-admin fail silently per-entry (caught by the caller) rather
+ *  than aborting the whole pass. */
+export async function dedupeBundleLibraries() {
+  const all = await listBundleLibraries();
+  const seen = new Map();
+  const duplicates = [];
+  for (const entry of all) {
+    const key = bundleDedupeKey(entry);
+    if (seen.has(key)) {
+      duplicates.push(entry);
+    } else {
+      seen.set(key, entry);
+    }
+  }
+  let removed = 0;
+  for (const dup of duplicates) {
+    try {
+      await deleteBundleLibrary(dup.scope, dup.id);
+      removed++;
+    } catch (err) {
+      console.error("Failed to remove duplicate bundle library", dup, err);
+    }
+  }
+  return { kept: [...seen.values()], removed };
+}
+
 // --- Catalogs ----------------------------------------------------------
 //
 // A reusable list of things a player can browse and spend an in-sheet

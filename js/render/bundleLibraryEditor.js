@@ -70,6 +70,9 @@ export function openBundleLibraryManager(store, onChange) {
   let isNew = true;
   let importMode = false;
   let clearImportDropGuard = null; // set by renderImportForm while its file dropzone is live
+  let isAdmin = false; // resolved once below; gates the "Import (Global)" button
+  let importSuccessMessage = ""; // one-shot "All uploads complete!" banner, shown after doImport then cleared
+  const expandedCategories = new Set(); // sidebar groups the user has clicked open
 
   const overlay = document.createElement("div");
   overlay.className = "formula-overlay";
@@ -142,7 +145,7 @@ export function openBundleLibraryManager(store, onChange) {
     importBtn.type = "button";
     importBtn.className = "btn bundle-library-list__new";
     importBtn.textContent = "Import JSON";
-    importBtn.title = "Paste a bundle exported/authored as JSON to create it as a new bundle";
+    importBtn.title = "Upload bundle JSON file(s) to create new bundles";
     importBtn.addEventListener("click", () => {
       importMode = true;
       renderEditor();
@@ -156,20 +159,58 @@ export function openBundleLibraryManager(store, onChange) {
       grouped.get(cat).push(lib);
     });
 
+    // Collapsed by default — a category header shows just the name and
+    // a count (e.g. "Items  50") so a big upload doesn't turn the
+    // sidebar into a wall of individual names; click a header to expand
+    // it and see (and delete) the bundles inside.
     grouped.forEach((entries, category) => {
-      const groupLabel = document.createElement("div");
+      const isExpanded = expandedCategories.has(category);
+
+      const groupLabel = document.createElement("button");
+      groupLabel.type = "button";
       groupLabel.className = "bundle-library-list__group";
-      groupLabel.textContent = category;
+      groupLabel.innerHTML = `<span class="bundle-library-list__group-caret">${isExpanded ? "▾" : "▸"}</span><span class="bundle-library-list__group-name">${category}</span><span class="bundle-library-list__group-count">${entries.length}</span>`;
+      groupLabel.addEventListener("click", () => {
+        if (isExpanded) expandedCategories.delete(category);
+        else expandedCategories.add(category);
+        renderList();
+      });
       listCol.append(groupLabel);
 
+      if (!isExpanded) return;
+
       entries.forEach((lib) => {
+        const row = document.createElement("div");
+        row.className = "bundle-library-list__item-row";
+
         const item = document.createElement("button");
         item.type = "button";
         item.className = "bundle-library-list__item" +
           (!isNew && selected.id === lib.id ? " active" : "");
         item.innerHTML = `<span>${lib.name || "Unnamed"}</span><span class="bundle-library-list__scope">${lib.scope === "global" ? "Global" : "Mine"}</span>`;
         item.addEventListener("click", () => selectEntry(lib, false));
-        listCol.append(item);
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "bundle-library-list__delete";
+        deleteBtn.title = `Delete "${lib.name || "Unnamed"}"`;
+        deleteBtn.setAttribute("aria-label", "Delete bundle");
+        deleteBtn.textContent = "✕";
+        deleteBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          if (!window.confirm(`Delete the "${lib.name || "Unnamed"}" bundle? This won't undo it on characters it's already been applied to.`)) return;
+          try {
+            await store.deleteBundleLibrary(lib.scope, lib.id);
+            if (!isNew && selected.id === lib.id) selectEntry(null, true);
+            await refresh();
+            onChange();
+          } catch (err) {
+            window.alert(err.message || "Couldn't delete that bundle.");
+          }
+        });
+
+        row.append(item, deleteBtn);
+        listCol.append(row);
       });
     });
 
@@ -382,6 +423,10 @@ export function openBundleLibraryManager(store, onChange) {
 
     const saveStatus = document.createElement("span");
     saveStatus.className = "modal-copy catalog-save-status";
+    if (importSuccessMessage) {
+      saveStatus.textContent = importSuccessMessage;
+      importSuccessMessage = "";
+    }
     actions.append(saveStatus);
 
     const saveBtn = document.createElement("button");
@@ -611,16 +656,32 @@ export function openBundleLibraryManager(store, onChange) {
 
     // --- Import -----------------------------------------------------
 
+    function dedupeKey(entry) {
+      return store.bundleDedupeKey
+        ? store.bundleDedupeKey(entry)
+        : [entry.scope || "", (entry.category || "").trim().toLowerCase(), (entry.name || "").trim().toLowerCase()].join("::");
+    }
+
     async function doImport(scope) {
       const entries = pendingFileEntries;
       if (!entries.length) {
         statusLine.textContent = "Nothing to import yet — drop or choose file(s) above.";
         return;
       }
+      const existingKeys = new Set(libraries.filter((l) => l.scope === scope).map(dedupeKey));
+      const seenThisBatch = new Set();
       let lastId = null;
       let lastEntry = null;
+      let added = 0;
+      let skipped = 0;
       try {
         for (const entry of entries) {
+          const key = dedupeKey({ ...entry, scope });
+          if (existingKeys.has(key) || seenThisBatch.has(key)) {
+            skipped++;
+            continue;
+          }
+          seenThisBatch.add(key);
           delete entry.id;
           if (!Array.isArray(entry.statModifiers)) entry.statModifiers = [];
           if (!Array.isArray(entry.dropdownAccess)) entry.dropdownAccess = [];
@@ -629,11 +690,18 @@ export function openBundleLibraryManager(store, onChange) {
           if (!Array.isArray(entry.choiceGroups)) entry.choiceGroups = [];
           lastId = await store.saveBundleLibrary(scope, { ...entry, scope });
           lastEntry = entry;
+          added++;
         }
         importMode = false;
         await refresh();
-        const saved = libraries.find((l) => l.id === lastId) || { ...lastEntry, id: lastId, scope };
-        selectEntry(saved, false);
+        importSuccessMessage = `All uploads complete! ${added} bundle${added === 1 ? "" : "s"} added` +
+          (skipped ? `, ${skipped} duplicate${skipped === 1 ? "" : "s"} skipped.` : ".");
+        if (lastId) {
+          const saved = libraries.find((l) => l.id === lastId) || { ...lastEntry, id: lastId, scope };
+          selectEntry(saved, false);
+        } else {
+          selectEntry(null, true);
+        }
         onChange();
       } catch (err) {
         statusLine.textContent = err.message || "Couldn't import that.";
@@ -660,18 +728,22 @@ export function openBundleLibraryManager(store, onChange) {
     importMineBtn.addEventListener("click", () => doImport("personal"));
     importActions.append(importMineBtn);
 
-    const importGlobalBtn = document.createElement("button");
-    importGlobalBtn.type = "button";
-    importGlobalBtn.className = "btn";
-    importGlobalBtn.title = "Requires admin rights";
-    importGlobalBtn.textContent = "Import (Global)";
-    importGlobalBtn.addEventListener("click", () => doImport("global"));
-    importActions.append(importGlobalBtn);
+    if (isAdmin) {
+      const importGlobalBtn = document.createElement("button");
+      importGlobalBtn.type = "button";
+      importGlobalBtn.className = "btn";
+      importGlobalBtn.textContent = "Import (Global)";
+      importGlobalBtn.addEventListener("click", () => doImport("global"));
+      importActions.append(importGlobalBtn);
+    }
 
     editorCol.append(importActions);
   }
 
   overlay.append(box);
   document.body.append(overlay);
-  refresh().then(() => renderEditor());
+  Promise.all([
+    refresh(),
+    store.isCurrentUserAdmin ? store.isCurrentUserAdmin().then((admin) => { isAdmin = admin; }) : Promise.resolve(),
+  ]).then(() => renderEditor());
 }
