@@ -124,11 +124,21 @@ export function renderCustomSheet(root, character, store) {
       character.levelFieldId = "level";
       needsLevelFieldAutosave = true;
     }
+    // Brand-new character (this is the very first time it's ever had a
+    // layout) — hold off on showing any sheet at all until the
+    // Character Setup wizard finishes. See activeTab()/renderAll() for
+    // where this actually hides the tab bar and forces the wizard tab.
+    character.setupComplete = false;
   }
+  // Anything that already had a layout before this feature existed
+  // never touched the branch above, so it never got setupComplete set
+  // at all — treat that as "already set up" rather than dropping
+  // existing characters back into the wizard.
+  if (character.setupComplete === undefined) character.setupComplete = true;
   normalizeTabs();
 
   let editMode = false;
-  let activeTabId = character.sheetTabs[0].id;
+  let activeTabId = (!character.setupComplete && character.sheetTabs.find(tab => tab.kind === "rules")?.id) || character.sheetTabs[0].id;
   // Which blocks are collapsed in the sidebar's Stat Blocks list —
   // lives here (not inside renderBlockFrame) since that function
   // rebuilds the list from scratch on every call and would otherwise
@@ -854,15 +864,21 @@ export function renderCustomSheet(root, character, store) {
       if (!tab.name) tab.name = tab.kind === "main" ? "Main" : tab.kind === "rules" ? "Character" : tab.kind === "leveling" ? "Leveling" : `Tab ${index + 1}`;
       if (!Array.isArray(tab.layout)) tab.layout = [];
     });
-    // Mandatory, same as Main — every character gets one, right after
-    // Main, and (see the delete/reorder guards below, both keyed off
-    // tab.kind rather than a hardcoded index now) it can't be deleted
-    // or dragged away from that spot.
-    if (!character.sheetTabs.some(tab => tab.kind === "rules")) {
-      character.sheetTabs.splice(1, 0, { id: newId(), name: "Character", kind: "rules", layout: [] });
+    // The Character-setup wizard tab is mandatory ONLY until it's been
+    // finished (character.setupComplete) — once finished, it's removed
+    // entirely rather than kept around, per Shawn's ask; the "Finish
+    // Setup" button in syncRulesToSheet is what flips the flag.
+    if (!character.setupComplete) {
+      if (!character.sheetTabs.some(tab => tab.kind === "rules")) {
+        character.sheetTabs.splice(1, 0, { id: newId(), name: "Character", kind: "rules", layout: [] });
+      }
+    } else {
+      const rulesIndex = character.sheetTabs.findIndex(tab => tab.kind === "rules");
+      if (rulesIndex !== -1) character.sheetTabs.splice(rulesIndex, 1);
     }
     if (!character.sheetTabs.some(tab => tab.kind === "leveling")) {
-      character.sheetTabs.splice(2, 0, { id: newId(), name: "Leveling", kind: "leveling", layout: [] });
+      const levelingIndex = character.sheetTabs.some(tab => tab.kind === "rules") ? 2 : 1;
+      character.sheetTabs.splice(levelingIndex, 0, { id: newId(), name: "Leveling", kind: "leveling", layout: [] });
     }
     if (!character.levelUps || typeof character.levelUps !== "object") {
       character.levelUps = {};
@@ -1245,6 +1261,13 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function activeTab() {
+    // While character creation hasn't been finished yet, always force
+    // the Character-setup (wizard) tab regardless of what activeTabId
+    // says — there's nothing else to show yet, and the tab bar itself
+    // is hidden during this phase anyway (see renderAll below).
+    if (!character.setupComplete) {
+      return character.sheetTabs.find(tab => tab.kind === "rules") || character.sheetTabs[0];
+    }
     return character.sheetTabs.find(tab => tab.id === activeTabId) || character.sheetTabs[0];
   }
 
@@ -2130,10 +2153,18 @@ export function renderCustomSheet(root, character, store) {
     });
     wrap.append(dots);
 
+    const currentStep = applicableSteps[stepState.index];
+    if (currentStep.description) {
+      const description = document.createElement("p");
+      description.className = "leveling-tab__intro wizard__step-description";
+      description.textContent = currentStep.description;
+      wrap.append(description);
+    }
+
     const body = document.createElement("div");
     body.className = "wizard__body level-guide__form";
     wrap.append(body);
-    applicableSteps[stepState.index].render(body);
+    currentStep.render(body);
 
     const nav = document.createElement("div");
     nav.className = "wizard__nav";
@@ -2328,7 +2359,16 @@ export function renderCustomSheet(root, character, store) {
       if (lib) applyBundleLibraryToChoice(lib, choice, flattenGlobalFields());
     });
     mirrorFirstTabLayout();
-    await store.saveCharacterFields(character.id, { rules: character.rules, rulesetId: character.rules.rulesetId, layout: character.layout, sheetTabs: character.sheetTabs });
+    // This is what actually finishes character creation: once synced,
+    // there's nothing left for the Character-setup tab to do, so it's
+    // dropped entirely (see normalizeTabs) and Leveling takes over from
+    // here — matches Shawn's ask to not keep the wizard tab around
+    // afterward.
+    character.setupComplete = true;
+    normalizeTabs();
+    const levelingTab = character.sheetTabs.find((tab) => tab.kind === "leveling");
+    if (levelingTab) activeTabId = levelingTab.id;
+    await store.saveCharacterFields(character.id, { rules: character.rules, rulesetId: character.rules.rulesetId, layout: character.layout, sheetTabs: character.sheetTabs, setupComplete: true });
     statusEl.textContent = "Saved";
     renderAll();
   }
@@ -2357,10 +2397,24 @@ export function renderCustomSheet(root, character, store) {
       renderPageGrid();
     };
 
+    function wizardFieldOptionNames(fieldId, fieldLabel) {
+      const target = findStarterField(fieldId, fieldLabel);
+      return (target?.choices || []).map((c) => c.text).filter(Boolean);
+    }
+
+    const POINT_BUY_COST = { 8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9 };
+    const POINT_BUY_BUDGET = 27;
+    const rollAbilityScore = () => {
+      const dice = [1, 2, 3, 4].map(() => 1 + Math.floor(Math.random() * 6)).sort((a, b) => a - b);
+      dice.shift(); // drop the lowest of the four
+      return dice.reduce((sum, n) => sum + n, 0);
+    };
+
     const steps = [
       {
         id: "ruleset",
         title: "Ruleset",
+        description: "Start by picking which rulebook you're building this character for. Everything else in this wizard — available classes, races, and backgrounds — depends on this choice, and it can't be changed later without redoing those steps.",
         render(container) {
           const ruleset = document.createElement("select");
           ruleset.className = "input-group__control";
@@ -2379,21 +2433,96 @@ export function renderCustomSheet(root, character, store) {
       {
         id: "abilities",
         title: "Ability Scores",
+        description: "Set your six ability scores. Pick whichever method your table uses — Point Buy spends a fixed budget of points, Random Roll rolls dice for you, and Manual Entry lets you type in scores from a physical roll or another source. Switching methods here resets the scores below to fit it.",
         render(container) {
-          ABILITY_IDS.forEach((id) => {
-            const input = document.createElement("input");
-            input.type = "number"; input.min = "1"; input.max = "30"; input.className = "input-group__control";
-            input.value = String(state.abilityScores[id]);
-            input.addEventListener("change", () => { character.rules.abilityScores[id] = Number(input.value) || 10; saveRules(); renderPageGrid(); });
-            field(container, id.toUpperCase(), input);
+          const methodGroup = document.createElement("label");
+          methodGroup.className = "level-guide__field";
+          methodGroup.textContent = "Method";
+          const methodSelect = document.createElement("select");
+          methodSelect.className = "input-group__control";
+          [["pointbuy", "Point Buy (27 points)"], ["roll", "Random Roll (4d6, drop lowest)"], ["manual", "Manual Entry"]].forEach(([value, label]) => {
+            const option = document.createElement("option"); option.value = value; option.textContent = label; methodSelect.append(option);
           });
+          methodSelect.value = character.rules.abilityScoreMethod || "manual";
+          methodGroup.append(methodSelect);
+          container.append(methodGroup);
+
+          const scoresWrap = document.createElement("div");
+          scoresWrap.className = "level-guide__form wizard__ability-scores";
+          container.append(scoresWrap);
+
+          function renderScores() {
+            scoresWrap.innerHTML = "";
+            const method = methodSelect.value;
+
+            if (method === "pointbuy") {
+              const note = document.createElement("p");
+              note.className = "leveling-tab__intro";
+              scoresWrap.append(note);
+              const updateNote = () => {
+                const spent = ABILITY_IDS.reduce((sum, id) => sum + (POINT_BUY_COST[character.rules.abilityScores[id]] ?? 0), 0);
+                note.textContent = `Points spent: ${spent}/${POINT_BUY_BUDGET}${spent > POINT_BUY_BUDGET ? " — over budget!" : ""}`;
+              };
+              ABILITY_IDS.forEach((id) => {
+                if (character.rules.abilityScores[id] < 8 || character.rules.abilityScores[id] > 15) character.rules.abilityScores[id] = 8;
+                const select = document.createElement("select");
+                select.className = "input-group__control";
+                Object.keys(POINT_BUY_COST).forEach((score) => {
+                  const option = document.createElement("option"); option.value = score; option.textContent = score; select.append(option);
+                });
+                select.value = String(character.rules.abilityScores[id]);
+                select.addEventListener("change", () => { character.rules.abilityScores[id] = Number(select.value); saveRules(); updateNote(); });
+                field(scoresWrap, id.toUpperCase(), select);
+              });
+              updateNote();
+            } else if (method === "roll") {
+              const intro = document.createElement("p");
+              intro.className = "leveling-tab__intro";
+              intro.textContent = "Click Roll All to roll 4d6 (dropping the lowest die) for each score — or edit any value by hand afterward.";
+              scoresWrap.append(intro);
+              const rollAllBtn = document.createElement("button");
+              rollAllBtn.type = "button"; rollAllBtn.className = "btn"; rollAllBtn.textContent = "Roll All";
+              scoresWrap.append(rollAllBtn);
+              const inputs = {};
+              rollAllBtn.addEventListener("click", () => {
+                ABILITY_IDS.forEach((id) => {
+                  character.rules.abilityScores[id] = rollAbilityScore();
+                  inputs[id].value = String(character.rules.abilityScores[id]);
+                });
+                saveRules();
+              });
+              ABILITY_IDS.forEach((id) => {
+                const input = document.createElement("input");
+                input.type = "number"; input.min = "3"; input.max = "18"; input.className = "input-group__control";
+                input.value = String(character.rules.abilityScores[id]);
+                input.addEventListener("change", () => { character.rules.abilityScores[id] = Number(input.value) || 10; saveRules(); });
+                inputs[id] = input;
+                field(scoresWrap, id.toUpperCase(), input);
+              });
+            } else {
+              ABILITY_IDS.forEach((id) => {
+                const input = document.createElement("input");
+                input.type = "number"; input.min = "1"; input.max = "30"; input.className = "input-group__control";
+                input.value = String(character.rules.abilityScores[id]);
+                input.addEventListener("change", () => { character.rules.abilityScores[id] = Number(input.value) || 10; saveRules(); });
+                field(scoresWrap, id.toUpperCase(), input);
+              });
+            }
+          }
+          methodSelect.addEventListener("change", () => {
+            character.rules.abilityScoreMethod = methodSelect.value;
+            saveRules();
+            renderScores();
+          });
+          renderScores();
         },
       },
       {
         id: "species",
         title: "Race/Species",
+        description: "Choose your character's race or species. This determines ability score bonuses, speed, and racial traits — if you've imported a Race bundle for this ruleset (or your sheet's Race field already has options), you'll see them below.",
         render(container) {
-          const liveNames = rulesetOptionNames(state.rulesetId, "Race");
+          const liveNames = rulesetOptionNames(state.rulesetId, "Race", wizardFieldOptionNames("race", "Race"));
           if (liveNames.length) {
             const select = document.createElement("select");
             select.className = "input-group__control";
@@ -2405,7 +2534,7 @@ export function renderCustomSheet(root, character, store) {
           } else {
             const input = document.createElement("input");
             input.type = "text"; input.className = "input-group__control";
-            input.placeholder = "No Race bundles imported for this ruleset yet — type it in for now";
+            input.placeholder = "No Race options found for this ruleset yet — type it in for now";
             input.value = state.species || "";
             input.addEventListener("change", () => update("species", input.value));
             field(container, "Race/Species", input);
@@ -2415,8 +2544,10 @@ export function renderCustomSheet(root, character, store) {
       {
         id: "class",
         title: "Class",
+        description: "Choose your class and starting level (almost always level 1 for a new character). If this class picks a subclass right away, you'll be asked for it here too — otherwise the Leveling tab will ask when you reach the level that unlocks it.",
         render(container) {
-          const liveNames = rulesetOptionNames(state.rulesetId, "Class", (resolved.ruleset?.classes || []).map((c) => c.name));
+          const classFallback = wizardFieldOptionNames("class", "Class");
+          const liveNames = rulesetOptionNames(state.rulesetId, "Class", classFallback.length ? classFallback : (resolved.ruleset?.classes || []).map((c) => c.name));
           const classSelect = document.createElement("select");
           classSelect.className = "input-group__control";
           const classBlank = document.createElement("option"); classBlank.value = ""; classBlank.textContent = "Choose class"; classSelect.append(classBlank);
@@ -2449,8 +2580,9 @@ export function renderCustomSheet(root, character, store) {
       {
         id: "background",
         title: "Background",
+        description: "Choose your character's background. This grants skill/tool/language proficiencies and a starting equipment package — like Race, you'll see imported options here if any exist for this ruleset.",
         render(container) {
-          const liveNames = rulesetOptionNames(state.rulesetId, "Background");
+          const liveNames = rulesetOptionNames(state.rulesetId, "Background", wizardFieldOptionNames("background", "Background"));
           if (liveNames.length) {
             const select = document.createElement("select");
             select.className = "input-group__control";
@@ -2462,7 +2594,7 @@ export function renderCustomSheet(root, character, store) {
           } else {
             const input = document.createElement("input");
             input.type = "text"; input.className = "input-group__control";
-            input.placeholder = "No Background bundles imported for this ruleset yet — type it in for now";
+            input.placeholder = "No Background options found for this ruleset yet — type it in for now";
             input.value = state.background || "";
             input.addEventListener("change", () => update("background", input.value));
             field(container, "Background", input);
@@ -2472,11 +2604,8 @@ export function renderCustomSheet(root, character, store) {
       {
         id: "preferences",
         title: "Preferences",
+        description: "One last setting before you're done: how do you want hit points (and similar rolled increases) handled by default whenever you level up later? You can still override this on any individual level-up.",
         render(container) {
-          const intro = document.createElement("p");
-          intro.className = "leveling-tab__intro";
-          intro.textContent = "How do you want hit points (and similar rolled increases) handled by default when you level up?";
-          container.append(intro);
           // TODO(settings menu): hpMethod/hitDieSize live on character.rules
           // purely because there's nowhere else to put a per-character
           // default yet. Once a real Settings tab/menu exists, move this
@@ -2503,6 +2632,7 @@ export function renderCustomSheet(root, character, store) {
       {
         id: "review",
         title: "Review",
+        description: "Here's everything you've chosen. If it looks right, hit Finish Setup to apply it to your sheet — this also wires up your class/race/background bundles and switches you over to the Leveling tab for next time.",
         render(container) {
           const derived = document.createElement("p");
           derived.className = "level-guide__summary";
@@ -2525,6 +2655,7 @@ export function renderCustomSheet(root, character, store) {
         },
       },
     ];
+
 
     const wizard = renderStepWizard(steps, creationWizardState, {
       title: "Character Setup",
@@ -2601,6 +2732,7 @@ export function renderCustomSheet(root, character, store) {
       steps.push({
         id: "subclass",
         title: "Subclass",
+        description: `${className} chooses a subclass at this level. Pick one below — this can't easily be undone once you apply this level's changes, so make sure it's the one you want.`,
         render(container) {
           const group = document.createElement("label");
           group.className = "level-guide__field";
@@ -2625,12 +2757,8 @@ export function renderCustomSheet(root, character, store) {
       steps.push({
         id: "asi",
         title: "Ability Score Improvement",
+        description: `${className} gets an Ability Score Improvement at this level. Increase one ability score by 2, two ability scores by 1 each, or take a feat instead (note which one on the Notes step).`,
         render(container) {
-          const intro = document.createElement("p");
-          intro.className = "leveling-tab__intro";
-          intro.textContent = `${className} gets an Ability Score Improvement at level ${level} — increase one score by 2, two scores by 1 each, or take a feat instead (note it on the Notes step).`;
-          container.append(intro);
-
           const modeGroup = document.createElement("label");
           modeGroup.className = "level-guide__field";
           modeGroup.textContent = "This level's ASI";
@@ -2673,11 +2801,8 @@ export function renderCustomSheet(root, character, store) {
       steps.push({
         id: "features",
         title: "New Features",
+        description: `${className} gains new features at this level — just informational, nothing to fill in here. Read them over, then move on to the next step.`,
         render(container) {
-          const intro = document.createElement("p");
-          intro.className = "leveling-tab__intro";
-          intro.textContent = `${className} gains the following at level ${level}:`;
-          container.append(intro);
           newFeatures.forEach((feature) => {
             const block = document.createElement("div");
             block.className = "level-guide__choices";
@@ -2697,6 +2822,7 @@ export function renderCustomSheet(root, character, store) {
       steps.push({
         id: "choices",
         title: "Choices",
+        description: "This level offers you a choice — pick from the options below. Check how many selections each group wants; you won't be able to apply this level until they're all satisfied.",
         render(container) {
           contentGroups.forEach((group) => {
             const choiceGroup = document.createElement("fieldset");
@@ -2751,6 +2877,7 @@ export function renderCustomSheet(root, character, store) {
       steps.push({
         id: "spells",
         title: "Spells",
+        description: "Your spellcasting improves at this level — just informational for now; update your prepared/known spells on the main sheet to match.",
         render(container) {
           const note = document.createElement("p");
           note.className = "level-guide__summary";
@@ -2763,6 +2890,7 @@ export function renderCustomSheet(root, character, store) {
     steps.push({
       id: "hp",
       title: "Hit Points",
+      description: "Record the hit points you gained this level. It's pre-filled based on your preferred method from Character Setup, but you can always edit it by hand.",
       render(container) {
         const conMod = Math.floor(((Number(character.rules?.abilityScores?.con) || 10) - 10) / 2);
         const dieSize = character.rules?.hitDieSize || 8;
@@ -2805,6 +2933,7 @@ export function renderCustomSheet(root, character, store) {
     steps.push({
       id: "notes",
       title: "Notes",
+      description: "Jot down anything else worth recording from your source book — new proficiencies, invocations, spells, or other choices that don't fit neatly into the steps above.",
       render(container) {
         const benefitsGroup = document.createElement("label");
         benefitsGroup.className = "level-guide__field level-guide__field--wide";
@@ -2821,6 +2950,7 @@ export function renderCustomSheet(root, character, store) {
     steps.push({
       id: "review",
       title: "Review & Apply",
+      description: "Here's a summary of this level's changes. If everything looks right, hit Apply — this writes your HP, subclass, ability score increase, and notes to the sheet and can't easily be undone.",
       render(container) {
         const summary = document.createElement("p");
         summary.className = "level-guide__summary";
@@ -3101,6 +3231,12 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function renderAll() {
+    // Nothing to show yet but the wizard itself — no tab bar to switch
+    // away from it with, and no toolbar chrome (edit mode, undo/redo,
+    // the ruleset picker — the wizard has its own) competing with it.
+    toolbar.style.display = character.setupComplete ? "" : "none";
+    tabsBar.style.display = character.setupComplete ? "" : "none";
+    blockFrame.style.display = character.setupComplete ? "" : "none";
     renderTabs();
     renderBlockFrame();
     renderPageGrid();
