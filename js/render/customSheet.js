@@ -101,6 +101,15 @@ function debounce(fn, delayMs = 500) {
   };
 }
 
+// Case/whitespace-insensitive string match — the same normalization
+// bundle-library name resolution has always used (see
+// applyBundleLibraryToChoice below), shared here so the ruleset
+// auto-resolver (resolveLibraryBundleFor) matches names exactly the
+// same way.
+function norm(s) {
+  return (s || "").trim().toLowerCase();
+}
+
 export function renderCustomSheet(root, character, store) {
   // Set (not yet saved — see needsLevelFieldAutosave below, which
   // persists this once saveWithStatus/statusEl exist further down this
@@ -1392,7 +1401,7 @@ export function renderCustomSheet(root, character, store) {
     allFields.forEach((other) => {
       if (other.fieldType !== "dropdown" || other === field) return;
       const choice = (other.choices || []).find(c => c.id === other.selected);
-      const bundle = choice && choice.bundle;
+      const bundle = effectiveChoiceBundle(other, choice, allFields);
       if (!bundle) return;
       (bundle.dropdownAccess || []).forEach((rule) => {
         if (rule.targetFieldId !== field.id) return;
@@ -1494,7 +1503,7 @@ export function renderCustomSheet(root, character, store) {
     fields.forEach((field) => {
       if (field.fieldType !== "dropdown") return;
       const choice = (field.choices || []).find((candidate) => candidate.id === field.selected);
-      const bundle = choice?.bundle;
+      const bundle = effectiveChoiceBundle(field, choice, fields);
       (bundle?.choiceGroups || []).forEach((group, index) => {
         if (group.minLevel && level < group.minLevel) return;
         if (!Array.isArray(group.options) || group.options.length === 0) return;
@@ -1526,7 +1535,7 @@ export function renderCustomSheet(root, character, store) {
     fields.forEach((field) => {
       if (field.fieldType !== "dropdown") return;
       const choice = (field.choices || []).find(c => c.id === field.selected);
-      const bundle = choice && choice.bundle;
+      const bundle = effectiveChoiceBundle(field, choice, fields);
       if (!bundle) return;
       applyStatModifiers(bundle.statModifiers, valueMap, grantedCheckboxes, level);
     });
@@ -1553,7 +1562,7 @@ export function renderCustomSheet(root, character, store) {
     fields.forEach((field) => {
       if (field.fieldType !== "dropdown") return;
       const choice = (field.choices || []).find(c => c.id === field.selected);
-      const bundle = choice && choice.bundle;
+      const bundle = effectiveChoiceBundle(field, choice, fields);
       if (!bundle) return;
       (bundle.featureGrants || []).forEach((grant) => {
         if (grant.minLevel && level < grant.minLevel) return; // not unlocked yet
@@ -1597,7 +1606,7 @@ export function renderCustomSheet(root, character, store) {
     fields.forEach((field) => {
       if (field.fieldType !== "dropdown") return;
       const choice = (field.choices || []).find((candidate) => candidate.id === field.selected);
-      const bundle = choice?.bundle;
+      const bundle = effectiveChoiceBundle(field, choice, fields);
       (bundle?.resourceGrants || []).forEach((grant, index) => {
         add(grant, `${field.id}:${choice.id}:resource:${grant.id || index}`, choice.text || field.label);
       });
@@ -3752,7 +3761,6 @@ export function renderCustomSheet(root, character, store) {
    *  even if you've already hand-tweaked something here. */
   function applyBundleLibraryToChoice(libraryEntry, choice, allFields) {
     const bundle = ensureBundle(choice);
-    const norm = (s) => (s || "").trim().toLowerCase();
 
     (libraryEntry.statModifiers || []).forEach((mod) => {
       // "grant" targets a proficiency-style checkbox (single-option,
@@ -3859,6 +3867,172 @@ export function renderCustomSheet(root, character, store) {
         })),
       });
     });
+  }
+
+  /** Same name-resolution work as applyBundleLibraryToChoice above, but
+   *  building a fresh bundle object to use for THIS render only, rather
+   *  than mutating/persisting a choice's bundle. Used by
+   *  resolveLibraryBundleFor, which runs live on every render, so
+   *  (unlike applyBundleLibraryToChoice's newId() calls, safe because
+   *  that only ever runs once at the moment a user clicks "Apply") every
+   *  id it hands out has to be the SAME id on every render — anything
+   *  else would make the character.rules.choices/resourceUses persisted
+   *  keys (built from these ids — see activeRuleChoiceGroups/
+   *  collectResourceGrants) drift out from under themselves and drop a
+   *  player's already-made choices. Falls back to a position-based id
+   *  ("group0", "res1", ...) which is exactly as stable across renders
+   *  as the library entry's own array order is — i.e. completely,
+   *  short of an admin reordering that entry's JSON. */
+  function materializeLibraryBundleStable(libraryEntry, allFields) {
+    const bundle = { statModifiers: [], dropdownAccess: [], featureGrants: [], resourceGrants: [], choiceGroups: [] };
+
+    (libraryEntry.statModifiers || []).forEach((mod, index) => {
+      const wantType = mod.op === "grant" ? "checkbox" : "text";
+      const match = allFields.find(f => f.fieldType === wantType && norm(f.label) === norm(mod.targetFieldName));
+      bundle.statModifiers.push({
+        id: mod.id || `mod${index}`,
+        targetFieldId: match ? match.id : null,
+        targetIndex: mod.op === "grant" ? 0 : null,
+        op: mod.op,
+        value: mod.value,
+        minLevel: Number.isFinite(mod.minLevel) ? mod.minLevel : null,
+      });
+    });
+
+    (libraryEntry.dropdownAccess || []).forEach((rule, index) => {
+      const targetField = allFields.find(f => f.fieldType === "dropdown" && norm(f.label) === norm(rule.targetFieldName));
+      let allowedChoiceIds = [];
+      if (targetField) {
+        const wanted = new Set((rule.allowedChoiceNames || []).map(norm));
+        allowedChoiceIds = (targetField.choices || [])
+          .filter(c => wanted.has(norm(c.text)))
+          .map(c => c.id);
+      }
+      bundle.dropdownAccess.push({
+        id: rule.id || `rule${index}`,
+        targetFieldId: targetField ? targetField.id : null,
+        allowedChoiceIds,
+        minLevel: Number.isFinite(rule.minLevel) ? rule.minLevel : null,
+      });
+    });
+
+    (libraryEntry.featureGrants || []).forEach((grant, index) => {
+      bundle.featureGrants.push({
+        id: grant.id || `feat${index}`,
+        name: grant.name,
+        description: grant.description || "",
+        minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
+      });
+    });
+
+    (libraryEntry.resourceGrants || []).forEach((grant, index) => {
+      bundle.resourceGrants.push({
+        id: grant.id || `res${index}`,
+        name: grant.name || "",
+        maximum: Number.isFinite(grant.maximum) ? grant.maximum : 0,
+        reset: grant.reset || "rest",
+        minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
+      });
+    });
+
+    const materializeModifiers = (modifiers) => (modifiers || []).map((mod, index) => {
+      const wantType = mod.op === "grant" ? "checkbox" : "text";
+      const match = allFields.find((field) => field.fieldType === wantType && norm(field.label) === norm(mod.targetFieldName));
+      return {
+        id: mod.id || `optmod${index}`,
+        targetFieldId: match ? match.id : null,
+        targetIndex: mod.op === "grant" ? 0 : null,
+        op: mod.op,
+        value: mod.value,
+        minLevel: Number.isFinite(mod.minLevel) ? mod.minLevel : null,
+      };
+    });
+    (libraryEntry.choiceGroups || []).forEach((group, index) => {
+      bundle.choiceGroups.push({
+        id: group.id || `group${index}`,
+        label: group.label || "Choose an option",
+        minLevel: Number.isFinite(group.minLevel) ? group.minLevel : null,
+        minSelections: Number.isFinite(group.minSelections) ? group.minSelections : 0,
+        maxSelections: Number.isFinite(group.maxSelections) ? group.maxSelections : 1,
+        options: (group.options || []).map((option, optIndex) => ({
+          id: option.id || `opt${optIndex}`,
+          name: option.name || "Unnamed option",
+          description: option.description || "",
+          statModifiers: materializeModifiers(option.statModifiers),
+          featureGrants: (option.featureGrants || []).map((grant, gi) => ({
+            id: grant.id || `optfeat${gi}`,
+            name: grant.name || "",
+            description: grant.description || "",
+            minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
+          })),
+          resourceGrants: (option.resourceGrants || []).map((grant, gi) => ({
+            id: grant.id || `optres${gi}`,
+            name: grant.name || "",
+            maximum: Number.isFinite(grant.maximum) ? grant.maximum : 0,
+            reset: grant.reset || "rest",
+            minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
+          })),
+        })),
+      });
+    });
+
+    return bundle;
+  }
+
+  /** THE auto-apply engine: given a dropdown field and its currently
+   *  selected choice, finds the bundle-library entry (see
+   *  bundleLibraryEditor.js) that matches it — category === this
+   *  field's own label (e.g. field "Race" <-> bundle category "Race"),
+   *  name === the choice's text (e.g. choice "Elf" <-> bundle name
+   *  "Elf") — scoped to the character's currently selected ruleset (the
+   *  toolbar's Ruleset picker / character.rules.rulesetId). This is
+   *  what replaces having to open every dropdown choice's Modifiers
+   *  panel and click "Apply from Library" by hand: pick a ruleset once,
+   *  and every matching bundle uploaded under it just applies itself,
+   *  here, live, every render — nothing is written to the character.
+   *
+   *  A bundle with no rulesetId (imported/created before this existed,
+   *  or deliberately left ruleset-agnostic) still matches regardless of
+   *  which ruleset is active, but a ruleset-specific match always wins
+   *  over a same-name ruleset-agnostic one — e.g. if both a "Fighter"
+   *  with rulesetId "dnd5e-2014-phb" and a ruleset-agnostic "Fighter"
+   *  exist, a character on the 2014 PHB ruleset gets the specific one.
+   *
+   *  An explicit choice.bundle (set by hand via "Apply from Library",
+   *  or hand-edited) always takes priority over this — see
+   *  effectiveChoiceBundle, the only caller. That keeps this purely
+   *  additive: characters/sheets that don't use rulesets at all keep
+   *  working exactly as before. */
+  function resolveLibraryBundleFor(field, choice, allFields) {
+    if (!choice || !bundleLibraryCache.length) return null;
+    const rulesetId = character.rules?.rulesetId || character.rulesetId || null;
+    const wantCategory = norm(field.label);
+    const wantName = norm(choice.text);
+    if (!wantCategory || !wantName) return null;
+    let exact = null;
+    let universal = null;
+    for (const entry of bundleLibraryCache) {
+      if (norm(entry.category) !== wantCategory || norm(entry.name) !== wantName) continue;
+      if (entry.rulesetId) {
+        if (rulesetId && entry.rulesetId === rulesetId && !exact) exact = entry;
+      } else if (!universal) {
+        universal = entry;
+      }
+    }
+    const match = exact || universal;
+    return match ? materializeLibraryBundleStable(match, allFields) : null;
+  }
+
+  /** Single point every stat/feature/access computation should read a
+   *  choice's bundle through: an explicit, hand-attached choice.bundle
+   *  (see ensureBundle/applyBundleLibraryToChoice) wins if present —
+   *  that's a deliberate per-choice override — otherwise falls back to
+   *  whatever the bundle library auto-resolves for the character's
+   *  active ruleset (see resolveLibraryBundleFor above). */
+  function effectiveChoiceBundle(field, choice, allFields) {
+    if (!choice) return null;
+    if (choice.bundle && !bundleIsEmpty(choice.bundle)) return choice.bundle;
+    return resolveLibraryBundleFor(field, choice, allFields);
   }
 
   function openDropdownChoicesEditor(field, wrapperEl) {

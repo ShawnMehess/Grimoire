@@ -9,21 +9,40 @@ code path that reads this folder at runtime.
 
 1. Open the Bundle Libraries manager (toolbar → **Bundle Libraries**).
 2. Click **Import JSON** in the bundle list.
-3. Paste the contents of a file below into the textarea — the importer
-   accepts either one bundle object or a JSON array of several, so
+3. Choose which **Ruleset** these bundles belong to (e.g. "D&D 5e (2014
+   PHB)") — required. Every bundle from every file you upload in this
+   one import action gets tagged with that ruleset; do 2024 content as
+   a separate import with "D&D 5e (2024 PHB)" chosen instead.
+4. Drop the file(s) below, or click to browse — the importer accepts
+   either one bundle object or a JSON array of several per file, so
    `races.json` (an array of all 9) imports in one go.
-4. Click **Import (Global)** (admin rights required) to make them
+5. Click **Import (Global)** (admin rights required) to make them
    available on every character, or **Import (Mine)** to keep them
    personal.
 
-## Attaching a bundle to your Race/Class/Background dropdown
+## Bundles now apply themselves
 
-Importing only adds the bundle to your library — it doesn't touch any
-character's sheet by itself. To make picking "Hill Dwarf" (say) actually
-apply its bonus:
+As of the ruleset-linked import above, a character just needs to pick
+the matching **Ruleset** (toolbar, top of the sheet) — every bundle
+uploaded under that ruleset whose `category` matches a dropdown's own
+label (e.g. category `"Race"` ↔ the Race field) and whose `name`
+matches the currently selected choice (e.g. `"Dwarf"`) applies
+automatically, live, on every render. No per-choice step, and nothing
+goes stale: editing the library later keeps flowing through.
+
+This is a **fallback**, not a replacement for the per-choice
+"Modifiers" editor — if a choice already has something manually
+attached there (via **Apply from Library**, or hand-edited), that
+explicit attachment always wins over auto-resolution. That's still the
+right tool for: a bundle you deliberately leave with no Ruleset set
+(so it never auto-applies to anyone), or overriding what a specific
+character's specific choice should do differently from the library
+default.
+
+## Attaching a bundle by hand (no ruleset, or an override)
 
 1. Open a character, go into edit mode, and click the **⚙** on the Race
-   field.
+   field (or Class, Background, etc.).
 2. Find the choice you want (e.g. "Dwarf") and open its **Modifiers**
    section.
 3. Under **Apply from Library**, pick the bundle and click **+ Apply**.
@@ -164,3 +183,10 @@ for the first time on a given sheet: for a stat bonus, change the
 target field's value and confirm its dependent Mod shifts; for a
 granted proficiency, confirm the checkbox shows checked-and-disabled
 and its Mod field includes the proficiency bonus.
+
+The same silent-no-match behavior applies to ruleset auto-resolution:
+a bundle only auto-applies if its `category` matches a dropdown
+field's own label exactly (e.g. `"Race"` won't match a field you've
+relabeled "Species") AND its `name` matches the selected choice's text
+exactly (e.g. `"Elf"` won't match `"Wood Elf"`). No match, no
+auto-apply, no error — same spot-check applies.

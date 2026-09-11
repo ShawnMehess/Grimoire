@@ -10,15 +10,19 @@
 // the way an in-character bundle does — it has to work across many
 // different characters' sheets, each with their own field ids.
 //
-// This panel only edits the library itself. Attaching a library
-// bundle to an actual dropdown choice — which resolves those names
-// against one specific character's fields — happens from the
-// per-choice "Modifiers" editor in customSheet.js
+// This panel only edits the library itself. A bundle imported/created
+// with a ruleset set auto-applies to any character on that ruleset
+// (see resolveLibraryBundleFor in customSheet.js) — no per-choice step
+// needed. Attaching a library bundle BY HAND to one specific dropdown
+// choice — for a ruleset-agnostic bundle, or to override what
+// auto-resolution would pick — still works the same as before, from
+// that choice's own "Modifiers" editor in customSheet.js
 // (applyBundleLibraryToChoice). Now shares its overall sizing/position
 // with the Catalogs manager (see collectionMenuLayout.js) rather than
 // the old narrow fixed-width floating panel.
 
 import { positionCollectionMenu } from "./collectionMenuLayout.js";
+import { listRulesets } from "../data/dnd5e.js";
 
 const MODIFIER_OPS = [
   { value: "add", label: "+ Add" },
@@ -42,6 +46,10 @@ function blankLibraryEntry() {
     scope: "personal",
     name: "",
     category: "",
+    // null = ruleset-agnostic (applies no matter which ruleset a
+    // character has selected). Set from the Ruleset picker below, or
+    // stamped onto every bundle from a JSON import — see doImport.
+    rulesetId: null,
     statModifiers: [],
     dropdownAccess: [],
     // No editor UI here yet for feature grants (name/description/minLevel
@@ -99,7 +107,7 @@ export function openBundleLibraryManager(store, onChange) {
 
   const hint = document.createElement("p");
   hint.className = "modal-copy";
-  hint.textContent = "Define reusable bundles here (by field NAME, e.g. \"Strength\" — not tied to any one character), then apply them to a dropdown choice from that choice's own Modifiers editor.";
+  hint.textContent = "Define reusable bundles here (by field NAME, e.g. \"Strength\" — not tied to any one character). Give a bundle a Ruleset and it auto-applies to any character on that ruleset — no extra steps. Leave Ruleset blank and it only applies where you manually attach it from a dropdown choice's own Modifiers editor.";
   box.append(hint);
 
   const body = document.createElement("div");
@@ -187,7 +195,8 @@ export function openBundleLibraryManager(store, onChange) {
         item.type = "button";
         item.className = "bundle-library-list__item" +
           (!isNew && selected.id === lib.id ? " active" : "");
-        item.innerHTML = `<span>${lib.name || "Unnamed"}</span><span class="bundle-library-list__scope">${lib.scope === "global" ? "Global" : "Mine"}</span>`;
+        const rulesetLabel = lib.rulesetId ? (listRulesets().find((rs) => rs.id === lib.rulesetId)?.name || lib.rulesetId) : "Universal";
+        item.innerHTML = `<span>${lib.name || "Unnamed"}</span><span class="bundle-library-list__ruleset">${rulesetLabel}</span><span class="bundle-library-list__scope">${lib.scope === "global" ? "Global" : "Mine"}</span>`;
         item.addEventListener("click", () => selectEntry(lib, false));
 
         const deleteBtn = document.createElement("button");
@@ -253,7 +262,26 @@ export function openBundleLibraryManager(store, onChange) {
     catInput.addEventListener("input", () => { selected.category = catInput.value; });
     catRow.append(catLabel, catInput);
 
-    editorCol.append(nameRow, catRow);
+    const rulesetRow = document.createElement("div");
+    rulesetRow.className = "bundle-library-field-row";
+    const rulesetLabel = document.createElement("label");
+    rulesetLabel.textContent = "Ruleset";
+    const rulesetInput = document.createElement("select");
+    const rulesetBlank = document.createElement("option");
+    rulesetBlank.value = "";
+    rulesetBlank.textContent = "Any ruleset (universal)";
+    rulesetInput.append(rulesetBlank);
+    listRulesets().forEach((rs) => {
+      const opt = document.createElement("option");
+      opt.value = rs.id;
+      opt.textContent = rs.name;
+      if (rs.id === selected.rulesetId) opt.selected = true;
+      rulesetInput.append(opt);
+    });
+    rulesetInput.addEventListener("change", () => { selected.rulesetId = rulesetInput.value || null; });
+    rulesetRow.append(rulesetLabel, rulesetInput);
+
+    editorCol.append(nameRow, catRow, rulesetRow);
 
     // --- Stat modifiers ---
     const statHeader = document.createElement("div");
@@ -514,6 +542,38 @@ export function openBundleLibraryManager(store, onChange) {
     hint.textContent = `Drop .json file(s) below, or click to browse (up to ${MAX_IMPORT_FILES} files, ${formatBytes(MAX_IMPORT_BYTES)} total). Bundles can include statModifiers, dropdownAccess, featureGrants, resourceGrants, and choiceGroups; each file can hold one bundle object or an array of them.`;
     editorCol.append(hint);
 
+    // --- Ruleset picker ---------------------------------------------------
+    // Every bundle pulled out of the file(s) uploaded in this one import
+    // action is stamped with whichever ruleset is chosen here (see
+    // doImport) — required, so a character can later just pick "2014
+    // PHB" as its ruleset and have every bundle imported under that
+    // ruleset apply automatically (see resolveLibraryBundleFor in
+    // customSheet.js) instead of being attached by hand one dropdown
+    // choice at a time. Import different rulesets' files as separate
+    // import actions, one ruleset choice each.
+    const rulesetRow = document.createElement("div");
+    rulesetRow.className = "bundle-library-field-row";
+    const rulesetLabel = document.createElement("label");
+    rulesetLabel.textContent = "Ruleset";
+    const rulesetSelect = document.createElement("select");
+    const rulesetBlank = document.createElement("option");
+    rulesetBlank.value = "";
+    rulesetBlank.textContent = "Choose ruleset…";
+    rulesetSelect.append(rulesetBlank);
+    listRulesets().forEach((rs) => {
+      const opt = document.createElement("option");
+      opt.value = rs.id;
+      opt.textContent = rs.name;
+      rulesetSelect.append(opt);
+    });
+    rulesetRow.append(rulesetLabel, rulesetSelect);
+    editorCol.append(rulesetRow);
+
+    const rulesetHint = document.createElement("p");
+    rulesetHint.className = "modal-copy catalog-archetype__hint";
+    rulesetHint.textContent = "Every bundle from the file(s) you upload below is tagged with this ruleset — that's what lets a character auto-apply them just by selecting the same ruleset on its own sheet.";
+    editorCol.append(rulesetHint);
+
     // --- File drop zone -------------------------------------------------
     let pendingFileEntries = []; // flattened bundle objects successfully parsed from files
 
@@ -668,6 +728,11 @@ export function openBundleLibraryManager(store, onChange) {
         statusLine.textContent = "Nothing to import yet — drop or choose file(s) above.";
         return;
       }
+      const rulesetId = rulesetSelect.value || "";
+      if (!rulesetId) {
+        statusLine.textContent = "Choose a ruleset above first — every bundle in this upload needs one.";
+        return;
+      }
       const existingKeys = new Set(libraries.filter((l) => l.scope === scope).map(dedupeKey));
       const seenThisBatch = new Set();
       let lastId = null;
@@ -676,6 +741,11 @@ export function openBundleLibraryManager(store, onChange) {
       let skipped = 0;
       try {
         for (const entry of entries) {
+          // Every bundle in this upload gets the SAME ruleset — the one
+          // picked above for this whole import action — overwriting
+          // whatever (if anything) the JSON itself set, so a batch never
+          // ends up straddling two rulesets by accident.
+          entry.rulesetId = rulesetId;
           const key = dedupeKey({ ...entry, scope });
           if (existingKeys.has(key) || seenThisBatch.has(key)) {
             skipped++;
