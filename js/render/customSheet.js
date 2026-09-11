@@ -62,7 +62,7 @@ import { openFormulaEditor } from "./formulaEditor.js";
 import { openBundleLibraryManager } from "./bundleLibraryEditor.js";
 import { openCatalogLibraryManager } from "./catalogLibraryEditor.js";
 import { openCatalogBrowser } from "./catalogBrowser.js";
-import { getLevelUpPlan, getRulesetClass, listRulesets } from "../data/dnd5e.js";
+import { getLevelUpPlan, getRuleset, getRulesetClass, listRulesets } from "../data/dnd5e.js";
 import { ABILITY_IDS, normalizeRulesState, resolveRulesState } from "../data/rulesEngine.js";
 
 const PAGE_COLS = 16;
@@ -101,15 +101,6 @@ function debounce(fn, delayMs = 500) {
   };
 }
 
-// Case/whitespace-insensitive string match — the same normalization
-// bundle-library name resolution has always used (see
-// applyBundleLibraryToChoice below), shared here so the ruleset
-// auto-resolver (resolveLibraryBundleFor) matches names exactly the
-// same way.
-function norm(s) {
-  return (s || "").trim().toLowerCase();
-}
-
 export function renderCustomSheet(root, character, store) {
   // Set (not yet saved — see needsLevelFieldAutosave below, which
   // persists this once saveWithStatus/statusEl exist further down this
@@ -145,6 +136,20 @@ export function renderCustomSheet(root, character, store) {
   const collapsedBlockIds = new Set();
   // Same reasoning, for which Leveling-tab rows are expanded.
   const expandedLevelUpRows = new Set();
+  // Step position for the Character-setup and Leveling wizards — same
+  // "must survive a full renderPageGrid() rebuild" reasoning as above.
+  // Kept as plain {index} objects (not just a number) so step
+  // definitions below can close over and mutate them directly.
+  const creationWizardState = { index: 0 };
+  const levelingWizardState = { index: 0 };
+  // In-progress answers for whichever level's guide is currently open,
+  // keyed by level so switching levels doesn't mix them up. Lives out
+  // here (not as a local inside renderRulesetLevelGuide) so a value
+  // typed on one wizard step survives navigating to another step and
+  // back — every Next/Back/step-dot click does a full renderPageGrid(),
+  // which would otherwise reset any local variable back to its default.
+  // Cleared for a level once that level's changes are actually applied.
+  const levelingPendingState = {};
   const undoStack = [];
   const redoStack = [];
   // Multi-select: which block/field ids are currently selected. Most
@@ -347,9 +352,26 @@ export function renderCustomSheet(root, character, store) {
     character.rules = normalizeRulesState(character.rules);
     character.rules.rulesetId = character.rulesetId;
     saveWithStatus("rules", character.rules);
+    const syncMessage = syncRulesetBundles(character.rulesetId);
     renderAll();
+    if (syncMessage) statusEl.textContent = syncMessage;
   });
   toolbar.append(rulesetSelect);
+
+  // Re-run the ruleset auto-sync on demand — e.g. after importing more
+  // bundles for a ruleset that's already selected, since selecting the
+  // same value again wouldn't fire the <select>'s change event.
+  const rulesetSyncBtn = document.createElement("button");
+  rulesetSyncBtn.type = "button";
+  rulesetSyncBtn.className = "btn formula-toolbar__btn";
+  rulesetSyncBtn.textContent = "↻";
+  rulesetSyncBtn.title = "Re-apply this ruleset's bundles (after importing more, for example)";
+  rulesetSyncBtn.addEventListener("click", () => {
+    const syncMessage = syncRulesetBundles(character.rulesetId);
+    renderAll();
+    if (syncMessage) statusEl.textContent = syncMessage;
+  });
+  toolbar.append(rulesetSyncBtn);
 
   // Everything else the character-selection page shows on a card
   // (Race, Class, Level, whatever) is NOT intrinsic — name is the
@@ -1398,22 +1420,27 @@ export function renderCustomSheet(root, character, store) {
   function getAllowedChoiceIds(field, allFields) {
     let allowed = new Set((field.choices || []).map(c => c.id));
     const level = currentLevel(formulaValues);
+    let narrowedByBundle = false;
     allFields.forEach((other) => {
       if (other.fieldType !== "dropdown" || other === field) return;
       const choice = (other.choices || []).find(c => c.id === other.selected);
-      const bundle = effectiveChoiceBundle(other, choice, allFields);
+      const bundle = choice && choice.bundle;
       if (!bundle) return;
       (bundle.dropdownAccess || []).forEach((rule) => {
         if (rule.targetFieldId !== field.id) return;
         if (rule.minLevel && level < rule.minLevel) return; // not unlocked yet
         const ruleSet = new Set(rule.allowedChoiceIds || []);
         allowed = new Set([...allowed].filter(id => ruleSet.has(id)));
+        narrowedByBundle = true;
       });
     });
-    // A selected ruleset can also constrain the standard Subclass field.
-    // This is resolved fresh from content each render, so it works on a
-    // new character without manually attaching a Class bundle first.
-    if (field.id === "subclass" || field.label === "Subclass") {
+    // Fallback only. If an applied Class bundle already narrowed the
+    // Subclass field via a real dropdownAccess rule above (imported from
+    // JSON — see default-bundles/*.json), that data wins outright and
+    // this hardcoded PHB table is skipped, so a full imported subclass
+    // list never gets clipped back down to the small built-in one. This
+    // only kicks in for sheets that don't have a bundle wired up yet.
+    if (!narrowedByBundle && (field.id === "subclass" || field.label === "Subclass")) {
       const className = selectedChoiceName("class", "Class");
       const classEntry = getRulesetClass(character.rules?.rulesetId || character.rulesetId, className);
       const level = currentCharacterLevel();
@@ -1503,7 +1530,7 @@ export function renderCustomSheet(root, character, store) {
     fields.forEach((field) => {
       if (field.fieldType !== "dropdown") return;
       const choice = (field.choices || []).find((candidate) => candidate.id === field.selected);
-      const bundle = effectiveChoiceBundle(field, choice, fields);
+      const bundle = choice?.bundle;
       (bundle?.choiceGroups || []).forEach((group, index) => {
         if (group.minLevel && level < group.minLevel) return;
         if (!Array.isArray(group.options) || group.options.length === 0) return;
@@ -1535,7 +1562,7 @@ export function renderCustomSheet(root, character, store) {
     fields.forEach((field) => {
       if (field.fieldType !== "dropdown") return;
       const choice = (field.choices || []).find(c => c.id === field.selected);
-      const bundle = effectiveChoiceBundle(field, choice, fields);
+      const bundle = choice && choice.bundle;
       if (!bundle) return;
       applyStatModifiers(bundle.statModifiers, valueMap, grantedCheckboxes, level);
     });
@@ -1562,7 +1589,7 @@ export function renderCustomSheet(root, character, store) {
     fields.forEach((field) => {
       if (field.fieldType !== "dropdown") return;
       const choice = (field.choices || []).find(c => c.id === field.selected);
-      const bundle = effectiveChoiceBundle(field, choice, fields);
+      const bundle = choice && choice.bundle;
       if (!bundle) return;
       (bundle.featureGrants || []).forEach((grant) => {
         if (grant.minLevel && level < grant.minLevel) return; // not unlocked yet
@@ -1606,7 +1633,7 @@ export function renderCustomSheet(root, character, store) {
     fields.forEach((field) => {
       if (field.fieldType !== "dropdown") return;
       const choice = (field.choices || []).find((candidate) => candidate.id === field.selected);
-      const bundle = effectiveChoiceBundle(field, choice, fields);
+      const bundle = choice?.bundle;
       (bundle?.resourceGrants || []).forEach((grant, index) => {
         add(grant, `${field.id}:${choice.id}:resource:${grant.id || index}`, choice.text || field.label);
       });
@@ -2024,6 +2051,190 @@ export function renderCustomSheet(root, character, store) {
     return (field.choices || []).find((choice) => choice.id === field.selected)?.text || "";
   }
 
+  /** Same "prefer the applied bundle's real data over the hardcoded PHB
+   *  table" idea as the fallback in getAllowedChoiceIds, but shared with
+   *  the guided Character/Leveling tabs below so an imported classes.json
+   *  (once applied to the Class dropdown's choices) drives ALL THREE
+   *  places subclass lists show up, not just the live Subclass field.
+   *  Falls back to the hardcoded ruleset when no such bundle rule
+   *  exists yet, so un-migrated sheets keep working. */
+  function liveSubclassData(className) {
+    const classField = findStarterField("class", "Class");
+    const subclassField = findStarterField("subclass", "Subclass");
+    const classChoice = classField?.choices?.find((c) => c.text === className);
+    const rule = classChoice?.bundle?.dropdownAccess?.find((r) => r.targetFieldId === subclassField?.id);
+    if (rule && subclassField) {
+      const idSet = new Set(rule.allowedChoiceIds || []);
+      const names = subclassField.choices.filter((c) => idSet.has(c.id)).map((c) => c.text);
+      if (names.length) {
+        return { subclasses: names, subclassLevel: Number.isFinite(rule.minLevel) ? rule.minLevel : 1 };
+      }
+    }
+    const classEntry = getRulesetClass(character.rules?.rulesetId || character.rulesetId, className);
+    return classEntry
+      ? { subclasses: classEntry.subclasses, subclassLevel: classEntry.subclassLevel }
+      : { subclasses: [], subclassLevel: Infinity };
+  }
+
+  /** Minimal step-wizard shell shared by character creation and
+   *  leveling. `steps` is an ordered array of
+   *  {id, title, isApplicable(), render(container)}. isApplicable is
+   *  re-checked on every render, so a step whose relevance depends on
+   *  an earlier answer (e.g. "does this class grant a subclass at this
+   *  level") is skipped automatically rather than needing to be
+   *  pre-filtered by the caller — same idea as the level-gating already
+   *  used for dropdownAccess elsewhere in this file.
+   *
+   *  `stepState` is a small {index} object the caller keeps around
+   *  outside this function (see creationWizardState/levelingWizardState
+   *  above) so the current step survives the full teardown-and-rebuild
+   *  that renderPageGrid() does on every save.
+   *
+   *  Every step's dot is clickable, and Back always works — there's no
+   *  "locking in" a step. Re-picking an earlier answer (e.g. Class)
+   *  just edits the same live field/bundle data every other part of
+   *  the sheet reads from, so nothing needs to be specially undone;
+   *  see getAllowedChoiceIds/applyBundleModifiers, which recompute
+   *  everything from the current selection on every render anyway. */
+  function renderStepWizard(steps, stepState, { title, intro } = {}) {
+    const applicableSteps = steps.filter((step) => !step.isApplicable || step.isApplicable());
+    if (applicableSteps.length === 0) return null;
+    if (stepState.index >= applicableSteps.length) stepState.index = applicableSteps.length - 1;
+    if (stepState.index < 0) stepState.index = 0;
+
+    const wrap = document.createElement("section");
+    wrap.className = "leveling-tab character-rules wizard";
+    if (title) {
+      const heading = document.createElement("h2");
+      heading.textContent = title;
+      wrap.append(heading);
+    }
+    if (intro) {
+      const introEl = document.createElement("p");
+      introEl.className = "leveling-tab__intro";
+      introEl.textContent = intro;
+      wrap.append(introEl);
+    }
+
+    const dots = document.createElement("div");
+    dots.className = "wizard__dots";
+    applicableSteps.forEach((step, i) => {
+      const dot = document.createElement("button");
+      dot.type = "button";
+      dot.className = "wizard__dot"
+        + (i === stepState.index ? " wizard__dot--active" : "")
+        + (i < stepState.index ? " wizard__dot--done" : "");
+      dot.textContent = step.title;
+      dot.addEventListener("click", () => { stepState.index = i; renderPageGrid(); });
+      dots.append(dot);
+    });
+    wrap.append(dots);
+
+    const body = document.createElement("div");
+    body.className = "wizard__body level-guide__form";
+    wrap.append(body);
+    applicableSteps[stepState.index].render(body);
+
+    const nav = document.createElement("div");
+    nav.className = "wizard__nav";
+    if (stepState.index > 0) {
+      const back = document.createElement("button");
+      back.type = "button";
+      back.className = "btn";
+      back.textContent = "← Back";
+      back.addEventListener("click", () => { stepState.index -= 1; renderPageGrid(); });
+      nav.append(back);
+    }
+    if (stepState.index < applicableSteps.length - 1) {
+      const forward = document.createElement("button");
+      forward.type = "button";
+      forward.className = "btn btn--primary";
+      forward.textContent = "Next →";
+      forward.addEventListener("click", () => { stepState.index += 1; renderPageGrid(); });
+      nav.append(forward);
+    }
+    wrap.append(nav);
+    return wrap;
+  }
+
+  /** Bundle-library class/race/background names tagged to a ruleset —
+   *  same live-over-hardcoded preference as liveSubclassData, so the
+   *  wizard's pickers immediately reflect an imported classes.json
+   *  instead of the small built-in PHB list. Falls back to the
+   *  hardcoded ruleset's class list (Class only — Race/Background have
+   *  no hardcoded fallback since they were never in dnd5e.js). */
+  function rulesetOptionNames(rulesetId, category, fallback = []) {
+    const fromBundles = bundleLibraryCache
+      .filter((entry) => entry.rulesetId === rulesetId && entry.category === category)
+      .map((entry) => entry.name);
+    return fromBundles.length ? fromBundles : fallback;
+  }
+
+  /** "Pick a ruleset and the sheet just works" — walks every dropdown
+   *  field on the sheet and, for each choice, applies whichever
+   *  ruleset-tagged library bundle has the same name (case/whitespace
+   *  -insensitive), without needing a trip to each field's ⚙ editor.
+   *  Safe to call as often as you like (e.g. every time the ruleset
+   *  picker changes, or by hand after importing more JSON later) —
+   *  applyBundleLibraryToChoice's appliedLibraryIds guard means a
+   *  choice that's already had a given library bundle applied is
+   *  skipped, not re-stacked. Returns a short status string for the
+   *  caller to show. */
+  function syncRulesetBundles(rulesetId) {
+    if (!rulesetId) return null;
+    const allFields = flattenGlobalFields();
+    const norm = (s) => (s || "").trim().toLowerCase();
+    const rulesetBundles = bundleLibraryCache.filter((entry) => entry.rulesetId === rulesetId);
+    if (!rulesetBundles.length) return "No bundles are tagged for this ruleset yet — import some from the Bundle Libraries manager first.";
+    let applied = 0;
+    allFields.forEach((field) => {
+      if (field.fieldType !== "dropdown") return;
+      (field.choices || []).forEach((choice) => {
+        const lib = rulesetBundles.find((entry) => norm(entry.name) === norm(choice.text));
+        if (lib && applyBundleLibraryToChoice(lib, choice, allFields)) applied++;
+      });
+    });
+    if (applied > 0) {
+      mirrorFirstTabLayout();
+      saveWithStatus("layout", character.layout);
+    }
+    return applied > 0
+      ? `Wired up ${applied} choice${applied === 1 ? "" : "s"} from this ruleset's bundles.`
+      : "Everything from this ruleset's bundles was already applied.";
+  }
+
+  const STANDARD_ASI_LEVELS = new Set([4, 8, 12, 16, 19]);
+
+  /** Whether `level` grants an Ability Score Improvement for this
+   *  class. featureGrants only records the FIRST level a feature
+   *  appears (minLevel) — it has no way to say "and again at 6th,
+   *  8th...", so a class that grants recurring ASIs (most of them)
+   *  would only show one here if we went by minLevel alone. As a
+   *  stand-in until featureGrants gains a real repeat-levels field,
+   *  this trusts the standard 5e cadence (4/8/12/16/19) for any class
+   *  that has an "Ability Score Improvement" feature at all, in
+   *  addition to whatever minLevel it's actually tagged at (which
+   *  covers homebrew classes that grant it on a different schedule,
+   *  as long as they're at least tagged once). */
+  function classGrantsAsiAtLevel(className, level) {
+    const classField = findStarterField("class", "Class");
+    const choice = classField?.choices?.find((c) => c.text === className);
+    const grants = choice?.bundle?.featureGrants || [];
+    const asiFeature = grants.find((g) => /ability score improvement/i.test(g.name || ""));
+    if (!asiFeature) return false;
+    return level === asiFeature.minLevel || STANDARD_ASI_LEVELS.has(level);
+  }
+
+  /** New featureGrants this class picks up exactly at `level` — shown
+   *  as an informational step in the Leveling wizard. Only exact
+   *  minLevel matches (not "at or above"), since anything from an
+   *  earlier level was already shown when the character reached it. */
+  function classFeatureGrantsAtLevel(className, level) {
+    const classField = findStarterField("class", "Class");
+    const choice = classField?.choices?.find((c) => c.text === className);
+    return (choice?.bundle?.featureGrants || []).filter((g) => g.minLevel === level);
+  }
+
   function findStarterField(id, label) {
     return flattenGlobalFields().find((field) => field.id === id)
       || flattenGlobalFields().find((field) => field.label === label);
@@ -2063,26 +2274,81 @@ export function renderCustomSheet(root, character, store) {
     if (!field.items.includes(item)) field.items.push(item);
   }
 
+  /** Shared by the Character-setup wizard's Review step and (unchanged
+   *  from before this was split into steps) the old single "Sync Rules
+   *  To Sheet" button — pushes the plain-string character.rules answers
+   *  onto the sheet's actual dropdown fields, which is what makes their
+   *  bundles (stat modifiers, features) actually take effect. See the
+   *  characterStore/dropdownAccess comments elsewhere in this file for
+   *  why these are two separate representations of "what class is
+   *  this" in the first place. */
+  async function syncRulesToSheet(resolved) {
+    const classField = findStarterField("class", "Class");
+    const speciesField = findStarterField("species", "Species") || findStarterField("race", "Race");
+    const backgroundField = findStarterField("background", "Background");
+    const levelField = findStarterField("level", "Level");
+    const subclassField = findStarterField("subclass", "Subclass");
+    const choose = (target, value) => {
+      if (!target || !value) return;
+      let choice = target.choices?.find((entry) => entry.text === value);
+      // If this ruleset's option came from an imported bundle rather
+      // than a hand-built dropdown, the sheet might not have a
+      // matching choice yet — create one so the bundle can still be
+      // applied to it below.
+      if (!choice && Array.isArray(target.choices)) {
+        choice = { id: newId(), text: value, statModifiers: [] };
+        target.choices.push(choice);
+      }
+      if (choice) target.selected = choice.id;
+    };
+    choose(classField, character.rules.className);
+    choose(speciesField, character.rules.species);
+    choose(backgroundField, character.rules.background);
+    choose(subclassField, character.rules.subclass);
+    if (levelField) levelField.value = String(character.rules.level);
+    ABILITY_IDS.forEach((id) => {
+      const target = findStarterField(`${id}Score`, id.toUpperCase());
+      if (target) target.value = String(character.rules.abilityScores[id]);
+    });
+    (resolved.plan?.slotChanges || []).forEach((change) => {
+      const target = findStarterField(change.fieldId, change.label);
+      if (target) { target.options = change.options; syncOptionWidth(target); }
+    });
+    // Now that the choices exist and are selected, apply any
+    // ruleset-tagged library bundle whose name matches — same matching
+    // rule as Bulk Apply, just run automatically for the three/four
+    // fields the wizard just touched instead of requiring a trip to
+    // each field's ⚙ editor.
+    const norm = (s) => (s || "").trim().toLowerCase();
+    [classField, speciesField, backgroundField, subclassField].forEach((target) => {
+      if (!target) return;
+      const choice = target.choices?.find((c) => c.id === target.selected);
+      if (!choice) return;
+      const lib = bundleLibraryCache.find((entry) => entry.rulesetId === character.rules.rulesetId && norm(entry.name) === norm(choice.text));
+      if (lib) applyBundleLibraryToChoice(lib, choice, flattenGlobalFields());
+    });
+    mirrorFirstTabLayout();
+    await store.saveCharacterFields(character.id, { rules: character.rules, rulesetId: character.rules.rulesetId, layout: character.layout, sheetTabs: character.sheetTabs });
+    statusEl.textContent = "Saved";
+    renderAll();
+  }
+
   function renderRulesTab() {
     const state = character.rules = normalizeRulesState(character.rules);
     const resolved = resolveRulesState(state);
-    const wrap = document.createElement("section");
-    wrap.className = "leveling-tab character-rules";
-    const title = document.createElement("h2");
-    title.textContent = "Character Setup";
-    const copy = document.createElement("p");
-    copy.className = "leveling-tab__intro";
-    copy.textContent = "These choices are the character's rules state. The sheet layout can be customized independently.";
-    wrap.append(title, copy);
-    const form = document.createElement("div");
-    form.className = "level-guide__form";
+    // Prefer a live, bundle-driven subclass list (from an applied
+    // classes.json import) over resolveRulesState's hardcoded PHB one.
+    const liveSubclasses = liveSubclassData(state.className);
+    if (liveSubclasses.subclasses.length) {
+      resolved.availableSubclasses = state.level >= liveSubclasses.subclassLevel ? liveSubclasses.subclasses : [];
+    }
     const saveRules = debounce(() => saveWithStatus("rules", character.rules), 400);
-    const field = (label, control) => {
+    const field = (container, label, control) => {
       const group = document.createElement("label");
       group.className = "level-guide__field";
       group.textContent = label;
       group.append(control);
-      form.append(group);
+      container.append(group);
     };
     const update = (key, value) => {
       character.rules[key] = value;
@@ -2091,70 +2357,180 @@ export function renderCustomSheet(root, character, store) {
       renderPageGrid();
     };
 
-    const ruleset = document.createElement("select");
-    ruleset.className = "input-group__control";
-    const blank = document.createElement("option"); blank.value = ""; blank.textContent = "Choose ruleset"; ruleset.append(blank);
-    listRulesets().forEach((entry) => { const option = document.createElement("option"); option.value = entry.id; option.textContent = entry.name; ruleset.append(option); });
-    ruleset.value = state.rulesetId || "";
-    ruleset.addEventListener("change", () => {
-      character.rulesetId = ruleset.value || null;
-      update("rulesetId", character.rulesetId);
-    });
-    field("Ruleset", ruleset);
+    const steps = [
+      {
+        id: "ruleset",
+        title: "Ruleset",
+        render(container) {
+          const ruleset = document.createElement("select");
+          ruleset.className = "input-group__control";
+          const blank = document.createElement("option"); blank.value = ""; blank.textContent = "Choose ruleset"; ruleset.append(blank);
+          listRulesets().forEach((entry) => { const option = document.createElement("option"); option.value = entry.id; option.textContent = entry.name; ruleset.append(option); });
+          ruleset.value = state.rulesetId || "";
+          ruleset.addEventListener("change", () => {
+            character.rulesetId = ruleset.value || null;
+            update("rulesetId", character.rulesetId);
+            const syncMessage = syncRulesetBundles(character.rulesetId);
+            if (syncMessage) statusEl.textContent = syncMessage;
+          });
+          field(container, "Ruleset", ruleset);
+        },
+      },
+      {
+        id: "abilities",
+        title: "Ability Scores",
+        render(container) {
+          ABILITY_IDS.forEach((id) => {
+            const input = document.createElement("input");
+            input.type = "number"; input.min = "1"; input.max = "30"; input.className = "input-group__control";
+            input.value = String(state.abilityScores[id]);
+            input.addEventListener("change", () => { character.rules.abilityScores[id] = Number(input.value) || 10; saveRules(); renderPageGrid(); });
+            field(container, id.toUpperCase(), input);
+          });
+        },
+      },
+      {
+        id: "species",
+        title: "Race/Species",
+        render(container) {
+          const liveNames = rulesetOptionNames(state.rulesetId, "Race");
+          if (liveNames.length) {
+            const select = document.createElement("select");
+            select.className = "input-group__control";
+            const blank = document.createElement("option"); blank.value = ""; blank.textContent = "Choose race/species"; select.append(blank);
+            liveNames.forEach((name) => { const option = document.createElement("option"); option.value = name; option.textContent = name; select.append(option); });
+            select.value = state.species || "";
+            select.addEventListener("change", () => update("species", select.value));
+            field(container, "Race/Species", select);
+          } else {
+            const input = document.createElement("input");
+            input.type = "text"; input.className = "input-group__control";
+            input.placeholder = "No Race bundles imported for this ruleset yet — type it in for now";
+            input.value = state.species || "";
+            input.addEventListener("change", () => update("species", input.value));
+            field(container, "Race/Species", input);
+          }
+        },
+      },
+      {
+        id: "class",
+        title: "Class",
+        render(container) {
+          const liveNames = rulesetOptionNames(state.rulesetId, "Class", (resolved.ruleset?.classes || []).map((c) => c.name));
+          const classSelect = document.createElement("select");
+          classSelect.className = "input-group__control";
+          const classBlank = document.createElement("option"); classBlank.value = ""; classBlank.textContent = "Choose class"; classSelect.append(classBlank);
+          liveNames.forEach((name) => { const option = document.createElement("option"); option.value = name; option.textContent = name; classSelect.append(option); });
+          classSelect.value = state.className || "";
+          classSelect.addEventListener("change", () => update("className", classSelect.value));
+          field(container, "Class", classSelect);
 
-    const classSelect = document.createElement("select");
-    classSelect.className = "input-group__control";
-    const classBlank = document.createElement("option"); classBlank.value = ""; classBlank.textContent = "Choose class"; classSelect.append(classBlank);
-    (resolved.ruleset?.classes || []).forEach((entry) => { const option = document.createElement("option"); option.value = entry.name; option.textContent = entry.name; classSelect.append(option); });
-    classSelect.value = state.className || "";
-    classSelect.addEventListener("change", () => update("className", classSelect.value));
-    field("Class", classSelect);
+          const level = document.createElement("input");
+          level.type = "number"; level.min = "1"; level.max = "20"; level.value = String(state.level); level.className = "input-group__control";
+          level.addEventListener("change", () => update("level", level.value));
+          field(container, "Starting Level", level);
 
-    const level = document.createElement("input");
-    level.type = "number"; level.min = "1"; level.max = "20"; level.value = String(state.level); level.className = "input-group__control";
-    level.addEventListener("change", () => update("level", level.value));
-    field("Level", level);
+          if (liveSubclasses.subclasses.length && state.level >= liveSubclasses.subclassLevel) {
+            const subclass = document.createElement("select");
+            subclass.className = "input-group__control";
+            const subclassBlank = document.createElement("option"); subclassBlank.value = ""; subclassBlank.textContent = "Choose subclass"; subclass.append(subclassBlank);
+            liveSubclasses.subclasses.forEach((name) => { const option = document.createElement("option"); option.value = name; option.textContent = name; subclass.append(option); });
+            subclass.value = state.subclass || "";
+            subclass.addEventListener("change", () => update("subclass", subclass.value));
+            field(container, "Subclass", subclass);
+          } else if (state.className) {
+            const note = document.createElement("p");
+            note.className = "leveling-tab__intro";
+            note.textContent = `${state.className} doesn't choose a subclass until level ${liveSubclasses.subclassLevel === Infinity ? "?" : liveSubclasses.subclassLevel} — the Leveling tab will ask when you get there.`;
+            container.append(note);
+          }
+        },
+      },
+      {
+        id: "background",
+        title: "Background",
+        render(container) {
+          const liveNames = rulesetOptionNames(state.rulesetId, "Background");
+          if (liveNames.length) {
+            const select = document.createElement("select");
+            select.className = "input-group__control";
+            const blank = document.createElement("option"); blank.value = ""; blank.textContent = "Choose background"; select.append(blank);
+            liveNames.forEach((name) => { const option = document.createElement("option"); option.value = name; option.textContent = name; select.append(option); });
+            select.value = state.background || "";
+            select.addEventListener("change", () => update("background", select.value));
+            field(container, "Background", select);
+          } else {
+            const input = document.createElement("input");
+            input.type = "text"; input.className = "input-group__control";
+            input.placeholder = "No Background bundles imported for this ruleset yet — type it in for now";
+            input.value = state.background || "";
+            input.addEventListener("change", () => update("background", input.value));
+            field(container, "Background", input);
+          }
+        },
+      },
+      {
+        id: "preferences",
+        title: "Preferences",
+        render(container) {
+          const intro = document.createElement("p");
+          intro.className = "leveling-tab__intro";
+          intro.textContent = "How do you want hit points (and similar rolled increases) handled by default when you level up?";
+          container.append(intro);
+          // TODO(settings menu): hpMethod/hitDieSize live on character.rules
+          // purely because there's nowhere else to put a per-character
+          // default yet. Once a real Settings tab/menu exists, move this
+          // control there (keep it defaulting from whatever's already
+          // saved on character.rules so existing characters don't reset),
+          // and let it be changed anytime instead of only during creation.
+          const select = document.createElement("select");
+          select.className = "input-group__control";
+          [["average", "Fixed average"], ["roll", "Roll in-browser"], ["manual", "I'll roll at the table and type it in"]].forEach(([value, label]) => {
+            const option = document.createElement("option"); option.value = value; option.textContent = label; select.append(option);
+          });
+          select.value = character.rules.hpMethod || "manual";
+          select.addEventListener("change", () => { character.rules.hpMethod = select.value; saveRules(); });
+          field(container, "HP on level-up", select);
 
-    const subclass = document.createElement("select");
-    subclass.className = "input-group__control";
-    const subclassBlank = document.createElement("option"); subclassBlank.value = ""; subclassBlank.textContent = resolved.availableSubclasses.length ? "Choose subclass" : "Not available yet"; subclass.append(subclassBlank);
-    resolved.availableSubclasses.forEach((name) => { const option = document.createElement("option"); option.value = name; option.textContent = name; subclass.append(option); });
-    subclass.value = state.subclass || ""; subclass.disabled = !resolved.availableSubclasses.length;
-    subclass.addEventListener("change", () => update("subclass", subclass.value));
-    field("Subclass", subclass);
+          const dieSize = document.createElement("select");
+          dieSize.className = "input-group__control";
+          [4, 6, 8, 10, 12].forEach((sides) => { const option = document.createElement("option"); option.value = String(sides); option.textContent = `d${sides}`; dieSize.append(option); });
+          dieSize.value = String(character.rules.hitDieSize || 8);
+          dieSize.addEventListener("change", () => { character.rules.hitDieSize = Number(dieSize.value); saveRules(); });
+          field(container, "Hit die (bundles don't carry this yet — set it to match your class)", dieSize);
+        },
+      },
+      {
+        id: "review",
+        title: "Review",
+        render(container) {
+          const derived = document.createElement("p");
+          derived.className = "level-guide__summary";
+          const parts = [
+            state.rulesetId ? getRuleset(state.rulesetId)?.name : null,
+            state.species,
+            state.className && `${state.className}${state.subclass ? ` (${state.subclass})` : ""}`,
+            state.background,
+            `Level ${state.level}`,
+          ].filter(Boolean);
+          if (resolved.derived.preparedSpellLimit != null) parts.push(`Prepared druid spells: ${resolved.derived.preparedSpellLimit}`);
+          resolved.derived.resources.forEach((resource) => parts.push(`${resource.name}: ${resource.maximum}`));
+          derived.textContent = parts.length ? parts.join(" · ") : "Nothing chosen yet.";
+          container.append(derived);
 
-    ["Species", "Background"].forEach((label) => {
-      const input = document.createElement("input"); input.type = "text"; input.className = "input-group__control";
-      const key = label.toLowerCase(); input.value = state[key] || ""; input.addEventListener("change", () => update(key, input.value)); field(label, input);
+          const sync = document.createElement("button");
+          sync.type = "button"; sync.className = "btn btn--primary"; sync.textContent = "Finish Setup";
+          sync.addEventListener("click", () => syncRulesToSheet(resolved));
+          container.append(sync);
+        },
+      },
+    ];
+
+    const wizard = renderStepWizard(steps, creationWizardState, {
+      title: "Character Setup",
+      intro: "Step through these once to get your character started — you can always come back and change an earlier answer.",
     });
-    ABILITY_IDS.forEach((id) => {
-      const input = document.createElement("input"); input.type = "number"; input.min = "1"; input.max = "30"; input.className = "input-group__control"; input.value = String(state.abilityScores[id]);
-      input.addEventListener("change", () => { character.rules.abilityScores[id] = Number(input.value) || 10; saveRules(); renderPageGrid(); });
-      field(id.toUpperCase(), input);
-    });
-    wrap.append(form);
-    const derived = document.createElement("p");
-    derived.className = "level-guide__summary";
-    const parts = [];
-    if (resolved.derived.preparedSpellLimit != null) parts.push(`Prepared druid spells: ${resolved.derived.preparedSpellLimit}`);
-    resolved.derived.resources.forEach((resource) => parts.push(`${resource.name}: ${resource.maximum}`));
-    derived.textContent = parts.length ? parts.join(" · ") : "Choose a ruleset and class to see derived character resources.";
-    wrap.append(derived);
-    const sync = document.createElement("button");
-    sync.type = "button"; sync.className = "btn btn--primary"; sync.textContent = "Sync Rules To Sheet";
-    sync.addEventListener("click", async () => {
-      const classField = findStarterField("class", "Class"); const levelField = findStarterField("level", "Level"); const subclassField = findStarterField("subclass", "Subclass");
-      const choose = (target, value) => { const choice = target?.choices?.find((entry) => entry.text === value); if (choice) target.selected = choice.id; };
-      choose(classField, character.rules.className); choose(subclassField, character.rules.subclass);
-      if (levelField) levelField.value = String(character.rules.level);
-      ABILITY_IDS.forEach((id) => { const target = findStarterField(`${id}Score`, id.toUpperCase()); if (target) target.value = String(character.rules.abilityScores[id]); });
-      (resolved.plan?.slotChanges || []).forEach((change) => { const target = findStarterField(change.fieldId, change.label); if (target) { target.options = change.options; syncOptionWidth(target); } });
-      mirrorFirstTabLayout();
-      await store.saveCharacterFields(character.id, { rules: character.rules, rulesetId: character.rules.rulesetId, layout: character.layout, sheetTabs: character.sheetTabs });
-      statusEl.textContent = "Saved"; renderAll();
-    });
-    wrap.append(sync);
-    pageGrid.append(wrap);
+    if (wizard) pageGrid.append(wizard);
   }
 
   function renderRulesetLevelGuide() {
@@ -2162,33 +2538,33 @@ export function renderCustomSheet(root, character, store) {
     const level = currentCharacterLevel();
     const selectedSubclass = selectedChoiceName("subclass", "Subclass");
     const plan = getLevelUpPlan(character.rules?.rulesetId || character.rulesetId, className, level, selectedSubclass);
+    // Same override as renderRulesTab above: a live, bundle-driven
+    // subclass list (from an applied classes.json import) wins over
+    // getLevelUpPlan's hardcoded PHB one, so new subclasses show up
+    // here the moment they're imported and applied — no code edit.
+    if (plan) {
+      const liveSubclasses = liveSubclassData(className);
+      if (liveSubclasses.subclasses.length) {
+        plan.needsSubclass = !selectedSubclass && level >= liveSubclasses.subclassLevel;
+        plan.subclassChoices = plan.needsSubclass ? liveSubclasses.subclasses : [];
+      }
+    }
     const contentGroups = level == null ? [] : activeRuleChoiceGroups(flattenGlobalFields(), formulaValues)
       .filter((group) => group.minLevel <= level);
+    const newFeatures = level == null || !className ? [] : classFeatureGrantsAtLevel(className, level);
+    const needsAsi = level != null && className ? classGrantsAsiAtLevel(className, level) : false;
     if (!plan && contentGroups.length === 0) return null;
 
     const priorLevelUp = character.levelUps?.[String(level)] || {};
-    const panel = document.createElement("section");
-    panel.className = "level-guide";
-
-    const heading = document.createElement("div");
-    heading.className = "level-guide__heading";
-    const title = document.createElement("h2");
-    title.textContent = `${className || "Character"} Level ${level}`;
-    const status = document.createElement("span");
-    status.className = "level-guide__status";
-    status.textContent = plan?.needsSubclass ? "Subclass choice needed" : selectedSubclass || plan?.ruleset.name || "Content choices";
-    heading.append(title, status);
-    panel.append(heading);
-
-    const summary = document.createElement("p");
-    summary.className = "level-guide__summary";
-    const slots = (plan?.slotChanges || []).map((change) => `${change.options} ${change.label}-level`).join(", ");
-    summary.textContent = slots
-      ? `Record the HP gained for this level. This ruleset will set spell slots to ${slots}.`
-      : "Record the HP gained and choose any features or options granted at this level.";
-    panel.append(summary);
-
     if (plan && priorLevelUp.appliedRulesetId === plan.ruleset.id) {
+      const panel = document.createElement("section");
+      panel.className = "level-guide";
+      const heading = document.createElement("div");
+      heading.className = "level-guide__heading";
+      const title = document.createElement("h2");
+      title.textContent = `${className || "Character"} Level ${level}`;
+      heading.append(title);
+      panel.append(heading);
       const complete = document.createElement("p");
       complete.className = "level-guide__feedback";
       complete.textContent = `This level was already applied using ${plan.ruleset.name}.`;
@@ -2196,187 +2572,382 @@ export function renderCustomSheet(root, character, store) {
       return panel;
     }
 
-    const form = document.createElement("div");
-    form.className = "level-guide__form";
-    const pendingChoices = new Map(contentGroups.map((group) => [
-      group.key,
-      [...(character.rules?.choices?.[group.key] || [])],
-    ]));
-
-    contentGroups.forEach((group) => {
-      const choiceGroup = document.createElement("fieldset");
-      choiceGroup.className = "level-guide__choices";
-      const legend = document.createElement("legend");
-      const count = group.minSelections === group.maxSelections
-        ? `Choose ${group.maxSelections}`
-        : `Choose up to ${group.maxSelections}`;
-      legend.textContent = `${group.label || "Choose an option"} (${count})`;
-      choiceGroup.append(legend);
-      const source = document.createElement("p");
-      source.className = "level-guide__choice-source";
-      source.textContent = group.source;
-      choiceGroup.append(source);
-
-      group.options.forEach((option) => {
-        const optionLabel = document.createElement("label");
-        optionLabel.className = "level-guide__choice-option";
-        const input = document.createElement("input");
-        input.type = group.maxSelections === 1 ? "radio" : "checkbox";
-        input.name = `rule-choice-${group.key}`;
-        input.value = option.id;
-        input.checked = pendingChoices.get(group.key).includes(option.id);
-        input.addEventListener("change", () => {
-          const selected = pendingChoices.get(group.key);
-          if (input.type === "radio") {
-            pendingChoices.set(group.key, input.checked ? [option.id] : []);
-          } else if (input.checked) {
-            if (!selected.includes(option.id)) selected.push(option.id);
-          } else {
-            pendingChoices.set(group.key, selected.filter((id) => id !== option.id));
-          }
-        });
-        const text = document.createElement("span");
-        text.textContent = option.name || "Unnamed option";
-        optionLabel.append(input, text);
-        if (option.description) {
-          const description = document.createElement("span");
-          description.className = "level-guide__choice-description";
-          description.textContent = option.description;
-          optionLabel.append(description);
-        }
-        choiceGroup.append(optionLabel);
-      });
-      form.append(choiceGroup);
-    });
-    let subclassSelect = null;
-    if (plan?.needsSubclass) {
-      const subclassGroup = document.createElement("label");
-      subclassGroup.className = "level-guide__field";
-      subclassGroup.textContent = "Subclass";
-      subclassSelect = document.createElement("select");
-      subclassSelect.className = "input-group__control";
-      plan.subclassChoices.forEach((name) => {
-        const option = document.createElement("option");
-        option.value = name;
-        option.textContent = name;
-        subclassSelect.append(option);
-      });
-      subclassGroup.append(subclassSelect);
-      form.append(subclassGroup);
+    // In-progress answers for this level — see levelingPendingState
+    // comment near its declaration for why this can't just be a local.
+    const levelKey = String(level);
+    if (!levelingPendingState[levelKey]) {
+      levelingPendingState[levelKey] = {
+        hp: "",
+        subclass: selectedSubclass || "",
+        notes: "",
+        asiMode: "feat",
+        asiAbility1: "",
+        asiAbility2: "",
+        choices: Object.fromEntries(contentGroups.map((group) => [group.key, [...(character.rules?.choices?.[group.key] || [])]])),
+      };
     }
+    const pending = levelingPendingState[levelKey];
+    contentGroups.forEach((group) => {
+      if (!pending.choices[group.key]) pending.choices[group.key] = [...(character.rules?.choices?.[group.key] || [])];
+    });
 
-    const hpGroup = document.createElement("label");
-    hpGroup.className = "level-guide__field";
-    hpGroup.textContent = "HP Gained";
-    const hpInput = document.createElement("input");
-    hpInput.type = "number";
-    hpInput.min = "1";
-    hpInput.step = "1";
-    hpInput.required = true;
-    hpInput.placeholder = "Rolled or average";
-    hpInput.className = "input-group__control";
-    hpGroup.append(hpInput);
-    form.append(hpGroup);
-
-    const benefitsGroup = document.createElement("label");
-    benefitsGroup.className = "level-guide__field level-guide__field--wide";
-    benefitsGroup.textContent = "Features and Choices to Record";
-    const benefitsInput = document.createElement("textarea");
-    benefitsInput.placeholder = "Record features, spells, proficiencies, or other choices from your source book.";
-    benefitsGroup.append(benefitsInput);
-    form.append(benefitsGroup);
-    panel.append(form);
-
+    const slots = (plan?.slotChanges || []).map((change) => `${change.options} ${change.label}-level`).join(", ");
     const feedback = document.createElement("p");
     feedback.className = "level-guide__feedback";
-    panel.append(feedback);
-    const applyBtn = document.createElement("button");
-    applyBtn.type = "button";
-    applyBtn.className = "btn btn--primary";
-    applyBtn.textContent = `Apply Level ${level} Changes`;
-    applyBtn.addEventListener("click", async () => {
-      const hpGain = Number.parseInt(hpInput.value, 10);
-      if (!Number.isFinite(hpGain) || hpGain < 1) {
-        feedback.textContent = "Enter the HP gained for this level before applying it.";
-        feedback.classList.add("level-guide__feedback--error");
-        hpInput.focus();
-        return;
-      }
-      for (const group of contentGroups) {
-        const selected = pendingChoices.get(group.key) || [];
-        if (selected.length < group.minSelections || selected.length > group.maxSelections) {
-          feedback.textContent = `${group.label || "This choice"} needs ${group.minSelections === group.maxSelections ? group.maxSelections : `${group.minSelections}-${group.maxSelections}`} selection(s).`;
-          feedback.classList.add("level-guide__feedback--error");
-          return;
-        }
-      }
-      const subclassField = findStarterField("subclass", "Subclass");
-      const selectedSubclassName = subclassSelect?.value || selectedSubclass;
-      const subclassChoice = selectedSubclassName && (subclassField?.choices || []).find((choice) => choice.text === selectedSubclassName);
-      const slotChanges = plan?.slotChanges || [];
-      ensureStandardSpellSlotFields(slotChanges);
-      const missingSlots = slotChanges.filter((change) => !findStarterField(change.fieldId, change.label));
-      if (plan?.needsSubclass && (!subclassField || !subclassChoice)) {
-        feedback.textContent = "This sheet needs a Subclass dropdown containing the ruleset's available choices.";
-        feedback.classList.add("level-guide__feedback--error");
-        return;
-      }
-      if (missingSlots.length > 0) {
-        feedback.textContent = `This sheet is missing the ${missingSlots.map((change) => change.label).join(", ")} spell-slot field(s) needed for this level.`;
-        feedback.classList.add("level-guide__feedback--error");
-        return;
-      }
 
-      const before = clone({ layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps, rules: character.rules });
-      const hpMax = findStarterField(null, "HP Max");
-      const hpCurrent = findStarterField(null, "HP Current");
-      const features = findStarterField(null, "Features & Traits");
-      const notes = benefitsInput.value.trim();
-      const featureEntry = notes ? `${className} level ${level}: ${notes}` : `${className} level ${level}`;
-      applyBtn.disabled = true;
-      feedback.textContent = "Applying changes…";
-      feedback.classList.remove("level-guide__feedback--error");
-      if (subclassChoice) subclassField.selected = subclassChoice.id;
-      character.rules = normalizeRulesState(character.rules);
-      contentGroups.forEach((group) => {
-        character.rules.choices[group.key] = [...(pendingChoices.get(group.key) || [])];
+    const steps = [];
+
+    if (plan?.needsSubclass) {
+      steps.push({
+        id: "subclass",
+        title: "Subclass",
+        render(container) {
+          const group = document.createElement("label");
+          group.className = "level-guide__field";
+          group.textContent = "Subclass";
+          const select = document.createElement("select");
+          select.className = "input-group__control";
+          const blank = document.createElement("option"); blank.value = ""; blank.textContent = "Choose subclass"; select.append(blank);
+          plan.subclassChoices.forEach((name) => {
+            const option = document.createElement("option");
+            option.value = name; option.textContent = name;
+            select.append(option);
+          });
+          select.value = pending.subclass || "";
+          select.addEventListener("change", () => { pending.subclass = select.value; });
+          group.append(select);
+          container.append(group);
+        },
       });
-      slotChanges.forEach((change) => {
-        const field = findStarterField(change.fieldId, change.label);
-        field.options = change.options;
-        syncOptionWidth(field);
+    }
+
+    if (needsAsi) {
+      steps.push({
+        id: "asi",
+        title: "Ability Score Improvement",
+        render(container) {
+          const intro = document.createElement("p");
+          intro.className = "leveling-tab__intro";
+          intro.textContent = `${className} gets an Ability Score Improvement at level ${level} — increase one score by 2, two scores by 1 each, or take a feat instead (note it on the Notes step).`;
+          container.append(intro);
+
+          const modeGroup = document.createElement("label");
+          modeGroup.className = "level-guide__field";
+          modeGroup.textContent = "This level's ASI";
+          const modeSelect = document.createElement("select");
+          modeSelect.className = "input-group__control";
+          [["single", "+2 to one score"], ["double", "+1 to two scores"], ["feat", "Took a feat instead"]].forEach(([value, label]) => {
+            const option = document.createElement("option"); option.value = value; option.textContent = label; modeSelect.append(option);
+          });
+          modeSelect.value = pending.asiMode;
+          modeGroup.append(modeSelect);
+          container.append(modeGroup);
+
+          const abilityRow = document.createElement("div");
+          const renderAbilitySelects = () => {
+            abilityRow.innerHTML = "";
+            if (modeSelect.value === "feat") return;
+            const count = modeSelect.value === "single" ? 1 : 2;
+            for (let i = 0; i < count; i++) {
+              const abilityGroup = document.createElement("label");
+              abilityGroup.className = "level-guide__field";
+              abilityGroup.textContent = i === 0 ? "Ability" : "Second ability";
+              const abilitySelect = document.createElement("select");
+              abilitySelect.className = "input-group__control";
+              const blank = document.createElement("option"); blank.value = ""; blank.textContent = "Choose"; abilitySelect.append(blank);
+              ABILITY_IDS.forEach((id) => { const option = document.createElement("option"); option.value = id; option.textContent = id.toUpperCase(); abilitySelect.append(option); });
+              abilitySelect.value = i === 0 ? pending.asiAbility1 : pending.asiAbility2;
+              abilitySelect.addEventListener("change", () => { if (i === 0) pending.asiAbility1 = abilitySelect.value; else pending.asiAbility2 = abilitySelect.value; });
+              abilityGroup.append(abilitySelect);
+              abilityRow.append(abilityGroup);
+            }
+          };
+          modeSelect.addEventListener("change", () => { pending.asiMode = modeSelect.value; renderAbilitySelects(); });
+          renderAbilitySelects();
+          container.append(abilityRow);
+        },
       });
-      if (hpMax) hpMax.value = String(numericFieldValue(hpMax) + hpGain);
-      if (hpCurrent) hpCurrent.value = String(numericFieldValue(hpCurrent) + hpGain);
-      appendUniqueTextListItem(features, featureEntry);
-      character.levelUps[String(level)] = {
-        ...(character.levelUps[String(level)] || {}),
-        hp: `+${hpGain}`,
-        subclass: selectedSubclassName || "",
-        spells: slots ? `Spell slots: ${slots}.` : "",
-        features: featureEntry,
-        appliedRulesetId: plan?.ruleset?.id || "content",
-      };
-      mirrorFirstTabLayout();
-      unsavedChanges = true;
-      try {
-        await store.saveCharacterFields(character.id, { layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps, rules: character.rules });
-        unsavedChanges = false;
-        statusEl.textContent = "Saved";
-        renderAll();
-      } catch (err) {
-        console.error("Failed to apply level-up changes:", err);
-        character.layout = before.layout;
-        character.sheetTabs = before.sheetTabs;
-        character.levelUps = before.levelUps;
-        character.rules = before.rules;
-        feedback.textContent = "The update could not be saved. Please try again.";
-        feedback.classList.add("level-guide__feedback--error");
-        applyBtn.disabled = false;
-      }
+    }
+
+    if (newFeatures.length) {
+      steps.push({
+        id: "features",
+        title: "New Features",
+        render(container) {
+          const intro = document.createElement("p");
+          intro.className = "leveling-tab__intro";
+          intro.textContent = `${className} gains the following at level ${level}:`;
+          container.append(intro);
+          newFeatures.forEach((feature) => {
+            const block = document.createElement("div");
+            block.className = "level-guide__choices";
+            const name = document.createElement("strong");
+            name.textContent = feature.name;
+            const desc = document.createElement("p");
+            desc.className = "level-guide__choice-description";
+            desc.textContent = feature.description || "";
+            block.append(name, desc);
+            container.append(block);
+          });
+        },
+      });
+    }
+
+    if (contentGroups.length) {
+      steps.push({
+        id: "choices",
+        title: "Choices",
+        render(container) {
+          contentGroups.forEach((group) => {
+            const choiceGroup = document.createElement("fieldset");
+            choiceGroup.className = "level-guide__choices";
+            const legend = document.createElement("legend");
+            const count = group.minSelections === group.maxSelections
+              ? `Choose ${group.maxSelections}`
+              : `Choose up to ${group.maxSelections}`;
+            legend.textContent = `${group.label || "Choose an option"} (${count})`;
+            choiceGroup.append(legend);
+            const source = document.createElement("p");
+            source.className = "level-guide__choice-source";
+            source.textContent = group.source;
+            choiceGroup.append(source);
+
+            group.options.forEach((option) => {
+              const optionLabel = document.createElement("label");
+              optionLabel.className = "level-guide__choice-option";
+              const input = document.createElement("input");
+              input.type = group.maxSelections === 1 ? "radio" : "checkbox";
+              input.name = `rule-choice-${group.key}`;
+              input.value = option.id;
+              input.checked = pending.choices[group.key].includes(option.id);
+              input.addEventListener("change", () => {
+                const selected = pending.choices[group.key];
+                if (input.type === "radio") {
+                  pending.choices[group.key] = input.checked ? [option.id] : [];
+                } else if (input.checked) {
+                  if (!selected.includes(option.id)) selected.push(option.id);
+                } else {
+                  pending.choices[group.key] = selected.filter((id) => id !== option.id);
+                }
+              });
+              const text = document.createElement("span");
+              text.textContent = option.name || "Unnamed option";
+              optionLabel.append(input, text);
+              if (option.description) {
+                const description = document.createElement("span");
+                description.className = "level-guide__choice-description";
+                description.textContent = option.description;
+                optionLabel.append(description);
+              }
+              choiceGroup.append(optionLabel);
+            });
+            container.append(choiceGroup);
+          });
+        },
+      });
+    }
+
+    if (slots) {
+      steps.push({
+        id: "spells",
+        title: "Spells",
+        render(container) {
+          const note = document.createElement("p");
+          note.className = "level-guide__summary";
+          note.textContent = `This ruleset sets your spell slots to ${slots} at this level.`;
+          container.append(note);
+        },
+      });
+    }
+
+    steps.push({
+      id: "hp",
+      title: "Hit Points",
+      render(container) {
+        const conMod = Math.floor(((Number(character.rules?.abilityScores?.con) || 10) - 10) / 2);
+        const dieSize = character.rules?.hitDieSize || 8;
+        const method = character.rules?.hpMethod || "manual";
+        const rollOnce = () => Math.max(1, Math.floor(Math.random() * dieSize) + 1 + conMod);
+        const averageOnce = () => Math.max(1, Math.floor(dieSize / 2) + 1 + conMod);
+        if (!pending.hp) {
+          if (method === "average") pending.hp = String(averageOnce());
+          else if (method === "roll") pending.hp = String(rollOnce());
+        }
+
+        const hpGroup = document.createElement("label");
+        hpGroup.className = "level-guide__field";
+        hpGroup.textContent = "HP Gained";
+        const hpInput = document.createElement("input");
+        hpInput.type = "number"; hpInput.min = "1"; hpInput.step = "1"; hpInput.required = true;
+        hpInput.placeholder = "Rolled or average"; hpInput.className = "input-group__control";
+        hpInput.value = pending.hp || "";
+        hpInput.addEventListener("change", () => { pending.hp = hpInput.value; });
+        hpGroup.append(hpInput);
+        container.append(hpGroup);
+
+        if (method === "roll") {
+          const rerollBtn = document.createElement("button");
+          rerollBtn.type = "button"; rerollBtn.className = "btn";
+          rerollBtn.textContent = `Reroll (d${dieSize} ${conMod >= 0 ? "+" : ""}${conMod} CON)`;
+          rerollBtn.addEventListener("click", () => { pending.hp = String(rollOnce()); hpInput.value = pending.hp; });
+          container.append(rerollBtn);
+        } else {
+          const note = document.createElement("p");
+          note.className = "leveling-tab__intro";
+          note.textContent = method === "average"
+            ? `Prefilled with the fixed average for a d${dieSize} (set in Character Setup) — edit it if this class's hit die is different.`
+            : "Roll at the table and type the result in — change your default under Character Setup → Preferences.";
+          container.append(note);
+        }
+      },
     });
-    panel.append(applyBtn);
-    return panel;
+
+    steps.push({
+      id: "notes",
+      title: "Notes",
+      render(container) {
+        const benefitsGroup = document.createElement("label");
+        benefitsGroup.className = "level-guide__field level-guide__field--wide";
+        benefitsGroup.textContent = "Features and Choices to Record";
+        const benefitsInput = document.createElement("textarea");
+        benefitsInput.placeholder = "Record features, spells, proficiencies, or other choices from your source book.";
+        benefitsInput.value = pending.notes || "";
+        benefitsInput.addEventListener("input", () => { pending.notes = benefitsInput.value; });
+        benefitsGroup.append(benefitsInput);
+        container.append(benefitsGroup);
+      },
+    });
+
+    steps.push({
+      id: "review",
+      title: "Review & Apply",
+      render(container) {
+        const summary = document.createElement("p");
+        summary.className = "level-guide__summary";
+        const parts = [`HP +${pending.hp || "?"}`];
+        if (pending.subclass) parts.push(`Subclass: ${pending.subclass}`);
+        if (needsAsi) parts.push(pending.asiMode === "feat" ? "Took a feat" : `ASI: ${[pending.asiAbility1, pending.asiAbility2].filter(Boolean).map((id) => id.toUpperCase()).join(", ") || "not chosen yet"}`);
+        if (slots) parts.push(`Spell slots: ${slots}`);
+        summary.textContent = parts.join(" · ");
+        container.append(summary);
+        container.append(feedback);
+
+        const applyBtn = document.createElement("button");
+        applyBtn.type = "button";
+        applyBtn.className = "btn btn--primary";
+        applyBtn.textContent = `Apply Level ${level} Changes`;
+        applyBtn.addEventListener("click", async () => {
+          const hpGain = Number.parseInt(pending.hp, 10);
+          if (!Number.isFinite(hpGain) || hpGain < 1) {
+            feedback.textContent = "Enter the HP gained for this level before applying it.";
+            feedback.classList.add("level-guide__feedback--error");
+            return;
+          }
+          for (const group of contentGroups) {
+            const selected = pending.choices[group.key] || [];
+            if (selected.length < group.minSelections || selected.length > group.maxSelections) {
+              feedback.textContent = `${group.label || "This choice"} needs ${group.minSelections === group.maxSelections ? group.maxSelections : `${group.minSelections}-${group.maxSelections}`} selection(s).`;
+              feedback.classList.add("level-guide__feedback--error");
+              return;
+            }
+          }
+          if (needsAsi && pending.asiMode !== "feat") {
+            const chosen = [pending.asiAbility1, pending.asiAbility2].filter(Boolean);
+            const required = pending.asiMode === "single" ? 1 : 2;
+            if (chosen.length < required || new Set(chosen).size !== chosen.length) {
+              feedback.textContent = "Choose the ability score(s) for this level's Ability Score Improvement (or switch it to \"Took a feat instead\").";
+              feedback.classList.add("level-guide__feedback--error");
+              return;
+            }
+          }
+          const subclassField = findStarterField("subclass", "Subclass");
+          const selectedSubclassName = pending.subclass || selectedSubclass;
+          const subclassChoice = selectedSubclassName && (subclassField?.choices || []).find((choice) => choice.text === selectedSubclassName);
+          const slotChanges = plan?.slotChanges || [];
+          ensureStandardSpellSlotFields(slotChanges);
+          const missingSlots = slotChanges.filter((change) => !findStarterField(change.fieldId, change.label));
+          if (plan?.needsSubclass && (!subclassField || !subclassChoice)) {
+            feedback.textContent = "This sheet needs a Subclass dropdown containing the ruleset's available choices.";
+            feedback.classList.add("level-guide__feedback--error");
+            return;
+          }
+          if (missingSlots.length > 0) {
+            feedback.textContent = `This sheet is missing the ${missingSlots.map((change) => change.label).join(", ")} spell-slot field(s) needed for this level.`;
+            feedback.classList.add("level-guide__feedback--error");
+            return;
+          }
+
+          const before = clone({ layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps, rules: character.rules });
+          const hpMax = findStarterField(null, "HP Max");
+          const hpCurrent = findStarterField(null, "HP Current");
+          const features = findStarterField(null, "Features & Traits");
+          const notes = (pending.notes || "").trim();
+          const featureEntry = notes ? `${className} level ${level}: ${notes}` : `${className} level ${level}`;
+          applyBtn.disabled = true;
+          feedback.textContent = "Applying changes…";
+          feedback.classList.remove("level-guide__feedback--error");
+          if (subclassChoice) subclassField.selected = subclassChoice.id;
+          character.rules = normalizeRulesState(character.rules);
+          contentGroups.forEach((group) => {
+            character.rules.choices[group.key] = [...(pending.choices[group.key] || [])];
+          });
+          slotChanges.forEach((change) => {
+            const field = findStarterField(change.fieldId, change.label);
+            field.options = change.options;
+            syncOptionWidth(field);
+          });
+          if (hpMax) hpMax.value = String(numericFieldValue(hpMax) + hpGain);
+          if (hpCurrent) hpCurrent.value = String(numericFieldValue(hpCurrent) + hpGain);
+          let asiSummary = "";
+          if (needsAsi && pending.asiMode !== "feat") {
+            const bump = (id, amount) => {
+              character.rules.abilityScores[id] = (Number(character.rules.abilityScores[id]) || 10) + amount;
+              const target = findStarterField(`${id}Score`, id.toUpperCase());
+              if (target) target.value = String(character.rules.abilityScores[id]);
+            };
+            if (pending.asiMode === "single") { bump(pending.asiAbility1, 2); asiSummary = `+2 ${pending.asiAbility1.toUpperCase()}`; }
+            else { bump(pending.asiAbility1, 1); bump(pending.asiAbility2, 1); asiSummary = `+1 ${pending.asiAbility1.toUpperCase()}, +1 ${pending.asiAbility2.toUpperCase()}`; }
+          } else if (needsAsi) {
+            asiSummary = "Took a feat instead of an ASI";
+          }
+          appendUniqueTextListItem(features, featureEntry);
+          character.levelUps[String(level)] = {
+            ...(character.levelUps[String(level)] || {}),
+            hp: `+${hpGain}`,
+            subclass: selectedSubclassName || "",
+            spells: slots ? `Spell slots: ${slots}.` : "",
+            features: featureEntry,
+            asi: asiSummary,
+            appliedRulesetId: plan?.ruleset?.id || "content",
+          };
+          mirrorFirstTabLayout();
+          unsavedChanges = true;
+          try {
+            await store.saveCharacterFields(character.id, { layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps, rules: character.rules });
+            unsavedChanges = false;
+            delete levelingPendingState[levelKey];
+            levelingWizardState.index = 0;
+            statusEl.textContent = "Saved";
+            renderAll();
+          } catch (err) {
+            console.error("Failed to apply level-up changes:", err);
+            character.layout = before.layout;
+            character.sheetTabs = before.sheetTabs;
+            character.levelUps = before.levelUps;
+            character.rules = before.rules;
+            feedback.textContent = "The update could not be saved. Please try again.";
+            feedback.classList.add("level-guide__feedback--error");
+            applyBtn.disabled = false;
+          }
+        });
+        container.append(applyBtn);
+      },
+    });
+
+    return renderStepWizard(steps, levelingWizardState, {
+      title: `${className || "Character"} Level ${level}`,
+      intro: "Step through whatever applies at this level — anything that doesn't apply is skipped automatically.",
+    });
   }
 
   function renderResourceTrackers() {
@@ -3761,6 +4332,21 @@ export function renderCustomSheet(root, character, store) {
    *  even if you've already hand-tweaked something here. */
   function applyBundleLibraryToChoice(libraryEntry, choice, allFields) {
     const bundle = ensureBundle(choice);
+    const norm = (s) => (s || "").trim().toLowerCase();
+
+    // Tracks which library entries have already been applied to this
+    // choice (by library id, not name — a rename in the library
+    // shouldn't cause a re-apply). Makes every caller of this function
+    // — the single "+ Apply" button, Bulk Apply, and the ruleset
+    // auto-sync below — safe to run more than once without stacking
+    // duplicate stat modifiers/features each time. Only real for
+    // library entries that HAVE an id (i.e. actually saved, not a
+    // one-off object); that's true for every caller in this file.
+    if (!bundle.appliedLibraryIds) bundle.appliedLibraryIds = [];
+    if (libraryEntry.id) {
+      if (bundle.appliedLibraryIds.includes(libraryEntry.id)) return false;
+      bundle.appliedLibraryIds.push(libraryEntry.id);
+    }
 
     (libraryEntry.statModifiers || []).forEach((mod) => {
       // "grant" targets a proficiency-style checkbox (single-option,
@@ -3867,172 +4453,7 @@ export function renderCustomSheet(root, character, store) {
         })),
       });
     });
-  }
-
-  /** Same name-resolution work as applyBundleLibraryToChoice above, but
-   *  building a fresh bundle object to use for THIS render only, rather
-   *  than mutating/persisting a choice's bundle. Used by
-   *  resolveLibraryBundleFor, which runs live on every render, so
-   *  (unlike applyBundleLibraryToChoice's newId() calls, safe because
-   *  that only ever runs once at the moment a user clicks "Apply") every
-   *  id it hands out has to be the SAME id on every render — anything
-   *  else would make the character.rules.choices/resourceUses persisted
-   *  keys (built from these ids — see activeRuleChoiceGroups/
-   *  collectResourceGrants) drift out from under themselves and drop a
-   *  player's already-made choices. Falls back to a position-based id
-   *  ("group0", "res1", ...) which is exactly as stable across renders
-   *  as the library entry's own array order is — i.e. completely,
-   *  short of an admin reordering that entry's JSON. */
-  function materializeLibraryBundleStable(libraryEntry, allFields) {
-    const bundle = { statModifiers: [], dropdownAccess: [], featureGrants: [], resourceGrants: [], choiceGroups: [] };
-
-    (libraryEntry.statModifiers || []).forEach((mod, index) => {
-      const wantType = mod.op === "grant" ? "checkbox" : "text";
-      const match = allFields.find(f => f.fieldType === wantType && norm(f.label) === norm(mod.targetFieldName));
-      bundle.statModifiers.push({
-        id: mod.id || `mod${index}`,
-        targetFieldId: match ? match.id : null,
-        targetIndex: mod.op === "grant" ? 0 : null,
-        op: mod.op,
-        value: mod.value,
-        minLevel: Number.isFinite(mod.minLevel) ? mod.minLevel : null,
-      });
-    });
-
-    (libraryEntry.dropdownAccess || []).forEach((rule, index) => {
-      const targetField = allFields.find(f => f.fieldType === "dropdown" && norm(f.label) === norm(rule.targetFieldName));
-      let allowedChoiceIds = [];
-      if (targetField) {
-        const wanted = new Set((rule.allowedChoiceNames || []).map(norm));
-        allowedChoiceIds = (targetField.choices || [])
-          .filter(c => wanted.has(norm(c.text)))
-          .map(c => c.id);
-      }
-      bundle.dropdownAccess.push({
-        id: rule.id || `rule${index}`,
-        targetFieldId: targetField ? targetField.id : null,
-        allowedChoiceIds,
-        minLevel: Number.isFinite(rule.minLevel) ? rule.minLevel : null,
-      });
-    });
-
-    (libraryEntry.featureGrants || []).forEach((grant, index) => {
-      bundle.featureGrants.push({
-        id: grant.id || `feat${index}`,
-        name: grant.name,
-        description: grant.description || "",
-        minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
-      });
-    });
-
-    (libraryEntry.resourceGrants || []).forEach((grant, index) => {
-      bundle.resourceGrants.push({
-        id: grant.id || `res${index}`,
-        name: grant.name || "",
-        maximum: Number.isFinite(grant.maximum) ? grant.maximum : 0,
-        reset: grant.reset || "rest",
-        minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
-      });
-    });
-
-    const materializeModifiers = (modifiers) => (modifiers || []).map((mod, index) => {
-      const wantType = mod.op === "grant" ? "checkbox" : "text";
-      const match = allFields.find((field) => field.fieldType === wantType && norm(field.label) === norm(mod.targetFieldName));
-      return {
-        id: mod.id || `optmod${index}`,
-        targetFieldId: match ? match.id : null,
-        targetIndex: mod.op === "grant" ? 0 : null,
-        op: mod.op,
-        value: mod.value,
-        minLevel: Number.isFinite(mod.minLevel) ? mod.minLevel : null,
-      };
-    });
-    (libraryEntry.choiceGroups || []).forEach((group, index) => {
-      bundle.choiceGroups.push({
-        id: group.id || `group${index}`,
-        label: group.label || "Choose an option",
-        minLevel: Number.isFinite(group.minLevel) ? group.minLevel : null,
-        minSelections: Number.isFinite(group.minSelections) ? group.minSelections : 0,
-        maxSelections: Number.isFinite(group.maxSelections) ? group.maxSelections : 1,
-        options: (group.options || []).map((option, optIndex) => ({
-          id: option.id || `opt${optIndex}`,
-          name: option.name || "Unnamed option",
-          description: option.description || "",
-          statModifiers: materializeModifiers(option.statModifiers),
-          featureGrants: (option.featureGrants || []).map((grant, gi) => ({
-            id: grant.id || `optfeat${gi}`,
-            name: grant.name || "",
-            description: grant.description || "",
-            minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
-          })),
-          resourceGrants: (option.resourceGrants || []).map((grant, gi) => ({
-            id: grant.id || `optres${gi}`,
-            name: grant.name || "",
-            maximum: Number.isFinite(grant.maximum) ? grant.maximum : 0,
-            reset: grant.reset || "rest",
-            minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
-          })),
-        })),
-      });
-    });
-
-    return bundle;
-  }
-
-  /** THE auto-apply engine: given a dropdown field and its currently
-   *  selected choice, finds the bundle-library entry (see
-   *  bundleLibraryEditor.js) that matches it — category === this
-   *  field's own label (e.g. field "Race" <-> bundle category "Race"),
-   *  name === the choice's text (e.g. choice "Elf" <-> bundle name
-   *  "Elf") — scoped to the character's currently selected ruleset (the
-   *  toolbar's Ruleset picker / character.rules.rulesetId). This is
-   *  what replaces having to open every dropdown choice's Modifiers
-   *  panel and click "Apply from Library" by hand: pick a ruleset once,
-   *  and every matching bundle uploaded under it just applies itself,
-   *  here, live, every render — nothing is written to the character.
-   *
-   *  A bundle with no rulesetId (imported/created before this existed,
-   *  or deliberately left ruleset-agnostic) still matches regardless of
-   *  which ruleset is active, but a ruleset-specific match always wins
-   *  over a same-name ruleset-agnostic one — e.g. if both a "Fighter"
-   *  with rulesetId "dnd5e-2014-phb" and a ruleset-agnostic "Fighter"
-   *  exist, a character on the 2014 PHB ruleset gets the specific one.
-   *
-   *  An explicit choice.bundle (set by hand via "Apply from Library",
-   *  or hand-edited) always takes priority over this — see
-   *  effectiveChoiceBundle, the only caller. That keeps this purely
-   *  additive: characters/sheets that don't use rulesets at all keep
-   *  working exactly as before. */
-  function resolveLibraryBundleFor(field, choice, allFields) {
-    if (!choice || !bundleLibraryCache.length) return null;
-    const rulesetId = character.rules?.rulesetId || character.rulesetId || null;
-    const wantCategory = norm(field.label);
-    const wantName = norm(choice.text);
-    if (!wantCategory || !wantName) return null;
-    let exact = null;
-    let universal = null;
-    for (const entry of bundleLibraryCache) {
-      if (norm(entry.category) !== wantCategory || norm(entry.name) !== wantName) continue;
-      if (entry.rulesetId) {
-        if (rulesetId && entry.rulesetId === rulesetId && !exact) exact = entry;
-      } else if (!universal) {
-        universal = entry;
-      }
-    }
-    const match = exact || universal;
-    return match ? materializeLibraryBundleStable(match, allFields) : null;
-  }
-
-  /** Single point every stat/feature/access computation should read a
-   *  choice's bundle through: an explicit, hand-attached choice.bundle
-   *  (see ensureBundle/applyBundleLibraryToChoice) wins if present —
-   *  that's a deliberate per-choice override — otherwise falls back to
-   *  whatever the bundle library auto-resolves for the character's
-   *  active ruleset (see resolveLibraryBundleFor above). */
-  function effectiveChoiceBundle(field, choice, allFields) {
-    if (!choice) return null;
-    if (choice.bundle && !bundleIsEmpty(choice.bundle)) return choice.bundle;
-    return resolveLibraryBundleFor(field, choice, allFields);
+    return true;
   }
 
   function openDropdownChoicesEditor(field, wrapperEl) {
@@ -4084,6 +4505,50 @@ export function renderCustomSheet(root, character, store) {
     });
     alphaRow.append(alphaLabel, alphaBtn);
     pop.append(alphaRow);
+
+    // --- Bulk Apply from Library ---
+    // Wires an entire imported list (e.g. all 12 classes from
+    // default-bundles/classes.json) to this field's choices in one
+    // click, instead of opening each choice's own "Apply from Library"
+    // one at a time. Matches purely by name (case/whitespace-insensitive)
+    // against whatever's in the Bundle Libraries manager, so the bundle's
+    // name has to match the choice text exactly (e.g. choice "Druid"
+    // needs a library bundle also named "Druid"). Choices that already
+    // have something applied still get the bundle layered on top, same
+    // as the per-choice "+ Apply" button — safe to click again after a
+    // fresh import without duplicating anything already wired by hand.
+    const bulkRow = document.createElement("div");
+    bulkRow.className = "dropdown-choices-editor__alpha-row";
+    const bulkBtn = document.createElement("button");
+    bulkBtn.type = "button";
+    bulkBtn.className = "btn dropdown-choices-editor__alpha";
+    bulkBtn.textContent = "Bulk Apply from Library";
+    bulkBtn.title = "Matches each choice's text to a same-named bundle in your library and applies it to all of them at once";
+    const bulkStatus = document.createElement("span");
+    bulkStatus.className = "dropdown-choices-editor__bulk-status";
+    bulkBtn.addEventListener("click", () => {
+      const norm = (s) => (s || "").trim().toLowerCase();
+      let applied = 0;
+      const misses = [];
+      commitLocal(() => {
+        field.choices.forEach((choice) => {
+          const lib = bundleLibraryCache.find((entry) => norm(entry.name) === norm(choice.text));
+          if (lib) {
+            applyBundleLibraryToChoice(lib, choice, flattenGlobalFields());
+            applied++;
+          } else {
+            misses.push(choice.text);
+          }
+        });
+      });
+      bulkStatus.textContent = misses.length
+        ? `Applied ${applied}/${field.choices.length}. No library match for: ${misses.join(", ")}`
+        : `Applied ${applied}/${field.choices.length}.`;
+      renderRows();
+      refreshFieldSelect();
+    });
+    bulkRow.append(bulkBtn, bulkStatus);
+    pop.append(bulkRow);
 
     const list = document.createElement("div");
     list.className = "dropdown-choices-editor__list";

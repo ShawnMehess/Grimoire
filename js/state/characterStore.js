@@ -290,14 +290,6 @@ function bundleLibraryPayload(entry, ownerId) {
     ownerId,
     name: entry.name || "Unnamed Bundle",
     category: entry.category || "",
-    // Which ruleset (see js/data/dnd5e.js listRulesets) this bundle's
-    // content belongs to — null/omitted means "ruleset-agnostic",
-    // matching regardless of which ruleset a character has selected.
-    // Set once at import/creation time (see the Ruleset picker in
-    // bundleLibraryEditor.js); this is what lets a character sheet
-    // auto-apply every bundle for "2014 PHB" just by picking that
-    // ruleset, instead of attaching each one by hand per dropdown
-    // choice (see resolveLibraryBundleFor in customSheet.js).
     rulesetId: entry.rulesetId || null,
     statModifiers: entry.statModifiers || [],
     dropdownAccess: entry.dropdownAccess || [],
@@ -370,12 +362,7 @@ export async function deleteBundleLibrary(scope, id) {
 export function bundleDedupeKey(entry) {
   return [
     entry.scope || "",
-    // rulesetId is part of the identity on purpose: a "Fighter" Class
-    // bundle for the 2014 PHB and a same-named "Fighter" for the 2024
-    // PHB are two different, both-legitimate bundles, not duplicates
-    // of each other, now that rulesetId (not a manually-typed name
-    // suffix) is what tells them apart.
-    entry.rulesetId || "",
+    (entry.rulesetId || "").trim().toLowerCase(),
     (entry.category || "").trim().toLowerCase(),
     (entry.name || "").trim().toLowerCase(),
   ].join("::");
