@@ -368,6 +368,215 @@
   color: var(--color-text);
 }
 
+.wizard__dot--disabled {
+  color: var(--color-text-faint);
+  border-style: dashed;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.wizard__step-description--list {
+  margin: 0 0 var(--space-2);
+  padding-left: 1.25em;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wizard__section-label {
+  margin: 0 0 var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  grid-column: 1 / -1;
+}
+
+/* Ability Scores step — one field per row (not the default two-column
+   level-guide__form grid), a short description beside each score, and
+   the method note/Roll-All row kept separate from the score rows. */
+.wizard__ability-method,
+.wizard__ability-scores {
+  grid-column: 1 / -1;
+}
+
+.wizard__ability-scores {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.wizard__ability-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-1);
+}
+
+.wizard__ability-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-inset);
+}
+
+.wizard__ability-row .level-guide__field {
+  flex: 0 0 5.5rem;
+}
+
+.wizard__ability-row .input-group__control {
+  width: 100%;
+  text-align: center;
+}
+
+.wizard__ability-row-description {
+  margin: 0;
+  flex: 1 1 auto;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Preferences step — one row per setting, description beside it. */
+.wizard__preference-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.wizard__preference-row .level-guide__field {
+  flex: 0 0 auto;
+  min-width: 12rem;
+}
+
+.wizard__preference-description {
+  margin: 0;
+  flex: 1 1 auto;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Review step — one line per chosen item, Finish Setup centered below. */
+.wizard__review-rows {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--space-3);
+}
+
+.wizard__review-row {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.wizard__review-button-row {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+}
+
+.wizard__finish-btn {
+  text-align: center;
+}
+
+/* Selectable row-list — shared by Race/Class/Subclass/Background
+   pickers (and anything else that wants a browsable, clickable list
+   of named options with a portrait and description). */
+.choice-row-list {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.choice-row-list--nested {
+  margin: 0 0 var(--space-2) var(--space-6);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-border-strong);
+}
+
+.choice-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-inset);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.choice-row:hover {
+  border-color: var(--color-border-strong);
+}
+
+.choice-row:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.choice-row--selected {
+  background: var(--color-accent-muted);
+  border-color: var(--color-accent);
+}
+
+/* Subclass rows read as "part of, but distinct from" their parent
+   class row: same selected color family, noticeably darker. */
+.choice-row--nested.choice-row--selected {
+  background: #3a1b10;
+  border-color: var(--color-accent-hover);
+}
+
+.choice-row__portrait {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-raised);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--color-text-faint);
+}
+
+.choice-row__portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.choice-row__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.choice-row__label {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+}
+
+.choice-row__description {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.wizard__subclass-note {
+  margin: 0 0 var(--space-2) var(--space-6);
+}
+
 .wizard__nav {
   display: flex;
   justify-content: space-between;

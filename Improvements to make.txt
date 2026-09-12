@@ -74,3 +74,9 @@ For fun
 
 FAR FUTURE
 - Something for DMs to have campaigns, and to send out invites for players to link their characters with those campaigns
+
+Character Creation Wizard
+- The mechanical effects of choosing a class, subclass, race, or background (i.e., what selecting one actually changes on the sheet -- stat modifiers, granted proficiencies, resources, etc., not just its flavor description) need to be described to the player somewhere in the wizard, not just the flavor text pulled in from a matching Catalog entry
+- Need a way to incorporate a bundle's specific bonus CHOICES (e.g., a subclass that grants +1 to two different stats and lets the player pick which two) into the wizard flow itself, rather than only the fixed statModifiers a bundle always applies. The choiceGroups mechanism (see creationChoiceGroupsFor/renderCreationChoiceGroups in customSheet.js) already covers named-option choices (skills, languages, feats, etc.) but not "+1 to any two of these six abilities" style choices
+- The new Spells/Languages/Equipment/Feats/Ability Proficiencies wizard pages sort a bundle's choiceGroups into a page by keyword-matching the group's free-text label (see categorizeChoiceGroup), since groups aren't tagged with a category anywhere upstream -- worth adding a real category field to choiceGroups in the bundle library editor instead, so this stops being a guess
+- Race/Class/Subclass/Background portraits and descriptions in the wizard are matched best-effort by name against an imported Catalog (see catalogEntryInfo in customSheet.js) -- there is no actual stored link between a bundle-library entry (the mechanical side) and a catalog entry (the flavor/portrait side) with the same name, so a rename on one side silently breaks the match. Worth an explicit link instead
