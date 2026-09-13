@@ -66,7 +66,6 @@ export function resolveRulesState(value) {
   const ruleset = getRuleset(state.rulesetId);
   const classEntry = getRulesetClass(state.rulesetId, state.className);
   const plan = getLevelUpPlan(state.rulesetId, state.className, state.level, state.subclass);
-  const druid = state.className === "Druid";
   return {
     state,
     ruleset,
@@ -75,7 +74,13 @@ export function resolveRulesState(value) {
     availableSubclasses: classEntry && state.level >= classEntry.subclassLevel ? classEntry.subclasses : [],
     derived: {
       spellLimit: spellLimitFor(state.className, state.level, state.abilityScores),
-      resources: druid && state.level >= 2 ? [{ id: "wild-shape", name: "Wild Shape", maximum: 2 }] : [],
+      // Was a hardcoded `className === "Druid"` check granting a
+      // "Wild Shape" resource — another spot of default D&D content
+      // baked into code rather than coming from any import. Limited
+      // resources (per-rest pools like this) have no bundle-driven
+      // source yet; this always returns none until that exists,
+      // instead of silently granting a PHB resource by class name.
+      resources: [],
     },
   };
 }

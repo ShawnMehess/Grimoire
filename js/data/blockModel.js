@@ -19,38 +19,35 @@
 
 import { ABILITIES, SKILLS } from "./schema.js";
 
-// Starter choices for the Race/Class dropdowns below — the core PHB
-// list, not exhaustive (no subraces/archetypes) since this is a
-// starting point the player edits via the dropdown's own "Edit
-// choices" popover, same as any dropdown they'd build themselves. Each
-// choice's `bundle` starts unset — a race/class granting real stat
-// bonuses (a Hill Dwarf's +2 CON, say) means attaching a Bundle to
-// that choice afterward via the same popover, not something seeded
-// here (no bundles exist yet for a brand-new character to reference).
-const STARTER_RACES = ["Human", "Elf", "Dwarf", "Halfling", "Dragonborn", "Gnome", "Half-Elf", "Half-Orc", "Tiefling"];
-const STARTER_CLASSES = ["Barbarian", "Bard", "Cleric", "Druid", "Fighter", "Monk", "Paladin", "Ranger", "Rogue", "Sorcerer", "Warlock", "Wizard"];
-const STARTER_BACKGROUNDS = ["Acolyte", "Charlatan", "Criminal", "Entertainer", "Folk Hero", "Guild Artisan", "Hermit", "Noble", "Outlander", "Sage", "Sailor", "Soldier", "Urchin"];
+// Starter choices for the Race/Class/Background/Subclass dropdowns
+// below. Deliberately EMPTY — this used to ship a hardcoded PHB
+// class/race/background/subclass list on every brand-new character,
+// which is exactly the "default D&D content" that kept reappearing no
+// matter what got imported or deleted from Firestore: it was never
+// data, it was code baked into this file and shipped with the site.
+// A brand-new character now starts with genuinely empty dropdowns.
+// They get populated one of two ways: (1) by hand, via the dropdown's
+// own "Edit choices" popover, same as any custom dropdown a player
+// builds themselves, or (2) automatically, by running the Character
+// Setup wizard after importing your own Class/Race/Background bundles
+// tagged with a matching ruleset — syncRulesToSheet() in
+// customSheet.js adds a real choice entry for whatever you picked if
+// one doesn't already exist. Nothing here seeds PHB names anymore; if
+// you want a starting roster, import it.
+const STARTER_RACES = [];
+const STARTER_CLASSES = [];
+const STARTER_BACKGROUNDS = [];
 
-// Every core-PHB subclass, keyed by class — flattened into one dropdown
-// (see the Subclass field in createStarterLayout) with the per-class
-// split enforced entirely by dropdownAccess rules on the matching
-// Class bundle in default-bundles/classes.json, not by anything here.
-// Kept as its own map (rather than inlined) so that file's README can
-// point at a single source of truth for "what subclass names exist."
-const SUBCLASSES_BY_CLASS = {
-  Barbarian: ["Path of the Berserker", "Path of the Totem Warrior"],
-  Bard: ["College of Lore", "College of Valor"],
-  Cleric: ["Knowledge Domain", "Life Domain", "Light Domain", "Nature Domain", "Tempest Domain", "Trickery Domain", "War Domain"],
-  Druid: ["Circle of the Land", "Circle of the Moon"],
-  Fighter: ["Champion", "Battle Master", "Eldritch Knight"],
-  Monk: ["Way of the Open Hand", "Way of Shadow", "Way of the Four Elements"],
-  Paladin: ["Oath of Devotion", "Oath of the Ancients", "Oath of Vengeance"],
-  Ranger: ["Hunter", "Beast Master"],
-  Rogue: ["Thief", "Assassin", "Arcane Trickster"],
-  Sorcerer: ["Draconic Bloodline", "Wild Magic"],
-  Warlock: ["The Archfey", "The Fiend", "The Great Old One"],
-  Wizard: ["School of Abjuration", "School of Conjuration", "School of Divination", "School of Enchantment", "School of Evocation", "School of Illusion", "School of Necromancy", "School of Transmutation"],
-};
+// Was a hardcoded core-PHB subclass-by-class map. Empty for the same
+// reason as above — the Subclass dropdown starts with no choices at
+// all. Per-class filtering is still driven entirely by dropdownAccess
+// rules on the matching Class bundle (see customSheet.js's
+// liveSubclassData/getAllowedChoiceIds), so once your imported Class
+// bundles carry real dropdownAccess rules, this dropdown will show
+// only the right subclasses for whichever class is selected — until
+// then it has nothing to show, rather than quietly falling back to
+// PHB subclasses.
+const SUBCLASSES_BY_CLASS = {};
 
 function makeChoices(names) {
   return names.map((text) => ({ id: newId(), text, bundle: null }));

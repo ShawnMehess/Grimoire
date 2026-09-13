@@ -674,11 +674,20 @@ export function openBundleLibraryManager(store, onChange) {
     const rulesetBlank = document.createElement("option");
     rulesetBlank.value = ""; rulesetBlank.textContent = "No ruleset (generic/reference only)";
     rulesetSelect.append(rulesetBlank);
-    listRulesets().forEach((entry) => {
+    const availableRulesets = listRulesets();
+    availableRulesets.forEach((entry) => {
       const option = document.createElement("option");
       option.value = entry.id; option.textContent = entry.name;
       rulesetSelect.append(option);
     });
+    // Default to blank used to mean "easy to forget, and silently
+    // invisible everywhere" — a bundle imported with no ruleset never
+    // matches any character's ruleset-filtered picker (see
+    // rulesetOptionNames in customSheet.js), which is exactly what
+    // made past imports look like they'd "done nothing." With exactly
+    // one ruleset defined, pre-select it instead of leaving this on
+    // the easy-to-miss blank option.
+    if (availableRulesets.length === 1) rulesetSelect.value = availableRulesets[0].id;
     rulesetRow.append(rulesetSelect);
     editorCol.append(rulesetRow);
 
