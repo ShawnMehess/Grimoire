@@ -1,83 +1,89 @@
-# Why the default D&D content kept coming back
+# What changed this pass: real content, baked in, import UI hidden
 
-You were right that it was hardcoded — just not in Firebase. Four
-separate places in the *code* (not the database) were seeding or
-reusing PHB content, so clearing Firestore could never touch them:
+Per your call to stop fighting the Bundle/Catalog import pipeline for
+now: your `classes-mechanics.json`, `races-mechanics.json`,
+`backgrounds-mechanics.json`, and the three catalog files
+(`classes.json`, `races.json`, `backgrounds.json`) were compiled
+**once**, offline, into `js/data/defaultContent.js` — a plain data
+file checked into the repo. Nothing is imported at runtime and
+nothing touches Firestore for this; a brand-new character just has
+real content on it from the moment it's created.
 
-1. **`js/data/blockModel.js`** — `STARTER_CLASSES`, `STARTER_RACES`,
-   `STARTER_BACKGROUNDS`, `SUBCLASSES_BY_CLASS`. This is the starter
-   layout stamped onto **every brand-new character** the moment it's
-   created. Even a perfect JSON import only *added* your entries next
-   to these — nothing ever removed the hardcoded 12 classes/9 races/13
-   backgrounds/every core subclass baked into that starter dropdown
-   list. **This was almost certainly the main thing you were fighting.**
-   → Emptied. New characters now start with genuinely blank Class/
-   Race/Background/Subclass dropdowns.
+## What's in it
 
-2. **`js/data/dnd5e.js`** — the "ruleset" registry behind the Leveling
-   tab: hardcoded 2014/2024 PHB class lists, subclass lists, and full
-   spell-slot / spells-known / spells-prepared tables. There was **no
-   import path for this at all** — `getLevelUpPlan`/`getSpellcastingInfo`
-   read straight from these hardcoded tables by class name, with no
-   bundle-check step the way the rest of the app has.
-   → Replaced with a single, empty `"homebrew"` ruleset. Spell slots
-   and spells-known will now correctly show **0** for every class
-   until you build a real source for them — see "Still open" below.
+- **12 classes** (Barbarian, Bard, Cleric, Druid, Fighter, Monk,
+  Paladin, Ranger, Rogue, Sorcerer, Warlock, Wizard) — hit die, HP
+  formula, saving throw proficiencies (wired as real checkbox grants),
+  starting skill choices (a real pickable list), every leveled
+  feature as a description, and Ability-Score-Improvement levels as a
+  real +2/+1+1/Feat picker.
+- **13 races** (your 10 species, plus Dwarf's three subraces broken
+  out as their own selectable entries: Hill Dwarf, Mountain Dwarf,
+  Duergar) — fixed ability bonuses and restricted-choice bonuses
+  (e.g. Changeling) are real, live stat modifiers; everything else
+  (speed, senses, resistances, languages, feature effects) shows as
+  descriptive text on Features & Traits.
+- **9 backgrounds** — the two fixed skill proficiencies are real
+  checkbox grants (Urban Bounty Hunter's "choose two from…" is a real
+  picker); tools/languages/equipment/feature text shows on Features &
+  Traits.
+- **112 subclasses**, correctly filtered per class (pick a class,
+  only that class's subclasses show up) via real `dropdownAccess`
+  rules, sourced from your `classes.json` catalog's "Subclasses" tab.
+- **Spell slots**, for every class your data marks as a caster
+  (Bard/Cleric/Druid/Sorcerer/Wizard = full, Paladin/Ranger = half,
+  Warlock = pact) — standard 5e math, since neither Schema.txt nor
+  your mechanics JSON encodes slot tables. Cantrips-known and
+  spells-known/prepared numbers on the Leveling tab are the same:
+  standard tables, hand-added, not from your JSON.
+- **Flavor text**: the three catalog JSON files are also baked in
+  as-is and wired into `catalogCache`, so the Character Setup
+  wizard's Race/Class/Subclass/Background pickers show real
+  descriptions next to each name, no import step needed.
 
-3. **`js/data/rulesEngine.js`** — a `state.className === "Druid"`
-   check that silently granted a "Wild Shape" resource regardless of
-   any import.
-   → Removed. Limited resources like this have no bundle-driven
-   source yet either (see below).
+## The `class-features.json` error
 
-4. **`js/render/bundleLibraryEditor.js`** — the "Import JSON" dialog's
-   "Ruleset for this file" dropdown defaulted to **"No ruleset"**.
-   Anything imported without explicitly changing that gets tagged
-   `rulesetId: null`, and every ruleset-aware picker in the app only
-   shows bundles whose `rulesetId` matches your character's chosen
-   ruleset — a `null`-tagged import is invisible everywhere, which
-   looks exactly like "importing does nothing."
-   → Now auto-selects the one ruleset ("Homebrew") that exists, so
-   this is much harder to get wrong by accident. Still worth
-   double-checking on any bundles you already have saved in Firebase
-   from earlier attempts — open Bundle Libraries and check each
-   entry's ruleset tag.
+That file actually parsed fine. The real syntax break was in
+**`classes-mechanics.json`**: partway through (right after Druid,
+before Paladin) it contained a stray, unclosed `,\n{\n "classes": [\n`
+fragment — looks like two separate generation batches got
+concatenated without the outer array brackets ever being added. Fixed
+by stripping that fragment and wrapping the whole file in `[...]`;
+all 12 classes parse and are accounted for.
 
-## How the working parts actually fit together (for your JSON)
+## Bundle Libraries / Catalogs — hidden, not deleted
 
-- **Class/Race/Background names**: the wizard's picker prefers
-  Bundle Library entries tagged `category: "Class"` (etc.) and
-  `rulesetId: "homebrew"` over the (now-empty) starter list. Hitting
-  **Finish Setup** in the Character-setup wizard is what pushes your
-  chosen name onto the sheet's actual dropdown and wires up that
-  bundle's stat modifiers/feature grants — editing the dropdown
-  directly on the sheet doesn't do this automatically.
-- **Subclass filtering**: the Subclass dropdown only narrows to a
-  class's subclasses when that Class bundle carries a real
-  `dropdownAccess` rule (target: the Subclass field, `allowedChoiceIds`:
-  that class's subclass choice ids, `minLevel`: the level it unlocks).
-  Per `MECHANICS-IMPORT-NOTES.md`, `compile-mechanics-content.mjs`
-  deliberately did **not** generate these — `SUBCLASS`/`SKILL_EXPERTISE`/
-  `SPELL_SELECT` choices only carried an `options_source` reference key
-  with no real option list behind it. That's still a documented gap,
-  not something this pass fixed — the compiler needs real subclass
-  option data (names + descriptions) to build `dropdownAccess` from.
+The two toolbar buttons are commented out in `customSheet.js` (search
+"Bundle Libraries / Catalogs toolbar buttons — hidden for now" to find
+the spot and bring them back later). Nothing else was touched:
+`bundleLibraryEditor.js`, `catalogLibraryEditor.js`, and their
+Firestore-backed storage are all still there for whenever homebrew
+import becomes its own project. One access point was deliberately
+left alone since it's low-traffic: a "Manage Catalogs…" button inside
+a "catalog"-type field's own config popover.
 
-## Still open (needs your input, not guessed at here)
+## Known gaps (flagged, not silently guessed at)
 
-- **Spell slots / spells known / spells prepared** have no
-  import-driven source anywhere in this codebase. The cleanest fit
-  with what already exists: encode each class's slot progression as
-  per-level `statModifiers` on the Class bundle, targeting the sheet's
-  `slots1`…`slots9` fields, gated by `minLevel` — the same mechanism
-  every other stat/feature grant already uses. That's a real (small)
-  code change to `computeSpellSlotCounts` in `customSheet.js` plus a
-  compiler change, not something to fake silently.
-- **Limited resources** (Wild Shape–style per-rest pools) — same
-  story, no bundle-driven source yet.
-- **Subclass `dropdownAccess` generation** in
-  `scripts/compile-mechanics-content.mjs` — needs real subclass option
-  data in your `classes-mechanics.json` to build from.
+- A few player-choice types in your class data — `SKILL_EXPERTISE`,
+  `FEATURE_SELECT`, `SPELL_SELECT` — only carried a reference key
+  (`options_source`) in the source JSON, no real option list. Those
+  show up as a text note on Features & Traits ("track your pick by
+  hand") instead of a real picker. Same for a handful of races whose
+  ability bonus is a free-form rule ("+2/+1 or three +1s", i.e.
+  Aarakocra/Aasimar/Air Genasi/Yuan-ti/Custom Lineage) rather than a
+  fixed list of options.
+- Limited resources (Rage uses, Wild Shape, Ki points, Sorcery
+  Points, etc.) aren't tracked as their own countdown yet — they show
+  as text on Features & Traits. The sheet has no generic "resource
+  pool" field type yet to hang these on.
+- Racial/class weapon, armor, and tool proficiencies show as text
+  (the sheet's Armor/Weapon/Tool Prof. fields are plain text boxes,
+  not per-item checkboxes) rather than affecting anything mechanically.
 
-Happy to build any of these once you've got real content JSON ready
-to test against — just say which one to tackle first.
+## Regenerating this later
+
+If you get updated JSON, the compiler is a plain Python script (not
+checked into the repo, since it's a one-off build step, not part of
+the site) — ask me to rerun it and rewrite
+`js/data/defaultContent.js` from your new files. It's a straight
+recompile, not a rewrite of any of the wiring above.

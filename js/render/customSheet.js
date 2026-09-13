@@ -64,6 +64,7 @@ import { openCatalogLibraryManager } from "./catalogLibraryEditor.js";
 import { openCatalogBrowser } from "./catalogBrowser.js";
 import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets } from "../data/dnd5e.js";
 import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor } from "../data/rulesEngine.js";
+import { DEFAULT_CONTENT } from "../data/defaultContent.js";
 
 const PAGE_COLS = 16;
 const GAP_PX = 10;
@@ -254,11 +255,12 @@ export function renderCustomSheet(root, character, store) {
   }
   // Same idea, for Catalog fields' "which catalog" picker (see
   // openCatalogFieldConfig below).
-  let catalogCache = [];
+  let catalogCache = DEFAULT_CONTENT.catalogs.map((cat, i) => ({ id: `default-${i}`, scope: "default", ...cat }));
   async function refreshCatalogCache() {
     if (!store.listCatalogs) return;
     try {
-      catalogCache = await store.listCatalogs();
+      const fetched = await store.listCatalogs();
+      catalogCache = [...catalogCache.filter((c) => c.scope === "default"), ...fetched];
       // Same race-on-first-load reasoning as refreshBundleLibraryCache
       // above — the wizard's row-list descriptions/portraits are
       // sourced from this cache, and nothing else re-renders once it
@@ -328,25 +330,16 @@ export function renderCustomSheet(root, character, store) {
   });
   toolbar.append(sidebarToggleBtn);
 
-  const bundleLibBtn = document.createElement("button");
-  bundleLibBtn.type = "button";
-  bundleLibBtn.className = "btn";
-  bundleLibBtn.textContent = "Bundle Libraries";
-  bundleLibBtn.title = "Manage reusable Race/Class/etc. bundles";
-  bundleLibBtn.addEventListener("click", () => {
-    openBundleLibraryManager(store, refreshBundleLibraryCache);
-  });
-  toolbar.append(bundleLibBtn);
-
-  const catalogLibBtn = document.createElement("button");
-  catalogLibBtn.type = "button";
-  catalogLibBtn.className = "btn";
-  catalogLibBtn.textContent = "Catalogs";
-  catalogLibBtn.title = "Manage reusable item/spell catalogs";
-  catalogLibBtn.addEventListener("click", () => {
-    openCatalogLibraryManager(store, refreshCatalogCache, resolveFieldById);
-  });
-  toolbar.append(catalogLibBtn);
+  // Bundle Libraries / Catalogs toolbar buttons — hidden for now, per
+  // Shawn's call to stop fighting the import/homebrew pipeline and
+  // just ship real baked-in content instead (see defaultContent.js
+  // and RESCUE-NOTES.md). Not deleted: openBundleLibraryManager/
+  // openCatalogLibraryManager and their Firestore-backed storage are
+  // still here for whenever homebrew import comes back as its own
+  // project — this just takes the two buttons out of everyday reach.
+  // (A "Manage Catalogs…" button still exists inside a "catalog"
+  // field's own config popover, further down this file — left alone
+  // since it's a niche, rarely-reached path, not the main friction.)
 
   // A plain, non-customizable name field — deliberately outside the
   // draggable/relabelable grid. The character LIST view needs a
@@ -2370,11 +2363,17 @@ export function renderCustomSheet(root, character, store) {
   function catalogEntryInfo(keywords, name) {
     if (!name) return null;
     const norm = (s) => (s || "").trim().toLowerCase();
-    const catalog = catalogCache.find((c) => keywords.some((kw) => norm(c.name).includes(kw)));
-    if (!catalog) return null;
-    for (const tab of catalog.tabs || []) {
-      const entry = (tab.entries || []).find((e) => norm(e.name) === norm(name));
-      if (entry) return { description: entry.description || "", imageData: entry.imageData || null };
+    let catalog = catalogCache.find((c) => keywords.some((kw) => norm(c.name).includes(kw)));
+    // Fall back to checking every catalog's tabs directly — covers a
+    // catalog like the baked-in "Classes" one, which holds a
+    // "Subclasses" tab under a name that doesn't itself contain
+    // "subclass", so the keyword match above never finds it.
+    const candidates = catalog ? [catalog] : catalogCache;
+    for (const cat of candidates) {
+      for (const tab of cat.tabs || []) {
+        const entry = (tab.entries || []).find((e) => norm(e.name) === norm(name));
+        if (entry) return { description: entry.description || "", imageData: entry.imageData || null };
+      }
     }
     return null;
   }

@@ -109,6 +109,7 @@ export function openBundleLibraryManager(store, onChange) {
 
   const listCol = document.createElement("div");
   listCol.className = "bundle-library-list";
+  listCol.textContent = "Loading…";
   const editorCol = document.createElement("div");
   editorCol.className = "bundle-library-editor";
   body.append(listCol, editorCol);
@@ -119,9 +120,26 @@ export function openBundleLibraryManager(store, onChange) {
     overlay.remove();
   }
 
+  // Previously: if store.listBundleLibraries() (or the admin check
+  // below) rejected — a Firestore permission error, a dropped
+  // connection, anything — this whole panel just stayed blank with no
+  // buttons and no error, which looks identical to "there's nothing
+  // here to import with." Surface the real error instead so a
+  // permissions/config problem is visible rather than indistinguishable
+  // from an empty library.
   async function refresh() {
-    libraries = await store.listBundleLibraries();
-    renderList();
+    try {
+      libraries = await store.listBundleLibraries();
+      renderList();
+    } catch (err) {
+      listCol.innerHTML = "";
+      const msg = document.createElement("p");
+      msg.className = "modal-copy";
+      msg.style.color = "var(--color-danger, #e05555)";
+      msg.textContent = `Couldn't load Bundle Libraries: ${err.message || err}`;
+      listCol.append(msg);
+      throw err;
+    }
   }
 
   function selectEntry(entry, entryIsNew) {
@@ -782,5 +800,13 @@ export function openBundleLibraryManager(store, onChange) {
   Promise.all([
     refresh(),
     store.isCurrentUserAdmin ? store.isCurrentUserAdmin().then((admin) => { isAdmin = admin; }) : Promise.resolve(),
-  ]).then(() => renderEditor());
+  ]).then(
+    () => renderEditor(),
+    // refresh() already wrote a visible error into listCol on failure
+    // (see above) — still render the editor column's blank/new-bundle
+    // form rather than leaving it stuck empty too, so "+ New Bundle"
+    // is at least reachable while the underlying load error gets
+    // sorted out.
+    () => renderEditor(),
+  );
 }

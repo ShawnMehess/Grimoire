@@ -18,43 +18,37 @@
 // same physical size everywhere on the sheet, nested or not.
 
 import { ABILITIES, SKILLS } from "./schema.js";
+import { DEFAULT_CONTENT } from "./defaultContent.js";
 
 // Starter choices for the Race/Class/Background/Subclass dropdowns
-// below. Deliberately EMPTY — this used to ship a hardcoded PHB
-// class/race/background/subclass list on every brand-new character,
-// which is exactly the "default D&D content" that kept reappearing no
-// matter what got imported or deleted from Firestore: it was never
-// data, it was code baked into this file and shipped with the site.
-// A brand-new character now starts with genuinely empty dropdowns.
-// They get populated one of two ways: (1) by hand, via the dropdown's
-// own "Edit choices" popover, same as any custom dropdown a player
-// builds themselves, or (2) automatically, by running the Character
-// Setup wizard after importing your own Class/Race/Background bundles
-// tagged with a matching ruleset — syncRulesToSheet() in
-// customSheet.js adds a real choice entry for whatever you picked if
-// one doesn't already exist. Nothing here seeds PHB names anymore; if
-// you want a starting roster, import it.
-const STARTER_RACES = [];
-const STARTER_CLASSES = [];
-const STARTER_BACKGROUNDS = [];
+// below. These come straight from DEFAULT_CONTENT (compiled from
+// Shawn's own classes/races/backgrounds JSON — see RESCUE-NOTES.md
+// for how it was built and how to regenerate it) rather than a
+// hand-typed PHB list — each choice carries its real `bundle`
+// (proficiencies, features, ability bonuses, subclass access) baked
+// in directly, so selecting one on a brand-new character works
+// immediately with no import step. The Bundle Library/Catalog import
+// UI still exists in the code but is hidden from the toolbar for now
+// (see customSheet.js) — homebrew-via-import is a later project.
+const STARTER_RACES = DEFAULT_CONTENT.raceEntries.map((r) => r.name);
+const STARTER_CLASSES = DEFAULT_CONTENT.classEntries.map((c) => c.name);
+const STARTER_BACKGROUNDS = DEFAULT_CONTENT.bgEntries.map((b) => b.name);
 
-// Was a hardcoded core-PHB subclass-by-class map. Empty for the same
-// reason as above — the Subclass dropdown starts with no choices at
-// all. Per-class filtering is still driven entirely by dropdownAccess
-// rules on the matching Class bundle (see customSheet.js's
-// liveSubclassData/getAllowedChoiceIds), so once your imported Class
-// bundles carry real dropdownAccess rules, this dropdown will show
-// only the right subclasses for whichever class is selected — until
-// then it has nothing to show, rather than quietly falling back to
-// PHB subclasses.
-const SUBCLASSES_BY_CLASS = {};
+function bundleForName(entries, name) {
+  return entries.find((e) => e.name === name)?.bundle || null;
+}
 
-function makeChoices(names) {
-  return names.map((text) => ({ id: newId(), text, bundle: null }));
+function makeChoices(names, entries) {
+  return names.map((text) => ({ id: newId(), text, bundle: entries ? bundleForName(entries, text) : null }));
 }
 
 function makeSubclassChoices() {
-  return Object.values(SUBCLASSES_BY_CLASS).flat().map((text) => ({ id: newId(), text, bundle: null }));
+  // Pre-built flat list (id/text/bundle:null) straight from the
+  // compiled content — ids match exactly what each class's
+  // dropdownAccess.allowedChoiceIds references, so per-class
+  // filtering (see liveSubclassData in customSheet.js) works without
+  // any extra wiring here.
+  return DEFAULT_CONTENT.subclassChoices.map((c) => ({ ...c }));
 }
 
 function newId() {
@@ -295,7 +289,7 @@ export function createStarterLayout() {
   const identity = createBlock({ name: "Identity", x: 0, y: 0, w: 4, h: 5 });
   identity.children = [
     field({ fieldType: "text", label: "Name", x: 0, y: 0, w: 4, h: 1 }),
-    field({ fieldType: "dropdown", label: "Class", x: 0, y: 1, w: 2, h: 1, choices: makeChoices(STARTER_CLASSES) }),
+    field({ fieldType: "dropdown", label: "Class", x: 0, y: 1, w: 2, h: 1, choices: makeChoices(STARTER_CLASSES, DEFAULT_CONTENT.classEntries) }),
     field({ fieldType: "text", label: "Level", x: 2, y: 1, w: 2, h: 1, value: "1" }, "level"),
     field({
       fieldType: "text", label: "Prof. Bonus", x: 0, y: 2, w: 2, h: 1,
@@ -445,8 +439,8 @@ export function createStarterLayout() {
 
   const details = createBlock({ name: "Character Details", x: 4, y: 14, w: 6, h: 5 });
   details.children = [
-    field({ fieldType: "dropdown", label: "Race", x: 0, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_RACES) }),
-    field({ fieldType: "dropdown", label: "Background", x: 2, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_BACKGROUNDS) }),
+    field({ fieldType: "dropdown", label: "Race", x: 0, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_RACES, DEFAULT_CONTENT.raceEntries) }),
+    field({ fieldType: "dropdown", label: "Background", x: 2, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_BACKGROUNDS, DEFAULT_CONTENT.bgEntries) }),
     field({ fieldType: "text", label: "Alignment", x: 4, y: 0, w: 2, h: 1 }),
     field({ fieldType: "text", label: "Armor Prof.", x: 0, y: 1, w: 2, h: 1 }),
     field({ fieldType: "text", label: "Weapon Prof.", x: 2, y: 1, w: 2, h: 1 }),
