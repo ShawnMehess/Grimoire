@@ -1,0 +1,455 @@
+[
+  {
+    "id": "species_aarakocra",
+    "name": "Aarakocra",
+    "creature_type": "Humanoid",
+    "mechanics": {
+      "size": ["Medium"],
+      "speed": {
+        "walk": 30,
+        "fly": "equal_to_walk_unarmored"
+      },
+      "ability_score_bonuses": [
+        { "type": "choice", "rule": "plus_2_plus_1_or_three_plus_1s" }
+      ],
+      "languages": {
+        "known": ["common"],
+        "choice_count": 1
+      }
+    },
+    "features": [
+      {
+        "id": "talons",
+        "name": "Talons",
+        "effects": [
+          {
+            "type": "UNARMED_STRIKE",
+            "damage_dice": "1d6",
+            "damage_type": "slashing",
+            "stat": "STR"
+          }
+        ]
+      },
+      {
+        "id": "wind_caller",
+        "name": "Wind Caller",
+        "min_level": 3,
+        "effects": [
+          {
+            "type": "GRANT_SPELL",
+            "spell_id": "gust_of_wind",
+            "frequency": "1_per_long_rest",
+            "no_components": ["material"],
+            "spellcasting_ability_choice": ["INT", "WIS", "CHA"]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "species_aasimar",
+    "name": "Aasimar",
+    "creature_type": "Humanoid",
+    "mechanics": {
+      "size": ["Small", "Medium"],
+      "speed": { "walk": 30 },
+      "ability_score_bonuses": [
+        { "type": "choice", "rule": "plus_2_plus_1_or_three_plus_1s" }
+      ],
+      "languages": {
+        "known": ["common"],
+        "choice_count": 1
+      },
+      "senses": [{ "sense": "darkvision", "range_ft": 60 }],
+      "resistances": ["necrotic", "radiant"]
+    },
+    "features": [
+      {
+        "id": "healing_hands",
+        "name": "Healing Hands",
+        "effects": [
+          {
+            "type": "HEAL_ACTION",
+            "dice_quantity": "@prof",
+            "dice_faces": 4,
+            "frequency": "1_per_long_rest"
+          }
+        ]
+      },
+      {
+        "id": "light_bearer",
+        "name": "Light Bearer",
+        "effects": [
+          {
+            "type": "GRANT_CANTRIP",
+            "spell_id": "light",
+            "spellcasting_ability": "CHA"
+          }
+        ]
+      },
+      {
+        "id": "celestial_revelation",
+        "name": "Celestial Revelation",
+        "min_level": 3,
+        "type": "choice_subfeature",
+        "options": [
+          {
+            "id": "necrotic_shroud",
+            "name": "Necrotic Shroud",
+            "effects": [
+              {
+                "type": "AOE_SAVE_ON_TRANSFORM",
+                "radius_ft": 10,
+                "save_type": "CHA",
+                "dc": "8 + @prof + @cha.mod",
+                "condition": "frightened",
+                "duration": "1_turn"
+              },
+              {
+                "type": "EXTRA_DAMAGE",
+                "trigger": "once_per_turn_attack_or_spell",
+                "damage_type": "necrotic",
+                "value": "@prof"
+              }
+            ]
+          },
+          {
+            "id": "radiant_consumption",
+            "name": "Radiant Consumption",
+            "effects": [
+              {
+                "type": "AOE_END_OF_TURN_DAMAGE",
+                "radius_ft": 10,
+                "damage_type": "radiant",
+                "value": "@prof"
+              },
+              {
+                "type": "EXTRA_DAMAGE",
+                "trigger": "once_per_turn_attack_or_spell",
+                "damage_type": "radiant",
+                "value": "@prof"
+              }
+            ]
+          },
+          {
+            "id": "radiant_soul",
+            "name": "Radiant Soul",
+            "effects": [
+              { "type": "GRANT_FLYING_SPEED", "value": "equal_to_walk" },
+              {
+                "type": "EXTRA_DAMAGE",
+                "trigger": "once_per_turn_attack_or_spell",
+                "damage_type": "radiant",
+                "value": "@prof"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "species_air_genasi",
+    "name": "Air Genasi",
+    "creature_type": "Humanoid",
+    "mechanics": {
+      "size": ["Small", "Medium"],
+      "speed": { "walk": 35 },
+      "ability_score_bonuses": [
+        { "type": "choice", "rule": "plus_2_plus_1_or_three_plus_1s" }
+      ],
+      "languages": { "known": ["common"], "choice_count": 1 },
+      "senses": [{ "sense": "darkvision", "range_ft": 60 }],
+      "resistances": ["lightning"]
+    },
+    "features": [
+      {
+        "id": "unending_breath",
+        "name": "Unending Breath",
+        "effects": [{ "type": "HOLD_BREATH", "duration": "indefinite" }]
+      },
+      {
+        "id": "mingle_with_the_wind",
+        "name": "Mingle with the Wind",
+        "effects": [
+          { "type": "GRANT_CANTRIP", "spell_id": "shocking_grasp" },
+          { "type": "GRANT_SPELL", "spell_id": "feather_fall", "min_level": 3, "frequency": "1_per_long_rest", "no_components": ["material"] },
+          { "type": "GRANT_SPELL", "spell_id": "levitate", "min_level": 5, "frequency": "1_per_long_rest", "no_components": ["material"] }
+        ],
+        "spellcasting_ability_choice": ["INT", "WIS", "CHA"]
+      }
+    ]
+  },
+  {
+    "id": "species_changeling",
+    "name": "Changeling",
+    "creature_type": "Humanoid",
+    "mechanics": {
+      "size": ["Medium"],
+      "speed": { "walk": 30 },
+      "ability_score_bonuses": [
+        { "ability": "CHA", "value": 2, "type": "fixed" },
+        { "type": "choice", "count": 1, "value": 1, "options": ["STR", "DEX", "CON", "INT", "WIS"] }
+      ],
+      "languages": { "known": ["common"], "choice_count": 2 },
+      "proficiencies": {
+        "skill_choice": {
+          "count": 2,
+          "options": ["deception", "insight", "intimidation", "persuasion"]
+        }
+      }
+    },
+    "features": [
+      {
+        "id": "shapechanger",
+        "name": "Shapechanger",
+        "effects": [{ "type": "ALTER_APPEARANCE", "action_cost": "action" }]
+      }
+    ]
+  },
+  {
+    "id": "species_custom_lineage",
+    "name": "Custom Lineage",
+    "creature_type": "Humanoid",
+    "mechanics": {
+      "size": ["Small", "Medium"],
+      "speed": { "walk": 30 },
+      "ability_score_bonuses": [
+        { "type": "choice", "count": 1, "value": 2, "options": ["STR", "DEX", "CON", "INT", "WIS", "CHA"] }
+      ],
+      "languages": { "known": ["common"], "choice_count": 1 }
+    },
+    "features": [
+      {
+        "id": "custom_feat",
+        "name": "Feat",
+        "effects": [{ "type": "GRANT_FEAT", "count": 1 }]
+      },
+      {
+        "id": "variable_trait",
+        "name": "Variable Trait",
+        "type": "choice_subfeature",
+        "options": [
+          { "id": "darkvision_60", "effects": [{ "type": "GRANT_SENSE", "sense": "darkvision", "range_ft": 60 }] },
+          { "id": "skill_proficiency", "effects": [{ "type": "GRANT_SKILL_PROFICIENCY", "count": 1 }] }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "species_dragonborn",
+    "name": "Dragonborn",
+    "creature_type": "Humanoid",
+    "mechanics": {
+      "size": ["Medium"],
+      "speed": { "walk": 30 },
+      "ability_score_bonuses": [
+        { "ability": "STR", "value": 2, "type": "fixed" },
+        { "ability": "CHA", "value": 1, "type": "fixed" }
+      ],
+      "languages": { "known": ["common", "draconic"] }
+    },
+    "features": [
+      {
+        "id": "draconic_ancestry",
+        "name": "Draconic Ancestry",
+        "type": "choice_subfeature",
+        "options": [
+          { "id": "black", "damage_type": "acid", "area": "5_by_30_ft_line", "save": "DEX" },
+          { "id": "blue", "damage_type": "lightning", "area": "5_by_30_ft_line", "save": "DEX" },
+          { "id": "brass", "damage_type": "fire", "area": "5_by_30_ft_line", "save": "DEX" },
+          { "id": "bronze", "damage_type": "lightning", "area": "5_by_30_ft_line", "save": "DEX" },
+          { "id": "copper", "damage_type": "acid", "area": "5_by_30_ft_line", "save": "DEX" },
+          { "id": "gold", "damage_type": "fire", "area": "15_ft_cone", "save": "DEX" },
+          { "id": "green", "damage_type": "poison", "area": "15_ft_cone", "save": "CON" },
+          { "id": "red", "damage_type": "fire", "area": "15_ft_cone", "save": "DEX" },
+          { "id": "silver", "damage_type": "cold", "area": "15_ft_cone", "save": "CON" },
+          { "id": "white", "damage_type": "cold", "area": "15_ft_cone", "save": "CON" }
+        ]
+      },
+      {
+        "id": "breath_weapon",
+        "name": "Breath Weapon",
+        "effects": [
+          {
+            "type": "AOE_ATTACK",
+            "dc": "8 + @con.mod + @prof",
+            "damage_scaling": {
+              "1": "2d6",
+              "6": "3d6",
+              "11": "4d6",
+              "16": "5d6"
+            },
+            "frequency": "1_per_short_or_long_rest"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "species_dwarf",
+    "name": "Dwarf",
+    "creature_type": "Humanoid",
+    "mechanics": {
+      "size": ["Medium"],
+      "speed": { "walk": 25, "flags": ["ignore_heavy_armor_speed_penalty"] },
+      "ability_score_bonuses": [{ "ability": "CON", "value": 2, "type": "fixed" }],
+      "languages": { "known": ["common", "dwarvish"] },
+      "senses": [{ "sense": "darkvision", "range_ft": 60 }],
+      "resistances": ["poison"],
+      "proficiencies": {
+        "weapons": ["battleaxe", "handaxe", "light_hammer", "warhammer"],
+        "tools_choice": {
+          "count": 1,
+          "options": ["smiths_tools", "brewers_supplies", "masons_tools"]
+        }
+      }
+    },
+    "features": [
+      {
+        "id": "dwarven_resilience",
+        "name": "Dwarven Resilience",
+        "effects": [{ "type": "GRANT_ADVANTAGE", "target": "saving_throw", "triggers": { "damage_type": "poison" } }]
+      },
+      {
+        "id": "stonecunning",
+        "name": "Stonecunning",
+        "effects": [{ "type": "DOUBLE_PROFICIENCY", "target": "skill_check", "skill": "history", "condition": "stonework_origin" }]
+      }
+    ],
+    "subraces": [
+      {
+        "id": "hill_dwarf",
+        "name": "Hill Dwarf",
+        "ability_score_bonuses": [{ "ability": "WIS", "value": 1, "type": "fixed" }],
+        "features": [
+          {
+            "id": "dwarven_toughness",
+            "name": "Dwarven Toughness",
+            "effects": [{ "type": "MODIFY_HP_MAX", "modifier": "1_per_level" }]
+          }
+        ]
+      },
+      {
+        "id": "mountain_dwarf",
+        "name": "Mountain Dwarf",
+        "ability_score_bonuses": [{ "ability": "STR", "value": 2, "type": "fixed" }],
+        "proficiencies": { "armor": ["light", "medium"] }
+      },
+      {
+        "id": "duergar",
+        "name": "Duergar",
+        "ability_score_bonuses": [{ "ability": "STR", "value": 1, "type": "fixed" }],
+        "senses_override": [{ "sense": "darkvision", "range_ft": 120 }],
+        "features": [
+          {
+            "id": "duergar_resilience",
+            "name": "Duergar Resilience",
+            "effects": [{ "type": "GRANT_ADVANTAGE", "target": "saving_throw", "triggers": { "conditions": ["illusion", "charm", "paralyzed"] } }]
+          },
+          {
+            "id": "duergar_magic",
+            "name": "Duergar Magic",
+            "effects": [
+              { "type": "GRANT_SPELL", "spell_id": "enlarge_reduce", "min_level": 3, "frequency": "1_per_long_rest", "restriction": "enlarge_only" },
+              { "type": "GRANT_SPELL", "spell_id": "invisibility", "min_level": 5, "frequency": "1_per_long_rest" }
+            ],
+            "spellcasting_ability": "INT"
+          },
+          {
+            "id": "sunlight_sensitivity",
+            "name": "Sunlight Sensitivity",
+            "effects": [{ "type": "GRANT_DISADVANTAGE", "target": ["attack_roll", "perception_sight"], "condition": "in_direct_sunlight" }]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "species_gnome",
+    "name": "Gnome",
+    "creature_type": "Humanoid",
+    "mechanics": {
+      "size": ["Small"],
+      "speed": { "walk": 25 },
+      "ability_score_bonuses": [{ "ability": "INT", "value": 2, "type": "fixed" }],
+      "languages": { "known": ["common", "gnomish"] },
+      "senses": [{ "sense": "darkvision", "range_ft": 60 }]
+    },
+    "features": [
+      {
+        "id": "gnome_cunning",
+        "name": "Gnome Cunning",
+        "effects": [
+          {
+            "type": "GRANT_ADVANTAGE",
+            "target": "saving_throw",
+            "triggers": { "abilities": ["INT", "WIS", "CHA"], "source_type": ["magic"] }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "species_halfling",
+    "name": "Halfling",
+    "creature_type": "Humanoid",
+    "mechanics": {
+      "size": ["Small"],
+      "speed": { "walk": 25 },
+      "ability_score_bonuses": [{ "ability": "DEX", "value": 2, "type": "fixed" }],
+      "languages": { "known": ["common", "halfling"] }
+    },
+    "features": [
+      {
+        "id": "lucky",
+        "name": "Lucky",
+        "effects": [{ "type": "REROLL_ON_NAT_1", "applies_to": ["attack_roll", "ability_check", "saving_throw"] }]
+      },
+      {
+        "id": "brave",
+        "name": "Brave",
+        "effects": [{ "type": "GRANT_ADVANTAGE", "target": "saving_throw", "triggers": { "conditions": ["frightened"] } }]
+      },
+      {
+        "id": "halfling_nimbleness",
+        "name": "Halfling Nimbleness",
+        "effects": [{ "type": "MOVE_THROUGH_LARGER_CREATURES" }]
+      }
+    ]
+  },
+  {
+    "id": "species_yuan_ti",
+    "name": "Yuan-ti",
+    "creature_type": "Humanoid",
+    "mechanics": {
+      "size": ["Small", "Medium"],
+      "speed": { "walk": 30 },
+      "ability_score_bonuses": [{ "type": "choice", "rule": "plus_2_plus_1_or_three_plus_1s" }],
+      "senses": [{ "sense": "darkvision", "range_ft": 60 }],
+      "resistances": ["poison"]
+    },
+    "features": [
+      {
+        "id": "magic_resistance",
+        "name": "Magic Resistance",
+        "effects": [{ "type": "GRANT_ADVANTAGE", "target": "saving_throw", "triggers": { "source_type": ["spells"] } }]
+      },
+      {
+        "id": "poison_resilience",
+        "name": "Poison Resilience",
+        "effects": [{ "type": "GRANT_ADVANTAGE", "target": "saving_throw", "triggers": { "conditions": ["poisoned"] } }]
+      },
+      {
+        "id": "serpentine_spellcasting",
+        "name": "Serpentine Spellcasting",
+        "effects": [
+          { "type": "GRANT_CANTRIP", "spell_id": "poison_spray" },
+          { "type": "GRANT_SPELL", "spell_id": "animal_friendship", "frequency": "at_will", "target_restriction": "snakes_only" },
+          { "type": "GRANT_SPELL", "spell_id": "suggestion", "min_level": 3, "frequency": "1_per_long_rest" }
+        ],
+        "spellcasting_ability_choice": ["INT", "WIS", "CHA"]
+      }
+    ]
+  }
+]

@@ -1,0 +1,1113 @@
+[
+  {
+    "name": "Aarakocra",
+    "category": "Race",
+    "statModifiers": [],
+    "dropdownAccess": [],
+    "featureGrants": [
+      {
+        "id": "aarakocra-overview",
+        "name": "Size & Speed",
+        "description": "Creature Type: Humanoid\nSize: Medium\nSpeed: walk 30, fly equal_to_walk_unarmored",
+        "minLevel": null
+      },
+      {
+        "id": "aarakocra-languages",
+        "name": "Languages",
+        "description": "Common, plus 1 of your choice",
+        "minLevel": null
+      },
+      {
+        "id": "aarakocra-asi-gap",
+        "name": "Ability Score Bonus (manual)",
+        "description": "Ability Score Bonus: +2 to one ability and +1 to a different ability, OR +1 to three different abilities — your choice among all six. Apply manually to Ability Scores.",
+        "minLevel": null
+      },
+      {
+        "id": "aarakocra-talons",
+        "name": "Talons",
+        "description": "Unarmed strike: 1d6 slashing damage (STR).",
+        "minLevel": null
+      },
+      {
+        "id": "aarakocra-wind_caller",
+        "name": "Wind Caller",
+        "description": "Grants the Gust Of Wind spell (1 per long rest).",
+        "minLevel": 3
+      }
+    ],
+    "resourceGrants": [],
+    "choiceGroups": []
+  },
+  {
+    "name": "Aasimar",
+    "category": "Race",
+    "statModifiers": [],
+    "dropdownAccess": [],
+    "featureGrants": [
+      {
+        "id": "aasimar-overview",
+        "name": "Size & Speed",
+        "description": "Creature Type: Humanoid\nSize: Small or Medium\nSpeed: walk 30",
+        "minLevel": null
+      },
+      {
+        "id": "aasimar-senses",
+        "name": "Senses",
+        "description": "Darkvision 60 ft.",
+        "minLevel": null
+      },
+      {
+        "id": "aasimar-resistances",
+        "name": "Resistances",
+        "description": "Resistant to necrotic, radiant damage.",
+        "minLevel": null
+      },
+      {
+        "id": "aasimar-languages",
+        "name": "Languages",
+        "description": "Common, plus 1 of your choice",
+        "minLevel": null
+      },
+      {
+        "id": "aasimar-asi-gap",
+        "name": "Ability Score Bonus (manual)",
+        "description": "Ability Score Bonus: +2 to one ability and +1 to a different ability, OR +1 to three different abilities — your choice among all six. Apply manually to Ability Scores.",
+        "minLevel": null
+      },
+      {
+        "id": "aasimar-healing_hands",
+        "name": "Healing Hands",
+        "description": "Healing action: @profd4 HP (1 per long rest).",
+        "minLevel": null
+      },
+      {
+        "id": "aasimar-light_bearer",
+        "name": "Light Bearer",
+        "description": "Grants the Light cantrip.",
+        "minLevel": null
+      }
+    ],
+    "resourceGrants": [],
+    "choiceGroups": [
+      {
+        "id": "aasimar-celestial_revelation",
+        "label": "Celestial Revelation",
+        "minLevel": 3,
+        "minSelections": 1,
+        "maxSelections": 1,
+        "options": [
+          {
+            "id": "aasimar-celestial_revelation-necrotic_shroud",
+            "name": "Necrotic Shroud",
+            "description": "10 ft. transformation: creatures fail a DC 8 + @prof + @cha.mod CHA save become frightened for 1 turn.\nExtra necrotic damage equal to @prof (once per turn attack or spell).",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "aasimar-celestial_revelation-radiant_consumption",
+            "name": "Radiant Consumption",
+            "description": "10 ft. aura deals @prof radiant damage at end of turn.\nExtra radiant damage equal to @prof (once per turn attack or spell).",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "aasimar-celestial_revelation-radiant_soul",
+            "name": "Radiant Soul",
+            "description": "Grants a flying speed (equal to walk).\nExtra radiant damage equal to @prof (once per turn attack or spell).",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Air Genasi",
+    "category": "Race",
+    "statModifiers": [],
+    "dropdownAccess": [],
+    "featureGrants": [
+      {
+        "id": "air-genasi-overview",
+        "name": "Size & Speed",
+        "description": "Creature Type: Humanoid\nSize: Small or Medium\nSpeed: walk 35",
+        "minLevel": null
+      },
+      {
+        "id": "air-genasi-senses",
+        "name": "Senses",
+        "description": "Darkvision 60 ft.",
+        "minLevel": null
+      },
+      {
+        "id": "air-genasi-resistances",
+        "name": "Resistances",
+        "description": "Resistant to lightning damage.",
+        "minLevel": null
+      },
+      {
+        "id": "air-genasi-languages",
+        "name": "Languages",
+        "description": "Common, plus 1 of your choice",
+        "minLevel": null
+      },
+      {
+        "id": "air-genasi-asi-gap",
+        "name": "Ability Score Bonus (manual)",
+        "description": "Ability Score Bonus: +2 to one ability and +1 to a different ability, OR +1 to three different abilities — your choice among all six. Apply manually to Ability Scores.",
+        "minLevel": null
+      },
+      {
+        "id": "air-genasi-unending_breath",
+        "name": "Unending Breath",
+        "description": "Can hold breath: indefinite.",
+        "minLevel": null
+      },
+      {
+        "id": "air-genasi-mingle_with_the_wind",
+        "name": "Mingle with the Wind",
+        "description": "Grants the Shocking Grasp cantrip.\nGrants the Feather Fall spell at level 3 (1 per long rest).\nGrants the Levitate spell at level 5 (1 per long rest).",
+        "minLevel": null
+      }
+    ],
+    "resourceGrants": [],
+    "choiceGroups": []
+  },
+  {
+    "name": "Changeling",
+    "category": "Race",
+    "statModifiers": [
+      {
+        "id": "mod-000015",
+        "targetFieldName": "CHA",
+        "op": "add",
+        "value": 2,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [],
+    "featureGrants": [
+      {
+        "id": "changeling-overview",
+        "name": "Size & Speed",
+        "description": "Creature Type: Humanoid\nSize: Medium\nSpeed: walk 30",
+        "minLevel": null
+      },
+      {
+        "id": "changeling-languages",
+        "name": "Languages",
+        "description": "Common, plus 2 of your choice",
+        "minLevel": null
+      },
+      {
+        "id": "changeling-shapechanger",
+        "name": "Shapechanger",
+        "description": "Can alter its appearance (action).",
+        "minLevel": null
+      }
+    ],
+    "resourceGrants": [],
+    "choiceGroups": [
+      {
+        "id": "changeling-asi",
+        "label": "Ability Score Bonus",
+        "minLevel": null,
+        "minSelections": 1,
+        "maxSelections": 1,
+        "options": [
+          {
+            "id": "changeling-asi-str",
+            "name": "+1 Strength",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000016",
+                "targetFieldId": null,
+                "targetFieldName": "STR",
+                "op": "add",
+                "value": 1,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "changeling-asi-dex",
+            "name": "+1 Dexterity",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000017",
+                "targetFieldId": null,
+                "targetFieldName": "DEX",
+                "op": "add",
+                "value": 1,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "changeling-asi-con",
+            "name": "+1 Constitution",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000018",
+                "targetFieldId": null,
+                "targetFieldName": "CON",
+                "op": "add",
+                "value": 1,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "changeling-asi-int",
+            "name": "+1 Intelligence",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000019",
+                "targetFieldId": null,
+                "targetFieldName": "INT",
+                "op": "add",
+                "value": 1,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "changeling-asi-wis",
+            "name": "+1 Wisdom",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00001a",
+                "targetFieldId": null,
+                "targetFieldName": "WIS",
+                "op": "add",
+                "value": 1,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      },
+      {
+        "id": "changeling-skills",
+        "label": "Skill Proficiencies",
+        "minLevel": null,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "changeling-skill-0",
+            "name": "Deception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00001b",
+                "targetFieldId": null,
+                "targetFieldName": "Deception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "changeling-skill-1",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00001c",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "changeling-skill-2",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00001d",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "changeling-skill-3",
+            "name": "Persuasion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00001e",
+                "targetFieldId": null,
+                "targetFieldName": "Persuasion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Custom Lineage",
+    "category": "Race",
+    "statModifiers": [],
+    "dropdownAccess": [],
+    "featureGrants": [
+      {
+        "id": "custom-lineage-overview",
+        "name": "Size & Speed",
+        "description": "Creature Type: Humanoid\nSize: Small or Medium\nSpeed: walk 30",
+        "minLevel": null
+      },
+      {
+        "id": "custom-lineage-languages",
+        "name": "Languages",
+        "description": "Common, plus 1 of your choice",
+        "minLevel": null
+      },
+      {
+        "id": "custom-lineage-custom_feat",
+        "name": "Feat",
+        "description": "Grants 1 feat(s) (see Feats catalog).",
+        "minLevel": null
+      }
+    ],
+    "resourceGrants": [],
+    "choiceGroups": [
+      {
+        "id": "custom-lineage-asi",
+        "label": "Ability Score Bonus",
+        "minLevel": null,
+        "minSelections": 1,
+        "maxSelections": 1,
+        "options": [
+          {
+            "id": "custom-lineage-asi-str",
+            "name": "+2 Strength",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00001f",
+                "targetFieldId": null,
+                "targetFieldName": "STR",
+                "op": "add",
+                "value": 2,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "custom-lineage-asi-dex",
+            "name": "+2 Dexterity",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000020",
+                "targetFieldId": null,
+                "targetFieldName": "DEX",
+                "op": "add",
+                "value": 2,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "custom-lineage-asi-con",
+            "name": "+2 Constitution",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000021",
+                "targetFieldId": null,
+                "targetFieldName": "CON",
+                "op": "add",
+                "value": 2,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "custom-lineage-asi-int",
+            "name": "+2 Intelligence",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000022",
+                "targetFieldId": null,
+                "targetFieldName": "INT",
+                "op": "add",
+                "value": 2,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "custom-lineage-asi-wis",
+            "name": "+2 Wisdom",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000023",
+                "targetFieldId": null,
+                "targetFieldName": "WIS",
+                "op": "add",
+                "value": 2,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "custom-lineage-asi-cha",
+            "name": "+2 Charisma",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000024",
+                "targetFieldId": null,
+                "targetFieldName": "CHA",
+                "op": "add",
+                "value": 2,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      },
+      {
+        "id": "custom-lineage-variable_trait",
+        "label": "Variable Trait",
+        "minLevel": null,
+        "minSelections": 1,
+        "maxSelections": 1,
+        "options": [
+          {
+            "id": "custom-lineage-variable_trait-darkvision_60",
+            "name": "Darkvision 60",
+            "description": "Darkvision 60 ft.",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "custom-lineage-variable_trait-skill_proficiency",
+            "name": "Skill Proficiency",
+            "description": "Grants proficiency in 1 skill(s) of your choice.",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Dragonborn",
+    "category": "Race",
+    "statModifiers": [
+      {
+        "id": "mod-000025",
+        "targetFieldName": "STR",
+        "op": "add",
+        "value": 2,
+        "minLevel": null
+      },
+      {
+        "id": "mod-000026",
+        "targetFieldName": "CHA",
+        "op": "add",
+        "value": 1,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [],
+    "featureGrants": [
+      {
+        "id": "dragonborn-overview",
+        "name": "Size & Speed",
+        "description": "Creature Type: Humanoid\nSize: Medium\nSpeed: walk 30",
+        "minLevel": null
+      },
+      {
+        "id": "dragonborn-languages",
+        "name": "Languages",
+        "description": "Common, Draconic",
+        "minLevel": null
+      },
+      {
+        "id": "dragonborn-breath_weapon",
+        "name": "Breath Weapon",
+        "description": "Area attack, DC 8 + @con.mod + @prof (1 per short or long rest). Damage: 2d6 at 1, 3d6 at 6, 4d6 at 11, 5d6 at 16.",
+        "minLevel": null
+      }
+    ],
+    "resourceGrants": [],
+    "choiceGroups": [
+      {
+        "id": "dragonborn-draconic_ancestry",
+        "label": "Draconic Ancestry",
+        "minLevel": null,
+        "minSelections": 1,
+        "maxSelections": 1,
+        "options": [
+          {
+            "id": "dragonborn-draconic_ancestry-black",
+            "name": "Black",
+            "description": "",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "dragonborn-draconic_ancestry-blue",
+            "name": "Blue",
+            "description": "",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "dragonborn-draconic_ancestry-brass",
+            "name": "Brass",
+            "description": "",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "dragonborn-draconic_ancestry-bronze",
+            "name": "Bronze",
+            "description": "",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "dragonborn-draconic_ancestry-copper",
+            "name": "Copper",
+            "description": "",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "dragonborn-draconic_ancestry-gold",
+            "name": "Gold",
+            "description": "",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "dragonborn-draconic_ancestry-green",
+            "name": "Green",
+            "description": "",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "dragonborn-draconic_ancestry-red",
+            "name": "Red",
+            "description": "",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "dragonborn-draconic_ancestry-silver",
+            "name": "Silver",
+            "description": "",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "dragonborn-draconic_ancestry-white",
+            "name": "White",
+            "description": "",
+            "statModifiers": [],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Dwarf",
+    "category": "Race",
+    "statModifiers": [
+      {
+        "id": "mod-000027",
+        "targetFieldName": "CON",
+        "op": "add",
+        "value": 2,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [],
+    "featureGrants": [
+      {
+        "id": "dwarf-overview",
+        "name": "Size & Speed",
+        "description": "Creature Type: Humanoid\nSize: Medium\nSpeed: walk 25, flags ignore_heavy_armor_speed_penalty",
+        "minLevel": null
+      },
+      {
+        "id": "dwarf-senses",
+        "name": "Senses",
+        "description": "Darkvision 60 ft.",
+        "minLevel": null
+      },
+      {
+        "id": "dwarf-resistances",
+        "name": "Resistances",
+        "description": "Resistant to poison damage.",
+        "minLevel": null
+      },
+      {
+        "id": "dwarf-languages",
+        "name": "Languages",
+        "description": "Common, Dwarvish",
+        "minLevel": null
+      },
+      {
+        "id": "dwarf-proficiencies",
+        "name": "Proficiencies",
+        "description": "Weapons: battleaxe, handaxe, light_hammer, warhammer\nTools: choose 1 of Smiths Tools, Brewers Supplies, Masons Tools",
+        "minLevel": null
+      },
+      {
+        "id": "dwarf-dwarven_resilience",
+        "name": "Dwarven Resilience",
+        "description": "Advantage on saving throw (damage_type: poison).",
+        "minLevel": null
+      },
+      {
+        "id": "dwarf-stonecunning",
+        "name": "Stonecunning",
+        "description": "Double proficiency bonus on history checks (stonework origin).",
+        "minLevel": null
+      }
+    ],
+    "resourceGrants": [],
+    "choiceGroups": []
+  },
+  {
+    "name": "Hill Dwarf",
+    "category": "Race",
+    "statModifiers": [
+      {
+        "id": "mod-000028",
+        "targetFieldName": "CON",
+        "op": "add",
+        "value": 2,
+        "minLevel": null
+      },
+      {
+        "id": "mod-000029",
+        "targetFieldName": "WIS",
+        "op": "add",
+        "value": 1,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [],
+    "featureGrants": [
+      {
+        "id": "hill-dwarf-overview",
+        "name": "Size & Speed",
+        "description": "Creature Type: Humanoid\nSize: Medium\nSpeed: walk 25, flags ignore_heavy_armor_speed_penalty",
+        "minLevel": null
+      },
+      {
+        "id": "hill-dwarf-senses",
+        "name": "Senses",
+        "description": "Darkvision 60 ft.",
+        "minLevel": null
+      },
+      {
+        "id": "hill-dwarf-resistances",
+        "name": "Resistances",
+        "description": "Resistant to poison damage.",
+        "minLevel": null
+      },
+      {
+        "id": "hill-dwarf-languages",
+        "name": "Languages",
+        "description": "Common, Dwarvish",
+        "minLevel": null
+      },
+      {
+        "id": "hill-dwarf-proficiencies",
+        "name": "Proficiencies",
+        "description": "Weapons: battleaxe, handaxe, light_hammer, warhammer\nTools: choose 1 of Smiths Tools, Brewers Supplies, Masons Tools",
+        "minLevel": null
+      },
+      {
+        "id": "hill-dwarf-dwarven_resilience",
+        "name": "Dwarven Resilience",
+        "description": "Advantage on saving throw (damage_type: poison).",
+        "minLevel": null
+      },
+      {
+        "id": "hill-dwarf-stonecunning",
+        "name": "Stonecunning",
+        "description": "Double proficiency bonus on history checks (stonework origin).",
+        "minLevel": null
+      },
+      {
+        "id": "hill-dwarf-dwarven_toughness",
+        "name": "Dwarven Toughness",
+        "description": "Max HP modifier: 1 per level.",
+        "minLevel": null
+      }
+    ],
+    "resourceGrants": [],
+    "choiceGroups": []
+  },
+  {
+    "name": "Mountain Dwarf",
+    "category": "Race",
+    "statModifiers": [
+      {
+        "id": "mod-00002a",
+        "targetFieldName": "CON",
+        "op": "add",
+        "value": 2,
+        "minLevel": null
+      },
+      {
+        "id": "mod-00002b",
+        "targetFieldName": "STR",
+        "op": "add",
+        "value": 2,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [],
+    "featureGrants": [
+      {
+        "id": "mountain-dwarf-overview",
+        "name": "Size & Speed",
+        "description": "Creature Type: Humanoid\nSize: Medium\nSpeed: walk 25, flags ignore_heavy_armor_speed_penalty",
+        "minLevel": null
+      },
+      {
+        "id": "mountain-dwarf-senses",
+        "name": "Senses",
+        "description": "Darkvision 60 ft.",
+        "minLevel": null
+      },
+      {
+        "id": "mountain-dwarf-resistances",
+        "name": "Resistances",
+        "description": "Resistant to poison damage.",
+        "minLevel": null
+      },
+      {
+        "id": "mountain-dwarf-languages",
+        "name": "Languages",
+        "description": "Common, Dwarvish",
+        "minLevel": null
+      },
+      {
+        "id": "mountain-dwarf-proficiencies",
+        "name": "Proficiencies",
+        "description": "Weapons: battleaxe, handaxe, light_hammer, warhammer\nArmor: light, medium\nTools: choose 1 of Smiths Tools, Brewers Supplies, Masons Tools",
+        "minLevel": null
+      },
+      {
+        "id": "mountain-dwarf-dwarven_resilience",
+        "name": "Dwarven Resilience",
+        "description": "Advantage on saving throw (damage_type: poison).",
+        "minLevel": null
+      },
+      {
+        "id": "mountain-dwarf-stonecunning",
+        "name": "Stonecunning",
+        "description": "Double proficiency bonus on history checks (stonework origin).",
+        "minLevel": null
+      }
+    ],
+    "resourceGrants": [],
+    "choiceGroups": []
+  },
+  {
+    "name": "Duergar",
+    "category": "Race",
+    "statModifiers": [
+      {
+        "id": "mod-00002c",
+        "targetFieldName": "CON",
+        "op": "add",
+        "value": 2,
+        "minLevel": null
+      },
+      {
+        "id": "mod-00002d",
+        "targetFieldName": "STR",
+        "op": "add",
+        "value": 1,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [],
+    "featureGrants": [
+      {
+        "id": "duergar-overview",
+        "name": "Size & Speed",
+        "description": "Creature Type: Humanoid\nSize: Medium\nSpeed: walk 25, flags ignore_heavy_armor_speed_penalty",
+        "minLevel": null
+      },
+      {
+        "id": "duergar-senses",
+        "name": "Senses",
+        "description": "Darkvision 120 ft.",
+        "minLevel": null
+      },
+      {
+        "id": "duergar-resistances",
+        "name": "Resistances",
+        "description": "Resistant to poison damage.",
+        "minLevel": null
+      },
+      {
+        "id": "duergar-languages",
+        "name": "Languages",
+        "description": "Common, Dwarvish",
+        "minLevel": null
+      },
+      {
+        "id": "duergar-proficiencies",
+        "name": "Proficiencies",
+        "description": "Weapons: battleaxe, handaxe, light_hammer, warhammer\nTools: choose 1 of Smiths Tools, Brewers Supplies, Masons Tools",
+        "minLevel": null
+      },
+      {
+        "id": "duergar-dwarven_resilience",
+        "name": "Dwarven Resilience",
+        "description": "Advantage on saving throw (damage_type: poison).",
+        "minLevel": null
+      },
+      {
+        "id": "duergar-stonecunning",
+        "name": "Stonecunning",
+        "description": "Double proficiency bonus on history checks (stonework origin).",
+        "minLevel": null
+      },
+      {
+        "id": "duergar-duergar_resilience",
+        "name": "Duergar Resilience",
+        "description": "Advantage on saving throw (conditions: illusion/charm/paralyzed).",
+        "minLevel": null
+      },
+      {
+        "id": "duergar-duergar_magic",
+        "name": "Duergar Magic",
+        "description": "Grants the Enlarge Reduce spell at level 3 (1 per long rest).\nGrants the Invisibility spell at level 5 (1 per long rest).",
+        "minLevel": null
+      },
+      {
+        "id": "duergar-sunlight_sensitivity",
+        "name": "Sunlight Sensitivity",
+        "description": "Disadvantage on attack roll, perception sight (in direct sunlight).",
+        "minLevel": null
+      }
+    ],
+    "resourceGrants": [],
+    "choiceGroups": []
+  },
+  {
+    "name": "Gnome",
+    "category": "Race",
+    "statModifiers": [
+      {
+        "id": "mod-00002e",
+        "targetFieldName": "INT",
+        "op": "add",
+        "value": 2,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [],
+    "featureGrants": [
+      {
+        "id": "gnome-overview",
+        "name": "Size & Speed",
+        "description": "Creature Type: Humanoid\nSize: Small\nSpeed: walk 25",
+        "minLevel": null
+      },
+      {
+        "id": "gnome-senses",
+        "name": "Senses",
+        "description": "Darkvision 60 ft.",
+        "minLevel": null
+      },
+      {
+        "id": "gnome-languages",
+        "name": "Languages",
+        "description": "Common, Gnomish",
+        "minLevel": null
+      },
+      {
+        "id": "gnome-gnome_cunning",
+        "name": "Gnome Cunning",
+        "description": "Advantage on saving throw (abilities: INT/WIS/CHA, source_type: magic).",
+        "minLevel": null
+      }
+    ],
+    "resourceGrants": [],
+    "choiceGroups": []
+  },
+  {
+    "name": "Halfling",
+    "category": "Race",
+    "statModifiers": [
+      {
+        "id": "mod-00002f",
+        "targetFieldName": "DEX",
+        "op": "add",
+        "value": 2,
+        "minLevel": null
+      }
+    ],
+    "dropdownAccess": [],
+    "featureGrants": [
+      {
+        "id": "halfling-overview",
+        "name": "Size & Speed",
+        "description": "Creature Type: Humanoid\nSize: Small\nSpeed: walk 25",
+        "minLevel": null
+      },
+      {
+        "id": "halfling-languages",
+        "name": "Languages",
+        "description": "Common, Halfling",
+        "minLevel": null
+      },
+      {
+        "id": "halfling-lucky",
+        "name": "Lucky",
+        "description": "Reroll a natural 1 on: attack roll, ability check, saving throw.",
+        "minLevel": null
+      },
+      {
+        "id": "halfling-brave",
+        "name": "Brave",
+        "description": "Advantage on saving throw (conditions: frightened).",
+        "minLevel": null
+      },
+      {
+        "id": "halfling-halfling_nimbleness",
+        "name": "Halfling Nimbleness",
+        "description": "Can move through the space of any creature that is a size larger.",
+        "minLevel": null
+      }
+    ],
+    "resourceGrants": [],
+    "choiceGroups": []
+  },
+  {
+    "name": "Yuan-ti",
+    "category": "Race",
+    "statModifiers": [],
+    "dropdownAccess": [],
+    "featureGrants": [
+      {
+        "id": "yuan-ti-overview",
+        "name": "Size & Speed",
+        "description": "Creature Type: Humanoid\nSize: Small or Medium\nSpeed: walk 30",
+        "minLevel": null
+      },
+      {
+        "id": "yuan-ti-senses",
+        "name": "Senses",
+        "description": "Darkvision 60 ft.",
+        "minLevel": null
+      },
+      {
+        "id": "yuan-ti-resistances",
+        "name": "Resistances",
+        "description": "Resistant to poison damage.",
+        "minLevel": null
+      },
+      {
+        "id": "yuan-ti-asi-gap",
+        "name": "Ability Score Bonus (manual)",
+        "description": "Ability Score Bonus: +2 to one ability and +1 to a different ability, OR +1 to three different abilities — your choice among all six. Apply manually to Ability Scores.",
+        "minLevel": null
+      },
+      {
+        "id": "yuan-ti-magic_resistance",
+        "name": "Magic Resistance",
+        "description": "Advantage on saving throw (source_type: spells).",
+        "minLevel": null
+      },
+      {
+        "id": "yuan-ti-poison_resilience",
+        "name": "Poison Resilience",
+        "description": "Advantage on saving throw (conditions: poisoned).",
+        "minLevel": null
+      },
+      {
+        "id": "yuan-ti-serpentine_spellcasting",
+        "name": "Serpentine Spellcasting",
+        "description": "Grants the Poison Spray cantrip.\nGrants the Animal Friendship spell (at will).\nGrants the Suggestion spell at level 3 (1 per long rest).",
+        "minLevel": null
+      }
+    ],
+    "resourceGrants": [],
+    "choiceGroups": []
+  }
+]

@@ -1,0 +1,2247 @@
+{
+  "classes": [
+    {
+      "class_id": "barbarian",
+      "name": "Barbarian",
+      "hit_die": 12,
+      "primary_ability": [
+        "Strength"
+      ],
+      "level_1_initialization": {
+        "hp_at_1st_level": "12 + CON_mod",
+        "proficiencies": {
+          "armor": [
+            "Light armor",
+            "Medium armor",
+            "Shields"
+          ],
+          "weapons": [
+            "Simple weapons",
+            "Martial weapons"
+          ],
+          "tools": [],
+          "saving_throws": [
+            "Strength",
+            "Constitution"
+          ],
+          "skills": {
+            "choose_count": 2,
+            "options": [
+              "Animal Handling",
+              "Athletics",
+              "Intimidation",
+              "Nature",
+              "Perception",
+              "Survival"
+            ]
+          }
+        }
+      },
+      "leveling_progression": [
+        {
+          "level": 1,
+          "passive_grants": [
+            {
+              "feature_id": "rage",
+              "name": "Rage",
+              "description": "In battle, you fight with primal ferocity."
+            },
+            {
+              "feature_id": "unarmored_defense_barbarian",
+              "name": "Unarmored Defense",
+              "description": "AC equals 10 + DEX mod + CON mod while wearing no armor."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 2,
+          "passive_grants": [
+            {
+              "feature_id": "reckless_attack",
+              "name": "Reckless Attack",
+              "description": "Gain advantage on melee weapon attack rolls using Strength during your turn."
+            },
+            {
+              "feature_id": "danger_sense",
+              "name": "Danger Sense",
+              "description": "Advantage on Dexterity saving throws against effects you can see."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 3,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "SUBCLASS",
+              "name": "Primal Path",
+              "options_source": "barbarian_paths"
+            }
+          ]
+        },
+        {
+          "level": 4,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 5,
+          "passive_grants": [
+            {
+              "feature_id": "extra_attack",
+              "name": "Extra Attack",
+              "description": "Attack twice whenever you take the Attack action on your turn."
+            },
+            {
+              "feature_id": "fast_movement",
+              "name": "Fast Movement",
+              "description": "Speed increases by 10 feet while not wearing heavy armor."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 8,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 12,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 16,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 19,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 20,
+          "passive_grants": [
+            {
+              "feature_id": "primal_champion",
+              "name": "Primal Champion",
+              "description": "Strength and Constitution scores increase by 4, up to a maximum of 24."
+            }
+          ],
+          "player_choices": []
+        }
+      ]
+    },
+    {
+      "class_id": "fighter",
+      "name": "Fighter",
+      "hit_die": 10,
+      "primary_ability": [
+        "Strength",
+        "Dexterity"
+      ],
+      "level_1_initialization": {
+        "hp_at_1st_level": "10 + CON_mod",
+        "proficiencies": {
+          "armor": [
+            "All armor",
+            "Shields"
+          ],
+          "weapons": [
+            "Simple weapons",
+            "Martial weapons"
+          ],
+          "tools": [],
+          "saving_throws": [
+            "Strength",
+            "Constitution"
+          ],
+          "skills": {
+            "choose_count": 2,
+            "options": [
+              "Acrobatics",
+              "Animal Handling",
+              "Athletics",
+              "History",
+              "Insight",
+              "Intimidation",
+              "Perception",
+              "Survival"
+            ]
+          }
+        }
+      },
+      "leveling_progression": [
+        {
+          "level": 1,
+          "passive_grants": [
+            {
+              "feature_id": "second_wind",
+              "name": "Second Wind",
+              "description": "Regain 1d10 + Fighter level HP as a bonus action once per short/long rest."
+            }
+          ],
+          "player_choices": [
+            {
+              "choice_type": "FEATURE_SELECT",
+              "name": "Fighting Style",
+              "count": 1,
+              "options": [
+                "Archery",
+                "Defense",
+                "Dueling",
+                "Great Weapon Fighting",
+                "Protection",
+                "Two-Weapon Fighting"
+              ]
+            }
+          ]
+        },
+        {
+          "level": 2,
+          "passive_grants": [
+            {
+              "feature_id": "action_surge",
+              "name": "Action Surge",
+              "description": "Take one additional action on your turn once per short/long rest."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 3,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "SUBCLASS",
+              "name": "Martial Archetype",
+              "options_source": "fighter_archetypes"
+            }
+          ]
+        },
+        {
+          "level": 4,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 5,
+          "passive_grants": [
+            {
+              "feature_id": "extra_attack",
+              "name": "Extra Attack",
+              "description": "Attack twice whenever you take the Attack action."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 6,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 8,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 12,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 14,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 16,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 19,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "class_id": "monk",
+      "name": "Monk",
+      "hit_die": 8,
+      "primary_ability": [
+        "Dexterity",
+        "Wisdom"
+      ],
+      "level_1_initialization": {
+        "hp_at_1st_level": "8 + CON_mod",
+        "proficiencies": {
+          "armor": [],
+          "weapons": [
+            "Simple weapons",
+            "Shortswords"
+          ],
+          "tools": [
+            "Choose one artisan tool or musical instrument"
+          ],
+          "saving_throws": [
+            "Strength",
+            "Dexterity"
+          ],
+          "skills": {
+            "choose_count": 2,
+            "options": [
+              "Acrobatics",
+              "Athletics",
+              "History",
+              "Insight",
+              "Religion",
+              "Stealth"
+            ]
+          }
+        }
+      },
+      "leveling_progression": [
+        {
+          "level": 1,
+          "passive_grants": [
+            {
+              "feature_id": "unarmored_defense_monk",
+              "name": "Unarmored Defense",
+              "description": "AC equals 10 + DEX mod + WIS mod when wearing no armor."
+            },
+            {
+              "feature_id": "martial_arts",
+              "name": "Martial Arts",
+              "description": "Use DEX for unarmed strikes and monk weapons; damage die scales with Monk level."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 2,
+          "passive_grants": [
+            {
+              "feature_id": "ki",
+              "name": "Ki",
+              "description": "Fuel ki features such as Flurry of Blows, Patient Defense, and Step of the Wind."
+            },
+            {
+              "feature_id": "unarmored_movement",
+              "name": "Unarmored Movement",
+              "description": "Speed increases by 10 ft while not wearing armor or wielding a shield."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 3,
+          "passive_grants": [
+            {
+              "feature_id": "deflect_missiles",
+              "name": "Deflect Missiles",
+              "description": "Use reaction to reduce damage from ranged weapon attacks."
+            }
+          ],
+          "player_choices": [
+            {
+              "choice_type": "SUBCLASS",
+              "name": "Monastic Tradition",
+              "options_source": "monk_traditions"
+            }
+          ]
+        },
+        {
+          "level": 4,
+          "passive_grants": [
+            {
+              "feature_id": "slow_fall",
+              "name": "Slow Fall",
+              "description": "Use reaction to reduce falling damage by 5x Monk level."
+            }
+          ],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 5,
+          "passive_grants": [
+            {
+              "feature_id": "extra_attack",
+              "name": "Extra Attack",
+              "description": "Attack twice whenever you take the Attack action."
+            },
+            {
+              "feature_id": "stunning_strike",
+              "name": "Stunning Strike",
+              "description": "Spend 1 ki point to attempt to stun a target hit by a melee weapon attack."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 8,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 12,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 16,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 19,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 20,
+          "passive_grants": [
+            {
+              "feature_id": "perfect_self",
+              "name": "Perfect Self",
+              "description": "Regain 4 ki points if you have 0 ki points when initiative is rolled."
+            }
+          ],
+          "player_choices": []
+        }
+      ]
+    },
+    {
+      "class_id": "rogue",
+      "name": "Rogue",
+      "hit_die": 8,
+      "primary_ability": [
+        "Dexterity"
+      ],
+      "level_1_initialization": {
+        "hp_at_1st_level": "8 + CON_mod",
+        "proficiencies": {
+          "armor": [
+            "Light armor"
+          ],
+          "weapons": [
+            "Simple weapons",
+            "Hand crossbows",
+            "Longswords",
+            "Rapiers",
+            "Shortswords"
+          ],
+          "tools": [
+            "Thieves' tools"
+          ],
+          "saving_throws": [
+            "Dexterity",
+            "Intelligence"
+          ],
+          "skills": {
+            "choose_count": 4,
+            "options": [
+              "Acrobatics",
+              "Athletics",
+              "Deception",
+              "Insight",
+              "Intimidation",
+              "Investigation",
+              "Perception",
+              "Performance",
+              "Persuasion",
+              "Sleight of Hand",
+              "Stealth"
+            ]
+          }
+        }
+      },
+      "leveling_progression": [
+        {
+          "level": 1,
+          "passive_grants": [
+            {
+              "feature_id": "sneak_attack",
+              "name": "Sneak Attack",
+              "description": "Deal extra damage once per turn to a creature hit with advantage or an enemy near an ally."
+            },
+            {
+              "feature_id": "thieves_cant",
+              "name": "Thieves' Cant",
+              "description": "Understand a secret dialect of slang, jargon, and code."
+            }
+          ],
+          "player_choices": [
+            {
+              "choice_type": "SKILL_EXPERTISE",
+              "name": "Expertise",
+              "count": 2,
+              "options_source": "proficient_skills_and_thieves_tools"
+            }
+          ]
+        },
+        {
+          "level": 2,
+          "passive_grants": [
+            {
+              "feature_id": "cunning_action",
+              "name": "Cunning Action",
+              "description": "Take a bonus action to Dash, Disengage, or Hide."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 3,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "SUBCLASS",
+              "name": "Roguish Archetype",
+              "options_source": "rogue_archetypes"
+            }
+          ]
+        },
+        {
+          "level": 4,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 6,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "SKILL_EXPERTISE",
+              "name": "Expertise",
+              "count": 2,
+              "options_source": "proficient_skills_and_thieves_tools"
+            }
+          ]
+        },
+        {
+          "level": 8,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 10,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 12,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 16,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 19,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 20,
+          "passive_grants": [
+            {
+              "feature_id": "stroke_of_luck",
+              "name": "Stroke of Luck",
+              "description": "Turn a missed attack roll or failed ability check into a hit or 20 once per short/long rest."
+            }
+          ],
+          "player_choices": []
+        }
+      ]
+    },
+    {
+      "class_id": "bard",
+      "name": "Bard",
+      "hit_die": 8,
+      "primary_ability": [
+        "Charisma"
+      ],
+      "level_1_initialization": {
+        "hp_at_1st_level": "8 + CON_mod",
+        "proficiencies": {
+          "armor": [
+            "Light armor"
+          ],
+          "weapons": [
+            "Simple weapons",
+            "Hand crossbows",
+            "Longswords",
+            "Rapiers",
+            "Shortswords"
+          ],
+          "tools": [
+            "Choose three musical instruments of your choice"
+          ],
+          "saving_throws": [
+            "Dexterity",
+            "Charisma"
+          ],
+          "skills": {
+            "choose_count": 3,
+            "options": [
+              "Acrobatics",
+              "Animal Handling",
+              "Arcana",
+              "Athletics",
+              "Deception",
+              "History",
+              "Insight",
+              "Intimidation",
+              "Investigation",
+              "Medicine",
+              "Nature",
+              "Perception",
+              "Performance",
+              "Persuasion",
+              "Religion",
+              "Sleight of Hand",
+              "Stealth",
+              "Survival"
+            ]
+          }
+        }
+      },
+      "leveling_progression": [
+        {
+          "level": 1,
+          "passive_grants": [
+            {
+              "feature_id": "spellcasting_bard",
+              "name": "Spellcasting",
+              "description": "Cast bard spells using Charisma as your spellcasting ability."
+            },
+            {
+              "feature_id": "bardic_inspiration",
+              "name": "Bardic Inspiration",
+              "description": "Grant a die to an ally to add to one ability check, attack roll, or saving throw."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 2,
+          "passive_grants": [
+            {
+              "feature_id": "jack_of_all_trades",
+              "name": "Jack of All Trades",
+              "description": "Add half your proficiency bonus to any ability check that doesn't already include it."
+            },
+            {
+              "feature_id": "song_of_rest",
+              "name": "Song of Rest",
+              "description": "Perform during a short rest to help revitalize allies, restoring extra HP."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 3,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "SUBCLASS",
+              "name": "Bard College",
+              "options_source": "bard_colleges"
+            },
+            {
+              "choice_type": "SKILL_EXPERTISE",
+              "name": "Expertise",
+              "count": 2,
+              "options_source": "proficient_skills"
+            }
+          ]
+        },
+        {
+          "level": 4,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 5,
+          "passive_grants": [
+            {
+              "feature_id": "font_of_inspiration",
+              "name": "Font of Inspiration",
+              "description": "Regain all uses of Bardic Inspiration when you finish a short or long rest."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 6,
+          "passive_grants": [
+            {
+              "feature_id": "countercharm",
+              "name": "Countercharm",
+              "description": "Use musical notes or words to disrupt mind-influencing effects."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 8,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 10,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "SKILL_EXPERTISE",
+              "name": "Expertise",
+              "count": 2,
+              "options_source": "proficient_skills"
+            },
+            {
+              "choice_type": "SPELL_SELECT",
+              "name": "Magical Secrets",
+              "count": 2,
+              "options_source": "all_class_spells"
+            }
+          ]
+        },
+        {
+          "level": 12,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 14,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "SPELL_SELECT",
+              "name": "Magical Secrets",
+              "count": 2,
+              "options_source": "all_class_spells"
+            }
+          ]
+        },
+        {
+          "level": 16,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 18,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "SPELL_SELECT",
+              "name": "Magical Secrets",
+              "count": 2,
+              "options_source": "all_class_spells"
+            }
+          ]
+        },
+        {
+          "level": 19,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 20,
+          "passive_grants": [
+            {
+              "feature_id": "superior_inspiration",
+              "name": "Superior Inspiration",
+              "description": "Regain one use of Bardic Inspiration if you have none when you roll initiative."
+            }
+          ],
+          "player_choices": []
+        }
+      ]
+    },
+    {
+      "class_id": "cleric",
+      "name": "Cleric",
+      "hit_die": 8,
+      "primary_ability": [
+        "Wisdom"
+      ],
+      "level_1_initialization": {
+        "hp_at_1st_level": "8 + CON_mod",
+        "proficiencies": {
+          "armor": [
+            "Light armor",
+            "Medium armor",
+            "Shields"
+          ],
+          "weapons": [
+            "Simple weapons"
+          ],
+          "tools": [],
+          "saving_throws": [
+            "Wisdom",
+            "Charisma"
+          ],
+          "skills": {
+            "choose_count": 2,
+            "options": [
+              "History",
+              "Insight",
+              "Medicine",
+              "Persuasion",
+              "Religion"
+            ]
+          }
+        }
+      },
+      "leveling_progression": [
+        {
+          "level": 1,
+          "passive_grants": [
+            {
+              "feature_id": "spellcasting_cleric",
+              "name": "Spellcasting",
+              "description": "Prepare and cast cleric spells using Wisdom modifier."
+            }
+          ],
+          "player_choices": [
+            {
+              "choice_type": "SUBCLASS",
+              "name": "Divine Domain",
+              "options_source": "cleric_domains"
+            }
+          ]
+        },
+        {
+          "level": 2,
+          "passive_grants": [
+            {
+              "feature_id": "channel_divinity_cleric",
+              "name": "Channel Divinity",
+              "description": "Gain divine energy from your deity to power magical effects."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 4,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 5,
+          "passive_grants": [
+            {
+              "feature_id": "destroy_undead",
+              "name": "Destroy Undead",
+              "description": "Turned undead of low CR are instantly destroyed upon failing saving throw."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 8,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 10,
+          "passive_grants": [
+            {
+              "feature_id": "divine_intervention",
+              "name": "Divine Intervention",
+              "description": "Call on your deity to intervene on your behalf once per 7 days on success."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 12,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 16,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 19,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 20,
+          "passive_grants": [
+            {
+              "feature_id": "divine_intervention_improvement",
+              "name": "Divine Intervention Improvement",
+              "description": "Divine Intervention succeeds automatically without rolling."
+            }
+          ],
+          "player_choices": []
+        }
+      ]
+    },
+    {
+      "class_id": "druid",
+      "name": "Druid",
+      "hit_die": 8,
+      "primary_ability": [
+        "Wisdom"
+      ],
+      "level_1_initialization": {
+        "hp_at_1st_level": "8 + CON_mod",
+        "proficiencies": {
+          "armor": [
+            "Light armor",
+            "Medium armor",
+            "Shields (non-metal)"
+          ],
+          "weapons": [
+            "Clubs",
+            "Daggers",
+            "Darts",
+            "Javelins",
+            "Maces",
+            "Quarterstaffs",
+            "Scimitars",
+            "Sickles",
+            "Slings",
+            "Spears"
+          ],
+          "tools": [
+            "Herbalism kit"
+          ],
+          "saving_throws": [
+            "Intelligence",
+            "Wisdom"
+          ],
+          "skills": {
+            "choose_count": 2,
+            "options": [
+              "Arcana",
+              "Animal Handling",
+              "Insight",
+              "Medicine",
+              "Nature",
+              "Perception",
+              "Religion",
+              "Survival"
+            ]
+          }
+        }
+      },
+      "leveling_progression": [
+        {
+          "level": 1,
+          "passive_grants": [
+            {
+              "feature_id": "druidic",
+              "name": "Druidic",
+              "description": "Know the secret language of druids and spot hidden messages."
+            },
+            {
+              "feature_id": "spellcasting_druid",
+              "name": "Spellcasting",
+              "description": "Prepare and cast druid spells using Wisdom modifier."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 2,
+          "passive_grants": [
+            {
+              "feature_id": "wild_shape",
+              "name": "Wild Shape",
+              "description": "Magically assume the shape of a beast you have seen before."
+            }
+          ],
+          "player_choices": [
+            {
+              "choice_type": "SUBCLASS",
+              "name": "Druid Circle",
+              "options_source": "druid_circles"
+            }
+          ]
+        },
+        {
+          "level": 4,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 8,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 12,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 16,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 18,
+          "passive_grants": [
+            {
+              "feature_id": "timeless_body_druid",
+              "name": "Timeless Body",
+              "description": "Age slower; for every 10 years that pass, your body ages only 1 year."
+            },
+            {
+              "feature_id": "beast_spells",
+              "name": "Beast Spells",
+              "description": "Cast many spells while remaining in Wild Shape forms."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 19,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 20,
+          "passive_grants": [
+            {
+              "feature_id": "archdruid",
+              "name": "Archdruid",
+              "description": "Use Wild Shape an unlimited number of times and ignore non-costly spell components."
+            }
+          ],
+          "player_choices": []
+        }
+      ]
+    },
+    {
+      "class_id": "paladin",
+      "name": "Paladin",
+      "hit_die": 10,
+      "primary_ability": [
+        "Strength",
+        "Charisma"
+      ],
+      "level_1_initialization": {
+        "hp_at_1st_level": "10 + CON_mod",
+        "proficiencies": {
+          "armor": [
+            "All armor",
+            "Shields"
+          ],
+          "weapons": [
+            "Simple weapons",
+            "Martial weapons"
+          ],
+          "tools": [],
+          "saving_throws": [
+            "Wisdom",
+            "Charisma"
+          ],
+          "skills": {
+            "choose_count": 2,
+            "options": [
+              "Athletics",
+              "Insight",
+              "Intimidation",
+              "Medicine",
+              "Persuasion",
+              "Religion"
+            ]
+          }
+        }
+      },
+      "leveling_progression": [
+        {
+          "level": 1,
+          "passive_grants": [
+            {
+              "feature_id": "divine_sense",
+              "name": "Divine Sense",
+              "description": "Detect celestial, fiend, or undead beings within 60 feet."
+            },
+            {
+              "feature_id": "lay_on_hands",
+              "name": "Lay on Hands",
+              "description": "Pool of healing power equal to 5 x Paladin level."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 2,
+          "passive_grants": [
+            {
+              "feature_id": "spellcasting_paladin",
+              "name": "Spellcasting",
+              "description": "Cast prepared paladin spells using Charisma."
+            },
+            {
+              "feature_id": "divine_smite",
+              "name": "Divine Smite",
+              "description": "Expend spell slots to deal extra radiant damage on a melee hit."
+            }
+          ],
+          "player_choices": [
+            {
+              "choice_type": "FEATURE_SELECT",
+              "name": "Fighting Style",
+              "count": 1,
+              "options": [
+                "Defense",
+                "Dueling",
+                "Great Weapon Fighting",
+                "Protection"
+              ]
+            }
+          ]
+        },
+        {
+          "level": 3,
+          "passive_grants": [
+            {
+              "feature_id": "divine_health",
+              "name": "Divine Health",
+              "description": "Immunity to disease."
+            }
+          ],
+          "player_choices": [
+            {
+              "choice_type": "SUBCLASS",
+              "name": "Sacred Oath",
+              "options_source": "paladin_oaths"
+            }
+          ]
+        },
+        {
+          "level": 4,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 5,
+          "passive_grants": [
+            {
+              "feature_id": "extra_attack",
+              "name": "Extra Attack",
+              "description": "Attack twice whenever you take the Attack action."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 6,
+          "passive_grants": [
+            {
+              "feature_id": "aura_of_protection",
+              "name": "Aura of Protection",
+              "description": "Allies within 10 feet gain a bonus to saving throws equal to Charisma modifier."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 8,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 10,
+          "passive_grants": [
+            {
+              "feature_id": "aura_of_courage",
+              "name": "Aura of Courage",
+              "description": "Allies within 10 feet cannot be frightened."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 12,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 14,
+          "passive_grants": [
+            {
+              "feature_id": "cleansing_touch",
+              "name": "Cleansing Touch",
+              "description": "End one spell on yourself or a willing creature a number of times equal to Charisma modifier."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 16,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 19,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "class_id": "ranger",
+      "name": "Ranger",
+      "hit_die": 10,
+      "primary_ability": [
+        "Dexterity",
+        "Wisdom"
+      ],
+      "level_1_initialization": {
+        "hp_at_1st_level": "10 + CON_mod",
+        "proficiencies": {
+          "armor": [
+            "Light armor",
+            "Medium armor",
+            "Shields"
+          ],
+          "weapons": [
+            "Simple weapons",
+            "Martial weapons"
+          ],
+          "tools": [],
+          "saving_throws": [
+            "Strength",
+            "Dexterity"
+          ],
+          "skills": {
+            "choose_count": 3,
+            "options": [
+              "Animal Handling",
+              "Athletics",
+              "Insight",
+              "Investigation",
+              "Nature",
+              "Perception",
+              "Stealth",
+              "Survival"
+            ]
+          }
+        }
+      },
+      "leveling_progression": [
+        {
+          "level": 1,
+          "passive_grants": [
+            {
+              "feature_id": "favored_enemy",
+              "name": "Favored Enemy",
+              "description": "Gain advantages when tracking and recalling info about chosen enemy types."
+            },
+            {
+              "feature_id": "natural_explorer",
+              "name": "Natural Explorer",
+              "description": "Benefits when navigating and foraging in favored terrain types."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 2,
+          "passive_grants": [
+            {
+              "feature_id": "spellcasting_ranger",
+              "name": "Spellcasting",
+              "description": "Cast ranger spells using Wisdom modifier."
+            }
+          ],
+          "player_choices": [
+            {
+              "choice_type": "FEATURE_SELECT",
+              "name": "Fighting Style",
+              "count": 1,
+              "options": [
+                "Archery",
+                "Defense",
+                "Dueling",
+                "Two-Weapon Fighting"
+              ]
+            }
+          ]
+        },
+        {
+          "level": 3,
+          "passive_grants": [
+            {
+              "feature_id": "primeval_awareness",
+              "name": "Primeval Awareness",
+              "description": "Focus sense to detect nearby magical creatures."
+            }
+          ],
+          "player_choices": [
+            {
+              "choice_type": "SUBCLASS",
+              "name": "Ranger Archetype",
+              "options_source": "ranger_archetypes"
+            }
+          ]
+        },
+        {
+          "level": 4,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 5,
+          "passive_grants": [
+            {
+              "feature_id": "extra_attack",
+              "name": "Extra Attack",
+              "description": "Attack twice whenever you take the Attack action."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 8,
+          "passive_grants": [
+            {
+              "feature_id": "lands_stride",
+              "name": "Land's Stride",
+              "description": "Moving through nonmagical difficult terrain costs no extra movement."
+            }
+          ],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 10,
+          "passive_grants": [
+            {
+              "feature_id": "hide_in_plain_sight",
+              "name": "Hide in Plain Sight",
+              "description": "Spend 1 minute creating camouflage to gain +10 to Stealth checks."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 12,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 14,
+          "passive_grants": [
+            {
+              "feature_id": "vanish",
+              "name": "Vanish",
+              "description": "Use Hide as a bonus action and cannot be tracked by nonmagical means."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 16,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 18,
+          "passive_grants": [
+            {
+              "feature_id": "feral_senses",
+              "name": "Feral Senses",
+              "description": "Attack creatures you can't see without disadvantage."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 19,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 20,
+          "passive_grants": [
+            {
+              "feature_id": "foe_slayer",
+              "name": "Foe Slayer",
+              "description": "Add Wisdom modifier to attack or damage roll against a favored enemy once per turn."
+            }
+          ],
+          "player_choices": []
+        }
+      ]
+    },
+    {
+      "class_id": "warlock",
+      "name": "Warlock",
+      "hit_die": 8,
+      "primary_ability": [
+        "Charisma"
+      ],
+      "level_1_initialization": {
+        "hp_at_1st_level": "8 + CON_mod",
+        "proficiencies": {
+          "armor": [
+            "Light armor"
+          ],
+          "weapons": [
+            "Simple weapons"
+          ],
+          "tools": [],
+          "saving_throws": [
+            "Wisdom",
+            "Charisma"
+          ],
+          "skills": {
+            "choose_count": 2,
+            "options": [
+              "Arcana",
+              "Deception",
+              "History",
+              "Intimidation",
+              "Investigation",
+              "Nature",
+              "Religion"
+            ]
+          }
+        }
+      },
+      "leveling_progression": [
+        {
+          "level": 1,
+          "passive_grants": [
+            {
+              "feature_id": "pact_magic",
+              "name": "Pact Magic",
+              "description": "Cast spells using short-rest recoverable spell slots."
+            }
+          ],
+          "player_choices": [
+            {
+              "choice_type": "SUBCLASS",
+              "name": "Otherworldly Patron",
+              "options_source": "warlock_patrons"
+            }
+          ]
+        },
+        {
+          "level": 2,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "FEATURE_SELECT",
+              "name": "Eldritch Invocations",
+              "count": 2,
+              "options_source": "eldritch_invocations",
+              "swap_allowed": true
+            }
+          ]
+        },
+        {
+          "level": 3,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "FEATURE_SELECT",
+              "name": "Pact Boon",
+              "count": 1,
+              "options": [
+                "Pact of the Chain",
+                "Pact of the Blade",
+                "Pact of the Tome"
+              ]
+            }
+          ]
+        },
+        {
+          "level": 4,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 8,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 11,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "SPELL_SELECT",
+              "name": "Mystic Arcanum (6th level)",
+              "count": 1,
+              "spell_level": 6
+            }
+          ]
+        },
+        {
+          "level": 12,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 13,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "SPELL_SELECT",
+              "name": "Mystic Arcanum (7th level)",
+              "count": 1,
+              "spell_level": 7
+            }
+          ]
+        },
+        {
+          "level": 15,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "SPELL_SELECT",
+              "name": "Mystic Arcanum (8th level)",
+              "count": 1,
+              "spell_level": 8
+            }
+          ]
+        },
+        {
+          "level": 16,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 17,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "SPELL_SELECT",
+              "name": "Mystic Arcanum (9th level)",
+              "count": 1,
+              "spell_level": 9
+            }
+          ]
+        },
+        {
+          "level": 19,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 20,
+          "passive_grants": [
+            {
+              "feature_id": "eldritch_master",
+              "name": "Eldritch Master",
+              "description": "Entreat patron for 1 minute to regain all Pact Magic spell slots once per long rest."
+            }
+          ],
+          "player_choices": []
+        }
+      ]
+    },
+    {
+      "class_id": "wizard",
+      "name": "Wizard",
+      "hit_die": 6,
+      "primary_ability": [
+        "Intelligence"
+      ],
+      "level_1_initialization": {
+        "hp_at_1st_level": "6 + CON_mod",
+        "proficiencies": {
+          "armor": [],
+          "weapons": [
+            "Daggers",
+            "Darts",
+            "Slings",
+            "Quarterstaffs",
+            "Light crossbows"
+          ],
+          "tools": [],
+          "saving_throws": [
+            "Intelligence",
+            "Wisdom"
+          ],
+          "skills": {
+            "choose_count": 2,
+            "options": [
+              "Arcana",
+              "History",
+              "Insight",
+              "Investigation",
+              "Medicine",
+              "Religion"
+            ]
+          }
+        }
+      },
+      "leveling_progression": [
+        {
+          "level": 1,
+          "passive_grants": [
+            {
+              "feature_id": "spellcasting_wizard",
+              "name": "Spellcasting",
+              "description": "Prepare and cast spells from a written spellbook."
+            },
+            {
+              "feature_id": "arcane_recovery",
+              "name": "Arcane Recovery",
+              "description": "Recover spell slots combined level equal to half wizard level on short rest once per day."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 2,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "SUBCLASS",
+              "name": "Arcane Tradition",
+              "options_source": "wizard_traditions"
+            }
+          ]
+        },
+        {
+          "level": 4,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 8,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 12,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 16,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 18,
+          "passive_grants": [
+            {
+              "feature_id": "spell_mastery",
+              "name": "Spell Mastery",
+              "description": "Cast chosen 1st and 2nd-level spells at will without expending slots."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 19,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 20,
+          "passive_grants": [
+            {
+              "feature_id": "signature_spells",
+              "name": "Signature Spells",
+              "description": "Two 3rd-level spells are always prepared and castable once per short rest without slots."
+            }
+          ],
+          "player_choices": []
+        }
+      ]
+    },
+    {
+      "class_id": "sorcerer",
+      "name": "Sorcerer",
+      "hit_die": 6,
+      "primary_ability": [
+        "Charisma"
+      ],
+      "level_1_initialization": {
+        "hp_at_1st_level": "6 + CON_mod",
+        "proficiencies": {
+          "armor": [],
+          "weapons": [
+            "Daggers",
+            "Darts",
+            "Slings",
+            "Quarterstaffs",
+            "Light crossbows"
+          ],
+          "tools": [],
+          "saving_throws": [
+            "Constitution",
+            "Charisma"
+          ],
+          "skills": {
+            "choose_count": 2,
+            "options": [
+              "Arcana",
+              "Deception",
+              "Insight",
+              "Intimidation",
+              "Persuasion",
+              "Religion"
+            ]
+          }
+        }
+      },
+      "leveling_progression": [
+        {
+          "level": 1,
+          "passive_grants": [
+            {
+              "feature_id": "spellcasting_sorcerer",
+              "name": "Spellcasting",
+              "description": "Cast innate sorcerer spells using Charisma modifier."
+            }
+          ],
+          "player_choices": [
+            {
+              "choice_type": "SUBCLASS",
+              "name": "Sorcerous Origin",
+              "options_source": "sorcerer_origins"
+            }
+          ]
+        },
+        {
+          "level": 2,
+          "passive_grants": [
+            {
+              "feature_id": "font_of_magic",
+              "name": "Font of Magic",
+              "description": "Gain Sorcery Points to transform spell slots or fuel Metamagic effects."
+            }
+          ],
+          "player_choices": []
+        },
+        {
+          "level": 3,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "FEATURE_SELECT",
+              "name": "Metamagic",
+              "count": 2,
+              "options_source": "metamagic_options"
+            }
+          ]
+        },
+        {
+          "level": 4,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 8,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 10,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "FEATURE_SELECT",
+              "name": "Metamagic",
+              "count": 1,
+              "options_source": "metamagic_options"
+            }
+          ]
+        },
+        {
+          "level": 12,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 16,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 17,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "FEATURE_SELECT",
+              "name": "Metamagic",
+              "count": 1,
+              "options_source": "metamagic_options"
+            }
+          ]
+        },
+        {
+          "level": 19,
+          "passive_grants": [],
+          "player_choices": [
+            {
+              "choice_type": "ABILITY_SCORE_IMPROVEMENT_OR_FEAT",
+              "name": "Ability Score Improvement",
+              "asi_points": 2,
+              "max_score": 20
+            }
+          ]
+        },
+        {
+          "level": 20,
+          "passive_grants": [
+            {
+              "feature_id": "sorcerous_restoration",
+              "name": "Sorcerous Restoration",
+              "description": "Regain 4 expended sorcery points whenever you finish a short rest."
+            }
+          ],
+          "player_choices": []
+        }
+      ]
+    }
+  ]
+}
