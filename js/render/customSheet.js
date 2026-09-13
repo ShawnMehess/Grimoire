@@ -2530,11 +2530,25 @@ export function renderCustomSheet(root, character, store) {
    *  mechanics preview below, creationChoiceGroupsFor's per-category
    *  lookups, selectedFeatBundles) doesn't have to re-implement the
    *  match. */
+  const CATEGORY_FIELD = { Race: ["race", "Race"], Class: ["class", "Class"], Background: ["background", "Background"], Subclass: ["subclass", "Subclass"] };
+
   function bundleFor(category, name, rulesetId) {
     if (!name) return null;
     const norm = (s) => (s || "").trim().toLowerCase();
-    return bundleLibraryCache.find((entry) => entry.rulesetId === rulesetId
-      && norm(entry.category) === norm(category) && norm(entry.name) === norm(name)) || null;
+    const fromLibrary = bundleLibraryCache.find((entry) => entry.rulesetId === rulesetId
+      && norm(entry.category) === norm(category) && norm(entry.name) === norm(name));
+    if (fromLibrary) return fromLibrary;
+    // Fall back to the sheet's own starter field — this is where a
+    // baked-in bundle (see defaultContent.js/blockModel.js) actually
+    // lives for Race/Class/Background/Subclass, since none of that
+    // goes through the Bundle Library/Firestore at all. Without this,
+    // the wizard's mechanics preview and choice-group steps only ever
+    // saw whatever was imported into bundleLibraryCache (nothing, for
+    // baked-in content) even though the real bundle was sitting right
+    // there on the dropdown's own choice.
+    const target = CATEGORY_FIELD[category] && findStarterField(...CATEGORY_FIELD[category]);
+    const choice = target?.choices?.find((c) => norm(c.text) === norm(name));
+    return choice?.bundle || null;
   }
 
   function creationChoiceGroupsFor(state) {
