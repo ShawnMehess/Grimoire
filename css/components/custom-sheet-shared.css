@@ -1,0 +1,260 @@
+/* custom-sheet-shared.css
+   Generic chrome shared across the sheet builder: modals, the style
+   popover, toasts. Split out of custom-sheet.css. */
+
+
+
+/* Replaces window.alert() for advisories/errors with no single
+   natural home for an inline status line (see showToast in
+   customSheet.js) — floats above everything, fades in/out, and
+   never blocks input the way a native alert dialog does. */
+.sheet-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 12px);
+  max-width: min(480px, calc(100vw - 32px));
+  background: var(--gradient-surface);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  z-index: 200;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+
+.sheet-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.sheet-toast--error {
+  border-color: var(--color-negative);
+}
+
+/* --- Style popover --- */
+
+.style-popover {
+  position: absolute;
+  top: -2px;
+  left: calc(100% + var(--space-2));
+  width: 220px;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  box-shadow: var(--shadow-lg);
+  z-index: 60; /* above .resize-handle (5) and even .is-dragging/.is-resizing
+    (50) — a popover anchored off a field (like the dropdown choices
+    editor) should never be tucked behind the parent block's own resize
+    handle poking out at its corner */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: normal;
+  font-style: normal;
+  text-decoration: none;
+  color: var(--color-text);
+  animation: style-popover-in 140ms ease;
+}
+
+@keyframes style-popover-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Fixed label column + flexible value column, shared by every row —
+   this is what makes the controls line up and share one consistent
+   width, no matter whether a given row's control is a color swatch, a
+   dropdown, a number input, or the B/I/U toggle group. */
+.style-popover__row {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.style-popover__row label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.style-popover__badge {
+  color: var(--color-accent);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+/* Every row's value control gets the same height and fills the same
+   column, regardless of how that input type renders natively. */
+.style-popover__row input,
+.style-popover__row select,
+.style-popover__toggles {
+  width: 100%;
+  height: 28px;
+  box-sizing: border-box;
+}
+
+.style-popover__row input[type="color"] {
+  padding: 2px;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-inset);
+  cursor: pointer;
+}
+
+.style-popover__row input[type="file"] {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.style-popover__row input[type="number"],
+.style-popover__row select {
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: 0 var(--space-2);
+}
+
+.style-popover__toggles {
+  display: flex;
+  gap: 4px;
+}
+.style-popover__toggles button {
+  flex: 1 1 0; /* the three toggle buttons split the value column evenly,
+    so they're always exactly as wide as each other */
+  height: 100%;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  cursor: pointer;
+  font-weight: 600;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.style-popover__toggles button:hover {
+  border-color: var(--color-border-strong);
+}
+.style-popover__toggles button.active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+.style-popover__toggles button.has-local-override {
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+
+/* --- Equation stub modal --- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10,8,6,0.7);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: modal-fade-in 150ms ease;
+}
+
+.modal-box {
+  background: var(--gradient-surface);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  max-width: 420px;
+  box-shadow: var(--shadow-lg);
+  animation: modal-pop-in 160ms ease;
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes modal-pop-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.modal-box--sheet-template {
+  width: min(420px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.modal-box--sheet-template h3 {
+  margin: 0;
+}
+
+.modal-copy {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.modal-box--formula {
+  position: fixed;
+  top: 76px;
+  right: 16px;
+  bottom: 16px;
+  width: min(440px, 38vw);
+  min-width: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  pointer-events: auto;
+  animation: formula-slide-in 160ms ease;
+}
+
+@keyframes formula-slide-in {
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* --- Collection menu (shared by Catalogs + Bundle Libraries) ------- */
+/* See collectionMenuLayout.js for why this is a shared class instead
+   of each panel hand-rolling the same box. Self-contained rather than
+   layered on .modal-box--formula (which this superseded for these two
+   panels) so its top/overflow don't depend on cascade order against
+   that class. */
+.modal-box--collection-menu {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  max-width: none;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  pointer-events: auto;
+  animation: formula-slide-in 160ms ease;
+}
+
+/* --- Catalog browser (player-facing purchase modal) --- */
+
+.modal-box--catalog-browser {
+  width: min(480px, calc(100vw - 32px));
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}

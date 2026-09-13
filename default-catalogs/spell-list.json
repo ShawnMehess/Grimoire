@@ -22,6 +22,11 @@
         "id": "concentration",
         "label": "Concentration",
         "kind": "text"
+      },
+      {
+        "id": "classes",
+        "label": "Classes",
+        "kind": "text"
       }
     ],
     "effects": [
@@ -75,7 +80,8 @@
             "range": "120 ft",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "Ranged spell attack; deals fire damage that scales with character level."
+            "effect": "Ranged spell attack; deals fire damage that scales with character level.",
+            "classes": "Sorcerer, Wizard"
           },
           "effectTargeting": {}
         },
@@ -103,7 +109,8 @@
             "range": "30 ft",
             "duration": "1 minute",
             "concentration": "No",
-            "effect": "Conjures a spectral hand that can manipulate small objects at a distance."
+            "effect": "Conjures a spectral hand that can manipulate small objects at a distance.",
+            "classes": "Bard, Sorcerer, Warlock, Wizard"
           },
           "effectTargeting": {}
         },
@@ -131,7 +138,8 @@
             "range": "10 ft",
             "duration": "Up to 1 hour",
             "concentration": "No",
-            "effect": "A minor magical effect \u2014 a sensory trick, cleaning/soiling, chilling, warming, or lighting a small flame."
+            "effect": "A minor magical effect \u2014 a sensory trick, cleaning/soiling, chilling, warming, or lighting a small flame.",
+            "classes": "Bard, Sorcerer, Warlock, Wizard"
           },
           "effectTargeting": {}
         },
@@ -159,7 +167,8 @@
             "range": "Touch",
             "duration": "Up to 1 minute",
             "concentration": "Yes",
-            "effect": "The target can add a bonus die to one ability check before the spell ends."
+            "effect": "The target can add a bonus die to one ability check before the spell ends.",
+            "classes": "Cleric, Druid"
           },
           "effectTargeting": {}
         },
@@ -187,7 +196,8 @@
             "range": "60 ft",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "Ranged spell attack; deals cold damage and slows the target's speed until your next turn."
+            "effect": "Ranged spell attack; deals cold damage and slows the target's speed until your next turn.",
+            "classes": "Sorcerer, Wizard"
           },
           "effectTargeting": {}
         },
@@ -215,7 +225,8 @@
             "range": "30 ft",
             "duration": "1 minute",
             "concentration": "No",
-            "effect": "Creates a small sound or a visual image of an object, neither of which can move."
+            "effect": "Creates a small sound or a visual image of an object, neither of which can move.",
+            "classes": "Bard, Sorcerer, Warlock, Wizard"
           },
           "effectTargeting": {}
         }
@@ -263,7 +274,8 @@
             "range": "120 ft",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "Creates several darts of magical force that automatically strike their targets."
+            "effect": "Creates several darts of magical force that automatically strike their targets.",
+            "classes": "Sorcerer, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -300,7 +312,8 @@
             "range": "Self",
             "duration": "1 round",
             "concentration": "No",
-            "effect": "Grants a temporary bonus to AC and immunity to magic missile until the start of your next turn."
+            "effect": "Grants a temporary bonus to AC and immunity to magic missile until the start of your next turn.",
+            "classes": "Sorcerer, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -337,7 +350,8 @@
             "range": "Touch",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "Restores a number of hit points to the creature touched."
+            "effect": "Restores a number of hit points to the creature touched.",
+            "classes": "Bard, Cleric, Druid, Paladin, Ranger"
           },
           "effectTargeting": {
             "effect": {
@@ -374,7 +388,8 @@
             "range": "Self (15-ft cone)",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "Deals fire damage to everyone caught in a cone in front of the caster."
+            "effect": "Deals fire damage to everyone caught in a cone in front of the caster.",
+            "classes": "Sorcerer, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -411,7 +426,8 @@
             "range": "60 ft",
             "duration": "1 minute",
             "concentration": "No",
-            "effect": "Slows the descent of falling creatures to a harmless drift."
+            "effect": "Slows the descent of falling creatures to a harmless drift.",
+            "classes": "Sorcerer, Wizard"
           },
           "effectTargeting": {}
         },
@@ -439,7 +455,8 @@
             "range": "90 ft",
             "duration": "1 minute",
             "concentration": "No",
-            "effect": "Puts weak creatures in an area into a magical slumber, weakest affected first."
+            "effect": "Puts weak creatures in an area into a magical slumber, weakest affected first.",
+            "classes": "Bard, Sorcerer, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -476,7 +493,8 @@
             "range": "Self (15-ft cube)",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "Deals thunder damage and pushes creatures away from the caster."
+            "effect": "Deals thunder damage and pushes creatures away from the caster.",
+            "classes": "Bard, Sorcerer, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -533,7 +551,8 @@
             "range": "Self",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "Teleports the caster a short distance to an unoccupied space they can see."
+            "effect": "Teleports the caster a short distance to an unoccupied space they can see.",
+            "classes": "Sorcerer, Warlock, Wizard"
           },
           "effectTargeting": {}
         },
@@ -561,7 +580,8 @@
             "range": "120 ft",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "Hurls multiple rays of fire, each requiring a separate attack roll."
+            "effect": "Hurls multiple rays of fire, each requiring a separate attack roll.",
+            "classes": "Sorcerer, Wizard"
           },
           "effectTargeting": {}
         },
@@ -589,7 +609,8 @@
             "range": "Touch",
             "duration": "Up to 1 hour",
             "concentration": "Yes",
-            "effect": "Turns the target invisible until the spell ends or they attack/cast a spell."
+            "effect": "Turns the target invisible until the spell ends or they attack/cast a spell.",
+            "classes": "Bard, Sorcerer, Warlock, Wizard"
           },
           "effectTargeting": {}
         },
@@ -617,7 +638,8 @@
             "range": "60 ft",
             "duration": "Up to 1 minute",
             "concentration": "Yes",
-            "effect": "Paralyzes a humanoid target that fails its saving throw."
+            "effect": "Paralyzes a humanoid target that fails its saving throw.",
+            "classes": "Bard, Cleric, Druid, Sorcerer, Warlock, Wizard"
           },
           "effectTargeting": {}
         },
@@ -645,7 +667,8 @@
             "range": "60 ft",
             "duration": "Up to 1 hour",
             "concentration": "Yes",
-            "effect": "Fills an area with thick, sticky webbing that restrains creatures caught in it."
+            "effect": "Fills an area with thick, sticky webbing that restrains creatures caught in it.",
+            "classes": "Sorcerer, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -682,7 +705,8 @@
             "range": "30 ft",
             "duration": "Up to 8 hours",
             "concentration": "Yes",
-            "effect": "Plants a reasonable-sounding suggestion in a creature's mind, which it feels compelled to follow."
+            "effect": "Plants a reasonable-sounding suggestion in a creature's mind, which it feels compelled to follow.",
+            "classes": "Bard, Sorcerer, Warlock, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -739,7 +763,8 @@
             "range": "150 ft",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "A bright streak explodes into a fiery blast, dealing fire damage in a large radius."
+            "effect": "A bright streak explodes into a fiery blast, dealing fire damage in a large radius.",
+            "classes": "Sorcerer, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -776,7 +801,8 @@
             "range": "Touch",
             "duration": "Up to 10 minutes",
             "concentration": "Yes",
-            "effect": "Grants the target a flying speed for the duration."
+            "effect": "Grants the target a flying speed for the duration.",
+            "classes": "Sorcerer, Warlock, Wizard"
           },
           "effectTargeting": {}
         },
@@ -804,7 +830,8 @@
             "range": "60 ft",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "Interrupts another creature in the process of casting a spell."
+            "effect": "Interrupts another creature in the process of casting a spell.",
+            "classes": "Sorcerer, Warlock, Wizard"
           },
           "effectTargeting": {}
         },
@@ -832,7 +859,8 @@
             "range": "Touch",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "Returns a creature dead no longer than a minute to life with 1 hit point."
+            "effect": "Returns a creature dead no longer than a minute to life with 1 hit point.",
+            "classes": "Cleric, Paladin, Ranger"
           },
           "effectTargeting": {}
         },
@@ -860,7 +888,8 @@
             "range": "30 ft",
             "duration": "Up to 1 minute",
             "concentration": "Yes",
-            "effect": "Doubles the target's speed and grants extra actions and a bonus to AC."
+            "effect": "Doubles the target's speed and grants extra actions and a bonus to AC.",
+            "classes": "Sorcerer, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -897,7 +926,8 @@
             "range": "120 ft",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "Ends spells currently affecting a target creature, object, or effect."
+            "effect": "Ends spells currently affecting a target creature, object, or effect.",
+            "classes": "Bard, Cleric, Druid, Paladin, Sorcerer, Warlock, Wizard"
           },
           "effectTargeting": {}
         }
@@ -945,7 +975,8 @@
             "range": "60 ft",
             "duration": "Up to 1 minute",
             "concentration": "Yes",
-            "effect": "Sends a creature to a harmless demiplane (or home plane, if it's not native here) if it fails its save."
+            "effect": "Sends a creature to a harmless demiplane (or home plane, if it's not native here) if it fails its save.",
+            "classes": "Cleric, Paladin, Sorcerer, Warlock, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -982,7 +1013,8 @@
             "range": "60 ft",
             "duration": "Up to 1 hour",
             "concentration": "Yes",
-            "effect": "Transforms a creature into a new form, beast or otherwise, until the spell ends."
+            "effect": "Transforms a creature into a new form, beast or otherwise, until the spell ends.",
+            "classes": "Bard, Druid, Sorcerer, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -1019,7 +1051,8 @@
             "range": "500 ft",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "Teleports the caster (and optionally one willing creature) to a chosen point within range."
+            "effect": "Teleports the caster (and optionally one willing creature) to a chosen point within range.",
+            "classes": "Bard, Sorcerer, Warlock, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -1056,7 +1089,8 @@
             "range": "120 ft",
             "duration": "Up to 1 minute",
             "concentration": "Yes",
-            "effect": "Creates a wall of fire that damages creatures passing through or standing near it."
+            "effect": "Creates a wall of fire that damages creatures passing through or standing near it.",
+            "classes": "Druid, Sorcerer, Warlock, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -1093,7 +1127,8 @@
             "range": "Touch",
             "duration": "Up to 1 minute",
             "concentration": "Yes",
-            "effect": "Turns the target invisible for the duration, even while attacking or casting."
+            "effect": "Turns the target invisible for the duration, even while attacking or casting.",
+            "classes": "Bard, Sorcerer, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -1150,7 +1185,8 @@
             "range": "Self (60-ft cone)",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "Blasts everyone in a cone with freezing air, dealing cold damage."
+            "effect": "Blasts everyone in a cone with freezing air, dealing cold damage.",
+            "classes": "Sorcerer, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -1187,7 +1223,8 @@
             "range": "120 ft",
             "duration": "Up to 10 minutes",
             "concentration": "Yes",
-            "effect": "Creates an invisible wall of pure force that nothing can physically or magically pass through."
+            "effect": "Creates an invisible wall of pure force that nothing can physically or magically pass through.",
+            "classes": "Wizard"
           },
           "effectTargeting": {}
         },
@@ -1215,7 +1252,8 @@
             "range": "90 ft",
             "duration": "Up to 1 minute",
             "concentration": "Yes",
-            "effect": "Paralyzes a creature of any kind (not just humanoids) that fails its saving throw."
+            "effect": "Paralyzes a creature of any kind (not just humanoids) that fails its saving throw.",
+            "classes": "Bard, Sorcerer, Warlock, Wizard"
           },
           "effectTargeting": {
             "effect": {
@@ -1252,7 +1290,8 @@
             "range": "Touch",
             "duration": "Instantaneous",
             "concentration": "No",
-            "effect": "Returns a dead creature (dead no more than 10 days) to life, healing any lethal damage that killed it."
+            "effect": "Returns a dead creature (dead no more than 10 days) to life, healing any lethal damage that killed it.",
+            "classes": "Cleric, Paladin"
           },
           "effectTargeting": {
             "effect": {

@@ -168,6 +168,119 @@
         "description": "At 20th level, you embody the power of the wilds. Your Strength and Constitution scores increase by 4. Your maximum for those scores is now 24.",
         "minLevel": 20
       }
+    ],
+    "choiceGroups": [
+      {
+        "id": "barbarian-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "barbarian-skill-animal-handling",
+            "name": "Animal Handling",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000001",
+                "targetFieldId": null,
+                "targetFieldName": "Animal Handling",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "barbarian-skill-athletics",
+            "name": "Athletics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000002",
+                "targetFieldId": null,
+                "targetFieldName": "Athletics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "barbarian-skill-intimidation",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000003",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "barbarian-skill-nature",
+            "name": "Nature",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000004",
+                "targetFieldId": null,
+                "targetFieldName": "Nature",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "barbarian-skill-perception",
+            "name": "Perception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000005",
+                "targetFieldId": null,
+                "targetFieldName": "Perception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "barbarian-skill-survival",
+            "name": "Survival",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000006",
+                "targetFieldId": null,
+                "targetFieldName": "Survival",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
     ]
   },
   {
@@ -356,6 +469,323 @@
         "name": "Superior Inspiration",
         "description": "At 20th level, when you roll initiative and have no uses of Bardic Inspiration left, you regain one use.",
         "minLevel": 20
+      }
+    ],
+    "choiceGroups": [
+      {
+        "id": "bard-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 3,
+        "maxSelections": 3,
+        "options": [
+          {
+            "id": "bard-skill-acrobatics",
+            "name": "Acrobatics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000007",
+                "targetFieldId": null,
+                "targetFieldName": "Acrobatics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-animal-handling",
+            "name": "Animal Handling",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000008",
+                "targetFieldId": null,
+                "targetFieldName": "Animal Handling",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-arcana",
+            "name": "Arcana",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000009",
+                "targetFieldId": null,
+                "targetFieldName": "Arcana",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-athletics",
+            "name": "Athletics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00000a",
+                "targetFieldId": null,
+                "targetFieldName": "Athletics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-deception",
+            "name": "Deception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00000b",
+                "targetFieldId": null,
+                "targetFieldName": "Deception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-history",
+            "name": "History",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00000c",
+                "targetFieldId": null,
+                "targetFieldName": "History",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00000d",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-intimidation",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00000e",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-investigation",
+            "name": "Investigation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00000f",
+                "targetFieldId": null,
+                "targetFieldName": "Investigation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-medicine",
+            "name": "Medicine",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000010",
+                "targetFieldId": null,
+                "targetFieldName": "Medicine",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-nature",
+            "name": "Nature",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000011",
+                "targetFieldId": null,
+                "targetFieldName": "Nature",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-perception",
+            "name": "Perception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000012",
+                "targetFieldId": null,
+                "targetFieldName": "Perception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-performance",
+            "name": "Performance",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000013",
+                "targetFieldId": null,
+                "targetFieldName": "Performance",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-persuasion",
+            "name": "Persuasion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000014",
+                "targetFieldId": null,
+                "targetFieldName": "Persuasion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000015",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-sleight-of-hand",
+            "name": "Sleight of Hand",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000016",
+                "targetFieldId": null,
+                "targetFieldName": "Sleight of Hand",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-stealth",
+            "name": "Stealth",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000017",
+                "targetFieldId": null,
+                "targetFieldName": "Stealth",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "bard-skill-survival",
+            "name": "Survival",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000018",
+                "targetFieldId": null,
+                "targetFieldName": "Survival",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
       }
     ]
   },
@@ -557,6 +987,102 @@
         "description": "At 20th level, your call for intervention succeeds automatically, no roll required.",
         "minLevel": 20
       }
+    ],
+    "choiceGroups": [
+      {
+        "id": "cleric-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "cleric-skill-history",
+            "name": "History",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000019",
+                "targetFieldId": null,
+                "targetFieldName": "History",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "cleric-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00001a",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "cleric-skill-medicine",
+            "name": "Medicine",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00001b",
+                "targetFieldId": null,
+                "targetFieldName": "Medicine",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "cleric-skill-persuasion",
+            "name": "Persuasion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00001c",
+                "targetFieldId": null,
+                "targetFieldName": "Persuasion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "cleric-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00001d",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
     ]
   },
   {
@@ -691,6 +1217,153 @@
         "name": "Archdruid",
         "description": "At 20th level, you can use your Wild Shape an unlimited number of times.\n\nAdditionally, you can ignore the verbal and somatic components of your druid spells, as well as any material components that lack a cost and aren't consumed by a spell. You gain this benefit in both your normal shape and your beast shape from Wild Shape.",
         "minLevel": 20
+      }
+    ],
+    "choiceGroups": [
+      {
+        "id": "druid-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "druid-skill-arcana",
+            "name": "Arcana",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00001e",
+                "targetFieldId": null,
+                "targetFieldName": "Arcana",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "druid-skill-animal-handling",
+            "name": "Animal Handling",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00001f",
+                "targetFieldId": null,
+                "targetFieldName": "Animal Handling",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "druid-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000020",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "druid-skill-medicine",
+            "name": "Medicine",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000021",
+                "targetFieldId": null,
+                "targetFieldName": "Medicine",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "druid-skill-nature",
+            "name": "Nature",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000022",
+                "targetFieldId": null,
+                "targetFieldName": "Nature",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "druid-skill-perception",
+            "name": "Perception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000023",
+                "targetFieldId": null,
+                "targetFieldName": "Perception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "druid-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000024",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "druid-skill-survival",
+            "name": "Survival",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000025",
+                "targetFieldId": null,
+                "targetFieldName": "Survival",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
       }
     ]
   },
@@ -857,6 +1530,153 @@
         "name": "Extra Attack (3)",
         "description": "Beginning at 5th level, you can attack twice, instead of once, whenever you take the Attack action on your turn. The number of attacks increases to three when you reach 11th level in this class and to four when you reach 20th level in this class.",
         "minLevel": 20
+      }
+    ],
+    "choiceGroups": [
+      {
+        "id": "fighter-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "fighter-skill-acrobatics",
+            "name": "Acrobatics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000026",
+                "targetFieldId": null,
+                "targetFieldName": "Acrobatics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "fighter-skill-animal-handling",
+            "name": "Animal Handling",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000027",
+                "targetFieldId": null,
+                "targetFieldName": "Animal Handling",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "fighter-skill-athletics",
+            "name": "Athletics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000028",
+                "targetFieldId": null,
+                "targetFieldName": "Athletics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "fighter-skill-history",
+            "name": "History",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000029",
+                "targetFieldId": null,
+                "targetFieldName": "History",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "fighter-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00002a",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "fighter-skill-intimidation",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00002b",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "fighter-skill-perception",
+            "name": "Perception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00002c",
+                "targetFieldId": null,
+                "targetFieldName": "Perception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "fighter-skill-survival",
+            "name": "Survival",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00002d",
+                "targetFieldId": null,
+                "targetFieldName": "Survival",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
       }
     ]
   },
@@ -1072,6 +1892,119 @@
         "description": "At 20th level, when you roll for initiative and have no ki points remaining, you regain 4 ki points.",
         "minLevel": 20
       }
+    ],
+    "choiceGroups": [
+      {
+        "id": "monk-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "monk-skill-acrobatics",
+            "name": "Acrobatics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00002e",
+                "targetFieldId": null,
+                "targetFieldName": "Acrobatics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "monk-skill-athletics",
+            "name": "Athletics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00002f",
+                "targetFieldId": null,
+                "targetFieldName": "Athletics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "monk-skill-history",
+            "name": "History",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000030",
+                "targetFieldId": null,
+                "targetFieldName": "History",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "monk-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000031",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "monk-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000032",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "monk-skill-stealth",
+            "name": "Stealth",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000033",
+                "targetFieldId": null,
+                "targetFieldName": "Stealth",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
     ]
   },
   {
@@ -1243,6 +2176,119 @@
         "name": "Sacred Oath feature",
         "description": "When you reach 3rd level, you swear the oath that binds you as a paladin forever. Up to this time you have been in a preparatory stage, committed to the path but not yet sworn to it. Now you choose an oath, such as the Oath of Devotion.\n\nYour choice grants you features at 3rd level and again at 7th, 15th, and 20th level. Those features include oath spells and the Channel Divinity feature.",
         "minLevel": 20
+      }
+    ],
+    "choiceGroups": [
+      {
+        "id": "paladin-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "paladin-skill-athletics",
+            "name": "Athletics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000034",
+                "targetFieldId": null,
+                "targetFieldName": "Athletics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "paladin-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000035",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "paladin-skill-intimidation",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000036",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "paladin-skill-medicine",
+            "name": "Medicine",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000037",
+                "targetFieldId": null,
+                "targetFieldName": "Medicine",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "paladin-skill-persuasion",
+            "name": "Persuasion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000038",
+                "targetFieldId": null,
+                "targetFieldName": "Persuasion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "paladin-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000039",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
       }
     ]
   },
@@ -1421,6 +2467,153 @@
         "description": "At 20th level, you become an unparalleled hunter of your enemies. Once on each of your turns, you can add your Wisdom modifier to the attack roll or the damage roll of an attack you make against one of your favored enemies. You can choose to use this feature before or after the roll, but before any effects of the roll are applied.",
         "minLevel": 20
       }
+    ],
+    "choiceGroups": [
+      {
+        "id": "ranger-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 3,
+        "maxSelections": 3,
+        "options": [
+          {
+            "id": "ranger-skill-animal-handling",
+            "name": "Animal Handling",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00003a",
+                "targetFieldId": null,
+                "targetFieldName": "Animal Handling",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "ranger-skill-athletics",
+            "name": "Athletics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00003b",
+                "targetFieldId": null,
+                "targetFieldName": "Athletics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "ranger-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00003c",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "ranger-skill-investigation",
+            "name": "Investigation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00003d",
+                "targetFieldId": null,
+                "targetFieldName": "Investigation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "ranger-skill-nature",
+            "name": "Nature",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00003e",
+                "targetFieldId": null,
+                "targetFieldName": "Nature",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "ranger-skill-perception",
+            "name": "Perception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00003f",
+                "targetFieldId": null,
+                "targetFieldName": "Perception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "ranger-skill-stealth",
+            "name": "Stealth",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000040",
+                "targetFieldId": null,
+                "targetFieldName": "Stealth",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "ranger-skill-survival",
+            "name": "Survival",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000041",
+                "targetFieldId": null,
+                "targetFieldName": "Survival",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
     ]
   },
   {
@@ -1587,6 +2780,204 @@
         "description": "At 20th level, you have an uncanny knack for succeeding when you need to. If your attack misses a target within range, you can turn the miss into a hit. Alternatively, if you fail an ability check, you can treat the d20 roll as a 20.\n\nOnce you use this feature, you can't use it again until you finish a short or long rest.",
         "minLevel": 20
       }
+    ],
+    "choiceGroups": [
+      {
+        "id": "rogue-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 4,
+        "maxSelections": 4,
+        "options": [
+          {
+            "id": "rogue-skill-acrobatics",
+            "name": "Acrobatics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000042",
+                "targetFieldId": null,
+                "targetFieldName": "Acrobatics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-skill-athletics",
+            "name": "Athletics",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000043",
+                "targetFieldId": null,
+                "targetFieldName": "Athletics",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-skill-deception",
+            "name": "Deception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000044",
+                "targetFieldId": null,
+                "targetFieldName": "Deception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000045",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-skill-intimidation",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000046",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-skill-investigation",
+            "name": "Investigation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000047",
+                "targetFieldId": null,
+                "targetFieldName": "Investigation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-skill-perception",
+            "name": "Perception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000048",
+                "targetFieldId": null,
+                "targetFieldName": "Perception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-skill-performance",
+            "name": "Performance",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000049",
+                "targetFieldId": null,
+                "targetFieldName": "Performance",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-skill-persuasion",
+            "name": "Persuasion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00004a",
+                "targetFieldId": null,
+                "targetFieldName": "Persuasion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-skill-sleight-of-hand",
+            "name": "Sleight of Hand",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00004b",
+                "targetFieldId": null,
+                "targetFieldName": "Sleight of Hand",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "rogue-skill-stealth",
+            "name": "Stealth",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00004c",
+                "targetFieldId": null,
+                "targetFieldName": "Stealth",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
     ]
   },
   {
@@ -1721,6 +3112,119 @@
         "name": "Sorcerous Restoration",
         "description": "At 20th level, you regain 4 expended sorcery points whenever you finish a short rest.",
         "minLevel": 20
+      }
+    ],
+    "choiceGroups": [
+      {
+        "id": "sorcerer-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "sorcerer-skill-arcana",
+            "name": "Arcana",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00004d",
+                "targetFieldId": null,
+                "targetFieldName": "Arcana",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "sorcerer-skill-deception",
+            "name": "Deception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00004e",
+                "targetFieldId": null,
+                "targetFieldName": "Deception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "sorcerer-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00004f",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "sorcerer-skill-intimidation",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000050",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "sorcerer-skill-persuasion",
+            "name": "Persuasion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000051",
+                "targetFieldId": null,
+                "targetFieldName": "Persuasion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "sorcerer-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000052",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
       }
     ]
   },
@@ -1858,6 +3362,136 @@
         "description": "At 20th level, you can draw on your inner reserve of mystical power while entreating your patron to regain expended spell slots. You can spend 1 minute entreating your patron for aid to regain all your expended spell slots from your Pact Magic feature.\n\nOnce you regain spell slots with this feature, you must finish a long rest before you can do so again.",
         "minLevel": 20
       }
+    ],
+    "choiceGroups": [
+      {
+        "id": "warlock-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "warlock-skill-arcana",
+            "name": "Arcana",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000053",
+                "targetFieldId": null,
+                "targetFieldName": "Arcana",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "warlock-skill-deception",
+            "name": "Deception",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000054",
+                "targetFieldId": null,
+                "targetFieldName": "Deception",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "warlock-skill-history",
+            "name": "History",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000055",
+                "targetFieldId": null,
+                "targetFieldName": "History",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "warlock-skill-intimidation",
+            "name": "Intimidation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000056",
+                "targetFieldId": null,
+                "targetFieldName": "Intimidation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "warlock-skill-investigation",
+            "name": "Investigation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000057",
+                "targetFieldId": null,
+                "targetFieldName": "Investigation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "warlock-skill-nature",
+            "name": "Nature",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000058",
+                "targetFieldId": null,
+                "targetFieldName": "Nature",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "warlock-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-000059",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
+      }
     ]
   },
   {
@@ -1974,6 +3608,119 @@
         "name": "Signature Spell",
         "description": "When you reach 20th level, you gain mastery over two powerful spells and can cast them with little effort. Choose two 3rd-level wizard spells in your spellbook as your signature spells. You always have these spells prepared, they don't count against the number of spells you have prepared, and you can cast each of them once at 3rd level without expending a spell slot. When you do so, you can't do so again until you finish a short or long rest.\n\nIf you want to cast either spell at a higher level, you must expend a spell slot as normal.",
         "minLevel": 20
+      }
+    ],
+    "choiceGroups": [
+      {
+        "id": "wizard-skills-0",
+        "label": "Skill Proficiencies",
+        "minLevel": 1,
+        "minSelections": 2,
+        "maxSelections": 2,
+        "options": [
+          {
+            "id": "wizard-skill-arcana",
+            "name": "Arcana",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00005a",
+                "targetFieldId": null,
+                "targetFieldName": "Arcana",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "wizard-skill-history",
+            "name": "History",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00005b",
+                "targetFieldId": null,
+                "targetFieldName": "History",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "wizard-skill-insight",
+            "name": "Insight",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00005c",
+                "targetFieldId": null,
+                "targetFieldName": "Insight",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "wizard-skill-investigation",
+            "name": "Investigation",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00005d",
+                "targetFieldId": null,
+                "targetFieldName": "Investigation",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "wizard-skill-medicine",
+            "name": "Medicine",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00005e",
+                "targetFieldId": null,
+                "targetFieldName": "Medicine",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          },
+          {
+            "id": "wizard-skill-religion",
+            "name": "Religion",
+            "description": "",
+            "statModifiers": [
+              {
+                "id": "mod-00005f",
+                "targetFieldId": null,
+                "targetFieldName": "Religion",
+                "op": "grant",
+                "value": null,
+                "minLevel": null
+              }
+            ],
+            "featureGrants": [],
+            "resourceGrants": []
+          }
+        ]
       }
     ]
   }

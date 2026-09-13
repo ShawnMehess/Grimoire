@@ -62,8 +62,8 @@ import { openFormulaEditor } from "./formulaEditor.js";
 import { openBundleLibraryManager } from "./bundleLibraryEditor.js";
 import { openCatalogLibraryManager } from "./catalogLibraryEditor.js";
 import { openCatalogBrowser } from "./catalogBrowser.js";
-import { getLevelUpPlan, getRuleset, getRulesetClass, listRulesets } from "../data/dnd5e.js";
-import { ABILITY_IDS, normalizeRulesState, resolveRulesState } from "../data/rulesEngine.js";
+import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets } from "../data/dnd5e.js";
+import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor } from "../data/rulesEngine.js";
 
 const PAGE_COLS = 16;
 const GAP_PX = 10;
@@ -178,6 +178,19 @@ export function renderCustomSheet(root, character, store) {
   // isn't a meaningful variable for other formulas to reference the
   // way a field's own value is.
   let radioOptionCounts = {};
+  // Same idea again, but for the sheet's standard spell-slot fields
+  // (slots1-slots9 in the Spellcasting block) — {fieldId: count},
+  // recomputed by computeSpellSlotCounts alongside radioOptionCounts
+  // every render, from the sheet's actual Class dropdown selection and
+  // current Level rather than from a user-authored optionsFormula (no
+  // formula could reasonably reproduce the per-class/per-level slot
+  // tables in dnd5e.js). This is what makes a slot field's button
+  // count track your class/level live instead of only updating the
+  // two moments something writes a fresh number into field.options
+  // (Finish Setup at creation, Apply on a level-up) — see buildFieldValue's
+  // "radio" branch for how it's used as a live override the same way
+  // radioOptionCounts already is.
+  let spellSlotCounts = {};
   // Reset at the start of every renderPageGrid() and filled in by
   // renderFieldInner as it builds each field's labelEl. A field just
   // built is off-DOM (not yet appended anywhere), so checking its
@@ -970,21 +983,25 @@ export function renderCustomSheet(root, character, store) {
   function refreshComputedValues() {
     const allFields = flattenGlobalFields();
     const previousRadioOptionCounts = radioOptionCounts;
+    const previousSpellSlotCounts = spellSlotCounts;
     const previousGrantedCheckboxes = grantedCheckboxes;
     const previousGrantedFeatures = grantedFeatures;
     formulaValues = computeSheetValues(allFields); // also refreshes grantedCheckboxes/grantedFeatures as a side effect
     radioOptionCounts = computeRadioOptionCounts(allFields, formulaValues);
+    spellSlotCounts = computeSpellSlotCounts(allFields, formulaValues);
     pageGrid.querySelectorAll(".field-value--computed[data-field-id]").forEach((el) => {
       el.textContent = formatComputedValue(formulaValues[el.dataset.fieldId]);
     });
     const optionCountsChanged = allFields.some((f) =>
       f.fieldType === "radio" && f.optionsFormula && radioOptionCounts[f.id] !== previousRadioOptionCounts[f.id]
     );
+    const slotCountsChanged = Object.keys({ ...spellSlotCounts, ...previousSpellSlotCounts })
+      .some((id) => spellSlotCounts[id] !== previousSpellSlotCounts[id]);
     const grantsChanged = grantedCheckboxes.size !== previousGrantedCheckboxes.size ||
       [...grantedCheckboxes].some((key) => !previousGrantedCheckboxes.has(key));
     const featuresChanged = grantedFeatures.length !== previousGrantedFeatures.length ||
       grantedFeatures.some((f, i) => f.name !== previousGrantedFeatures[i]?.name);
-    if (optionCountsChanged || grantsChanged || featuresChanged) scheduleDeferredRender();
+    if (optionCountsChanged || slotCountsChanged || grantsChanged || featuresChanged) scheduleDeferredRender();
   }
 
   // A full render actually adds/removes the radio buttons an
@@ -1593,6 +1610,29 @@ export function renderCustomSheet(root, character, store) {
     });
   }
 
+  /** Third source alongside a dropdown's selected bundle and
+   *  selectedRuleOptions' choiceGroups — feats taken in place of an
+   *  Ability Score Improvement (see the Leveling wizard's ASI step),
+   *  stored as {name, level} in character.rules.feats rather than tied
+   *  to any one dropdown field, since a character can pick up several
+   *  over a career. Matched against bundleLibraryCache by name+ruleset
+   *  the same way a Race/Class/Background selection is, so a feat with
+   *  statModifiers/featureGrants/resourceGrants set up in the Bundle
+   *  Library actually takes effect once chosen here, not just noted in
+   *  text. Feats never unlock later, so no minLevel gate here — once
+   *  taken they're permanent, same as any other applied bundle. */
+  function selectedFeatBundles() {
+    const rulesetId = character.rules?.rulesetId || character.rulesetId;
+    return (character.rules?.feats || [])
+      .map((entry) => {
+        const name = entry?.name;
+        if (!name) return null;
+        const bundle = bundleFor("Feat", name, rulesetId);
+        return bundle ? { name, bundle } : null;
+      })
+      .filter(Boolean);
+  }
+
   function applyBundleModifiers(fields, valueMap, grantedCheckboxes) {
     const level = currentLevel(valueMap);
     fields.forEach((field) => {
@@ -1604,6 +1644,9 @@ export function renderCustomSheet(root, character, store) {
     });
     selectedRuleOptions(fields, valueMap).forEach(({ option }) => {
       applyStatModifiers(option.statModifiers, valueMap, grantedCheckboxes, level);
+    });
+    selectedFeatBundles().forEach(({ bundle }) => {
+      applyStatModifiers(bundle.statModifiers, valueMap, grantedCheckboxes, level);
     });
   }
 
@@ -1647,6 +1690,16 @@ export function renderCustomSheet(root, character, store) {
         });
       });
     });
+    selectedFeatBundles().forEach(({ name, bundle }) => {
+      (bundle.featureGrants || []).forEach((grant) => {
+        features.push({
+          name: grant.name,
+          description: grant.description || "",
+          level: Number.isFinite(grant.minLevel) ? grant.minLevel : 0,
+          source: name,
+        });
+      });
+    });
     features.sort((a, b) => a.level - b.level || a.source.localeCompare(b.source));
     return features;
   }
@@ -1677,6 +1730,11 @@ export function renderCustomSheet(root, character, store) {
     selectedRuleOptions(fields, valueMap).forEach(({ option, group }) => {
       (option.resourceGrants || []).forEach((grant, index) => {
         add(grant, `${group.key}:${option.id}:resource:${grant.id || index}`, option.name || group.label || group.source);
+      });
+    });
+    selectedFeatBundles().forEach(({ name, bundle }) => {
+      (bundle.resourceGrants || []).forEach((grant, index) => {
+        add(grant, `feat:${name}:resource:${grant.id || index}`, name);
       });
     });
     return resources;
@@ -1718,16 +1776,46 @@ export function renderCustomSheet(root, character, store) {
     return counts;
   }
 
-  /** If a radio field's formula-driven button count just shrank below
-   *  its current selection (e.g. a spell-slot tier that goes away as
-   *  a multiclass split changes), clear the now out-of-range selection
-   *  rather than leave it silently pointing at a button that no longer
-   *  exists — same reasoning as normalizeDropdownSelections. */
-  function normalizeRadioSelections(fields, counts) {
+  /** Live spell-slot counts for the sheet's standard slots1-slots9
+   *  fields — see the spellSlotCounts declaration above for why this
+   *  exists alongside computeRadioOptionCounts rather than being
+   *  folded into it. Sourced from the sheet's actual Class dropdown
+   *  selection (not character.rules.className, which only updates
+   *  when the Creation/Leveling wizard is actually used — see
+   *  applyBundleModifiers/collectGrantedFeatures for why the dropdown
+   *  itself, not character.rules, is what everything reactive already
+   *  treats as "the current class") and the same currentLevel(valueMap)
+   *  every other live computation on the sheet uses, via
+   *  getLevelUpPlan/slotsFor in dnd5e.js — the same table
+   *  ensureStandardSpellSlotFields and the wizard's own summary text
+   *  already trust. */
+  function computeSpellSlotCounts(fields, valueMap) {
+    const counts = {};
+    const rulesetId = character.rules?.rulesetId || character.rulesetId;
+    const className = selectedChoiceName("class", "Class");
+    if (!rulesetId || !className) return counts;
+    const level = currentLevel(valueMap);
+    if (!Number.isFinite(level)) return counts;
+    (getLevelUpPlan(rulesetId, className, level)?.slotChanges || []).forEach((change) => {
+      counts[change.fieldId] = change.options;
+    });
+    return counts;
+  }
+
+  /** If a radio field's live button count just shrank below its
+   *  current selection (a formula-driven count, or one of the
+   *  standard spell-slot fields dropping as Level/Class change — e.g.
+   *  editing Level back down after marking slots used), clear the now
+   *  out-of-range selection rather than leave it silently pointing at
+   *  a button that no longer exists — same reasoning as
+   *  normalizeDropdownSelections. */
+  function normalizeRadioSelections(fields, formulaCounts, slotCounts) {
     let changed = false;
     fields.forEach((f) => {
-      if (f.fieldType !== "radio" || !f.optionsFormula || f.selected == null) return;
-      const count = counts[f.id] || 0;
+      if (f.fieldType !== "radio" || f.selected == null) return;
+      const isSlotField = Object.prototype.hasOwnProperty.call(slotCounts, f.id);
+      if (!f.optionsFormula && !isSlotField) return;
+      const count = f.optionsFormula ? (formulaCounts[f.id] || 0) : (slotCounts[f.id] || 0);
       if (f.selected > count) {
         f.selected = count > 0 ? count : null;
         changed = true;
@@ -1956,6 +2044,15 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function renderPageGrid() {
+    // A full render tears down and rebuilds every node in pageGrid, and
+    // clearing it out momentarily (before the new content is appended
+    // back in) can leave the browser thinking the scroll container is
+    // empty and clamp its scroll position to the top. That's what made
+    // clicking a row, changing a dropdown, or editing a number field
+    // feel like the whole page "refreshed" out from under you — so the
+    // position is saved here and explicitly restored once the rebuild
+    // is done (see both exit points below).
+    const preservedScrollTop = scrollWrapper.scrollTop;
     pageGrid.innerHTML = "";
     pageGrid.classList.toggle("is-edit-mode", editMode);
     pendingLabelOverflowChecks = [];
@@ -1977,7 +2074,8 @@ export function renderCustomSheet(root, character, store) {
       formulaValues = computeSheetValues(allFields);
     }
     radioOptionCounts = computeRadioOptionCounts(allFields, formulaValues);
-    if (normalizeRadioSelections(allFields, radioOptionCounts)) {
+    spellSlotCounts = computeSpellSlotCounts(allFields, formulaValues);
+    if (normalizeRadioSelections(allFields, radioOptionCounts, spellSlotCounts)) {
       needsNormalizedPersist = true;
     }
     if (needsNormalizedPersist) persist();
@@ -1992,6 +2090,7 @@ export function renderCustomSheet(root, character, store) {
       pageGrid.style.backgroundPosition = "";
       if (activeTab().kind === "rules") renderRulesTab();
       else renderLevelingTab();
+      scrollWrapper.scrollTop = preservedScrollTop;
       return;
     }
     pageGrid.classList.remove("page-grid--leveling");
@@ -2038,6 +2137,7 @@ export function renderCustomSheet(root, character, store) {
       // wiped them out along with everything else — they're persistent
       // elements (created once, not per-render), so just put them back
       // rather than rebuild them
+    scrollWrapper.scrollTop = preservedScrollTop;
   }
 
   // --- Leveling tab --------------------------------------------------
@@ -2208,30 +2308,39 @@ export function renderCustomSheet(root, character, store) {
       wrap.append(description);
     }
 
+    // Built fresh each call (rather than reused) since a DOM node can
+    // only live in one place at a time, and this is placed both above
+    // and below the step body below.
+    const buildNav = (extraClass) => {
+      const nav = document.createElement("div");
+      nav.className = extraClass ? `wizard__nav ${extraClass}` : "wizard__nav";
+      if (stepState.index > 0) {
+        const back = document.createElement("button");
+        back.type = "button";
+        back.className = "btn";
+        back.textContent = "← Back";
+        back.addEventListener("click", () => { stepState.index -= 1; renderPageGrid(); });
+        nav.append(back);
+      }
+      if (stepState.index < applicableSteps.length - 1) {
+        const forward = document.createElement("button");
+        forward.type = "button";
+        forward.className = "btn btn--primary";
+        forward.textContent = "Next →";
+        forward.addEventListener("click", () => { stepState.index += 1; renderPageGrid(); });
+        nav.append(forward);
+      }
+      return nav;
+    };
+
+    wrap.append(buildNav("wizard__nav--top"));
+
     const body = document.createElement("div");
     body.className = "wizard__body level-guide__form";
     wrap.append(body);
     currentStep.render(body);
 
-    const nav = document.createElement("div");
-    nav.className = "wizard__nav";
-    if (stepState.index > 0) {
-      const back = document.createElement("button");
-      back.type = "button";
-      back.className = "btn";
-      back.textContent = "← Back";
-      back.addEventListener("click", () => { stepState.index -= 1; renderPageGrid(); });
-      nav.append(back);
-    }
-    if (stepState.index < applicableSteps.length - 1) {
-      const forward = document.createElement("button");
-      forward.type = "button";
-      forward.className = "btn btn--primary";
-      forward.textContent = "Next →";
-      forward.addEventListener("click", () => { stepState.index += 1; renderPageGrid(); });
-      nav.append(forward);
-    }
-    wrap.append(nav);
+    wrap.append(buildNav());
     return wrap;
   }
 
@@ -2279,8 +2388,12 @@ export function renderCustomSheet(root, character, store) {
    *  step uses this to expand a nested subclass list under whichever
    *  class is currently selected. `nested` marks a row (or list) as
    *  belonging to such a sub-list, for the "clearly part of, but
-   *  distinct from, its parent" styling. */
-  function renderSelectableRows(container, names, { selectedName, onSelect, getInfo, afterRow, nested = false } = {}) {
+   *  distinct from, its parent" styling. `getMechanics(name)` is
+   *  optional — when given, its returned string (see
+   *  mechanicsPreviewFor below) renders as a third line under the
+   *  description, so "what does this actually do" is visible before
+   *  picking, not just its flavor text. */
+  function renderSelectableRows(container, names, { selectedName, onSelect, getInfo, getMechanics, afterRow, nested = false } = {}) {
     const list = document.createElement("div");
     list.className = "choice-row-list" + (nested ? " choice-row-list--nested" : "");
     names.forEach((name) => {
@@ -2316,12 +2429,71 @@ export function renderCustomSheet(root, character, store) {
       desc.className = "choice-row__description";
       desc.textContent = info?.description || "No description available yet.";
       body.append(desc);
+      if (getMechanics) {
+        const mechanics = document.createElement("div");
+        mechanics.className = "choice-row__mechanics";
+        mechanics.textContent = getMechanics(name) || "No mechanical data linked yet.";
+        body.append(mechanics);
+      }
       row.append(body);
       list.append(row);
       if (afterRow) afterRow(name, row);
     });
     container.append(list);
     return list;
+  }
+
+  /** Human-readable label for a statModifier's targetFieldId — special-
+   *  cased for the ability-score fields (strScore/dexScore/...) since
+   *  "STR" reads far better in a preview than whatever a sheet's field
+   *  happens to be labeled; everything else falls back to that field's
+   *  actual label (or the raw id, if the sheet doesn't have a field
+   *  with that id at all — bundles are written assuming a compatible
+   *  sheet, same as applyStatModifiers itself assumes). */
+  function statModifierLabel(mod) {
+    const abilityId = ABILITY_IDS.find((id) => mod.targetFieldId === `${id}Score`);
+    if (abilityId) return abilityId.toUpperCase();
+    return resolveFieldById(mod.targetFieldId)?.label || mod.targetFieldId;
+  }
+
+  function statModifierSummary(mod) {
+    const label = statModifierLabel(mod);
+    const amount = Number.isFinite(mod.value) ? mod.value : 0;
+    switch (mod.op) {
+      case "grant": return label;
+      case "add": return `${amount >= 0 ? "+" : ""}${amount} ${label}`;
+      case "subtract": return `-${Math.abs(amount)} ${label}`;
+      case "set": return `${label} = ${amount}`;
+      case "multiply": return `${label} ×${amount}`;
+      default: return label;
+    }
+  }
+
+  /** The "what does this actually do" preview shown alongside a Race/
+   *  Class/Subclass/Background row (see renderSelectableRows' options.
+   *  getMechanics) — a short line naming the bundle's statModifiers
+   *  and featureGrants, filtered to whatever's actually active at
+   *  `level` (an 11th-level feature isn't relevant while picking a
+   *  class at 1st), with anything gated to a later level folded into
+   *  a trailing count instead of listed out. Returns null for "no
+   *  bundle at all" vs. a distinct message for "a bundle exists but
+   *  it genuinely has no stat/feature effects" (a background can
+   *  legitimately be flavor-only) — renderSelectableRows tells those
+   *  two apart in what it displays. */
+  function mechanicsPreviewFor(bundle, level) {
+    if (!bundle) return null;
+    const mods = bundle.statModifiers || [];
+    const features = bundle.featureGrants || [];
+    const activeMods = mods.filter((m) => !m.minLevel || m.minLevel <= level);
+    const activeFeatures = features.filter((g) => !g.minLevel || g.minLevel <= level);
+    const laterCount = (mods.length - activeMods.length) + (features.length - activeFeatures.length);
+    const bits = [
+      ...activeMods.map(statModifierSummary),
+      ...activeFeatures.map((g) => g.name).filter(Boolean),
+    ];
+    if (laterCount > 0) bits.push(`+${laterCount} more at higher levels`);
+    if (!bits.length) return "No stat bonuses or features on file — flavor only.";
+    return bits.join(" · ");
   }
 
   // Which free-text choiceGroup.label a group's checkboxes/radios land
@@ -2352,14 +2524,26 @@ export function renderCustomSheet(root, character, store) {
    *  Subclass/Background the wizard's earlier steps have already set
    *  on character.rules — the same matching rule syncRulesToSheet uses
    *  when it applies these bundles for real at Finish Setup. */
-  function creationChoiceGroupsFor(state) {
+  /** Look up a Bundle Library entry by category+name+ruleset — the
+   *  same case/whitespace-insensitive matching syncRulesetBundles uses
+   *  to actually apply a bundle to a sheet field, exposed standalone
+   *  so anything that just needs to READ a bundle's data (the
+   *  mechanics preview below, creationChoiceGroupsFor's per-category
+   *  lookups, selectedFeatBundles) doesn't have to re-implement the
+   *  match. */
+  function bundleFor(category, name, rulesetId) {
+    if (!name) return null;
     const norm = (s) => (s || "").trim().toLowerCase();
+    return bundleLibraryCache.find((entry) => entry.rulesetId === rulesetId
+      && norm(entry.category) === norm(category) && norm(entry.name) === norm(name)) || null;
+  }
+
+  function creationChoiceGroupsFor(state) {
     const level = state.level;
     const groups = [];
     const push = (category, name) => {
       if (!name) return;
-      const lib = bundleLibraryCache.find((entry) => entry.rulesetId === state.rulesetId
-        && norm(entry.category) === norm(category) && norm(entry.name) === norm(name));
+      const lib = bundleFor(category, name, state.rulesetId);
       (lib?.choiceGroups || []).forEach((group, index) => {
         if (group.minLevel && level < group.minLevel) return;
         if (!Array.isArray(group.options) || group.options.length === 0) return;
@@ -2439,6 +2623,212 @@ export function renderCustomSheet(root, character, store) {
       });
       container.append(choiceGroup);
     });
+  }
+
+  /** Multi-select sibling of renderSelectableRows — same row/portrait/
+   *  description look (shares its CSS classes), but toggles membership
+   *  in a Set instead of picking one name, for pickers like "which
+   *  spells do you know" where more than one can be checked at once. */
+  function renderMultiSelectableRows(container, names, { selectedSet, onToggle, getInfo } = {}) {
+    const list = document.createElement("div");
+    list.className = "choice-row-list";
+    names.forEach((name) => {
+      const info = getInfo ? getInfo(name) : null;
+      const selected = selectedSet.has(name);
+      const row = document.createElement("div");
+      row.className = "choice-row" + (selected ? " choice-row--selected" : "");
+      row.tabIndex = 0;
+      row.setAttribute("role", "checkbox");
+      row.setAttribute("aria-checked", String(selected));
+      row.addEventListener("click", () => onToggle(name));
+      row.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(name); }
+      });
+      const portrait = document.createElement("div");
+      portrait.className = "choice-row__portrait";
+      portrait.textContent = selected ? "✓" : (name || "?").charAt(0).toUpperCase();
+      row.append(portrait);
+      const body = document.createElement("div");
+      body.className = "choice-row__body";
+      const label = document.createElement("div");
+      label.className = "choice-row__label";
+      label.textContent = name;
+      body.append(label);
+      const desc = document.createElement("div");
+      desc.className = "choice-row__description";
+      desc.textContent = info?.description || "No description available yet.";
+      body.append(desc);
+      row.append(body);
+      list.append(row);
+    });
+    container.append(list);
+    return list;
+  }
+
+  // A Catalog whose name mentions "spell" is treated as the spell
+  // list — same best-effort keyword match as catalogEntryInfo, since
+  // there's no stored link. Its tabs, per the default Spell List
+  // catalog's own shape, ARE the spell levels ("cantrips", "level1"
+  // ... "level5") — that's real, structured data (unlike a bundle's
+  // free-text choiceGroup labels), so filtering by level here is
+  // solid, not a keyword guess.
+  function spellListCatalog() {
+    return catalogCache.find((c) => /spell/i.test(c.name || "")) || null;
+  }
+
+  function spellsForLevel(levelNum, className) {
+    const catalog = spellListCatalog();
+    if (!catalog) return [];
+    const tabId = levelNum === 0 ? "cantrips" : `level${levelNum}`;
+    const tab = (catalog.tabs || []).find((t) => t.id === tabId)
+      || (catalog.tabs || []).find((t) => (levelNum === 0 ? /cantrip/i : new RegExp(`^${levelNum}`)).test(t.name || ""));
+    const entries = (tab?.entries || [])
+      .map((e) => ({ name: e.name, description: e.description || "", classes: (e.fieldValues?.classes || "").trim() }))
+      .filter((e) => e.name);
+    if (!className) return entries;
+    // A spell with no "Classes" value set (the field is opt-in — see
+    // the "Classes" requirement added to the Spell List catalog's
+    // archetype) is shown to everyone rather than hidden, so existing
+    // untagged catalogs keep working exactly as before this filter
+    // existed; only an explicitly-tagged spell actually gets narrowed
+    // down to the classes listed.
+    const norm = (s) => (s || "").toLowerCase();
+    return entries.filter((e) => !e.classes || norm(e.classes).includes(norm(className)));
+  }
+
+  // Auto-creates a "Spells Known" list in the starter Spellcasting
+  // block the first time it's needed — same "extend in place rather
+  // than make the player rebuild their sheet" precedent as
+  // ensureStandardSpellSlotFields above it.
+  function ensureSpellListField() {
+    const spellcasting = globalLayout().find((block) => block.name === "Spellcasting");
+    if (!spellcasting) return null;
+    const existing = findStarterField("spellsKnown", "Spells Known");
+    if (existing) return existing;
+    const field = createField({ fieldType: "textlist", label: "Spells Known", x: 0, y: 4, w: 6, h: 2 });
+    field.id = "spellsKnown";
+    spellcasting.children.push(field);
+    spellcasting.h = Math.max(spellcasting.h, 6);
+    return field;
+  }
+
+  /** Which of `field.items` (the sheet's whole known-spells list, which
+   *  mixes cantrips and leveled spells together with no level of its
+   *  own recorded) are cantrips vs. leveled spells, found by looking
+   *  each name back up against the catalog. Needed to enforce the
+   *  cantrips/spells limits below without changing what's actually
+   *  stored on the sheet. */
+  function spellLevelByName(name) {
+    const catalog = spellListCatalog();
+    if (!catalog) return null;
+    for (const tab of catalog.tabs || []) {
+      if ((tab.entries || []).some((e) => e.name === name)) {
+        return tab.id === "cantrips" ? 0 : Number.parseInt((tab.id || "").replace("level", ""), 10) || 0;
+      }
+    }
+    return null;
+  }
+
+  /** Shared by the Creation wizard's "Spells & Abilities" step and the
+   *  Leveling wizard's "Spells" step — check off which spells are
+   *  known so far, grouped by level, writing straight to the sheet's
+   *  "Spells Known" list (via ensureSpellListField) so there's exactly
+   *  one copy of this list, not a separate one to keep in sync.
+   *  Filters the offered spells to the current class's list (see
+   *  spellsForLevel — an untagged spell still shows for everyone) and
+   *  enforces the class's cantrips-known / spells-known-or-prepared
+   *  limit at the current level (see spellLimitFor in rulesEngine.js),
+   *  refusing to check off more than that. KNOWN SIMPLIFICATION: a
+   *  prepared caster's "spells prepared" and a Wizard's "spells in my
+   *  spellbook" are two different 5e concepts this app doesn't
+   *  distinguish — both are enforced here as a single combined cap. */
+  function renderSpellPicker(container, { rulesetId, className, level }) {
+    const info = getSpellcastingInfo(className);
+    if (!info) {
+      const note = document.createElement("p");
+      note.className = "leveling-tab__intro";
+      note.textContent = `${className || "This class"} doesn't cast spells, as far as this data goes.`;
+      container.append(note);
+      return;
+    }
+    const field = ensureSpellListField();
+    if (!field) {
+      const note = document.createElement("p");
+      note.className = "leveling-tab__intro";
+      note.textContent = "This sheet doesn't have a Spellcasting block to record spells in.";
+      container.append(note);
+      return;
+    }
+    const plan = getLevelUpPlan(rulesetId, className, level);
+    const availableLevels = [0]; // cantrips, once the class casts at all
+    // Cumulative (1 through the highest slot level found), not just
+    // "whichever indices happen to be nonzero" — those're the same
+    // thing for a full/half caster's slots (already-unlocked levels
+    // stay nonzero forever as you level up further), but NOT for a
+    // Warlock's Pact Magic slots (see WARLOCK_PACT_SLOTS in dnd5e.js),
+    // where only the current pact level is ever nonzero even though a
+    // Warlock can still pick spells of any lower level too.
+    const maxSlotLevel = (plan?.slotChanges || []).reduce((max, change, index) => (change.options > 0 ? Math.max(max, index + 1) : max), 0);
+    for (let lvl = 1; lvl <= maxSlotLevel; lvl++) availableLevels.push(lvl);
+    const limit = spellLimitFor(className, level, character.rules?.abilityScores);
+    const known = new Set(field.items || []);
+    const ordinal = (n) => (n === 1 ? "1st" : n === 2 ? "2nd" : n === 3 ? "3rd" : `${n}th`);
+    const limitNote = document.createElement("p");
+    limitNote.className = "leveling-tab__intro";
+    container.append(limitNote);
+    const updateLimitNote = () => {
+      const cantripCount = [...known].filter((name) => spellLevelByName(name) === 0).length;
+      const spellCount = [...known].filter((name) => { const lvl = spellLevelByName(name); return lvl != null && lvl > 0; }).length;
+      const bits = [];
+      if (limit.cantrips) bits.push(`${cantripCount}/${limit.cantrips} cantrips known`);
+      bits.push(`${spellCount}/${limit.spells} spells ${limit.style === "known" ? "known" : "prepared"}`);
+      limitNote.textContent = bits.join(", ") + ".";
+    };
+
+    let anySpellsListed = false;
+    availableLevels.forEach((levelNum) => {
+      const spells = spellsForLevel(levelNum, className);
+      if (!spells.length) return;
+      anySpellsListed = true;
+      const heading = document.createElement("p");
+      heading.className = "wizard__section-label";
+      heading.textContent = levelNum === 0 ? "Cantrips" : `${ordinal(levelNum)}-Level Spells`;
+      container.append(heading);
+      renderMultiSelectableRows(container, spells.map((s) => s.name), {
+        selectedSet: known,
+        getInfo: (name) => spells.find((s) => s.name === name),
+        onToggle: (name) => {
+          if (!Array.isArray(field.items)) field.items = [];
+          if (known.has(name)) {
+            field.items = field.items.filter((item) => item !== name);
+          } else {
+            const cap = levelNum === 0 ? limit.cantrips : limit.spells;
+            const currentCount = [...known].filter((n) => {
+              const lvl = spellLevelByName(n);
+              return levelNum === 0 ? lvl === 0 : lvl != null && lvl > 0;
+            }).length;
+            if (currentCount >= cap) {
+              limitNote.textContent = levelNum === 0
+                ? `You already know your ${cap} cantrip${cap === 1 ? "" : "s"} for this level — uncheck one first to swap it.`
+                : `You've already ${limit.style === "known" ? "learned" : "prepared"} your ${cap} spell${cap === 1 ? "" : "s"} for this level — uncheck one first to swap it.`;
+              limitNote.classList.add("level-guide__feedback--error");
+              return;
+            }
+            appendUniqueTextListItem(field, name);
+          }
+          limitNote.classList.remove("level-guide__feedback--error");
+          saveWithStatus("layout", character.layout);
+          renderPageGrid();
+        },
+      });
+    });
+    updateLimitNote();
+    if (!anySpellsListed) {
+      const note = document.createElement("p");
+      note.className = "leveling-tab__intro";
+      note.textContent = "No spells found in an imported Spell List catalog yet — import one from the Catalog Libraries manager, or just track spells directly on the sheet's Spells Known list.";
+      container.append(note);
+    }
   }
 
   /** "Pick a ruleset and the sheet just works" — walks every dropdown
@@ -2662,16 +3052,36 @@ export function renderCustomSheet(root, character, store) {
       wis: "Awareness and intuition — Perception/Insight checks, and some casters' spells.",
       cha: "Force of personality — Persuasion/Deception checks, and some casters' spells.",
     };
+    const HP_METHOD_OPTIONS = [
+      { value: "average", label: "Fixed average", description: "Always take the fixed average for your hit die (e.g. 5 for a d8), plus your Constitution modifier. Consistent and predictable, no rolling involved." },
+      { value: "roll", label: "Roll in-browser", description: "Roll your hit die right here each time you level up, plus your Constitution modifier. Keeps the randomness without needing physical dice." },
+      { value: "manual", label: "I'll roll at the table and type it in", description: "Roll however you prefer at the table (or elsewhere) and just type the result in when you level up." },
+    ];
     const POINT_BUY_MIN = 8;
-    const POINT_BUY_MAX = 20;
+    const POINT_BUY_MAX = 15;
     const POINT_BUY_BUDGET = 27;
     // Standard point-buy cost (1 point per point of score) through 13,
-    // then 2 points per point from 14 on — extended up through 20
-    // (rather than the usual 15 cap) per Shawn's ask.
+    // then 2 points per point from 14 on, up through the standard
+    // 15 cap.
     function pointBuyCost(score) {
       let cost = 0;
       for (let s = POINT_BUY_MIN + 1; s <= score; s++) cost += s >= 14 ? 2 : 1;
       return cost;
+    }
+    // Highest score `id` could be raised to without pushing total
+    // spend over budget, given what's already committed to every
+    // other ability score — used to stop an increase right at the
+    // point the budget runs out, rather than letting it go over and
+    // just flagging it after the fact.
+    function maxAffordablePointBuyScore(id) {
+      const spentElsewhere = ABILITY_IDS.filter((otherId) => otherId !== id)
+        .reduce((sum, otherId) => sum + pointBuyCost(character.rules.abilityScores[otherId]), 0);
+      const remaining = POINT_BUY_BUDGET - spentElsewhere;
+      let max = POINT_BUY_MIN;
+      for (let s = POINT_BUY_MIN; s <= POINT_BUY_MAX; s++) {
+        if (pointBuyCost(s) <= remaining) max = s;
+      }
+      return max;
     }
     const rollAbilityScore = () => {
       const dice = [1, 2, 3, 4].map(() => 1 + Math.floor(Math.random() * 6)).sort((a, b) => a - b);
@@ -2762,6 +3172,7 @@ export function renderCustomSheet(root, character, store) {
             renderSelectableRows(container, liveNames, {
               selectedName: state.species,
               getInfo: (name) => catalogEntryInfo(["race", "species"], name),
+              getMechanics: (name) => mechanicsPreviewFor(bundleFor("Race", name, state.rulesetId), state.level),
               onSelect: (name) => update("species", name),
             });
           } else {
@@ -2784,6 +3195,7 @@ export function renderCustomSheet(root, character, store) {
           renderSelectableRows(container, liveNames, {
             selectedName: state.className,
             getInfo: (name) => catalogEntryInfo(["class"], name),
+            getMechanics: (name) => mechanicsPreviewFor(bundleFor("Class", name, state.rulesetId), state.level),
             onSelect: (name) => update("className", name),
             afterRow: (name, rowEl) => {
               if (name !== state.className) return;
@@ -2804,6 +3216,7 @@ export function renderCustomSheet(root, character, store) {
               renderSelectableRows(holder, subs.subclasses, {
                 selectedName: state.subclass,
                 getInfo: (n) => catalogEntryInfo(["subclass"], n),
+                getMechanics: (n) => mechanicsPreviewFor(bundleFor("Subclass", n, state.rulesetId), state.level),
                 onSelect: (n) => update("subclass", n),
                 nested: true,
               });
@@ -2816,6 +3229,9 @@ export function renderCustomSheet(root, character, store) {
         id: "abilities",
         title: "Ability Scores",
         descriptionItems: [
+          "Each ability has two boxes: the first is the ability score itself, and the second is its modifier — the number actually added to your rolls.",
+          "The modifier is derived from the score, not set separately: every 2 points of score above 10 raises the modifier by 1 (and every 2 points below 10 lowers it by 1), so it updates on its own as you adjust the score.",
+          "The modifier is what actually gets added to attack rolls, spell save DCs and spell attacks, and skill or ability checks tied to that ability — it's the game's shorthand for how strong, smart, perceptive, etc. your character is at the table.",
           "Point Buy spends a fixed budget of points across all six scores.",
           "Random Roll rolls 4d6 (dropping the lowest die) for each score.",
           "Manual Entry lets you type in scores from a physical roll or another source.",
@@ -2842,6 +3258,13 @@ export function renderCustomSheet(root, character, store) {
           scoresWrap.className = "wizard__ability-scores";
           container.append(scoresWrap);
 
+          const abilityModifier = (score) => Math.floor((score - 10) / 2);
+          const formatModifier = (mod) => (mod >= 0 ? `+${mod}` : String(mod));
+
+          // Returns an updater the caller invokes whenever `control`'s
+          // value changes, so the modifier box stays in sync with
+          // whichever method (Point Buy/Roll/Manual) is driving the
+          // score — none of those write to the modifier directly.
           function abilityRow(id, control) {
             const row = document.createElement("div");
             row.className = "wizard__ability-row";
@@ -2850,11 +3273,29 @@ export function renderCustomSheet(root, character, store) {
             group.textContent = id.toUpperCase();
             group.append(control);
             row.append(group);
+
+            const modGroup = document.createElement("div");
+            modGroup.className = "level-guide__field wizard__ability-modifier";
+            const modLabel = document.createElement("span");
+            modLabel.textContent = "Modifier";
+            modGroup.append(modLabel);
+            const modValue = document.createElement("div");
+            modValue.className = "input-group__control wizard__ability-modifier-value";
+            modGroup.append(modValue);
+            row.append(modGroup);
+
             const desc = document.createElement("p");
             desc.className = "wizard__ability-row-description";
             desc.textContent = ABILITY_DESCRIPTIONS[id];
             row.append(desc);
             scoresWrap.append(row);
+
+            const updateModifier = () => {
+              const score = Number(control.value);
+              modValue.textContent = formatModifier(abilityModifier(Number.isFinite(score) ? score : 10));
+            };
+            updateModifier();
+            return updateModifier;
           }
 
           function renderScores() {
@@ -2867,7 +3308,7 @@ export function renderCustomSheet(root, character, store) {
               scoresWrap.append(note);
               const updateNote = () => {
                 const spent = ABILITY_IDS.reduce((sum, id) => sum + pointBuyCost(character.rules.abilityScores[id]), 0);
-                note.textContent = `Points spent: ${spent}/${POINT_BUY_BUDGET}${spent > POINT_BUY_BUDGET ? " — over budget!" : ""}`;
+                note.textContent = `Points spent: ${spent}/${POINT_BUY_BUDGET}`;
               };
               ABILITY_IDS.forEach((id) => {
                 if (character.rules.abilityScores[id] < POINT_BUY_MIN || character.rules.abilityScores[id] > POINT_BUY_MAX) character.rules.abilityScores[id] = POINT_BUY_MIN;
@@ -2875,16 +3316,24 @@ export function renderCustomSheet(root, character, store) {
                 input.type = "number"; input.min = String(POINT_BUY_MIN); input.max = String(POINT_BUY_MAX);
                 input.className = "input-group__control";
                 input.value = String(character.rules.abilityScores[id]);
+                const updateModifier = abilityRow(id, input);
                 input.addEventListener("change", () => {
                   let value = Number.parseInt(input.value, 10);
                   if (!Number.isFinite(value)) value = POINT_BUY_MIN;
                   value = Math.min(POINT_BUY_MAX, Math.max(POINT_BUY_MIN, value));
+                  // Stop the increase right at whatever's still
+                  // affordable rather than letting it go over budget —
+                  // e.g. with only 1 point left, typing/stepping to 12
+                  // when 11 is the last thing they can afford snaps
+                  // back to 11, not 12.
+                  const affordable = maxAffordablePointBuyScore(id);
+                  if (value > affordable) value = affordable;
                   input.value = String(value);
                   character.rules.abilityScores[id] = value;
                   saveRules();
                   updateNote();
+                  updateModifier();
                 });
-                abilityRow(id, input);
               });
               updateNote();
             } else if (method === "roll") {
@@ -2899,10 +3348,12 @@ export function renderCustomSheet(root, character, store) {
               noteRow.append(rollAllBtn);
               scoresWrap.append(noteRow);
               const inputs = {};
+              const modifierUpdaters = {};
               rollAllBtn.addEventListener("click", () => {
                 ABILITY_IDS.forEach((id) => {
                   character.rules.abilityScores[id] = rollAbilityScore();
                   inputs[id].value = String(character.rules.abilityScores[id]);
+                  modifierUpdaters[id]();
                 });
                 saveRules();
               });
@@ -2910,17 +3361,18 @@ export function renderCustomSheet(root, character, store) {
                 const input = document.createElement("input");
                 input.type = "number"; input.min = "3"; input.max = "18"; input.className = "input-group__control";
                 input.value = String(character.rules.abilityScores[id]);
-                input.addEventListener("change", () => { character.rules.abilityScores[id] = Number(input.value) || 10; saveRules(); });
+                const updateModifier = abilityRow(id, input);
+                input.addEventListener("change", () => { character.rules.abilityScores[id] = Number(input.value) || 10; saveRules(); updateModifier(); });
                 inputs[id] = input;
-                abilityRow(id, input);
+                modifierUpdaters[id] = updateModifier;
               });
             } else {
               ABILITY_IDS.forEach((id) => {
                 const input = document.createElement("input");
                 input.type = "number"; input.min = "1"; input.max = "30"; input.className = "input-group__control";
                 input.value = String(character.rules.abilityScores[id]);
-                input.addEventListener("change", () => { character.rules.abilityScores[id] = Number(input.value) || 10; saveRules(); });
-                abilityRow(id, input);
+                const updateModifier = abilityRow(id, input);
+                input.addEventListener("change", () => { character.rules.abilityScores[id] = Number(input.value) || 10; saveRules(); updateModifier(); });
               });
             }
           }
@@ -2942,6 +3394,7 @@ export function renderCustomSheet(root, character, store) {
             renderSelectableRows(container, liveNames, {
               selectedName: state.background,
               getInfo: (name) => catalogEntryInfo(["background"], name),
+              getMechanics: (name) => mechanicsPreviewFor(bundleFor("Background", name, state.rulesetId), state.level),
               onSelect: (name) => update("background", name),
             });
           } else {
@@ -2957,54 +3410,42 @@ export function renderCustomSheet(root, character, store) {
       {
         id: "preferences",
         title: "Preferences",
-        description: "A couple of settings for how leveling up behaves by default — both can be changed anytime later once a Settings tab exists.",
+        description: "How you want HP handled by default whenever you level up — can be changed anytime later once a Settings tab exists.",
         render(container) {
-          const hpRow = document.createElement("div");
-          hpRow.className = "wizard__preference-row";
-          const hpGroup = document.createElement("label");
-          hpGroup.className = "level-guide__field";
-          hpGroup.textContent = "HP on level-up";
-          const select = document.createElement("select");
-          select.className = "input-group__control";
-          [["average", "Fixed average"], ["roll", "Roll in-browser"], ["manual", "I'll roll at the table and type it in"]].forEach(([value, label]) => {
-            const option = document.createElement("option"); option.value = value; option.textContent = label; select.append(option);
-          });
-          select.value = character.rules.hpMethod || "manual";
-          select.addEventListener("change", () => { character.rules.hpMethod = select.value; saveRules(); });
-          hpGroup.append(select);
-          hpRow.append(hpGroup);
-          const hpDesc = document.createElement("p");
-          hpDesc.className = "wizard__preference-description";
-          hpDesc.textContent = "How hit points (and similar rolled increases) are handled by default whenever you level up later. You can still override this on any individual level-up.";
-          hpRow.append(hpDesc);
-          container.append(hpRow);
+          // Label sits on its own line above the row-list, matching
+          // the Race/Class/Background pickers elsewhere in the wizard
+          // — a clickable row per option with its explanation right
+          // there, rather than a dropdown the user has to guess about.
+          const hpLabel = document.createElement("p");
+          hpLabel.className = "wizard__preference-label";
+          hpLabel.textContent = "HP on level-up";
+          container.append(hpLabel);
 
-          const dieRow = document.createElement("div");
-          dieRow.className = "wizard__preference-row";
-          const dieGroup = document.createElement("label");
-          dieGroup.className = "level-guide__field";
-          dieGroup.textContent = "Hit die";
-          const dieSize = document.createElement("select");
-          dieSize.className = "input-group__control";
-          [4, 6, 8, 10, 12].forEach((sides) => { const option = document.createElement("option"); option.value = String(sides); option.textContent = `d${sides}`; dieSize.append(option); });
-          dieSize.value = String(character.rules.hitDieSize || 8);
-          dieSize.addEventListener("change", () => { character.rules.hitDieSize = Number(dieSize.value); saveRules(); });
-          dieGroup.append(dieSize);
-          dieRow.append(dieGroup);
-          const dieDesc = document.createElement("p");
-          dieDesc.className = "wizard__preference-description";
-          dieDesc.textContent = "Bundles don't carry this yet — set it to match your class's hit die.";
-          dieRow.append(dieDesc);
-          container.append(dieRow);
+          const currentMethod = character.rules.hpMethod || "manual";
+          const selected = HP_METHOD_OPTIONS.find((opt) => opt.value === currentMethod);
+          renderSelectableRows(container, HP_METHOD_OPTIONS.map((opt) => opt.label), {
+            selectedName: selected?.label,
+            getInfo: (label) => ({ description: HP_METHOD_OPTIONS.find((opt) => opt.label === label)?.description || "" }),
+            onSelect: (label) => update("hpMethod", HP_METHOD_OPTIONS.find((opt) => opt.label === label)?.value),
+          });
         },
       },
       {
         id: "spells",
         title: "Spells & Abilities",
-        description: "Spells or special abilities granted by your race, class, subclass, or background that need a choice made right now.",
-        isApplicable: () => creationGroupsByCategory.spells.length > 0,
+        description: "Spells or special abilities granted by your race, class, subclass, or background that need a choice made right now — plus, if your class casts spells, which ones you start out knowing.",
+        isApplicable: () => creationGroupsByCategory.spells.length > 0 || Boolean(getRulesetClass(state.rulesetId, state.className)?.caster),
         unavailableMessage: wizardUnavailableMessage,
-        render(container) { renderCreationChoiceGroups(container, creationGroupsByCategory.spells, saveRules); },
+        render(container) {
+          renderCreationChoiceGroups(container, creationGroupsByCategory.spells, saveRules);
+          if (getRulesetClass(state.rulesetId, state.className)?.caster) {
+            const heading = document.createElement("p");
+            heading.className = "wizard__section-label";
+            heading.textContent = "Spells Known";
+            container.append(heading);
+            renderSpellPicker(container, { rulesetId: state.rulesetId, className: state.className, level: state.level });
+          }
+        },
       },
       {
         id: "languages",
@@ -3053,7 +3494,13 @@ export function renderCustomSheet(root, character, store) {
             state.background && `Background: ${state.background}`,
             `Level ${state.level}`,
           ].filter(Boolean);
-          if (resolved.derived.preparedSpellLimit != null) noteLines.push(`Prepared druid spells: ${resolved.derived.preparedSpellLimit}`);
+          if (resolved.derived.spellLimit) {
+            const { style, cantrips, spells } = resolved.derived.spellLimit;
+            const bits = [];
+            if (cantrips) bits.push(`${cantrips} cantrip${cantrips === 1 ? "" : "s"}`);
+            bits.push(`${spells} spell${spells === 1 ? "" : "s"} ${style === "known" ? "known" : "prepared"}`);
+            noteLines.push(`Spells: ${bits.join(", ")}`);
+          }
           resolved.derived.resources.forEach((resource) => noteLines.push(`${resource.name}: ${resource.maximum}`));
           if (noteLines.length === 0) {
             const empty = document.createElement("p");
@@ -3139,6 +3586,7 @@ export function renderCustomSheet(root, character, store) {
         asiMode: "feat",
         asiAbility1: "",
         asiAbility2: "",
+        featChoice: "",
         choices: Object.fromEntries(contentGroups.map((group) => [group.key, [...(character.rules?.choices?.[group.key] || [])]])),
       };
     }
@@ -3147,7 +3595,7 @@ export function renderCustomSheet(root, character, store) {
       if (!pending.choices[group.key]) pending.choices[group.key] = [...(character.rules?.choices?.[group.key] || [])];
     });
 
-    const slots = (plan?.slotChanges || []).map((change) => `${change.options} ${change.label}-level`).join(", ");
+    const slots = (plan?.slotChanges || []).filter((change) => change.options > 0).map((change) => `${change.options} ${change.label}-level`).join(", ");
     const feedback = document.createElement("p");
     feedback.className = "level-guide__feedback";
 
@@ -3182,7 +3630,7 @@ export function renderCustomSheet(root, character, store) {
       steps.push({
         id: "asi",
         title: "Ability Score Improvement",
-        description: `${className} gets an Ability Score Improvement at this level. Increase one ability score by 2, two ability scores by 1 each, or take a feat instead (note which one on the Notes step).`,
+        description: `${className} gets an Ability Score Improvement at this level. Increase one ability score by 2, two ability scores by 1 each, or take a feat instead.`,
         render(container) {
           const modeGroup = document.createElement("label");
           modeGroup.className = "level-guide__field";
@@ -3197,9 +3645,40 @@ export function renderCustomSheet(root, character, store) {
           container.append(modeGroup);
 
           const abilityRow = document.createElement("div");
-          const renderAbilitySelects = () => {
+          const featWrap = document.createElement("div");
+          const renderModeBody = () => {
             abilityRow.innerHTML = "";
-            if (modeSelect.value === "feat") return;
+            featWrap.innerHTML = "";
+            if (modeSelect.value === "feat") {
+              const rulesetId = character.rules?.rulesetId || character.rulesetId;
+              const names = rulesetOptionNames(rulesetId, "Feat");
+              const alreadyTaken = (character.rules?.feats || []).map((f) => f.name);
+              if (alreadyTaken.length) {
+                const takenNote = document.createElement("p");
+                takenNote.className = "leveling-tab__intro";
+                takenNote.textContent = `Already taken: ${alreadyTaken.join(", ")}.`;
+                featWrap.append(takenNote);
+              }
+              if (names.length) {
+                renderSelectableRows(featWrap, names, {
+                  selectedName: pending.featChoice,
+                  getInfo: (name) => catalogEntryInfo(["feat"], name),
+                  onSelect: (name) => { pending.featChoice = name; renderPageGrid(); },
+                });
+              } else {
+                const featGroup = document.createElement("label");
+                featGroup.className = "level-guide__field";
+                featGroup.textContent = "Feat";
+                const input = document.createElement("input");
+                input.type = "text"; input.className = "input-group__control";
+                input.placeholder = "No Feat bundles found for this ruleset yet — type it in for now";
+                input.value = pending.featChoice || "";
+                input.addEventListener("change", () => { pending.featChoice = input.value; });
+                featGroup.append(input);
+                featWrap.append(featGroup);
+              }
+              return;
+            }
             const count = modeSelect.value === "single" ? 1 : 2;
             for (let i = 0; i < count; i++) {
               const abilityGroup = document.createElement("label");
@@ -3215,9 +3694,10 @@ export function renderCustomSheet(root, character, store) {
               abilityRow.append(abilityGroup);
             }
           };
-          modeSelect.addEventListener("change", () => { pending.asiMode = modeSelect.value; renderAbilitySelects(); });
-          renderAbilitySelects();
+          modeSelect.addEventListener("change", () => { pending.asiMode = modeSelect.value; renderModeBody(); });
+          renderModeBody();
           container.append(abilityRow);
+          container.append(featWrap);
         },
       });
     }
@@ -3302,12 +3782,13 @@ export function renderCustomSheet(root, character, store) {
       steps.push({
         id: "spells",
         title: "Spells",
-        description: "Your spellcasting improves at this level — just informational for now; update your prepared/known spells on the main sheet to match.",
+        description: "Your spellcasting improves at this level. Check off any new spells you've picked up — this writes straight to the Spells Known list on the main sheet.",
         render(container) {
           const note = document.createElement("p");
           note.className = "level-guide__summary";
           note.textContent = `This ruleset sets your spell slots to ${slots} at this level.`;
           container.append(note);
+          renderSpellPicker(container, { rulesetId: character.rules?.rulesetId || character.rulesetId, className, level });
         },
       });
     }
@@ -3381,7 +3862,7 @@ export function renderCustomSheet(root, character, store) {
         summary.className = "level-guide__summary";
         const parts = [`HP +${pending.hp || "?"}`];
         if (pending.subclass) parts.push(`Subclass: ${pending.subclass}`);
-        if (needsAsi) parts.push(pending.asiMode === "feat" ? "Took a feat" : `ASI: ${[pending.asiAbility1, pending.asiAbility2].filter(Boolean).map((id) => id.toUpperCase()).join(", ") || "not chosen yet"}`);
+        if (needsAsi) parts.push(pending.asiMode === "feat" ? `Feat: ${pending.featChoice || "not chosen yet"}` : `ASI: ${[pending.asiAbility1, pending.asiAbility2].filter(Boolean).map((id) => id.toUpperCase()).join(", ") || "not chosen yet"}`);
         if (slots) parts.push(`Spell slots: ${slots}`);
         summary.textContent = parts.join(" · ");
         container.append(summary);
@@ -3414,6 +3895,11 @@ export function renderCustomSheet(root, character, store) {
               feedback.classList.add("level-guide__feedback--error");
               return;
             }
+          }
+          if (needsAsi && pending.asiMode === "feat" && !pending.featChoice) {
+            feedback.textContent = "Choose a feat for this level's Ability Score Improvement (or switch it to a stat increase).";
+            feedback.classList.add("level-guide__feedback--error");
+            return;
           }
           const subclassField = findStarterField("subclass", "Subclass");
           const selectedSubclassName = pending.subclass || selectedSubclass;
@@ -3463,7 +3949,8 @@ export function renderCustomSheet(root, character, store) {
             if (pending.asiMode === "single") { bump(pending.asiAbility1, 2); asiSummary = `+2 ${pending.asiAbility1.toUpperCase()}`; }
             else { bump(pending.asiAbility1, 1); bump(pending.asiAbility2, 1); asiSummary = `+1 ${pending.asiAbility1.toUpperCase()}, +1 ${pending.asiAbility2.toUpperCase()}`; }
           } else if (needsAsi) {
-            asiSummary = "Took a feat instead of an ASI";
+            character.rules.feats = [...(character.rules.feats || []), { name: pending.featChoice, level }];
+            asiSummary = `Took the ${pending.featChoice} feat instead of an ASI`;
           }
           appendUniqueTextListItem(features, featureEntry);
           character.levelUps[String(level)] = {
@@ -3946,6 +4433,20 @@ export function renderCustomSheet(root, character, store) {
     // their actual content, spilling into whatever sat below them.
     const headerPx = BLOCK_HEADER_ROWS * cw + (BLOCK_HEADER_ROWS - 1) * GAP_PX;
 
+    // .block-body sits flush against the inside of this block's own
+    // border (it's absolutely positioned with left/right/bottom: 0,
+    // which CSS measures from the padding box — i.e. right up against
+    // the border, not inset from it). The fields inside it are sized
+    // with the exact same per-cell math as this block itself, so
+    // without this they come out fractionally too wide/tall for that
+    // space and spill a couple of pixels past the border on the
+    // right/bottom edges. Widening the block by twice its own border
+    // width (one border's worth per side) gives the body that space
+    // back — top/left stay put, only width/height grow.
+    const blockBorderCompensationPx = 2; // 2 x --border-width (1px)
+    el.style.width = `${parseFloat(el.style.width) + blockBorderCompensationPx}px`;
+    el.style.height = `${parseFloat(el.style.height) + blockBorderCompensationPx}px`;
+
     const nameEl = document.createElement("div");
     nameEl.className = "block-name";
     nameEl.style.height = `${headerPx}px`;
@@ -4315,11 +4816,16 @@ export function renderCustomSheet(root, character, store) {
     const el = document.createElement("div");
     el.className = "field-value field-value--options";
     // A formula-driven radio group's button count is whatever that
-    // formula currently computes (see computeRadioOptionCounts) —
-    // `options` becomes just the fallback default, used only while no
-    // formula is set.
-    const effectiveOptions = field.fieldType === "radio" && field.optionsFormula
-      ? (radioOptionCounts[field.id] ?? 0)
+    // formula currently computes (see computeRadioOptionCounts); one
+    // of the standard spell-slot fields (no formula, but a live entry
+    // in spellSlotCounts — see computeSpellSlotCounts) instead tracks
+    // class/level automatically. `options` becomes just the fallback
+    // default, used only when neither applies.
+    const isFormulaRadio = field.fieldType === "radio" && field.optionsFormula;
+    const isLiveSlotField = field.fieldType === "radio" && !field.optionsFormula
+      && Object.prototype.hasOwnProperty.call(spellSlotCounts, field.id);
+    const effectiveOptions = isFormulaRadio ? (radioOptionCounts[field.id] ?? 0)
+      : isLiveSlotField ? (spellSlotCounts[field.id] ?? 0)
       : (field.options || 1);
     el.style.gridTemplateColumns = `repeat(${Math.max(1, effectiveOptions)}, minmax(0, 1fr))`;
 
@@ -4891,6 +5397,33 @@ export function renderCustomSheet(root, character, store) {
    *  Adds on top of whatever's already in the choice's bundle; doesn't
    *  replace it, so applying a library bundle is a safe starting point
    *  even if you've already hand-tweaked something here. */
+  /** Every skill/save proficiency checkbox on the starter sheet shares
+   *  the same literal label, "Prof." (see toggleField in
+   *  blockModel.js) — the real skill/ability name ("Acrobatics",
+   *  "Strength", ...) lives in a separate sibling Label field at the
+   *  same row (same block, same y), because a checkbox's own inline
+   *  label has no room for a word like "Investigation". By-name grant
+   *  matching ("grant proficiency in Acrobatics") needs that row's
+   *  real name — matching on the checkbox's own label would find
+   *  nothing (or the wrong box) since all 24 of them say "Prof.".
+   *  This resolves a checkbox's effective name from its row; anything
+   *  that already has a real label of its own (a homebrew "Lucky"
+   *  toggle, say) is returned unchanged. Never mutates the field —
+   *  this is purely a lookup, so nothing extra ends up saved to the
+   *  character. */
+  function effectiveGrantName(field) {
+    const label = (field.label || "").trim();
+    if (field.fieldType !== "checkbox" || label.toLowerCase() !== "prof.") return label;
+    for (const block of globalLayout()) {
+      if (!block.children || !block.children.includes(field)) continue;
+      const sibling = block.children.find((f) => f !== field && f.y === field.y
+        && (f.fieldType === "label" || f.fieldType === "text") && f.value);
+      if (sibling) return sibling.value;
+      break;
+    }
+    return label;
+  }
+
   function applyBundleLibraryToChoice(libraryEntry, choice, allFields) {
     const bundle = ensureBundle(choice);
     const norm = (s) => (s || "").trim().toLowerCase();
@@ -4919,7 +5452,7 @@ export function renderCustomSheet(root, character, store) {
       // named the same as a checkbox (or vice versa) doesn't silently
       // resolve to the wrong kind of target.
       const wantType = mod.op === "grant" ? "checkbox" : "text";
-      const match = allFields.find(f => f.fieldType === wantType && norm(f.label) === norm(mod.targetFieldName));
+      const match = allFields.find(f => f.fieldType === wantType && norm(effectiveGrantName(f)) === norm(mod.targetFieldName));
       bundle.statModifiers.push({
         id: newId(),
         targetFieldId: match ? match.id : null,
@@ -4976,7 +5509,7 @@ export function renderCustomSheet(root, character, store) {
     // play only reads stable field ids, even if the library is edited.
     const materializeModifiers = (modifiers) => (modifiers || []).map((mod) => {
       const wantType = mod.op === "grant" ? "checkbox" : "text";
-      const match = allFields.find((field) => field.fieldType === wantType && norm(field.label) === norm(mod.targetFieldName));
+      const match = allFields.find((field) => field.fieldType === wantType && norm(effectiveGrantName(field)) === norm(mod.targetFieldName));
       return {
         id: newId(),
         targetFieldId: match ? match.id : null,
@@ -5319,7 +5852,11 @@ export function renderCustomSheet(root, character, store) {
       targetFieldPool.forEach((f) => {
         const opt = document.createElement("option");
         opt.value = f.id;
-        opt.textContent = f.label || "Stat";
+        // A checkbox's raw label is "Prof." for every skill/save row —
+        // effectiveGrantName resolves the row's real name so this
+        // dropdown doesn't show "Prof." 24 times with no way to tell
+        // Acrobatics from Strength.
+        opt.textContent = (mod.op === "grant" ? effectiveGrantName(f) : f.label) || "Stat";
         if (f.id === mod.targetFieldId) opt.selected = true;
         targetSelect.append(opt);
       });
@@ -5566,7 +6103,13 @@ export function renderCustomSheet(root, character, store) {
       bar.append(slotFormulaBtn);
     }
 
-    if (field.fieldType === "radio" || field.fieldType === "checkbox") {
+    // Hidden rather than shown-but-inert for a field whose count is
+    // computed live (a formula, or one of the standard spell-slot
+    // fields) — options is just the ignored fallback default then, so
+    // +/- clicking it wouldn't visibly do anything.
+    const hasLiveCount = field.fieldType === "radio"
+      && (field.optionsFormula || Object.prototype.hasOwnProperty.call(spellSlotCounts, field.id));
+    if ((field.fieldType === "radio" || field.fieldType === "checkbox") && !hasLiveCount) {
       const minusBtn = document.createElement("button");
       minusBtn.type = "button";
       minusBtn.title = "Remove option";

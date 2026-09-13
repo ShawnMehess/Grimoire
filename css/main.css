@@ -14,4 +14,12 @@
 @import url("components/card.css");
 @import url("components/list-row.css");
 @import url("components/feature-list.css");
-@import url("components/custom-sheet.css");
+/* Split from a single custom-sheet.css — kept in this relative order
+   (grid -> wizard -> catalog -> bundles -> shared) since that matches
+   the original file's top-to-bottom order and no selector repeats
+   across files, so the cascade behaves identically either way. */
+@import url("components/custom-sheet-grid.css");
+@import url("components/custom-sheet-wizard.css");
+@import url("components/custom-sheet-catalog.css");
+@import url("components/custom-sheet-bundles.css");
+@import url("components/custom-sheet-shared.css");
