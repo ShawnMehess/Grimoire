@@ -72,13 +72,64 @@ a "catalog"-type field's own config popover.
   ability bonus is a free-form rule ("+2/+1 or three +1s", i.e.
   Aarakocra/Aasimar/Air Genasi/Yuan-ti/Custom Lineage) rather than a
   fixed list of options.
-- Limited resources (Rage uses, Wild Shape, Ki points, Sorcery
-  Points, etc.) aren't tracked as their own countdown yet — they show
-  as text on Features & Traits. The sheet has no generic "resource
-  pool" field type yet to hang these on.
+- ~~Limited resources~~ — done: Rage, Wild Shape, Ki Points, Sorcery
+  Points, Second Wind, Action Surge, Indomitable, Channel Divinity,
+  Lay on Hands, and Bardic Inspiration all track current/max uses
+  with a Restore button on the Leveling tab's "Feature Uses" panel,
+  reusing the resourceGrants mechanism. Bardic Inspiration's max
+  scales off CHA modifier rather than level — resourceGrants now
+  supports that via an optional `maximumFormula` (a formula node,
+  same shape/token syntax as any field's own `formula`, evaluated
+  live against the sheet) which takes priority over a flat
+  `maximum` when present. Also correctly switches its reset trigger
+  from long rest to short-or-long-rest at 5th level (Font of
+  Inspiration).
 - Racial/class weapon, armor, and tool proficiencies show as text
   (the sheet's Armor/Weapon/Tool Prof. fields are plain text boxes,
   not per-item checkboxes) rather than affecting anything mechanically.
+
+## UI/UX pass (Character Vault + sheet editor)
+
+- Character Vault now has a search box (once you have more than 6
+  characters — no point cluttering the view before then) and a
+  duplicate (⧉) button on every card. Duplicate copies a character's
+  full state — layout, rules, level-up history, everything except
+  id/timestamps/name — into a brand-new character owned by you, named
+  "X (Copy)". It's a full independent copy, not a template.
+- Sheet layout editing ("Customize Sheet") no longer requires a mouse
+  drag for every move/resize: with something selected, plain arrow
+  keys nudge it one grid cell, Shift+arrow resizes it by one cell,
+  using the exact same bounds/undo path as dragging with a mouse. This
+  fixes the biggest practical wall (a sustained drag gesture) but
+  NOT full keyboard-only accessibility — selecting a block/field in
+  the first place is still pointer-only (click to select); there's no
+  Tab-to-focus-a-node path yet. That would need its own pass (tabindex
+  + Enter/Space-to-select on every grid node) if it's wanted later.
+
+## Proficiency cross-referencing (fixed grants + already-picked)
+
+- Fixed proficiencies (a Class's saving throws, a Background's two
+  skills, etc.) already showed as checked+disabled on the sheet
+  itself before this — that part was pre-existing and working.
+- New: any choiceGroups picker (Character Setup's Proficiencies step,
+  or the Leveling wizard's Choices step) now greys out — checked,
+  disabled, "already have this from another selection" — any option
+  that would grant a skill the character already has, whether from a
+  fixed grant or from an already-made pick in a DIFFERENT
+  choiceGroups entry. Doesn't count against that group's own pick
+  count, matching the real 5e "pick something else instead" rule.
+  Redoing the level where a choice originated shows it fully
+  interactive again — the exclusion is by that specific group's own
+  identity, not by comparing levels, so this falls out correctly
+  without needing special-case level math.
+- Found and fixed a real pre-existing bug along the way: picks made
+  during the very first Character Setup wizard were saved under a
+  different, temporary key format than everything else uses
+  afterward (activeRuleChoiceGroups's real field-based key) — meaning
+  a proficiency chosen during Setup would silently stop being
+  recognized as picked the moment Setup finished, showing unchecked
+  on the sheet. `syncRulesToSheet` (Finish Setup) now migrates those
+  keys over as part of finishing setup.
 
 ## Regenerating this later
 

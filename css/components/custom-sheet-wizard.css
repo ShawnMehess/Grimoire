@@ -383,6 +383,18 @@
   grid-column: 2;
 }
 
+/* Already granted from somewhere else (a fixed Race/Class/Background
+   grant, or an earlier already-applied choice) — same subtle
+   dim + accent-tint treatment as a granted checkbox on the sheet
+   itself (.option-checkbox--granted), so the two read consistently. */
+.level-guide__choice-option--granted {
+  opacity: 0.85;
+}
+.level-guide__choice-option--granted input:disabled {
+  accent-color: var(--color-accent);
+  cursor: default;
+}
+
 .rule-resources {
   display: flex;
   flex-direction: column;

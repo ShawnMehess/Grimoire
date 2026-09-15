@@ -7,6 +7,7 @@
 // code testable without a live backend.
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js";
+import { DEFAULT_CONTENT } from "../data/defaultContent.js";
 import {
   getFirestore,
   doc,
@@ -139,9 +140,96 @@ export async function isCurrentUserAdmin() {
 
 // --- Character CRUD ---------------------------------------------------------
 
+// --- Default-content bundle deduplication ----------------------------------
+//
+// A Class/Race/Background dropdown's `choices` carry their full bundle
+// (proficiencies, features, choice groups) directly on each choice —
+// that's what lets a brand-new character work immediately with no
+// import step (see blockModel.js/defaultContent.js). But that means
+// EVERY character document embeds a full copy of all 12 classes' +
+// 13 races' + 9 backgrounds' bundles on its Class/Race/Background
+// dropdowns, not just whichever one is actually selected — about
+// 330KB of pure duplication per character, baseline, before a single
+// portrait or note is added. Firestore documents cap out at 1MB, and
+// the app already warns about that limit for portraits — no reason to
+// also be silently eating a third of the budget on data that's
+// identical across every character and already sitting in
+// defaultContent.js.
+//
+// Fix: strip a choice's bundle down to `null` right before writing,
+// whenever it's an exact match for the canonical default (so a
+// player's own customized bundle, attached by hand via a dropdown's
+// Modifiers editor, is left alone — it won't match and survives).
+// Re-attach the canonical bundle right after reading, so none of the
+// rendering code (which reads `choice.bundle` directly in a dozen
+// places) needs to know or care that this happened.
+function normBundleName(s) { return (s || "").trim().toLowerCase(); }
+
+const DEFAULT_BUNDLE_MAPS = {
+  class: new Map(DEFAULT_CONTENT.classEntries.map((e) => [normBundleName(e.name), e.bundle])),
+  race: new Map(DEFAULT_CONTENT.raceEntries.map((e) => [normBundleName(e.name), e.bundle])),
+  background: new Map(DEFAULT_CONTENT.bgEntries.map((e) => [normBundleName(e.name), e.bundle])),
+};
+
+function walkBundleChoices(layout, visit) {
+  (layout || []).forEach((block) => {
+    (block.children || []).forEach((field) => {
+      const map = DEFAULT_BUNDLE_MAPS[normBundleName(field.label)];
+      if (!map || !Array.isArray(field.choices)) return;
+      field.choices.forEach((choice) => visit(choice, map));
+    });
+  });
+}
+
+function stripDefaultBundlesFromLayout(layout) {
+  walkBundleChoices(layout, (choice, map) => {
+    const canonical = map.get(normBundleName(choice.text));
+    if (canonical && choice.bundle && JSON.stringify(choice.bundle) === JSON.stringify(canonical)) {
+      choice.bundle = null;
+    }
+  });
+  return layout;
+}
+
+function hydrateDefaultBundlesInLayout(layout) {
+  walkBundleChoices(layout, (choice, map) => {
+    if (choice.bundle) return; // already has something — a custom bundle, or already hydrated
+    const canonical = map.get(normBundleName(choice.text));
+    if (canonical) choice.bundle = canonical;
+  });
+  return layout;
+}
+
+/** Strips default bundles from a clone of whichever of `layout` /
+ *  `sheetTabs` are present on a save patch, leaving anything else in
+ *  the patch untouched. Safe to call on any patch object — a no-op
+ *  for patches that don't touch either field. */
+function stripBundlesFromPatch(patch) {
+  if (!patch || (!("layout" in patch) && !("sheetTabs" in patch))) return patch;
+  const out = { ...patch };
+  if (out.layout) out.layout = stripDefaultBundlesFromLayout(JSON.parse(JSON.stringify(out.layout)));
+  if (Array.isArray(out.sheetTabs)) {
+    out.sheetTabs = JSON.parse(JSON.stringify(out.sheetTabs));
+    out.sheetTabs.forEach((tab) => { if (tab && tab.layout) stripDefaultBundlesFromLayout(tab.layout); });
+  }
+  return out;
+}
+
+/** Re-attaches default bundles onto a character object fresh out of
+ *  Firestore (mutates and returns it — nothing else holds a
+ *  reference to it yet at that point, so this is safe). */
+function hydrateCharacter(data) {
+  if (!data) return data;
+  if (data.layout) hydrateDefaultBundlesInLayout(data.layout);
+  if (Array.isArray(data.sheetTabs)) {
+    data.sheetTabs.forEach((tab) => { if (tab && tab.layout) hydrateDefaultBundlesInLayout(tab.layout); });
+  }
+  return data;
+}
+
 export async function loadCharacter(characterId) {
   const snap = await getDoc(doc(db, CHARACTERS_COLLECTION, characterId));
-  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  return snap.exists() ? hydrateCharacter({ id: snap.id, ...snap.data() }) : null;
 }
 
 export async function listMyCharacters() {
@@ -155,7 +243,7 @@ export async function listMyCharacters() {
 export async function createCharacter(characterData) {
   const ref = doc(collection(db, CHARACTERS_COLLECTION));
   await setDoc(ref, {
-    ...characterData,
+    ...stripBundlesFromPatch(characterData),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -164,7 +252,7 @@ export async function createCharacter(characterData) {
 
 export async function saveCharacterField(characterId, fieldId, value) {
   await updateDoc(doc(db, CHARACTERS_COLLECTION, characterId), {
-    [fieldId]: value,
+    ...stripBundlesFromPatch({ [fieldId]: value }),
     updatedAt: serverTimestamp(),
   });
   if (fieldId === "name" || fieldId === "layout") {
@@ -176,7 +264,7 @@ export async function saveCharacterField(characterId, fieldId, value) {
 
 export async function saveCharacterFields(characterId, patch) {
   await updateDoc(doc(db, CHARACTERS_COLLECTION, characterId), {
-    ...patch,
+    ...stripBundlesFromPatch(patch),
     updatedAt: serverTimestamp(),
   });
   if ("name" in patch || "layout" in patch) {
@@ -197,15 +285,11 @@ export async function deleteCharacter(characterId) {
  */
 export function subscribeToCharacter(characterId, onUpdate) {
   return onSnapshot(doc(db, CHARACTERS_COLLECTION, characterId), (snap) => {
-    if (snap.exists()) onUpdate({ id: snap.id, ...snap.data() });
+    if (snap.exists()) onUpdate(hydrateCharacter({ id: snap.id, ...snap.data() }));
   });
 }
 
 // --- Sheet templates -------------------------------------------------------
-
-function cloneLayout(layout) {
-  return JSON.parse(JSON.stringify(layout || []));
-}
 
 function parseTemplateName(name) {
   const trimmed = (name || "").trim();
@@ -219,13 +303,18 @@ function parseTemplateName(name) {
 }
 
 function templatePayload(character, parsed) {
+  // stripBundlesFromPatch already knows layout vs. sheetTabs are
+  // shaped differently (a flat block array vs. an array of tabs each
+  // with their own .layout) — reuse it here instead of the generic
+  // cloneLayout, which only handled the flat-block shape correctly.
+  const stripped = stripBundlesFromPatch({ layout: character.layout, sheetTabs: character.sheetTabs || [] });
   return {
     characterId: character.id,
     ownerId: character.ownerId,
     name: parsed.templateName,
     sourceName: character.name || "",
-    layout: cloneLayout(character.layout),
-    sheetTabs: cloneLayout(character.sheetTabs || []),
+    layout: stripped.layout || [],
+    sheetTabs: stripped.sheetTabs || [],
     updatedAt: serverTimestamp(),
   };
 }

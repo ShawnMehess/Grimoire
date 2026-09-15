@@ -178,56 +178,130 @@ async function renderCharacterList() {
   appRoot.append(heading);
 
   const characters = await listMyCharacters();
+
+  const searchRow = document.createElement("div");
+  searchRow.className = "character-vault__search-row";
+  const searchInput = document.createElement("input");
+  searchInput.type = "search";
+  searchInput.className = "input-group__control character-vault__search";
+  searchInput.placeholder = "Search your characters…";
+  searchRow.append(searchInput);
+  // Only worth showing once there's enough in the list to actually
+  // need narrowing down — an empty search box above two or three
+  // cards is just clutter.
+  if (characters.length > 6) appRoot.append(searchRow);
+
   const list = document.createElement("div");
   list.className = "character-card-grid";
-
-  characters.forEach(c => {
-    const card = document.createElement("div");
-    card.className = "character-card";
-    card.addEventListener("click", () => openCharacter(c.id));
-
-    const portrait = document.createElement("div");
-    portrait.className = "character-card__portrait";
-    const avatarData = findAvatarImageData(c);
-    if (avatarData) {
-      const img = document.createElement("img");
-      img.src = avatarData;
-      img.alt = "";
-      portrait.append(img);
-    } else {
-      portrait.append(buildPlaceholderPortraitSvg());
-    }
-    card.append(portrait);
-
-    const deleteBtn = document.createElement("button");
-    deleteBtn.type = "button";
-    deleteBtn.className = "character-card__delete";
-    deleteBtn.textContent = "✕";
-    deleteBtn.title = "Delete character";
-    deleteBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const confirmed = window.confirm(`Delete "${c.name || "Unnamed"}"? This can't be undone.`);
-      if (!confirmed) return;
-      await deleteCharacter(c.id);
-      renderCharacterList();
-    });
-    card.append(deleteBtn);
-
-    const info = document.createElement("div");
-    info.className = "character-card__info";
-    const nameEl = document.createElement("div");
-    nameEl.className = "character-card__name";
-    nameEl.textContent = c.name || "Unnamed";
-    const metaEl = document.createElement("div");
-    metaEl.className = "character-card__meta";
-    metaEl.textContent = buildCardMeta(c);
-    info.append(nameEl, metaEl);
-    card.append(info);
-
-    list.append(card);
-  });
-
   appRoot.append(list);
+
+  const emptyState = document.createElement("p");
+  emptyState.className = "leveling-tab__intro";
+  emptyState.textContent = "No characters match that search.";
+
+  function renderCards(filterText) {
+    list.innerHTML = "";
+    const needle = filterText.trim().toLowerCase();
+    const filtered = needle
+      ? characters.filter((c) => (c.name || "Unnamed").toLowerCase().includes(needle))
+      : characters;
+
+    if (filtered.length === 0) {
+      appRoot.append(emptyState);
+      return;
+    }
+    emptyState.remove();
+
+    filtered.forEach(c => {
+      const card = document.createElement("div");
+      card.className = "character-card";
+      card.addEventListener("click", () => openCharacter(c.id));
+
+      const portrait = document.createElement("div");
+      portrait.className = "character-card__portrait";
+      const avatarData = findAvatarImageData(c);
+      if (avatarData) {
+        const img = document.createElement("img");
+        img.src = avatarData;
+        img.alt = "";
+        portrait.append(img);
+      } else {
+        portrait.append(buildPlaceholderPortraitSvg());
+      }
+      card.append(portrait);
+
+      const actions = document.createElement("div");
+      actions.className = "character-card__actions";
+
+      const duplicateBtn = document.createElement("button");
+      duplicateBtn.type = "button";
+      duplicateBtn.className = "character-card__duplicate";
+      duplicateBtn.textContent = "⧉";
+      duplicateBtn.title = "Duplicate character";
+      duplicateBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        duplicateBtn.disabled = true;
+        try {
+          await duplicateCharacter(c);
+          await renderCharacterList();
+        } catch (err) {
+          console.error("Failed to duplicate character:", err);
+          window.alert("Couldn't duplicate that character — see the console for details.");
+          duplicateBtn.disabled = false;
+        }
+      });
+      actions.append(duplicateBtn);
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "character-card__delete";
+      deleteBtn.textContent = "✕";
+      deleteBtn.title = "Delete character";
+      deleteBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const confirmed = window.confirm(`Delete "${c.name || "Unnamed"}"? This can't be undone.`);
+        if (!confirmed) return;
+        await deleteCharacter(c.id);
+        renderCharacterList();
+      });
+      actions.append(deleteBtn);
+
+      card.append(actions);
+
+      const info = document.createElement("div");
+      info.className = "character-card__info";
+      const nameEl = document.createElement("div");
+      nameEl.className = "character-card__name";
+      nameEl.textContent = c.name || "Unnamed";
+      const metaEl = document.createElement("div");
+      metaEl.className = "character-card__meta";
+      metaEl.textContent = buildCardMeta(c);
+      info.append(nameEl, metaEl);
+      card.append(info);
+
+      list.append(card);
+    });
+  }
+
+  searchInput.addEventListener("input", () => renderCards(searchInput.value));
+  renderCards("");
+}
+
+/** Clones a character's full saved state (layout, sheetTabs, rules,
+ *  level-up history, notes — everything except id/timestamps/name)
+ *  into a brand-new character owned by the current user. Handy as a
+ *  starting point for a variant build, or for a friend who wants "the
+ *  same character but at level 5" without redoing every choice.
+ *  Deliberately NOT a template — templates are meant to be a reusable
+ *  starting *shape* (see openNewCharacterDialog); this is a full,
+ *  independent copy of one specific character. */
+async function duplicateCharacter(character) {
+  const { id, createdAt, updatedAt, ...rest } = character;
+  const clone = JSON.parse(JSON.stringify(rest));
+  clone.name = character.name ? `${character.name} (Copy)` : "Unnamed (Copy)";
+  clone.ownerId = currentUserId();
+  const newId = await createCharacter(clone);
+  return newId;
 }
 
 async function openNewCharacterDialog() {

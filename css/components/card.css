@@ -102,10 +102,16 @@
   white-space: nowrap;
 }
 
-.character-card__delete {
+.character-card__actions {
   position: absolute;
   top: 6px;
   right: 6px;
+  display: flex;
+  gap: 4px;
+}
+
+.character-card__delete,
+.character-card__duplicate {
   width: 24px;
   height: 24px;
   padding: 0;
@@ -123,4 +129,24 @@
   color: #fff;
   background: var(--color-negative);
   border-color: var(--color-negative);
+}
+.character-card__duplicate:hover {
+  color: #fff;
+  background: var(--color-accent, var(--color-border-strong));
+  border-color: var(--color-accent, var(--color-border-strong));
+}
+.character-card__duplicate:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* --- Character Vault search --------------------------------------------- */
+
+.character-vault__search-row {
+  margin-bottom: var(--space-3);
+}
+
+.character-vault__search {
+  width: 100%;
+  max-width: 320px;
 }

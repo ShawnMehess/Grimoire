@@ -65,6 +65,7 @@ import { openCatalogBrowser } from "./catalogBrowser.js";
 import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets } from "../data/dnd5e.js";
 import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor } from "../data/rulesEngine.js";
 import { DEFAULT_CONTENT } from "../data/defaultContent.js";
+import { ABILITIES, SKILLS } from "../data/schema.js";
 
 const PAGE_COLS = 16;
 const GAP_PX = 10;
@@ -1030,6 +1031,8 @@ export function renderCustomSheet(root, character, store) {
     redoBtn.disabled = redoStack.length === 0;
   }
 
+  const ARROW_DELTAS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+
   function onShortcut(e) {
     if (e.key === "Escape") {
       if (document.activeElement && document.activeElement.blur) {
@@ -1064,6 +1067,18 @@ export function renderCustomSheet(root, character, store) {
       return;
     }
 
+    // Keyboard equivalent of dragging (plain arrows) or resizing
+    // (Shift+arrow) the current selection by one grid cell — until
+    // now, moving or resizing anything on the sheet required a mouse
+    // or a precise touch drag, with no way to do either from a
+    // keyboard or with imprecise touch input.
+    if (editMode && selectedIds.size > 0 && !e.ctrlKey && !e.metaKey && !e.altKey && ARROW_DELTAS[e.key]) {
+      e.preventDefault();
+      const [dx, dy] = ARROW_DELTAS[e.key];
+      nudgeSelection(dx, dy, e.shiftKey);
+      return;
+    }
+
     if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return;
     const key = e.key.toLowerCase();
     if (key === "z") {
@@ -1073,6 +1088,60 @@ export function renderCustomSheet(root, character, store) {
       e.preventDefault();
       redo();
     }
+  }
+
+  /** The block a field's id lives inside, searching both the global
+   *  tab's layout and the current tab's — same two-layout fallback
+   *  findNode/findParentArray already use elsewhere. Returns null for
+   *  a top-level block id (blocks have no parent). */
+  function parentBlockOf(fieldId) {
+    for (const layout of [globalLayout(), currentLayout()]) {
+      for (const block of layout) {
+        if ((block.children || []).some((f) => f.id === fieldId)) return block;
+      }
+    }
+    return null;
+  }
+
+  /** Moves (plain) or resizes (Shift) every top-level selected node by
+   *  one grid cell in the given direction — the keyboard path for
+   *  what wireDrag/wireResize's pointer dragging below already does.
+   *  "Top-level" matters here the same way it does for a mouse drag:
+   *  selecting a block also selects all its own fields (see
+   *  selectBlockAndFields), but only the block itself should actually
+   *  move/resize in that case — its fields ride along for free via
+   *  their already-relative positioning, exactly like dragging the
+   *  block's own handle does. A field is only nudged on its own when
+   *  it's selected WITHOUT its parent block (an individual field
+   *  selection). Bounds match wireDrag/wireResize's own: a field is
+   *  clamped to its parent block's content area, a block is
+   *  unbounded (it can go anywhere on the canvas, same as dragging
+   *  it). */
+  function nudgeSelection(dx, dy, resize) {
+    const targets = [...selectedIds].filter((id) => {
+      const block = parentBlockOf(id);
+      return !block || !selectedIds.has(block.id);
+    });
+    if (targets.length === 0) return;
+    commitMutation(() => {
+      targets.forEach((id) => {
+        const node = findNode(globalLayout(), id) || findNode(currentLayout(), id);
+        if (!node) return;
+        const isField = !Array.isArray(node.children);
+        const block = isField ? parentBlockOf(id) : null;
+        if (resize) {
+          const maxW = isField && block ? block.w - node.x : Infinity;
+          const maxH = isField && block ? (block.h - BLOCK_HEADER_ROWS) - node.y : Infinity;
+          node.w = Math.min(maxW, Math.max(1, node.w + dx));
+          node.h = Math.min(maxH, Math.max(1, node.h + dy));
+        } else {
+          const maxX = isField && block ? Math.max(0, block.w - node.w) : Infinity;
+          const maxY = isField && block ? Math.max(0, (block.h - BLOCK_HEADER_ROWS) - node.h) : Infinity;
+          node.x = Math.min(maxX, Math.max(0, node.x + dx));
+          node.y = Math.min(maxY, Math.max(0, node.y + dy));
+        }
+      });
+    });
   }
 
   /** Deletes whichever block or field currently has keyboard focus (or
@@ -1697,40 +1766,64 @@ export function renderCustomSheet(root, character, store) {
     return features;
   }
 
+  /** A resource that scales with level (Rage uses, Ki points, ...) is
+   *  written as one resourceGrants entry per level tier — same
+   *  approach as featureGrants/ASI. Naively pushing every tier whose
+   *  minLevel is <= the current level would show the same resource
+   *  several times over (all its past tiers, not just the current
+   *  one), so candidates are collected first and then reduced to the
+   *  single highest-minLevel tier per resource. The dedup key —
+   *  and, importantly, the *storage* key used to remember how many
+   *  uses are left — is based on the resource's name, not which tier
+   *  is currently active, so leveling up from one tier to the next
+   *  doesn't reset how many uses were already spent.
+   *
+   *  A grant's maximum is normally a flat integer, but some resources
+   *  (Bardic Inspiration = CHA modifier, minimum 1) scale off an
+   *  ability score rather than level — grant.maximumFormula, when
+   *  present, is a formula node (same {type,text}/{type:"if",...}
+   *  shape as a field's own `formula`) evaluated against the current
+   *  valueMap instead, and takes priority over a flat grant.maximum. */
   function collectResourceGrants(fields, valueMap) {
     const level = currentLevel(valueMap);
-    const resources = [];
-    const add = (grant, key, source) => {
+    const candidates = [];
+    const resolveMaximum = (grant) => {
+      if (grant.maximumFormula) {
+        const computed = evaluateFormulaNode(grant.maximumFormula, valueMap);
+        return Number.isFinite(computed) ? Math.max(0, Math.round(computed)) : 0;
+      }
+      return Math.max(0, Number.parseInt(grant.maximum, 10) || 0);
+    };
+    const add = (grant, keyBase, source) => {
       if (grant.minLevel && level < grant.minLevel) return;
-      const maximum = Math.max(0, Number.parseInt(grant.maximum, 10) || 0);
+      const maximum = resolveMaximum(grant);
       if (!grant.name || maximum < 1) return;
-      resources.push({
-        key,
-        name: grant.name,
-        maximum,
-        reset: grant.reset || "rest",
-        source,
-      });
+      candidates.push({ key: `${keyBase}:${grant.name}`, name: grant.name, maximum, minLevel: grant.minLevel || 0, reset: grant.reset || "rest", source });
     };
     fields.forEach((field) => {
       if (field.fieldType !== "dropdown") return;
       const choice = (field.choices || []).find((candidate) => candidate.id === field.selected);
       const bundle = choice?.bundle;
-      (bundle?.resourceGrants || []).forEach((grant, index) => {
-        add(grant, `${field.id}:${choice.id}:resource:${grant.id || index}`, choice.text || field.label);
+      (bundle?.resourceGrants || []).forEach((grant) => {
+        add(grant, `${field.id}:${choice.id}:resource`, choice.text || field.label);
       });
     });
     selectedRuleOptions(fields, valueMap).forEach(({ option, group }) => {
-      (option.resourceGrants || []).forEach((grant, index) => {
-        add(grant, `${group.key}:${option.id}:resource:${grant.id || index}`, option.name || group.label || group.source);
+      (option.resourceGrants || []).forEach((grant) => {
+        add(grant, `${group.key}:${option.id}:resource`, option.name || group.label || group.source);
       });
     });
     selectedFeatBundles().forEach(({ name, bundle }) => {
-      (bundle.resourceGrants || []).forEach((grant, index) => {
-        add(grant, `feat:${name}:resource:${grant.id || index}`, name);
+      (bundle.resourceGrants || []).forEach((grant) => {
+        add(grant, `feat:${name}:resource`, name);
       });
     });
-    return resources;
+    const byKey = new Map();
+    candidates.forEach((candidate) => {
+      const existing = byKey.get(candidate.key);
+      if (!existing || candidate.minLevel >= existing.minLevel) byKey.set(candidate.key, candidate);
+    });
+    return [...byKey.values()];
   }
 
   function computeSheetValues(fields) {
@@ -2445,13 +2538,23 @@ export function renderCustomSheet(root, character, store) {
   /** Human-readable label for a statModifier's targetFieldId — special-
    *  cased for the ability-score fields (strScore/dexScore/...) since
    *  "STR" reads far better in a preview than whatever a sheet's field
-   *  happens to be labeled; everything else falls back to that field's
-   *  actual label (or the raw id, if the sheet doesn't have a field
-   *  with that id at all — bundles are written assuming a compatible
-   *  sheet, same as applyStatModifiers itself assumes). */
+   *  happens to be labeled, and likewise for the saving-throw/skill
+   *  proficiency checkboxes (strSaveProf, athleticsProf, ...) — every
+   *  one of those is literally labeled "Prof." on the sheet itself
+   *  (it sits next to its own name label instead of repeating it), so
+   *  falling back to the field's real label for those would show
+   *  "Prof." for every single save/skill grant with no way to tell
+   *  which one. Everything else falls back to that field's actual
+   *  label (or the raw id, if the sheet doesn't have a field with that
+   *  id at all — bundles are written assuming a compatible sheet, same
+   *  as applyStatModifiers itself assumes). */
   function statModifierLabel(mod) {
     const abilityId = ABILITY_IDS.find((id) => mod.targetFieldId === `${id}Score`);
     if (abilityId) return abilityId.toUpperCase();
+    const saveAbility = ABILITIES.find((a) => mod.targetFieldId === `${a.id}SaveProf`);
+    if (saveAbility) return `${saveAbility.label} Save`;
+    const skill = SKILLS.find((s) => mod.targetFieldId === `${s.id}Prof`);
+    if (skill) return skill.label;
     return resolveFieldById(mod.targetFieldId)?.label || mod.targetFieldId;
   }
 
@@ -2578,11 +2681,96 @@ export function renderCustomSheet(root, character, store) {
   }
 
   // Same checkbox/radio-group rendering as the Leveling wizard's
-  // "Choices" step (see the contentGroups step further down), just
-  // writing straight to character.rules.choices instead of a staged
-  // "pending" object — the creation wizard's other steps (Race,
-  // Class...) already mutate character.rules directly the same way.
-  function renderCreationChoiceGroups(container, groups, saveRules) {
+  // "Choices" step (see the contentGroups step further down) — both
+  // now go through the shared renderChoiceGroups() below, which is
+  // also where "can't pick more than you're told to" is enforced.
+  function renderCreationChoiceGroups(container, groups, saveRules, state) {
+    renderChoiceGroups(container, groups, character.rules.choices, "creation-choice", saveRules,
+      (excludeKey) => ownedSkillIdsFrom(creationFixedBundles(state), creationChoiceGroupsFor(state), excludeKey));
+  }
+
+  /** The Race/Class/Subclass/Background bundles implied by the Setup
+   *  wizard's own staged `state` — used for the "already have this"
+   *  check below during Setup, since the real sheet fields (which
+   *  everywhere else reads fixed grants from) don't have anything
+   *  `.selected` yet at that point in the flow. */
+  function creationFixedBundles(state) {
+    return [
+      bundleFor("Race", state.species, state.rulesetId),
+      bundleFor("Class", state.className, state.rulesetId),
+      bundleFor("Subclass", state.subclass, state.rulesetId),
+      bundleFor("Background", state.background, state.rulesetId),
+    ].filter(Boolean);
+  }
+
+  /** Core of "what skill proficiencies are already accounted for,
+   *  other than by the group currently being rendered" — shared by
+   *  both contexts that need it (see the two callers below), which
+   *  differ only in WHERE a fixed grant and a sibling group's picks
+   *  come from: the Setup wizard's own staged state (nothing is
+   *  `.selected` on the real sheet fields yet at that point) versus
+   *  the real, already-committed sheet post-Setup. `fixedBundles` is
+   *  every currently-relevant Race/Class/Subclass/Background bundle
+   *  (their statModifiers are always active, regardless of level);
+   *  `otherGroups` is every choiceGroups entry that might have an
+   *  already-made pick worth counting, in whichever key format this
+   *  context actually stores picks under. Excluding the current group
+   *  by its own key (not by comparing levels) is what makes "redoing
+   *  a past level's own choice" behave normally: from that group's
+   *  own point of view its own prior picks were never "someone
+   *  else's" to begin with. */
+  function ownedSkillIdsFrom(fixedBundles, otherGroups, excludeGroupKey) {
+    const owned = new Set();
+    fixedBundles.forEach((bundle) => {
+      (bundle?.statModifiers || []).forEach((mod) => {
+        if (mod.op === "grant") owned.add(mod.targetFieldId);
+      });
+    });
+    otherGroups.forEach((group) => {
+      if (group.key === excludeGroupKey) return;
+      const picks = character.rules.choices[group.key] || [];
+      group.options.forEach((option) => {
+        if (!picks.includes(option.id)) return;
+        (option.statModifiers || []).forEach((mod) => {
+          if (mod.op === "grant") owned.add(mod.targetFieldId);
+        });
+      });
+    });
+    return owned;
+  }
+
+  /** Post-Setup version of the "already have this" check — fixed
+   *  grants come from whatever's actually `.selected` on the real
+   *  sheet fields now, and sibling groups come from
+   *  activeRuleChoiceGroups (the real key format), rather than the
+   *  Setup wizard's own staged state/temporary keys (see
+   *  renderCreationChoiceGroups above for that version). Used by the
+   *  Leveling wizard's Choices step. */
+  function alreadyOwnedSkillIds(excludeGroupKey) {
+    const fields = flattenGlobalFields();
+    const fixedBundles = fields
+      .filter((field) => field.fieldType === "dropdown")
+      .map((field) => (field.choices || []).find((c) => c.id === field.selected)?.bundle);
+    return ownedSkillIdsFrom(fixedBundles, activeRuleChoiceGroups(fields, formulaValues), excludeGroupKey);
+  }
+
+  /** Shared renderer for a choiceGroups list's checkboxes/radios —
+   *  used by both the Character-setup wizard's Choices step and the
+   *  Leveling wizard's Choices step. Enforces maxSelections: once a
+   *  group has as many picks as it allows, every other option in that
+   *  group is disabled (a radio group never needs this — picking a
+   *  new one always replaces the old — so this only applies to
+   *  checkbox groups with room for more than one pick). Also shows an
+   *  option as already-picked-and-locked (separately from the
+   *  maxSelections disabling above) whenever it grants a proficiency
+   *  the character already has from elsewhere — same idea as a real
+   *  5e "if you'd gain a proficiency you already have, pick something
+   *  else instead" rule — so it doesn't count against this group's
+   *  own maxSelections at all, leaving the full pick count available
+   *  from whatever's left. Re-renders itself after every change so
+   *  the disabled state always matches the current count. */
+  function renderChoiceGroups(container, groups, choicesStore, namePrefix, onChange, ownedResolver) {
+    container.innerHTML = "";
     if (!groups.length) {
       const note = document.createElement("p");
       note.className = "leveling-tab__intro";
@@ -2590,38 +2778,54 @@ export function renderCustomSheet(root, character, store) {
       container.append(note);
       return;
     }
+    const rerender = () => renderChoiceGroups(container, groups, choicesStore, namePrefix, onChange, ownedResolver);
     groups.forEach((group) => {
-      if (!character.rules.choices[group.key]) character.rules.choices[group.key] = [];
+      if (!choicesStore[group.key]) choicesStore[group.key] = [];
+      const selected = choicesStore[group.key];
+      const owned = ownedResolver ? ownedResolver(group.key) : new Set();
       const choiceGroup = document.createElement("fieldset");
       choiceGroup.className = "level-guide__choices";
       const legend = document.createElement("legend");
       const count = group.minSelections === group.maxSelections
         ? `Choose ${group.maxSelections}`
         : `Choose up to ${group.maxSelections}`;
-      legend.textContent = `${group.label || "Choose an option"} (${count})`;
+      legend.textContent = `${group.label || "Choose an option"} (${count} — ${selected.length}/${group.maxSelections} picked)`;
       choiceGroup.append(legend);
       const source = document.createElement("p");
       source.className = "level-guide__choice-source";
       source.textContent = group.source;
       choiceGroup.append(source);
+      const atMax = selected.length >= group.maxSelections;
       group.options.forEach((option) => {
         const optionLabel = document.createElement("label");
         optionLabel.className = "level-guide__choice-option";
+        const alreadyOwned = (option.statModifiers || []).some((mod) => mod.op === "grant" && owned.has(mod.targetFieldId));
         const input = document.createElement("input");
         input.type = group.maxSelections === 1 ? "radio" : "checkbox";
-        input.name = `creation-choice-${group.key}`;
+        input.name = `${namePrefix}-${group.key}`;
         input.value = option.id;
-        input.checked = character.rules.choices[group.key].includes(option.id);
+        const isChecked = selected.includes(option.id);
+        input.checked = isChecked || alreadyOwned;
+        if (alreadyOwned) {
+          input.disabled = true;
+          optionLabel.classList.add("level-guide__choice-option--granted");
+          optionLabel.title = "Already have this from another selection — pick something else instead";
+        } else if (input.type === "checkbox" && atMax && !isChecked) {
+          input.disabled = true;
+        }
         input.addEventListener("change", () => {
-          const selected = character.rules.choices[group.key];
           if (input.type === "radio") {
-            character.rules.choices[group.key] = input.checked ? [option.id] : [];
+            choicesStore[group.key] = input.checked ? [option.id] : [];
           } else if (input.checked) {
+            // Guards a full group even if disabling the input above
+            // hasn't taken effect yet (e.g. two change events racing).
+            if (selected.length >= group.maxSelections) { input.checked = false; return; }
             if (!selected.includes(option.id)) selected.push(option.id);
           } else {
-            character.rules.choices[group.key] = selected.filter((id) => id !== option.id);
+            choicesStore[group.key] = selected.filter((id) => id !== option.id);
           }
-          saveRules();
+          if (onChange) onChange();
+          rerender();
         });
         const text = document.createElement("span");
         text.textContent = option.name || "Unnamed option";
@@ -2877,36 +3081,36 @@ export function renderCustomSheet(root, character, store) {
       : "Everything from this ruleset's bundles was already applied.";
   }
 
-  const STANDARD_ASI_LEVELS = new Set([4, 8, 12, 16, 19]);
-
   /** Whether `level` grants an Ability Score Improvement for this
-   *  class. featureGrants only records the FIRST level a feature
-   *  appears (minLevel) — it has no way to say "and again at 6th,
-   *  8th...", so a class that grants recurring ASIs (most of them)
-   *  would only show one here if we went by minLevel alone. As a
-   *  stand-in until featureGrants gains a real repeat-levels field,
-   *  this trusts the standard 5e cadence (4/8/12/16/19) for any class
-   *  that has an "Ability Score Improvement" feature at all, in
-   *  addition to whatever minLevel it's actually tagged at (which
-   *  covers homebrew classes that grant it on a different schedule,
-   *  as long as they're at least tagged once). */
+   *  class — every level tagged "Ability Score Improvement" in the
+   *  class's own featureGrants counts (not just the first one), so
+   *  this naturally covers a class with more than one ASI level (2014
+   *  Fighter at 6/14, Rogue at 10, on top of the usual 4/8/12/16/19)
+   *  without hardcoding any particular cadence. */
   function classGrantsAsiAtLevel(className, level) {
     const classField = findStarterField("class", "Class");
     const choice = classField?.choices?.find((c) => c.text === className);
     const grants = choice?.bundle?.featureGrants || [];
-    const asiFeature = grants.find((g) => /ability score improvement/i.test(g.name || ""));
-    if (!asiFeature) return false;
-    return level === asiFeature.minLevel || STANDARD_ASI_LEVELS.has(level);
+    // Every class gets an ASI at 4/8/12/16/19, but some (2014 Fighter:
+    // also 6 and 14; Rogue: also 10) get bonus ones too — checking
+    // every matching grant's own minLevel (rather than just the first
+    // one found, plus a fixed standard-levels set) is what catches
+    // those without hardcoding them here.
+    return grants.some((g) => g.minLevel === level && /ability score improvement/i.test(g.name || ""));
   }
 
   /** New featureGrants this class picks up exactly at `level` — shown
    *  as an informational step in the Leveling wizard. Only exact
    *  minLevel matches (not "at or above"), since anything from an
-   *  earlier level was already shown when the character reached it. */
+   *  earlier level was already shown when the character reached it.
+   *  Excludes "Ability Score Improvement" — that one gets its own
+   *  interactive step (see needsAsi below) instead of sitting here as
+   *  an inert duplicate of it. */
   function classFeatureGrantsAtLevel(className, level) {
     const classField = findStarterField("class", "Class");
     const choice = classField?.choices?.find((c) => c.text === className);
-    return (choice?.bundle?.featureGrants || []).filter((g) => g.minLevel === level);
+    return (choice?.bundle?.featureGrants || [])
+      .filter((g) => g.minLevel === level && !/ability score improvement/i.test(g.name || ""));
   }
 
   function findStarterField(id, label) {
@@ -2988,6 +3192,36 @@ export function renderCustomSheet(root, character, store) {
       const target = findStarterField(change.fieldId, change.label);
       if (target) { target.options = change.options; syncOptionWidth(target); }
     });
+    // The Setup wizard's own "Choices" steps (Proficiencies,
+    // Languages, Equipment, Feats, Spells) save picks under a
+    // temporary key — creation:<category>:<name>:<groupId> — built
+    // from creationChoiceGroupsFor's staged state, since the real
+    // Class/Race/Background/Subclass fields above don't have a
+    // `.selected` choice yet at that point in the wizard for a real
+    // key to be built from. Every OTHER choiceGroups reader
+    // (activeRuleChoiceGroups, and therefore the main sheet's own
+    // checkbox display and the cross-selection "already have this"
+    // check below) uses the real key — <fieldId>:<choiceId>:<groupId>
+    // — once those fields ARE actually set, which just happened
+    // above. Without migrating from one key to the other here, a
+    // proficiency picked during Setup would silently stop being
+    // recognized as picked the moment Setup finishes: it'd show
+    // unchecked on the sheet, and nothing later would know the player
+    // already has it.
+    [["Race", speciesField, character.rules.species], ["Class", classField, character.rules.className],
+     ["Subclass", subclassField, character.rules.subclass], ["Background", backgroundField, character.rules.background]]
+      .forEach(([category, target, name]) => {
+        if (!target || !name) return;
+        const choice = target.choices?.find((c) => c.id === target.selected);
+        (choice?.bundle?.choiceGroups || []).forEach((group, index) => {
+          const oldKey = `creation:${category}:${name}:${group.id || index}`;
+          const newKey = `${target.id}:${choice.id}:${group.id || index}`;
+          if (character.rules.choices[oldKey] && !character.rules.choices[newKey]) {
+            character.rules.choices[newKey] = character.rules.choices[oldKey];
+            delete character.rules.choices[oldKey];
+          }
+        });
+      });
     // Now that the choices exist and are selected, apply any
     // ruleset-tagged library bundle whose name matches — same matching
     // rule as Bulk Apply, just run automatically for the three/four
@@ -3450,7 +3684,7 @@ export function renderCustomSheet(root, character, store) {
         isApplicable: () => creationGroupsByCategory.spells.length > 0 || Boolean(getRulesetClass(state.rulesetId, state.className)?.caster),
         unavailableMessage: wizardUnavailableMessage,
         render(container) {
-          renderCreationChoiceGroups(container, creationGroupsByCategory.spells, saveRules);
+          renderCreationChoiceGroups(container, creationGroupsByCategory.spells, saveRules, state);
           if (getRulesetClass(state.rulesetId, state.className)?.caster) {
             const heading = document.createElement("p");
             heading.className = "wizard__section-label";
@@ -3466,7 +3700,7 @@ export function renderCustomSheet(root, character, store) {
         description: "Languages you get to choose from your race, class, subclass, or background.",
         isApplicable: () => creationGroupsByCategory.languages.length > 0,
         unavailableMessage: wizardUnavailableMessage,
-        render(container) { renderCreationChoiceGroups(container, creationGroupsByCategory.languages, saveRules); },
+        render(container) { renderCreationChoiceGroups(container, creationGroupsByCategory.languages, saveRules, state); },
       },
       {
         id: "equipment",
@@ -3474,7 +3708,7 @@ export function renderCustomSheet(root, character, store) {
         description: "Equipment packages or choices granted by your class or background.",
         isApplicable: () => creationGroupsByCategory.equipment.length > 0,
         unavailableMessage: wizardUnavailableMessage,
-        render(container) { renderCreationChoiceGroups(container, creationGroupsByCategory.equipment, saveRules); },
+        render(container) { renderCreationChoiceGroups(container, creationGroupsByCategory.equipment, saveRules, state); },
       },
       {
         id: "feats",
@@ -3482,7 +3716,7 @@ export function renderCustomSheet(root, character, store) {
         description: "Feats granted at character creation by your race or background.",
         isApplicable: () => creationGroupsByCategory.feats.length > 0,
         unavailableMessage: wizardUnavailableMessage,
-        render(container) { renderCreationChoiceGroups(container, creationGroupsByCategory.feats, saveRules); },
+        render(container) { renderCreationChoiceGroups(container, creationGroupsByCategory.feats, saveRules, state); },
       },
       {
         id: "proficiencies",
@@ -3490,7 +3724,7 @@ export function renderCustomSheet(root, character, store) {
         description: "Skill, tool, and saving throw proficiencies granted by your race, class, subclass, or background.",
         isApplicable: () => creationGroupsByCategory.proficiencies.length > 0,
         unavailableMessage: wizardUnavailableMessage,
-        render(container) { renderCreationChoiceGroups(container, creationGroupsByCategory.proficiencies, saveRules); },
+        render(container) { renderCreationChoiceGroups(container, creationGroupsByCategory.proficiencies, saveRules, state); },
       },
       {
         id: "review",
@@ -3742,51 +3976,7 @@ export function renderCustomSheet(root, character, store) {
         title: "Choices",
         description: "This level offers you a choice — pick from the options below. Check how many selections each group wants; you won't be able to apply this level until they're all satisfied.",
         render(container) {
-          contentGroups.forEach((group) => {
-            const choiceGroup = document.createElement("fieldset");
-            choiceGroup.className = "level-guide__choices";
-            const legend = document.createElement("legend");
-            const count = group.minSelections === group.maxSelections
-              ? `Choose ${group.maxSelections}`
-              : `Choose up to ${group.maxSelections}`;
-            legend.textContent = `${group.label || "Choose an option"} (${count})`;
-            choiceGroup.append(legend);
-            const source = document.createElement("p");
-            source.className = "level-guide__choice-source";
-            source.textContent = group.source;
-            choiceGroup.append(source);
-
-            group.options.forEach((option) => {
-              const optionLabel = document.createElement("label");
-              optionLabel.className = "level-guide__choice-option";
-              const input = document.createElement("input");
-              input.type = group.maxSelections === 1 ? "radio" : "checkbox";
-              input.name = `rule-choice-${group.key}`;
-              input.value = option.id;
-              input.checked = pending.choices[group.key].includes(option.id);
-              input.addEventListener("change", () => {
-                const selected = pending.choices[group.key];
-                if (input.type === "radio") {
-                  pending.choices[group.key] = input.checked ? [option.id] : [];
-                } else if (input.checked) {
-                  if (!selected.includes(option.id)) selected.push(option.id);
-                } else {
-                  pending.choices[group.key] = selected.filter((id) => id !== option.id);
-                }
-              });
-              const text = document.createElement("span");
-              text.textContent = option.name || "Unnamed option";
-              optionLabel.append(input, text);
-              if (option.description) {
-                const description = document.createElement("span");
-                description.className = "level-guide__choice-description";
-                description.textContent = option.description;
-                optionLabel.append(description);
-              }
-              choiceGroup.append(optionLabel);
-            });
-            container.append(choiceGroup);
-          });
+          renderChoiceGroups(container, contentGroups, pending.choices, "rule-choice", null, alreadyOwnedSkillIds);
         },
       });
     }
@@ -5512,6 +5702,7 @@ export function renderCustomSheet(root, character, store) {
         id: newId(),
         name: grant.name || "",
         maximum: Number.isFinite(grant.maximum) ? grant.maximum : 0,
+        maximumFormula: grant.maximumFormula || null,
         reset: grant.reset || "rest",
         minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
       });
