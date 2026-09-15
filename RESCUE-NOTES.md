@@ -131,6 +131,61 @@ a "catalog"-type field's own config popover.
   on the sheet. `syncRulesToSheet` (Finish Setup) now migrates those
   keys over as part of finishing setup.
 
+## Languages / Armor / Weapon / Tool Proficiencies — now real pickers
+
+These four were plain text boxes before. They're now a new "taglist"
+field type: a dropdown of the real vocabulary (16 languages, 4 armor
+categories, ~39 weapons incl. "All Simple/Martial Weapons" umbrella
+tags, ~37 tools/instruments/gaming sets) — picking one adds it to a
+chip list below, same moment you pick it.
+
+- A fixed Race/Class/Background grant (Dwarf's Battleaxe/Handaxe/
+  Light Hammer/Warhammer, a Fighter's full armor+weapon proficiency,
+  etc.) shows up as a locked chip automatically — same "grant" idea
+  as a skill checkbox, just a new "grantTag" statModifier op instead,
+  since a taglist's state is a set of tag strings, not indexed boxes.
+- A "choose N" proficiency (Acolyte's "two languages of your
+  choice", Bard's "three musical instruments of your choice", a
+  race's "one type of artisan's tools") is now a real choiceGroups
+  picker, same UI as skill choices, offering only the relevant
+  vocabulary — not a free-text note anymore.
+- None of the vocabulary comes from your JSON (Schema.txt has no
+  section for it) — hand-written standard 5e lists, same spirit as
+  the spell-slot tables.
+- A few phrasings didn't parse into a real pick, and are left as
+  text notes rather than guessed at: Monk's "one artisan tool OR
+  musical instrument" (an actual either/or, not a single category),
+  Urban Bounty Hunter's three-way overlapping choice, Folk
+  Hero/Sailor's "Vehicles (land/water)" proficiency (vehicles aren't
+  in the tool vocabulary at all), and Druid's "Shields (non-metal)"
+  restriction (the Shields tag itself IS granted; the non-metal
+  caveat is just a note alongside it).
+
+## Cross-category proficiency choices ("this OR that")
+
+A few proficiency phrasings weren't a single list to pick from —
+Monk's "one artisan tool **or** musical instrument", Urban Bounty
+Hunter's "two from a gaming set, a musical instrument, **or**
+thieves' tools" — pick N total, but the options come from genuinely
+different categories. Both now render as one dropdown per category
+instead of a combined list or a flattened note:
+
+- All the dropdowns for a group share ONE pick budget
+  (`group.maxSelections`) between them.
+- Picking a new value in any dropdown clears that same dropdown's
+  own prior pick first, then — if the shared total is now over
+  budget — evicts the OLDEST pick across every category to make
+  room. So for Monk (pick 1 total), choosing a musical instrument
+  after already having picked an artisan tool clears the tool
+  automatically; for Urban Bounty Hunter (pick 2 total), a third
+  pick evicts whichever of the first two was chosen first.
+- New choiceGroups shape: `categories: [{label, options}]` instead
+  of a flat `options` list — `renderCrossCategoryChoice` in
+  customSheet.js handles the rendering, `category_for_phrase` in the
+  compiler handles recognizing "X or Y" and "N from A, B, and C"
+  phrasing and resolving each part to either a known tool/instrument/
+  gaming-set category or a single literal item (like "thieves' tools").
+
 ## Regenerating this later
 
 If you get updated JSON, the compiler is a plain Python script (not

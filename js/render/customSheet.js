@@ -80,6 +80,7 @@ const DEFAULT_FIELD_SIZE = {
   label: { w: 2, h: 1 },
   textarea: { w: 3, h: 2 },
   textlist: { w: 3, h: 2 },
+  taglist: { w: 6, h: 2 },
   dropdown: { w: 2, h: 1 },
   picture: { w: 3, h: 3 },
   catalog: { w: 2, h: 1 },
@@ -89,7 +90,7 @@ const DEFAULT_FIELD_SIZE = {
 // Radio/checkbox auto-size via syncOptionWidth (their w/h are derived
 // from option count, not user-resizable); every other field type can
 // be freely resized.
-const RESIZABLE_FIELD_TYPES = new Set(["text", "label", "textarea", "textlist", "dropdown", "picture", "catalog", "featureList"]);
+const RESIZABLE_FIELD_TYPES = new Set(["text", "label", "textarea", "textlist", "taglist", "dropdown", "picture", "catalog", "featureList"]);
 // Field types with no separate label/value split — just one element
 // filling the whole field (see renderFieldInner).
 const CAPTIONLESS_FIELD_TYPES = new Set(["label", "picture", "catalog"]);
@@ -212,6 +213,12 @@ export function renderCustomSheet(root, character, store) {
   // state, and disables the box while granted (see the comment there
   // for why a granted box isn't independently uncheckable).
   let grantedCheckboxes = new Set();
+  // Same idea as grantedCheckboxes, for "taglist" fields (Languages,
+  // Armor/Weapon/Tool Proficiencies) — a "grantTag" statModifier op
+  // adds its value here instead of toggling a checkbox, since a
+  // taglist's state is an array of known tag strings rather than a
+  // fixed set of indexed boxes. Map<fieldId, Set<tagValue>>.
+  let grantedTags = new Map();
   // Every currently-unlocked feature grant across all active bundles, at
   // the character's current level — [{ name, description, level, source }],
   // sorted by level then source. Recomputed by collectGrantedFeatures
@@ -1616,8 +1623,16 @@ export function renderCustomSheet(root, character, store) {
    *  normal checked state — same "recomputed fresh every render, not
    *  a permanent mutation" model as the numeric ops, just via a
    *  different mechanism because checkboxes don't have a formula-style
-   *  computed layer to hook into. */
-  function applyStatModifiers(modifiers, valueMap, checkboxGrants, level) {
+   *  computed layer to hook into.
+   *
+   *  "grantTag" is the same idea for a "taglist" field (Languages,
+   *  Armor/Weapon/Tool Proficiencies): mod.value is the specific tag
+   *  string being granted (e.g. "battleaxe"), added to
+   *  grantedTags.get(fieldId) — a per-field Set, since (unlike a
+   *  checkbox's small fixed index range) a taglist's own vocabulary
+   *  is much bigger and each grant needs to name exactly which entry
+   *  it means. */
+  function applyStatModifiers(modifiers, valueMap, checkboxGrants, tagGrants, level) {
     (modifiers || []).forEach((mod) => {
       if (!mod.targetFieldId) return;
       if (mod.minLevel && level < mod.minLevel) return;
@@ -1625,6 +1640,12 @@ export function renderCustomSheet(root, character, store) {
         const key = `${mod.targetFieldId}::${mod.targetIndex || 0}`;
         checkboxGrants.add(key);
         valueMap[key] = 1;
+        return;
+      }
+      if (mod.op === "grantTag") {
+        if (!mod.value) return;
+        if (!tagGrants.has(mod.targetFieldId)) tagGrants.set(mod.targetFieldId, new Set());
+        tagGrants.get(mod.targetFieldId).add(mod.value);
         return;
       }
       const current = Number.isFinite(valueMap[mod.targetFieldId]) ? valueMap[mod.targetFieldId] : 0;
@@ -1695,20 +1716,20 @@ export function renderCustomSheet(root, character, store) {
       .filter(Boolean);
   }
 
-  function applyBundleModifiers(fields, valueMap, grantedCheckboxes) {
+  function applyBundleModifiers(fields, valueMap, grantedCheckboxes, grantedTags) {
     const level = currentLevel(valueMap);
     fields.forEach((field) => {
       if (field.fieldType !== "dropdown") return;
       const choice = (field.choices || []).find(c => c.id === field.selected);
       const bundle = choice && choice.bundle;
       if (!bundle) return;
-      applyStatModifiers(bundle.statModifiers, valueMap, grantedCheckboxes, level);
+      applyStatModifiers(bundle.statModifiers, valueMap, grantedCheckboxes, grantedTags, level);
     });
     selectedRuleOptions(fields, valueMap).forEach(({ option }) => {
-      applyStatModifiers(option.statModifiers, valueMap, grantedCheckboxes, level);
+      applyStatModifiers(option.statModifiers, valueMap, grantedCheckboxes, grantedTags, level);
     });
     selectedFeatBundles().forEach(({ bundle }) => {
-      applyStatModifiers(bundle.statModifiers, valueMap, grantedCheckboxes, level);
+      applyStatModifiers(bundle.statModifiers, valueMap, grantedCheckboxes, grantedTags, level);
     });
   }
 
@@ -1829,7 +1850,8 @@ export function renderCustomSheet(root, character, store) {
   function computeSheetValues(fields) {
     const valueMap = computeAllFormulas(fields);
     grantedCheckboxes = new Set();
-    applyBundleModifiers(fields, valueMap, grantedCheckboxes);
+    grantedTags = new Map();
+    applyBundleModifiers(fields, valueMap, grantedCheckboxes, grantedTags);
     grantedFeatures = collectGrantedFeatures(fields, valueMap);
     // One more settle pass so anything a bundle modifier just changed
     // (e.g. a race bonus on Strength) flows through to formulas that
@@ -2795,6 +2817,66 @@ export function renderCustomSheet(root, character, store) {
       source.className = "level-guide__choice-source";
       source.textContent = group.source;
       choiceGroup.append(source);
+      if (group.categories) {
+        renderCrossCategoryChoice(choiceGroup, group, choicesStore, rerender, onChange);
+      } else {
+        renderFlatChoiceOptions(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange);
+      }
+      container.append(choiceGroup);
+    });
+  }
+
+  /** "Pick N total, but the options are split across two or more
+   *  separate categories" (Monk's "one artisan tool OR musical
+   *  instrument", Urban Bounty Hunter's "two from a gaming set, a
+   *  musical instrument, or thieves' tools") — one <select> per
+   *  category instead of one flat checkbox/radio list, since the
+   *  categories themselves are the meaningful grouping here, not just
+   *  a long combined list. All the dropdowns share ONE pick budget
+   *  (group.maxSelections) across all of them: picking a new value in
+   *  any dropdown clears that SAME dropdown's own prior pick first
+   *  (a <select> only ever holds one value anyway), then if the
+   *  shared total is now over budget, the OLDEST pick — regardless of
+   *  which dropdown it came from — is evicted to make room, so the
+   *  most recent decision across every category is always the one
+   *  that sticks. */
+  function renderCrossCategoryChoice(container, group, choicesStore, rerender, onChange) {
+    const selected = choicesStore[group.key];
+    group.categories.forEach((category) => {
+      const row = document.createElement("label");
+      row.className = "level-guide__choice-option level-guide__category-choice";
+      const text = document.createElement("span");
+      text.textContent = category.label;
+      const select = document.createElement("select");
+      select.className = "input-group__control";
+      const noneOpt = document.createElement("option");
+      noneOpt.value = "";
+      noneOpt.textContent = "— None —";
+      select.append(noneOpt);
+      category.options.forEach((option) => {
+        const optionEl = document.createElement("option");
+        optionEl.value = option.id;
+        optionEl.textContent = option.name;
+        select.append(optionEl);
+      });
+      const current = category.options.find((o) => selected.includes(o.id));
+      select.value = current ? current.id : "";
+      select.addEventListener("change", () => {
+        // This dropdown can only ever hold one value, so its own
+        // prior pick (if any) always drops first regardless of budget.
+        let next = selected.filter((id) => !category.options.some((o) => o.id === id));
+        if (select.value) next.push(select.value);
+        while (next.length > group.maxSelections) next.shift(); // oldest (across ALL categories) evicted first
+        choicesStore[group.key] = next;
+        if (onChange) onChange();
+        rerender();
+      });
+      row.append(text, select);
+      container.append(row);
+    });
+  }
+
+  function renderFlatChoiceOptions(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange) {
       const atMax = selected.length >= group.maxSelections;
       group.options.forEach((option) => {
         const optionLabel = document.createElement("label");
@@ -2838,8 +2920,6 @@ export function renderCustomSheet(root, character, store) {
         }
         choiceGroup.append(optionLabel);
       });
-      container.append(choiceGroup);
-    });
   }
 
   /** Multi-select sibling of renderSelectableRows — same row/portrait/
@@ -5000,6 +5080,10 @@ export function renderCustomSheet(root, character, store) {
       return buildTextListValue(field);
     }
 
+    if (field.fieldType === "taglist") {
+      return buildTagListValue(field);
+    }
+
     if (field.fieldType === "dropdown") {
       return buildDropdownValue(field);
     }
@@ -5199,10 +5283,94 @@ export function renderCustomSheet(root, character, store) {
     return el;
   }
 
-  /** The on-sheet control for a "dropdown" field is just a native
-   *  <select> — list management (add/remove/reorder/alphabetize, plus
-   *  each choice's optional stat/access "bundle") lives in a separate
-   *  popover (openDropdownChoicesEditor) opened from the field's
+  /** Dropdown-driven list widget — used by the "taglist" field type
+   *  (Languages, Armor/Weapon/Tool Proficiencies): a fixed set of
+   *  choices (field.tagOptions) offered through a <select>; picking
+   *  one adds it to the list below as a chip, same moment you select
+   *  it — no separate "Add" click needed. A tag granted automatically
+   *  (see grantedTags / the "grantTag" statModifier op — a fixed
+   *  Race/Class/Background grant, or a choiceGroups pick like "1
+   *  language of your choice") shows the same way a granted checkbox
+   *  does elsewhere: present, but locked with no remove button, since
+   *  it isn't this field's own stored data to begin with. The
+   *  dropdown only ever offers what isn't already known (granted or
+   *  manually added), so there's no way to end up with a duplicate. */
+  function buildTagListValue(field) {
+    if (!field.items) field.items = [];
+    const el = document.createElement("div");
+    el.className = "field-value field-value--taglist";
+    el.addEventListener("pointerdown", (e) => e.stopPropagation());
+
+    const chipsWrap = document.createElement("div");
+    chipsWrap.className = "taglist-chips";
+    const select = document.createElement("select");
+    select.className = "input-group__control taglist-select";
+    select.addEventListener("pointerdown", (e) => e.stopPropagation());
+
+    function buildChip(tag, locked) {
+      const chip = document.createElement("span");
+      chip.className = "taglist-chip" + (locked ? " taglist-chip--granted" : "");
+      if (locked) chip.title = "Granted automatically by a selected Race/Class/etc. — change that selection to remove it";
+      const text = document.createElement("span");
+      text.textContent = tag;
+      chip.append(text);
+      if (!locked) {
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "taglist-chip__remove";
+        removeBtn.title = "Remove";
+        removeBtn.textContent = "✕";
+        removeBtn.setAttribute("aria-label", `Remove ${tag}`);
+        removeBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+        removeBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          commitMutation(() => {
+            field.items = field.items.filter((t) => t !== tag);
+          }, { render: false });
+          refresh();
+        });
+        chip.append(removeBtn);
+      }
+      return chip;
+    }
+
+    function refresh() {
+      chipsWrap.innerHTML = "";
+      const granted = grantedTags.get(field.id) || new Set();
+      const known = new Set([...field.items, ...granted]);
+      [...granted].sort().forEach((tag) => chipsWrap.append(buildChip(tag, true)));
+      field.items.slice().sort().forEach((tag) => { if (!granted.has(tag)) chipsWrap.append(buildChip(tag, false)); });
+
+      select.innerHTML = "";
+      const available = (field.tagOptions || []).filter((opt) => !known.has(opt));
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = available.length ? "Add…" : "Nothing left to add";
+      select.append(placeholder);
+      available.forEach((opt) => {
+        const optionEl = document.createElement("option");
+        optionEl.value = opt;
+        optionEl.textContent = opt;
+        select.append(optionEl);
+      });
+      select.disabled = available.length === 0;
+    }
+
+    select.addEventListener("change", () => {
+      const value = select.value;
+      if (!value) return;
+      commitMutation(() => {
+        if (!field.items.includes(value)) field.items.push(value);
+      }, { render: false });
+      refresh();
+    });
+
+    refresh();
+    el.append(chipsWrap, select);
+    return el;
+  }
+
+
    *  toolbar, the same way style editing does, so the sheet itself
    *  always shows a normal-looking dropdown. */
   function buildDropdownValue(field) {

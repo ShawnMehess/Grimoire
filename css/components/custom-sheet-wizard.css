@@ -395,6 +395,19 @@
   cursor: default;
 }
 
+/* Cross-category choice (Monk's "one artisan tool OR musical
+   instrument", Urban Bounty Hunter's "two from a gaming set, a
+   musical instrument, or thieves' tools") — one dropdown per
+   category instead of the checkbox/radio grid above. */
+.level-guide__category-choice {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+.level-guide__category-choice select {
+  justify-self: end;
+  max-width: 60%;
+}
+
 .rule-resources {
   display: flex;
   flex-direction: column;

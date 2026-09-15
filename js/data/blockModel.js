@@ -20,6 +20,34 @@
 import { ABILITIES, SKILLS } from "./schema.js";
 import { DEFAULT_CONTENT } from "./defaultContent.js";
 
+// Standard 5e vocabularies for the four "pick from a dropdown, it
+// gets added to your list" fields below (Languages, Armor/Weapon/Tool
+// Proficiencies). None of this comes from Shawn's uploaded JSON —
+// same story as the spell-slot tables in dnd5e.js — so these are
+// hand-written standard lists, not per-source data.
+export const LANGUAGES = [
+  "Common", "Dwarvish", "Elvish", "Giant", "Gnomish", "Goblin", "Halfling", "Orc",
+  "Abyssal", "Celestial", "Deep Speech", "Draconic", "Infernal", "Primordial", "Sylvan", "Undercommon",
+];
+export const ARMOR_PROFICIENCIES = ["Light Armor", "Medium Armor", "Heavy Armor", "Shields"];
+export const WEAPON_PROFICIENCIES = [
+  "All Simple Weapons", "All Martial Weapons",
+  "Club", "Dagger", "Greatclub", "Handaxe", "Javelin", "Light Hammer", "Mace", "Quarterstaff",
+  "Sickle", "Spear", "Light Crossbow", "Dart", "Shortbow", "Sling",
+  "Battleaxe", "Flail", "Glaive", "Greataxe", "Greatsword", "Halberd", "Lance", "Longsword",
+  "Maul", "Morningstar", "Pike", "Rapier", "Scimitar", "Shortsword", "Trident", "War Pick",
+  "Warhammer", "Whip", "Blowgun", "Hand Crossbow", "Heavy Crossbow", "Longbow", "Net",
+];
+export const TOOL_PROFICIENCIES = [
+  "Alchemist's Supplies", "Brewer's Supplies", "Calligrapher's Supplies", "Carpenter's Tools",
+  "Cartographer's Tools", "Cobbler's Tools", "Cook's Utensils", "Glassblower's Tools",
+  "Jeweler's Tools", "Leatherworker's Tools", "Mason's Tools", "Painter's Supplies",
+  "Potter's Tools", "Smith's Tools", "Tinker's Tools", "Weaver's Tools", "Woodcarver's Tools",
+  "Disguise Kit", "Forgery Kit", "Herbalism Kit", "Navigator's Tools", "Poisoner's Kit", "Thieves' Tools",
+  "Dice Set", "Dragonchess Set", "Playing Card Set", "Three-Dragon Ante Set",
+  "Bagpipes", "Drum", "Dulcimer", "Flute", "Horn", "Lute", "Lyre", "Pan Flute", "Shawm", "Viol",
+];
+
 // Starter choices for the Race/Class/Background/Subclass dropdowns
 // below. These come straight from DEFAULT_CONTENT (compiled from
 // Shawn's own classes/races/backgrounds JSON — see RESCUE-NOTES.md
@@ -55,7 +83,7 @@ function newId() {
   return crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export const FIELD_TYPES = ["text", "label", "textarea", "textlist", "dropdown", "picture", "catalog", "radio", "checkbox", "featureList"];
+export const FIELD_TYPES = ["text", "label", "textarea", "textlist", "taglist", "dropdown", "picture", "catalog", "radio", "checkbox", "featureList"];
 export const LABEL_POSITIONS = ["top", "right", "bottom", "left"];
 
 // A block's declared `h` (in blockModel.js) includes ONE reserved row
@@ -229,6 +257,22 @@ function toggleField(opts, id) {
   f.checked = [false];
   syncOptionWidth(f);
   if (opts.labelPosition) f.labelPosition = opts.labelPosition;
+  if (id) f.id = id;
+  return f;
+}
+
+/** "Pick from a dropdown, it gets added to your list" field — used
+ *  for Languages and Armor/Weapon/Tool Proficiencies below.
+ *  `tagOptions` is the fixed vocabulary offered in the dropdown;
+ *  `items` (empty to start) holds whatever's been manually added —
+ *  see buildTagListValue in customSheet.js for the actual widget,
+ *  and the "grantTag" statModifier op for how a Race/Class/
+ *  Background's own fixed or chosen proficiencies show up here too,
+ *  locked, without living in `items` at all. */
+function tagListField(opts, tagOptions, id) {
+  const f = createField({ ...opts, fieldType: "taglist" });
+  f.tagOptions = tagOptions;
+  f.items = [];
   if (id) f.id = id;
   return f;
 }
@@ -437,22 +481,22 @@ export function createStarterLayout() {
     field({ fieldType: "featureList", label: "Features & Traits", x: 0, y: 0, w: 6, h: 5 }),
   ];
 
-  const details = createBlock({ name: "Character Details", x: 4, y: 14, w: 6, h: 5 });
+  const details = createBlock({ name: "Character Details", x: 4, y: 14, w: 6, h: 7 });
   details.children = [
     field({ fieldType: "dropdown", label: "Race", x: 0, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_RACES, DEFAULT_CONTENT.raceEntries) }),
     field({ fieldType: "dropdown", label: "Background", x: 2, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_BACKGROUNDS, DEFAULT_CONTENT.bgEntries) }),
     field({ fieldType: "text", label: "Alignment", x: 4, y: 0, w: 2, h: 1 }),
-    field({ fieldType: "text", label: "Armor Prof.", x: 0, y: 1, w: 2, h: 1 }),
-    field({ fieldType: "text", label: "Weapon Prof.", x: 2, y: 1, w: 2, h: 1 }),
-    field({ fieldType: "text", label: "Tool Prof.", x: 4, y: 1, w: 2, h: 1 }),
-    field({ fieldType: "text", label: "Languages", x: 0, y: 2, w: 6, h: 1 }),
+    tagListField({ label: "Armor Prof.", x: 0, y: 1, w: 2, h: 2 }, ARMOR_PROFICIENCIES, "armorProf"),
+    tagListField({ label: "Weapon Prof.", x: 2, y: 1, w: 2, h: 2 }, WEAPON_PROFICIENCIES, "weaponProf"),
+    tagListField({ label: "Tool Prof.", x: 4, y: 1, w: 2, h: 2 }, TOOL_PROFICIENCIES, "toolProf"),
+    tagListField({ label: "Languages", x: 0, y: 3, w: 6, h: 2 }, LANGUAGES, "languages"),
     // Every core-class subclass in one flat list — which of them show
     // up here at all depends entirely on a Class-bundle dropdownAccess
     // rule (see default-bundles/classes.json) filtering by whichever
     // Class is currently selected; nothing here does that filtering
     // itself. Unfiltered (no Class bundle applied yet, or Class blank),
     // every subclass from every class is offered.
-    field({ fieldType: "dropdown", label: "Subclass", x: 0, y: 3, w: 6, h: 1, choices: makeSubclassChoices() }, "subclass"),
+    field({ fieldType: "dropdown", label: "Subclass", x: 0, y: 5, w: 6, h: 1, choices: makeSubclassChoices() }, "subclass"),
   ];
 
   const personality = createBlock({ name: "Personality", x: 10, y: 14, w: 6, h: 7 });

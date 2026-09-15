@@ -710,6 +710,67 @@
   border-color: var(--color-border-strong);
 }
 
+/* --- Taglist (Languages, Armor/Weapon/Tool Proficiencies) --------------- */
+
+.field-value--taglist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  overflow-y: auto; /* same fixed-footprint-with-scroll behavior as textarea/textlist */
+}
+
+.taglist-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.taglist-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  font-size: var(--text-xs);
+  background: var(--color-bg-raised);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: 999px;
+}
+
+/* Granted automatically (a fixed Race/Class/etc. grant, or an
+   already-made "choose 1 language" pick) rather than added by hand —
+   same subtle dim + accent-tint treatment as a granted checkbox
+   elsewhere, so all three (checkbox/choice-picker/taglist) read
+   consistently as "this came from somewhere else". */
+.taglist-chip--granted {
+  opacity: 0.85;
+  border-color: var(--color-accent);
+}
+
+.taglist-chip__remove {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  font-size: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--color-text-faint);
+  cursor: pointer;
+}
+.taglist-chip__remove:hover {
+  color: var(--color-negative);
+}
+
+.taglist-select {
+  align-self: flex-start;
+  max-width: 100%;
+  font-size: var(--text-xs);
+}
+
 .field-value--dropdown {
   appearance: none;
   -webkit-appearance: none;
