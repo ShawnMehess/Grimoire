@@ -5371,8 +5371,6 @@ export function renderCustomSheet(root, character, store) {
   }
 
 
-   *  toolbar, the same way style editing does, so the sheet itself
-   *  always shows a normal-looking dropdown. */
   function buildDropdownValue(field) {
     const select = document.createElement("select");
     select.className = "field-value field-value--dropdown";
