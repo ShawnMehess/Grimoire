@@ -66,43 +66,265 @@ import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listR
 import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor } from "../data/rulesEngine.js";
 import { DEFAULT_CONTENT } from "../data/defaultContent.js";
 import { ABILITIES, SKILLS } from "../data/schema.js";
-
-const PAGE_COLS = 16;
-const GAP_PX = 10;
-const MIN_CELL_PX = 40; // below this, the page scrolls horizontally instead of squishing cells
-const MAX_BG_IMAGE_BYTES = 250_000; // warn above this — Firestore caps a whole doc at 1MB
-
-// Sensible starting footprint per field type when it's first added —
-// a 1x1 cell is fine for a short stat but far too small to be useful
-// for a text area, list, or dropdown.
-const DEFAULT_FIELD_SIZE = {
-  text: { w: 1, h: 1 },
-  label: { w: 2, h: 1 },
-  textarea: { w: 3, h: 2 },
-  textlist: { w: 3, h: 2 },
-  taglist: { w: 6, h: 2 },
-  dropdown: { w: 2, h: 1 },
-  picture: { w: 3, h: 3 },
-  catalog: { w: 2, h: 1 },
-  radio: { w: 1, h: 1 },
-  checkbox: { w: 1, h: 1 },
-};
-// Radio/checkbox auto-size via syncOptionWidth (their w/h are derived
-// from option count, not user-resizable); every other field type can
-// be freely resized.
-const RESIZABLE_FIELD_TYPES = new Set(["text", "label", "textarea", "textlist", "taglist", "dropdown", "picture", "catalog", "featureList"]);
-// Field types with no separate label/value split — just one element
-// filling the whole field (see renderFieldInner).
-const CAPTIONLESS_FIELD_TYPES = new Set(["label", "picture", "catalog"]);
-const MAX_IMAGE_BYTES = 250_000; // same Firestore-doc-size reasoning as MAX_BG_IMAGE_BYTES below
-
-function debounce(fn, delayMs = 500) {
-  let handle;
-  return (...args) => {
-    clearTimeout(handle);
-    handle = setTimeout(() => fn(...args), delayMs);
-  };
-}
+import {
+  PAGE_COLS,
+  GAP_PX,
+  MIN_CELL_PX,
+  MAX_BG_IMAGE_BYTES,
+  MAX_IMAGE_BYTES,
+  DEFAULT_FIELD_SIZE,
+  RESIZABLE_FIELD_TYPES,
+  CAPTIONLESS_FIELD_TYPES,
+} from "./sheet/sheetConstants.js";
+import { debounce, valuesMatch, mergeTextStyle, clone, newId } from "./sheet/sheetHelpers.js";
+import {
+  CREATION_CHOICE_CATEGORIES as SHARED_CREATION_CHOICE_CATEGORIES,
+  categorizeChoiceGroup as sharedCategorizeChoiceGroup,
+  statModifierLabel as sharedStatModifierLabel,
+  statModifierSummary as sharedStatModifierSummary,
+  mechanicsPreviewFor as sharedMechanicsPreviewFor,
+} from "./sheet/sheetMechanics.js";
+import {
+  cellsDelta,
+  dragPos,
+  resizeDims,
+  scaleFieldRect,
+  nodesBounds,
+  duplicateOffset,
+  cloneNodeWithNewIds,
+  blockGrowthForDuplicate,
+  partitionDuplicateSelection,
+  nudgeTargets,
+  nudgeNode,
+} from "./sheet/sheetDrag.js";
+import {
+  parseFieldDropPayload,
+  acceptsFieldDrop,
+  buildHint,
+  buildChip,
+  showToastIn,
+  buildToolbarShell,
+  buildNameInput,
+  buildRulesetSelect,
+  buildStatusEl,
+} from "./sheet/sheetToolbar.js";
+import {
+  resolveSourceBlock,
+  effectiveStyleFor,
+  effectiveBlockFor,
+  blockTabsFor,
+  parentBlockOfIn,
+  colWidthFor,
+  rectStyle,
+  labelMaxWidth,
+  shouldGrowForLabel,
+  renderBlockFrameInto,
+  applyGridLinesTo,
+  renderBlockNodeInto,
+  buildBlockToolbarInto,
+  removeBlockFromLayout,
+  removeFieldFromLayouts,
+} from "./sheet/sheetBlocks.js";
+import {
+  dropdownVisibleChoices,
+  isResizableField,
+  renderFieldNodeInto,
+  buildFieldToolbarInto,
+  hasVisibleText as sharedHasVisibleText,
+  updateFieldLabelVisibilityInto,
+  wireGhostDefaultInto,
+  renderFieldInnerInto,
+  buildTextValueInto,
+  buildLabelValueInto,
+  buildTextareaValueInto,
+  effectiveOptionCount,
+  buildOptionsValueInto,
+  personIconSvgMarkup as sharedPersonIconMarkup,
+  buildAvatarPlaceholderSvg as sharedAvatarPlaceholder,
+  readImageFileInto,
+  clearOtherAvatarsIn,
+  buildPictureValueInto,
+  buildFeatureListValueInto,
+  buildCatalogValueInto,
+  moneyCandidatesByTab,
+  openCatalogFieldConfigInto,
+  buildEquationHintInto,
+  cycleLabelPositionInto,
+  buildTextListValueInto,
+  buildTagListValueInto,
+  buildTextPreview as sharedBuildTextPreview,
+  buildLabelPreview as sharedBuildLabelPreview,
+  buildTextareaPreview as sharedBuildTextareaPreview,
+  buildTextlistPreview as sharedBuildTextlistPreview,
+  buildDropdownPreview as sharedBuildDropdownPreview,
+  buildPicturePreview as sharedBuildPicturePreview,
+  buildCatalogPreview as sharedBuildCatalogPreview,
+  buildFeatureListPreview as sharedBuildFeatureListPreview,
+  buildOptionPreview as sharedBuildOptionPreview,
+  openFieldTypeMenuInto,
+} from "./sheet/sheetFields.js";
+import {
+  levelFromMap,
+  activeChoiceGroupsFor,
+  applyStatModifiers as applySharedStatModifiers,
+  computeSheetValuesIn,
+  computeRadioOptionCountsIn,
+  computeSpellSlotCountsIn,
+  normalizeRadioSelectionsIn,
+  prepareRenderState,
+  LEVEL_UP_FIELDS as SHARED_LEVEL_UP_FIELDS,
+  normalizeChoiceObjectsIn,
+  narrowChoicesByBundleAccess,
+  applySubclassFallback,
+  isSubclassField,
+  normalizeDropdownSelectionsIn,
+  selectedRuleOptionsIn,
+  selectedFeatBundlesIn,
+  applyBundleModifiersIn,
+  collectGrantedFeaturesIn,
+  collectResourceGrantsIn,
+  clampResourceSaved,
+  ensureLevelData,
+  renderResourceTrackersInto,
+  renderLevelUpRowInto,
+  renderLevelingTabInto,
+} from "./sheet/sheetLeveling.js";
+import {
+  ensureBundleShape,
+  bundleIsEmptyShape,
+  effectiveGrantNameFor,
+  applyBundleLibraryToChoiceIn,
+  MODIFIER_OPS as SHARED_MODIFIER_OPS,
+  renderChoiceRowsInto,
+  renderModifiersPanelInto,
+  openChoicesEditorInto,
+  rulesetBundleMatches,
+  syncResultMessage,
+  chooseTargetValue,
+  migrateCreationChoiceKeys,
+  matchLibraryForChosen,
+} from "./sheet/sheetBundles.js";
+import {
+  creationChoiceGroupsForState,
+  creationFixedBundlesFor,
+  ownedSkillIdsFromBundles,
+  spellsForLevelIn,
+  spellLevelByNameIn,
+  findSpellCatalog,
+  renderStepWizardInto,
+  rulesetOptionNamesIn,
+  renderSelectableRowsInto,
+  renderMultiSelectableRowsInto,
+  renderChoiceGroupsInto,
+  renderCrossCategoryChoiceInto,
+  renderFlatChoiceOptionsInto,
+  CATEGORY_FIELD as SHARED_CATEGORY_FIELD,
+  catalogEntryInfoIn,
+  bundleForIn,
+  spellCountByLevel,
+  limitNoteText,
+  canLearnMore,
+  capMessage,
+  ensureSpellListFieldIn,
+  renderSpellPickerInto,
+} from "./sheet/sheetWizard.js";
+import {
+  snapshotOf,
+  shouldPushNewStep,
+  pushBounded,
+  ARROW_DELTAS as SHARED_ARROW_DELTAS,
+  applyHistoryButtons,
+  shortcutAction,
+} from "./sheet/sheetHistory.js";
+import { selectOnlySet, toggleInSet, selectionSignature } from "./sheet/sheetState.js";
+import { findTab, tabIndex, layoutForTab, flattenFieldsAcrossTabs, defaultTabName, renderTabsInto, normalizeTabsIn } from "./sheet/sheetTabs.js";
+import {
+  styleToCss,
+  applyCssToEl,
+  nextLabelPosition,
+  wrapSelectionWithStyle as sharedWrapSelection,
+  applyDescendantTextStyleTo,
+  applyTextStyleToOwnTextWith,
+  applyStyleChangeInto,
+  buildStylePopoverInto,
+  buildStyleButtonInto,
+} from "./sheet/sheetStyles.js";
+import {
+  wizardUnavailableMessageFor,
+  bucketGroupsByCategory,
+  renderRulesetStepInto,
+  renderIdentityStepInto,
+  renderClassStepInto,
+  renderRowListStepInto,
+  renderPreferencesStepInto,
+  renderChoicePageStepInto,
+  renderSpellsStepInto,
+  renderAbilitiesStepInto,
+  reviewLinesFor,
+  renderReviewStepInto,
+  applyLiveSubclassOverride,
+  initPendingLevelState,
+  syncPendingChoices,
+  slotsSummary,
+  alreadyAppliedPanel,
+  conModFromScore,
+  rollHpOnce,
+  averageHpOnce,
+  levelReviewSummary,
+  validateLevelApply,
+  renderGuideSubclassStepInto,
+  renderGuideAsiStepInto,
+  renderGuideFeaturesStepInto,
+  renderGuideHpStepInto,
+  renderGuideNotesStepInto,
+  checkLevelPrereqs,
+  applyAsiToScores,
+  buildLevelUpEntry,
+  ABILITY_DESCRIPTIONS as SHARED_ABILITY_DESCRIPTIONS,
+  HP_METHOD_OPTIONS as SHARED_HP_METHOD_OPTIONS,
+  POINT_BUY_MIN as SHARED_POINT_BUY_MIN,
+  POINT_BUY_MAX as SHARED_POINT_BUY_MAX,
+  POINT_BUY_BUDGET as SHARED_POINT_BUY_BUDGET,
+  wizardFieldOptionNamesIn,
+  applyLiveSubclassOverrideToResolved,
+  cleanStaleSubclass,
+  appendFieldGroup,
+} from "./sheet/sheetWizardSteps.js";
+import { gridCanvasSize, renderMainGridInto } from "./sheet/sheetRender.js";
+import {
+  selectionBoxFor,
+  paintSelectionInto,
+  shouldResetGroupBorder,
+  applyGroupBorderOverlay,
+  buildDragHandle as sharedBuildDragHandle,
+  buildResizeHandle as sharedBuildResizeHandle,
+  positionFloatingToolbarAt,
+  positionPopoverWithinViewportAt,
+  closeOpenPopoversIn,
+  wireHoverToolbarInto,
+  buildGroupToolbarInto,
+  groupToolbarHover,
+  clickSelectionAction,
+  dropCellFor,
+} from "./sheet/sheetSelection.js";
+import {
+  MONEY_FIELD_NAMES as SHARED_MONEY_FIELD_NAMES,
+  findMoneyFieldByNameIn,
+  shouldAutoRegisterMoney,
+  floatFromRichText,
+  intFromRichText,
+  appendUniqueTextListItemTo,
+  selectedChoiceNameIn,
+  findStarterFieldIn,
+  subclassNamesFromBundleRule,
+  pointBuyCost as sharedPointBuyCost,
+  maxAffordableScore,
+  abilityModifier as sharedAbilityModifier,
+  formatModifier as sharedFormatModifier,
+  classGrantsAsiIn,
+  classFeatureGrantsAtLevelIn,
+  rollAbilityScore as sharedRollAbilityScore,
+} from "./sheet/sheetRules.js";
 
 export function renderCustomSheet(root, character, store) {
   // Set (not yet saved — see needsLevelFieldAutosave below, which
@@ -283,42 +505,12 @@ export function renderCustomSheet(root, character, store) {
   root.innerHTML = "";
 
   // --- Toolbar: mode toggle + add-block (edit mode only) --------------
-  const toolbar = document.createElement("div");
-  toolbar.className = "sheet-toolbar";
-
-  const leftGroup = document.createElement("div");
-  leftGroup.className = "sheet-toolbar__group";
-
-  const modeBtn = document.createElement("button");
-  modeBtn.type = "button";
-  modeBtn.className = "btn btn--primary";
-  modeBtn.textContent = "Customize Sheet";
-
-  const undoBtn = document.createElement("button");
-  undoBtn.type = "button";
-  undoBtn.className = "btn";
-  undoBtn.textContent = "Undo";
-  undoBtn.disabled = true;
-
-  const redoBtn = document.createElement("button");
-  redoBtn.type = "button";
-  redoBtn.className = "btn";
-  redoBtn.textContent = "Redo";
-  redoBtn.disabled = true;
-
-  const addBlockBtn = document.createElement("button");
-  addBlockBtn.type = "button";
-  addBlockBtn.className = "btn";
-  addBlockBtn.textContent = "+ Block";
-  addBlockBtn.style.display = "none";
+  const { toolbar, modeBtn, undoBtn, redoBtn, addBlockBtn } = buildToolbarShell();
   addBlockBtn.addEventListener("click", () => {
     commitMutation(() => {
       currentLayout().push(createBlock({ name: "New Block", x: 0, y: 0, w: 3, h: 3 }));
     });
   });
-
-  leftGroup.append(modeBtn, undoBtn, redoBtn, addBlockBtn);
-  toolbar.append(leftGroup);
 
   // Toggles the Stat Blocks sidebar closed — mainly useful on
   // narrower screens (see the @media rule for .sheet-block-frame in
@@ -354,12 +546,7 @@ export function renderCustomSheet(root, character, store) {
   // reliable "this is the name" field, and once everything on the
   // sheet itself can be freely relabeled and rearranged, there's no
   // way to reconstruct that from the layout alone.
-  const nameInput = document.createElement("input");
-  nameInput.type = "text";
-  nameInput.className = "input-group__control";
-  nameInput.style.maxWidth = "220px";
-  nameInput.placeholder = "Character name";
-  nameInput.value = character.name || "";
+  const nameInput = buildNameInput(character.name || "");
   nameInput.addEventListener("input", () => { unsavedChanges = true; });
   nameInput.addEventListener("input", debounce(() => {
     character.name = nameInput.value;
@@ -369,21 +556,7 @@ export function renderCustomSheet(root, character, store) {
 
   // Rulesets are data packs. The generic level-up guide and subclass
   // dropdown use this saved selection instead of hardcoded class logic.
-  const rulesetSelect = document.createElement("select");
-  rulesetSelect.className = "input-group__control";
-  rulesetSelect.style.maxWidth = "220px";
-  rulesetSelect.title = "Ruleset used for guided leveling";
-  const rulesetPlaceholder = document.createElement("option");
-  rulesetPlaceholder.value = "";
-  rulesetPlaceholder.textContent = "Choose ruleset";
-  rulesetSelect.append(rulesetPlaceholder);
-  listRulesets().forEach((ruleset) => {
-    const option = document.createElement("option");
-    option.value = ruleset.id;
-    option.textContent = ruleset.name;
-    rulesetSelect.append(option);
-  });
-  rulesetSelect.value = character.rulesetId || "";
+  const rulesetSelect = buildRulesetSelect(listRulesets(), character.rulesetId || "");
   rulesetSelect.addEventListener("change", () => {
     character.rulesetId = rulesetSelect.value || null;
     character.rules = normalizeRulesState(character.rules);
@@ -420,18 +593,16 @@ export function renderCustomSheet(root, character, store) {
   const cardFieldsWrap = document.createElement("div");
   cardFieldsWrap.className = "identity-card-fields";
   cardFieldsWrap.addEventListener("dragover", (e) => {
-    if (e.dataTransfer.types.includes("application/x-sheet-field")) {
+    if (acceptsFieldDrop(e)) {
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
     }
   });
   cardFieldsWrap.addEventListener("drop", (e) => {
-    const payload = e.dataTransfer.getData("application/x-sheet-field");
-    if (!payload) return;
+    const parsed = parseFieldDropPayload(e);
+    if (!parsed) return;
     e.preventDefault();
-    let parsed;
-    try { parsed = JSON.parse(payload); } catch { return; }
-    if (!parsed.fieldId || character.cardFieldIds.includes(parsed.fieldId)) return;
+    if (character.cardFieldIds.includes(parsed.fieldId)) return;
     character.cardFieldIds.push(parsed.fieldId);
     saveWithStatus("cardFieldIds", character.cardFieldIds);
     renderCardFieldChips();
@@ -440,28 +611,22 @@ export function renderCustomSheet(root, character, store) {
   function renderCardFieldChips() {
     cardFieldsWrap.innerHTML = "";
     if (character.cardFieldIds.length === 0) {
-      const hint = document.createElement("span");
-      hint.className = "identity-card-fields__hint";
-      hint.textContent = "Drag fields here to show on the character list";
-      cardFieldsWrap.append(hint);
+      cardFieldsWrap.append(buildHint("Drag fields here to show on the character list"));
       return;
     }
     character.cardFieldIds.forEach((id) => {
       const field = resolveFieldById(id);
-      const chip = document.createElement("span");
-      chip.className = "identity-card-fields__chip" + (field ? "" : " identity-card-fields__chip--missing");
-      chip.append(document.createTextNode(field ? (field.label || "Field") : "deleted field"));
-      const removeBtn = document.createElement("button");
-      removeBtn.type = "button";
-      removeBtn.title = "Stop showing this on the character list";
-      removeBtn.textContent = "✕";
-      removeBtn.setAttribute("aria-label", "Stop showing this on the character list");
+      const { chip, removeBtn } = buildChip({
+        label: field ? (field.label || "Field") : "deleted field",
+        missing: !field,
+        removeTitle: "Stop showing this on the character list",
+        removeAriaLabel: "Stop showing this on the character list",
+      });
       removeBtn.addEventListener("click", () => {
         character.cardFieldIds = character.cardFieldIds.filter((x) => x !== id);
         saveWithStatus("cardFieldIds", character.cardFieldIds);
         renderCardFieldChips();
       });
-      chip.append(removeBtn);
       cardFieldsWrap.append(chip);
     });
   }
@@ -477,18 +642,15 @@ export function renderCustomSheet(root, character, store) {
   const levelFieldWrap = document.createElement("div");
   levelFieldWrap.className = "identity-card-fields";
   levelFieldWrap.addEventListener("dragover", (e) => {
-    if (e.dataTransfer.types.includes("application/x-sheet-field")) {
+    if (acceptsFieldDrop(e)) {
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
     }
   });
   levelFieldWrap.addEventListener("drop", (e) => {
-    const payload = e.dataTransfer.getData("application/x-sheet-field");
-    if (!payload) return;
+    const parsed = parseFieldDropPayload(e);
+    if (!parsed) return;
     e.preventDefault();
-    let parsed;
-    try { parsed = JSON.parse(payload); } catch { return; }
-    if (!parsed.fieldId) return;
     character.levelFieldId = parsed.fieldId;
     saveWithStatus("levelFieldId", character.levelFieldId);
     renderLevelFieldChip();
@@ -497,27 +659,21 @@ export function renderCustomSheet(root, character, store) {
   function renderLevelFieldChip() {
     levelFieldWrap.innerHTML = "";
     if (!character.levelFieldId) {
-      const hint = document.createElement("span");
-      hint.className = "identity-card-fields__hint";
-      hint.textContent = "Drag a field here to designate it as Level (for bundle leveling)";
-      levelFieldWrap.append(hint);
+      levelFieldWrap.append(buildHint("Drag a field here to designate it as Level (for bundle leveling)"));
       return;
     }
     const field = resolveFieldById(character.levelFieldId);
-    const chip = document.createElement("span");
-    chip.className = "identity-card-fields__chip" + (field ? "" : " identity-card-fields__chip--missing");
-    chip.append(document.createTextNode(field ? (field.label || "Field") : "deleted field"));
-    const removeBtn = document.createElement("button");
-    removeBtn.type = "button";
-    removeBtn.title = "Unset the Level field";
-    removeBtn.textContent = "✕";
-    removeBtn.setAttribute("aria-label", "Unset the Level field");
+    const { chip, removeBtn } = buildChip({
+      label: field ? (field.label || "Field") : "deleted field",
+      missing: !field,
+      removeTitle: "Unset the Level field",
+      removeAriaLabel: "Unset the Level field",
+    });
     removeBtn.addEventListener("click", () => {
       character.levelFieldId = null;
       saveWithStatus("levelFieldId", character.levelFieldId);
       renderLevelFieldChip();
     });
-    chip.append(removeBtn);
     levelFieldWrap.append(chip);
   }
   renderLevelFieldChip();
@@ -527,8 +683,7 @@ export function renderCustomSheet(root, character, store) {
   // background otherwise, which means a failed save (e.g. a
   // background image pushing the character over Firestore's 1MB
   // document limit) would previously go completely unnoticed.
-  const statusEl = document.createElement("span");
-  statusEl.className = "save-status";
+  const statusEl = buildStatusEl();
   toolbar.append(statusEl);
 
   // Tracks whether there's any edit not yet confirmed saved, for the
@@ -569,16 +724,7 @@ export function renderCustomSheet(root, character, store) {
   // way the Catalogs/Bundle Libraries managers' Save buttons have.
   // Replaces what used to be window.alert() for these.
   function showToast(message, { isError = false } = {}) {
-    const toast = document.createElement("div");
-    toast.className = "sheet-toast" + (isError ? " sheet-toast--error" : "");
-    toast.textContent = message;
-    toast.setAttribute("role", "status");
-    root.append(toast);
-    requestAnimationFrame(() => toast.classList.add("is-visible"));
-    setTimeout(() => {
-      toast.classList.remove("is-visible");
-      setTimeout(() => toast.remove(), 200);
-    }, 5000);
+    showToastIn(root, message, { isError });
   }
 
   root.append(toolbar);
@@ -639,8 +785,7 @@ export function renderCustomSheet(root, character, store) {
 
     const rect = pageGrid.getBoundingClientRect();
     const cw = colWidthPx();
-    const x = Math.max(0, Math.round((e.clientX - rect.left) / (cw + GAP_PX)));
-    const y = Math.max(0, Math.round((e.clientY - rect.top) / (cw + GAP_PX)));
+    const { x, y } = dropCellFor(e.clientX, e.clientY, rect, cw, GAP_PX);
 
     // Dropping an image file directly onto empty grid space (not onto
     // an existing picture field, which handles the drop itself and
@@ -694,26 +839,23 @@ export function renderCustomSheet(root, character, store) {
     // theirs be the only one that runs rather than have this one fire
     // first (capture order) with the wrong answer and get immediately
     // overwritten.
-    if (e.target.closest(".node-handle")) return;
     const nodeEl = e.target.closest(".grid-node");
-    if (!nodeEl) return;
-    const id = nodeEl.dataset.nodeId;
-    if (!id) return;
-    if (e.ctrlKey || e.metaKey || e.shiftKey) {
-      toggleSelected(id);
+    const action = clickSelectionAction({
+      onHandle: !!e.target.closest(".node-handle"),
+      nodeKind: nodeEl ? nodeEl.dataset.nodeKind : null,
+      id: nodeEl ? nodeEl.dataset.nodeId : null,
+      modified: !!(e.ctrlKey || e.metaKey || e.shiftKey),
+      singleSelectedId: selectedIds.size === 1 ? [...selectedIds][0] : null,
+    });
+    if (action === "ignore" || action === "keep") return;
+    if (action === "toggle") {
+      toggleSelected(nodeEl.dataset.nodeId);
       return;
     }
-    // A plain click on something that's already the ENTIRE current
-    // selection is left alone here — that's what lets a plain
-    // click-drag on an existing multi-selection start moving the
-    // whole group, instead of every drag first collapsing it to one
-    // item. wireDrag/wireResize below handle re-selecting from a
-    // single item when a drag/resize actually starts on one.
-    if (selectedIds.size === 1 && selectedIds.has(id)) return;
-    if (nodeEl.dataset.nodeKind === "block") {
+    if (action === "block") {
       selectBlockAndFields(nodeEl);
     } else {
-      selectOnly(id);
+      selectOnly(nodeEl.dataset.nodeId);
     }
   }, true);
 
@@ -726,19 +868,12 @@ export function renderCustomSheet(root, character, store) {
   // repositioned/shown/hidden, then re-appended at the end of every
   // renderPageGrid() (which otherwise wipes it along with everything
   // else via pageGrid.innerHTML).
-  const groupToolbar = document.createElement("div");
-  groupToolbar.className = "node-toolbar group-toolbar";
-  const groupBorderBtn = document.createElement("button");
-  groupBorderBtn.type = "button";
-  groupBorderBtn.title = "Toggle a border around the whole selection";
-  groupBorderBtn.textContent = "▢";
-  groupBorderBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    groupBorderVisible = !groupBorderVisible;
-    groupBorderBtn.classList.toggle("active", groupBorderVisible);
-    updateGroupBorderOverlay();
-  });
-  groupToolbar.append(groupBorderBtn);
+  const { toolbar: groupToolbar, borderBtn: groupBorderBtn, overlay: groupBorderOverlay } =
+    buildGroupToolbarInto(() => {
+      groupBorderVisible = !groupBorderVisible;
+      groupBorderBtn.classList.toggle("active", groupBorderVisible);
+      updateGroupBorderOverlay();
+    });
 
   // The border itself: not each selected element getting its own
   // border, but one rectangle around the smallest box that contains
@@ -746,23 +881,14 @@ export function renderCustomSheet(root, character, store) {
   // persisted style (there's no actual "group" object in the data
   // model to attach a saved style to; select something else, or edit
   // the selection, and this resets — see the signature check in
-  // paintSelection below).
-  const groupBorderOverlay = document.createElement("div");
-  groupBorderOverlay.className = "group-border-overlay";
+  // paintSelection below). Both elements are created once by
+  // buildGroupToolbarInto above and re-appended at the end of every
+  // renderPageGrid (which otherwise wipes them via innerHTML).
   let groupBorderVisible = false;
   let lastSelectionSignature = "";
 
   function updateGroupBorderOverlay() {
-    const box = groupBorderVisible ? selectionBoundingBox() : null;
-    if (!box) {
-      groupBorderOverlay.classList.remove("is-visible");
-      return;
-    }
-    groupBorderOverlay.style.left = `${box.left - 3}px`;
-    groupBorderOverlay.style.top = `${box.top - 3}px`;
-    groupBorderOverlay.style.width = `${box.right - box.left + 6}px`;
-    groupBorderOverlay.style.height = `${box.bottom - box.top + 6}px`;
-    groupBorderOverlay.classList.add("is-visible");
+    applyGroupBorderOverlay(groupBorderOverlay, groupBorderVisible ? selectionBoundingBox() : null);
   }
 
   /** The pixel bounding box (relative to pageGrid) of every currently
@@ -770,19 +896,7 @@ export function renderCustomSheet(root, character, store) {
    *  fewer than two of them are (a single selection uses its own
    *  ordinary per-node toolbar instead; see wireHoverToolbar). */
   function selectionBoundingBox() {
-    if (selectedIds.size < 2) return null;
-    const pageRect = pageGrid.getBoundingClientRect();
-    const rects = [...selectedIds]
-      .map((id) => pageGrid.querySelector(`[data-node-id="${id}"]`))
-      .filter(Boolean)
-      .map((el) => el.getBoundingClientRect());
-    if (rects.length < 2) return null;
-    return {
-      left: Math.min(...rects.map((r) => r.left)) - pageRect.left,
-      top: Math.min(...rects.map((r) => r.top)) - pageRect.top,
-      right: Math.max(...rects.map((r) => r.right)) - pageRect.left,
-      bottom: Math.max(...rects.map((r) => r.bottom)) - pageRect.top,
-    };
+    return selectionBoxFor(pageGrid, selectedIds);
   }
 
   // Hovering ANYWHERE within the selection's bounding box — including
@@ -791,30 +905,17 @@ export function renderCustomSheet(root, character, store) {
   // corner, the same "just outside the top-right corner" placement a
   // single node's own toolbar uses (see positionNodeToolbar).
   pageGrid.addEventListener("mousemove", (e) => {
-    if (!editMode) { groupToolbar.classList.remove("is-visible"); return; }
     const box = selectionBoundingBox();
-    if (!box) { groupToolbar.classList.remove("is-visible"); return; }
     const pageRect = pageGrid.getBoundingClientRect();
-    const mx = e.clientX - pageRect.left;
-    const my = e.clientY - pageRect.top;
-    if (mx < box.left || mx > box.right || my < box.top || my > box.bottom) {
-      groupToolbar.classList.remove("is-visible");
-      return;
-    }
+    const hover = groupToolbarHover(editMode, box, e.clientX - pageRect.left, e.clientY - pageRect.top);
+    if (!hover.visible) { groupToolbar.classList.remove("is-visible"); return; }
     positionFloatingToolbar(groupToolbar, box.right, box.top);
     groupToolbar.classList.add("is-visible");
   });
   pageGrid.addEventListener("mouseleave", () => groupToolbar.classList.remove("is-visible"));
 
   function paintSelection() {
-    pageGrid.querySelectorAll(".grid-node.is-selected").forEach((el) => el.classList.remove("is-selected"));
-    blockFrame.querySelectorAll(".is-selected").forEach((el) => el.classList.remove("is-selected"));
-    selectedIds.forEach((id) => {
-      const el = pageGrid.querySelector(`[data-node-id="${id}"]`);
-      if (el) el.classList.add("is-selected");
-      const item = blockFrame.querySelector(`[data-highlight-id="${id}"]`);
-      if (item) item.classList.add("is-selected");
-    });
+    paintSelectionInto(pageGrid, blockFrame, selectedIds);
     // The bounding-box border is tied to THIS selection, not a
     // persisted style — switching to a genuinely different selection
     // resets it off, rather than carrying a stale box over (or
@@ -822,8 +923,8 @@ export function renderCustomSheet(root, character, store) {
     // makes sense for whatever's now selected). Re-painting the SAME
     // selection after an unrelated edit elsewhere does NOT reset it —
     // only an actual change to which ids are selected does.
-    const signature = [...selectedIds].sort().join(",");
-    if (signature !== lastSelectionSignature) {
+    const signature = selectionSignature(selectedIds);
+    if (shouldResetGroupBorder(lastSelectionSignature, signature)) {
       groupBorderVisible = false;
       groupBorderBtn.classList.remove("active");
       lastSelectionSignature = signature;
@@ -832,7 +933,7 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function selectOnly(id) {
-    selectedIds = new Set([id]);
+    selectedIds = selectOnlySet(id);
     paintSelection();
     refocusNodeById(id);
   }
@@ -862,10 +963,7 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function toggleSelected(id) {
-    const next = new Set(selectedIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    selectedIds = next;
+    selectedIds = toggleInSet(selectedIds, id);
     paintSelection();
     if (selectedIds.size > 0) refocusNodeById([...selectedIds].pop());
   }
@@ -877,56 +975,15 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function normalizeTabs() {
-    if (!Array.isArray(character.sheetTabs) || character.sheetTabs.length === 0) {
-      character.sheetTabs = [{
-        id: newId(),
-        name: "Main",
-        kind: "main",
-        layout: Array.isArray(character.layout) ? character.layout : [],
-      }];
-    }
-    character.sheetTabs.forEach((tab, index) => {
-      if (!tab.id) tab.id = newId();
-      if (index === 0 && !tab.kind) tab.kind = "main";
-      if (!tab.name) tab.name = tab.kind === "main" ? "Main" : tab.kind === "rules" ? "Character" : tab.kind === "leveling" ? "Leveling" : `Tab ${index + 1}`;
-      if (!Array.isArray(tab.layout)) tab.layout = [];
+    normalizeTabsIn(character, {
+      newIdFn: () => newId(),
+      normalizeRulesFn: (rules) => normalizeRulesState(rules),
+      mirrorFn: (ch) => mirrorFirstTabLayout(ch),
     });
-    // The Character-setup wizard tab is mandatory ONLY until it's been
-    // finished (character.setupComplete) — once finished, it's removed
-    // entirely rather than kept around, per Shawn's ask; the "Finish
-    // Setup" button in syncRulesToSheet is what flips the flag.
-    if (!character.setupComplete) {
-      if (!character.sheetTabs.some(tab => tab.kind === "rules")) {
-        character.sheetTabs.splice(1, 0, { id: newId(), name: "Character", kind: "rules", layout: [] });
-      }
-    } else {
-      const rulesIndex = character.sheetTabs.findIndex(tab => tab.kind === "rules");
-      if (rulesIndex !== -1) character.sheetTabs.splice(rulesIndex, 1);
-    }
-    if (!character.sheetTabs.some(tab => tab.kind === "leveling")) {
-      const levelingIndex = character.sheetTabs.some(tab => tab.kind === "rules") ? 2 : 1;
-      character.sheetTabs.splice(levelingIndex, 0, { id: newId(), name: "Leveling", kind: "leveling", layout: [] });
-    }
-    if (!character.levelUps || typeof character.levelUps !== "object") {
-      character.levelUps = {};
-    }
-    character.rules = normalizeRulesState(character.rules);
-    mirrorFirstTabLayout();
-  }
-
-  function newId() {
-    return crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  }
-
-  function clone(value) {
-    return JSON.parse(JSON.stringify(value));
   }
 
   function snapshot() {
-    return clone({
-      sheetTabs: character.sheetTabs,
-      layout: character.layout,
-    });
+    return snapshotOf(character, clone);
   }
 
   function restoreSnapshot(state) {
@@ -946,16 +1003,13 @@ export function renderCustomSheet(root, character, store) {
   // full snapshot, so Ctrl+Z undid one character at a time and a long
   // session's undo stack grew without bound. A pause longer than this
   // between edits starts a fresh undo step.
-  const UNDO_COALESCE_MS = 800;
-  const MAX_UNDO_STEPS = 100;
   let lastMutationAt = 0;
 
   function commitMutation(fn, { render = true, save = true } = {}) {
     if (save) unsavedChanges = true;
     const now = Date.now();
-    if (undoStack.length === 0 || now - lastMutationAt > UNDO_COALESCE_MS) {
-      undoStack.push(snapshot());
-      if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
+    if (shouldPushNewStep({ stackEmpty: undoStack.length === 0, now, lastMutationAt })) {
+      pushBounded(undoStack, snapshot());
     }
     lastMutationAt = now;
     redoStack.length = 0;
@@ -1017,8 +1071,7 @@ export function renderCustomSheet(root, character, store) {
 
   function undo() {
     if (undoStack.length === 0) return;
-    redoStack.push(snapshot());
-    if (redoStack.length > MAX_UNDO_STEPS) redoStack.shift();
+    pushBounded(redoStack, snapshot());
     restoreSnapshot(undoStack.pop());
     lastMutationAt = 0; // next edit always starts a fresh undo step, never coalesced into the just-restored state
     updateHistoryButtons();
@@ -1026,88 +1079,75 @@ export function renderCustomSheet(root, character, store) {
 
   function redo() {
     if (redoStack.length === 0) return;
-    undoStack.push(snapshot());
-    if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
+    pushBounded(undoStack, snapshot());
     restoreSnapshot(redoStack.pop());
     lastMutationAt = 0;
     updateHistoryButtons();
   }
 
   function updateHistoryButtons() {
-    undoBtn.disabled = undoStack.length === 0;
-    redoBtn.disabled = redoStack.length === 0;
+    applyHistoryButtons(undoBtn, redoBtn, undoStack.length, redoStack.length);
   }
 
-  const ARROW_DELTAS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+  const ARROW_DELTAS = SHARED_ARROW_DELTAS;
 
   function onShortcut(e) {
-    if (e.key === "Escape") {
-      if (document.activeElement && document.activeElement.blur) {
-        document.activeElement.blur();
-      }
-      clearSelectionState();
-      return;
-    }
-
-    // Guards both cases below: while actually typing/editing text, Delete
-    // and Backspace must only ever edit that text, never delete the
-    // whole block/field it lives in.
-    if (e.target.closest("input, textarea, select, [contenteditable='true']")) return;
-
-    if (editMode && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "Delete" || e.key === "Backspace")) {
-      if (selectedIds.size > 0) {
+    const nodeEl = e.target.closest ? e.target.closest(".grid-node") : null;
+    const action = shortcutAction({
+      key: e.key,
+      ctrl: e.ctrlKey,
+      meta: e.metaKey,
+      shift: e.shiftKey,
+      alt: e.altKey,
+      typing: !!(e.target.closest && e.target.closest("input, textarea, select, [contenteditable='true']")),
+      nodeId: nodeEl && nodeEl.dataset.nodeId ? nodeEl.dataset.nodeId : null,
+      hasSelection: selectedIds.size > 0,
+      editMode,
+    });
+    if (!action) return;
+    switch (action.type) {
+      case "escape":
+        if (document.activeElement && document.activeElement.blur) {
+          document.activeElement.blur();
+        }
+        clearSelectionState();
+        return;
+      // While actually typing/editing text, Delete and Backspace only
+      // ever edit that text — shortcutAction already returns null for
+      // those (typing guard above), so reaching here means a real
+      // sheet-structure delete.
+      case "delete-selection":
         e.preventDefault();
         deleteSelectedNodes([...selectedIds]);
         return;
-      }
-      const nodeEl = e.target.closest(".grid-node");
-      if (nodeEl && nodeEl.dataset.nodeId) {
+      case "delete-node": {
         e.preventDefault();
         deleteSelectedNode(nodeEl);
         return;
       }
-    }
-
-    if (editMode && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "d") {
-      e.preventDefault();
-      duplicateSelection();
-      return;
-    }
-
-    // Keyboard equivalent of dragging (plain arrows) or resizing
-    // (Shift+arrow) the current selection by one grid cell — until
-    // now, moving or resizing anything on the sheet required a mouse
-    // or a precise touch drag, with no way to do either from a
-    // keyboard or with imprecise touch input.
-    if (editMode && selectedIds.size > 0 && !e.ctrlKey && !e.metaKey && !e.altKey && ARROW_DELTAS[e.key]) {
-      e.preventDefault();
-      const [dx, dy] = ARROW_DELTAS[e.key];
-      nudgeSelection(dx, dy, e.shiftKey);
-      return;
-    }
-
-    if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return;
-    const key = e.key.toLowerCase();
-    if (key === "z") {
-      e.preventDefault();
-      undo();
-    } else if (key === "y") {
-      e.preventDefault();
-      redo();
+      case "duplicate":
+        e.preventDefault();
+        duplicateSelection();
+        return;
+      case "nudge":
+        e.preventDefault();
+        nudgeSelection(action.dx, action.dy, action.resize);
+        return;
+      case "undo":
+        e.preventDefault();
+        undo();
+        return;
+      case "redo":
+        e.preventDefault();
+        redo();
+        return;
+      default:
+        return;
     }
   }
 
-  /** The block a field's id lives inside, searching both the global
-   *  tab's layout and the current tab's — same two-layout fallback
-   *  findNode/findParentArray already use elsewhere. Returns null for
-   *  a top-level block id (blocks have no parent). */
   function parentBlockOf(fieldId) {
-    for (const layout of [globalLayout(), currentLayout()]) {
-      for (const block of layout) {
-        if ((block.children || []).some((f) => f.id === fieldId)) return block;
-      }
-    }
-    return null;
+    return parentBlockOfIn(fieldId, [globalLayout(), currentLayout()]);
   }
 
   /** Moves (plain) or resizes (Shift) every top-level selected node by
@@ -1125,10 +1165,7 @@ export function renderCustomSheet(root, character, store) {
    *  unbounded (it can go anywhere on the canvas, same as dragging
    *  it). */
   function nudgeSelection(dx, dy, resize) {
-    const targets = [...selectedIds].filter((id) => {
-      const block = parentBlockOf(id);
-      return !block || !selectedIds.has(block.id);
-    });
+    const targets = nudgeTargets(selectedIds, parentBlockOf);
     if (targets.length === 0) return;
     commitMutation(() => {
       targets.forEach((id) => {
@@ -1136,17 +1173,13 @@ export function renderCustomSheet(root, character, store) {
         if (!node) return;
         const isField = !Array.isArray(node.children);
         const block = isField ? parentBlockOf(id) : null;
-        if (resize) {
-          const maxW = isField && block ? block.w - node.x : Infinity;
-          const maxH = isField && block ? (block.h - BLOCK_HEADER_ROWS) - node.y : Infinity;
-          node.w = Math.min(maxW, Math.max(1, node.w + dx));
-          node.h = Math.min(maxH, Math.max(1, node.h + dy));
-        } else {
-          const maxX = isField && block ? Math.max(0, block.w - node.w) : Infinity;
-          const maxY = isField && block ? Math.max(0, (block.h - BLOCK_HEADER_ROWS) - node.h) : Infinity;
-          node.x = Math.min(maxX, Math.max(0, node.x + dx));
-          node.y = Math.min(maxY, Math.max(0, node.y + dy));
-        }
+        // Bounds match wireDrag/wireResize's own: a field is clamped
+        // to its parent block's content area, a block is unbounded.
+        const maxW = isField && block ? block.w - node.x : Infinity;
+        const maxH = isField && block ? (block.h - BLOCK_HEADER_ROWS) - node.y : Infinity;
+        const maxX = isField && block ? Math.max(0, block.w - node.w) : Infinity;
+        const maxY = isField && block ? Math.max(0, (block.h - BLOCK_HEADER_ROWS) - node.h) : Infinity;
+        nudgeNode(node, dx, dy, resize, { maxW, maxH, maxX, maxY });
       });
     });
   }
@@ -1187,14 +1220,7 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function boundingBox(nodes) {
-    return {
-      minX: Math.min(...nodes.map(n => n.x)),
-      minY: Math.min(...nodes.map(n => n.y)),
-      maxX: Math.max(...nodes.map(n => n.x + n.w)),
-      maxY: Math.max(...nodes.map(n => n.y + n.h)),
-      w: Math.max(...nodes.map(n => n.x + n.w)) - Math.min(...nodes.map(n => n.x)),
-      h: Math.max(...nodes.map(n => n.y + n.h)) - Math.min(...nodes.map(n => n.y)),
-    };
+    return nodesBounds(nodes);
   }
 
   /** A JSON deep clone with fresh top-level ids (block/field, and each
@@ -1207,18 +1233,7 @@ export function renderCustomSheet(root, character, store) {
    *  clearOtherAvatars), and a duplicate shouldn't silently create a
    *  second one. */
   function cloneWithNewIds(node) {
-    const clone = JSON.parse(JSON.stringify(node));
-    clone.id = newId();
-    if (clone.fieldType === "picture") clone.isAvatar = false;
-    if (Array.isArray(clone.children)) {
-      clone.children = clone.children.map((child) => {
-        const c = JSON.parse(JSON.stringify(child));
-        c.id = newId();
-        if (c.fieldType === "picture") c.isAvatar = false;
-        return c;
-      });
-    }
-    return clone;
+    return cloneNodeWithNewIds(node, newId);
   }
 
   /** Duplicates a set of top-level blocks, placed beside (or, if there's
@@ -1233,15 +1248,13 @@ export function renderCustomSheet(root, character, store) {
   function duplicateBlocksOnGrid(blocks) {
     if (blocks.length === 0) return [];
     const box = boundingBox(blocks);
-    const fitsRight = box.maxX + box.w <= PAGE_COLS;
-    const dx = fitsRight ? box.w : 0;
-    const dy = fitsRight ? 0 : box.h;
+    const { dx, dy } = duplicateOffset(box, PAGE_COLS);
     return blocks.map((b) => {
-      const clone = cloneWithNewIds(b);
-      clone.x = b.x + dx;
-      clone.y = b.y + dy;
-      currentLayout().push(clone);
-      return clone;
+      const dupe = cloneWithNewIds(b);
+      dupe.x = b.x + dx;
+      dupe.y = b.y + dy;
+      currentLayout().push(dupe);
+      return dupe;
     });
   }
 
@@ -1255,21 +1268,16 @@ export function renderCustomSheet(root, character, store) {
     if (fields.length === 0) return [];
     const box = boundingBox(fields);
     const fitsRight = box.maxX + box.w <= block.w;
-    const dx = fitsRight ? box.w : 0;
-    const dy = fitsRight ? 0 : box.h;
+    const { dx, dy } = duplicateOffset(box, block.w);
     if (!fitsRight) {
-      const contentRows = block.h - BLOCK_HEADER_ROWS;
-      const neededRows = box.minY + dy + box.h;
-      if (neededRows > contentRows) {
-        block.h += (neededRows - contentRows);
-      }
+      block.h += blockGrowthForDuplicate(block, box, dy, BLOCK_HEADER_ROWS);
     }
     return fields.map((f) => {
-      const clone = cloneWithNewIds(f);
-      clone.x = f.x + dx;
-      clone.y = f.y + dy;
-      block.children.push(clone);
-      return clone;
+      const dupe = cloneWithNewIds(f);
+      dupe.x = f.x + dx;
+      dupe.y = f.y + dy;
+      block.children.push(dupe);
+      return dupe;
     });
   }
 
@@ -1285,22 +1293,9 @@ export function renderCustomSheet(root, character, store) {
    *  the new copies afterward, same as most design tools' duplicate. */
   function duplicateSelection() {
     if (selectedIds.size === 0) return;
-    const blocksToDuplicate = currentLayout().filter((b) => selectedIds.has(b.id));
-    const coveredFieldIds = new Set();
-    blocksToDuplicate.forEach((b) => (b.children || []).forEach((f) => coveredFieldIds.add(f.id)));
+    const { blocksToDuplicate, fieldGroups } = partitionDuplicateSelection(currentLayout(), selectedIds);
 
-    const fieldGroups = new Map(); // block -> [fields], for fields selected independently of their block
-    currentLayout().forEach((block) => {
-      if (selectedIds.has(block.id)) return;
-      (block.children || []).forEach((f) => {
-        if (selectedIds.has(f.id) && !coveredFieldIds.has(f.id)) {
-          if (!fieldGroups.has(block)) fieldGroups.set(block, []);
-          fieldGroups.get(block).push(f);
-        }
-      });
-    });
-
-    if (blocksToDuplicate.length === 0 && fieldGroups.size === 0) return;
+    if (blocksToDuplicate.length === 0 && fieldGroups.length === 0) return;
 
     commitMutation(() => {
       const newIds = new Set();
@@ -1308,7 +1303,7 @@ export function renderCustomSheet(root, character, store) {
         newIds.add(b.id);
         (b.children || []).forEach((f) => newIds.add(f.id));
       });
-      fieldGroups.forEach((fields, block) => {
+      fieldGroups.forEach(([block, fields]) => {
         duplicateFieldsInBlock(block, fields).forEach((f) => newIds.add(f.id));
       });
       selectedIds = newIds;
@@ -1319,19 +1314,13 @@ export function renderCustomSheet(root, character, store) {
     const viewBlock = effectiveBlock(block);
     if ((viewBlock.children || []).length > 0 && !window.confirm(`Delete block "${viewBlock.name}" and everything in it?`)) return;
     commitMutation(() => {
-      const layout = currentLayout();
-      const idx = layout.findIndex(b => b.id === block.id);
-      if (idx >= 0) layout.splice(idx, 1);
+      removeBlockFromLayout(currentLayout(), block.id);
     });
   }
 
   function deleteFieldNode(field) {
     commitMutation(() => {
-      const arr = findParentArray(globalLayout(), field.id) || findParentArray(currentLayout(), field.id);
-      if (arr) {
-        const idx = arr.findIndex(n => n.id === field.id);
-        arr.splice(idx, 1);
-      }
+      removeFieldFromLayouts([globalLayout(), currentLayout()], field.id, (layout, id) => findParentArray(layout, id));
     });
   }
 
@@ -1355,8 +1344,8 @@ export function renderCustomSheet(root, character, store) {
     saveWithStatus("layout", character.layout);
   }
 
-  function mirrorFirstTabLayout() {
-    character.layout = character.sheetTabs[0]?.layout || [];
+  function mirrorFirstTabLayout(ch = character) {
+    ch.layout = ch.sheetTabs[0]?.layout || [];
   }
 
   function activeTab() {
@@ -1367,11 +1356,11 @@ export function renderCustomSheet(root, character, store) {
     if (!character.setupComplete) {
       return character.sheetTabs.find(tab => tab.kind === "rules") || character.sheetTabs[0];
     }
-    return character.sheetTabs.find(tab => tab.id === activeTabId) || character.sheetTabs[0];
+    return findTab(character.sheetTabs, activeTabId) || character.sheetTabs[0];
   }
 
   function activeTabIndex() {
-    return character.sheetTabs.findIndex(tab => tab.id === activeTab().id);
+    return tabIndex(character.sheetTabs, activeTab().id);
   }
 
   function isGlobalTab() {
@@ -1403,13 +1392,7 @@ export function renderCustomSheet(root, character, store) {
    *  character-card field) no matter which tabs they happen to live
    *  on, not just within the global one. */
   function flattenAllFieldsAcrossTabs() {
-    const list = [];
-    character.sheetTabs.forEach(tab => {
-      (tab.layout || []).forEach(block => {
-        (block.children || []).forEach(field => list.push(field));
-      });
-    });
-    return list;
+    return flattenFieldsAcrossTabs(character.sheetTabs);
   }
 
   function isLabelAlreadyInUse(label, excludeField) {
@@ -1421,15 +1404,10 @@ export function renderCustomSheet(root, character, store) {
 
   // In priority order — the first of these that exists wins, when
   // scanning for a pre-existing money field (see detectMoneyFieldByName).
-  const MONEY_FIELD_NAMES = ["money", "gp", "currency", "$", "$$", "$$$"];
+  const MONEY_FIELD_NAMES = SHARED_MONEY_FIELD_NAMES;
 
   function detectMoneyFieldByName() {
-    const fields = flattenAllFieldsAcrossTabs().filter(f => f.fieldType === "text");
-    for (const name of MONEY_FIELD_NAMES) {
-      const match = fields.find(f => (f.label || "").trim().toLowerCase() === name);
-      if (match) return match;
-    }
-    return null;
+    return findMoneyFieldByNameIn(flattenAllFieldsAcrossTabs(), MONEY_FIELD_NAMES);
   }
 
   /** Called only from the label blur handler (never on a timer or
@@ -1441,11 +1419,9 @@ export function renderCustomSheet(root, character, store) {
    *  character.moneyFieldId is set, this is permanently a no-op —
    *  exactly the "don't keep checking" behavior asked for. */
   function maybeAutoRegisterMoneyField(field) {
-    if (character.moneyFieldId || field.fieldType !== "text") return;
-    if (MONEY_FIELD_NAMES.includes((field.label || "").trim().toLowerCase())) {
-      character.moneyFieldId = field.id;
-      saveWithStatus("moneyFieldId", character.moneyFieldId);
-    }
+    if (!shouldAutoRegisterMoney(character.moneyFieldId, field, MONEY_FIELD_NAMES)) return;
+    character.moneyFieldId = field.id;
+    saveWithStatus("moneyFieldId", character.moneyFieldId);
   }
 
   /** A Catalog field's own money-field choice, resolved with a
@@ -1479,10 +1455,7 @@ export function renderCustomSheet(root, character, store) {
     if (field.formula && Number.isFinite(formulaValues[field.id])) {
       return formulaValues[field.id];
     }
-    const tmp = document.createElement("div");
-    tmp.innerHTML = field.value || "";
-    const n = parseFloat((tmp.textContent || "").trim());
-    return Number.isFinite(n) ? n : 0;
+    return floatFromRichText(field.value || "");
   }
 
   /** Migrates a dropdown's choices from the old plain-string shape to
@@ -1493,27 +1466,7 @@ export function renderCustomSheet(root, character, store) {
    *  selection is tracked by id from here on (stable across renames,
    *  same reasoning as everything else keyed by id in this file). */
   function normalizeChoiceObjects(allFields) {
-    let changed = false;
-    allFields.forEach((field) => {
-      if (field.fieldType !== "dropdown" || !Array.isArray(field.choices)) return;
-      const hadStrings = field.choices.some(c => typeof c === "string");
-      if (hadStrings) {
-        const oldSelectedText = field.selected;
-        field.choices = field.choices.map(c =>
-          typeof c === "string" ? { id: newId(), text: c, bundle: null } : c
-        );
-        if (oldSelectedText) {
-          const match = field.choices.find(c => c.text === oldSelectedText);
-          field.selected = match ? match.id : null;
-        }
-        changed = true;
-      } else {
-        field.choices.forEach((c) => {
-          if (c.bundle === undefined) { c.bundle = null; changed = true; }
-        });
-      }
-    });
-    return changed;
+    return normalizeChoiceObjectsIn(allFields, newId);
   }
 
   function resolveFieldById(id) {
@@ -1534,45 +1487,26 @@ export function renderCustomSheet(root, character, store) {
    *  existed, or on a sheet that doesn't use it, keep working exactly
    *  as they did before this. */
   function currentLevel(valueMap) {
-    if (!character.levelFieldId) return Infinity;
-    const v = valueMap[character.levelFieldId];
-    return Number.isFinite(v) ? v : 0;
+    return levelFromMap(character.levelFieldId, valueMap);
   }
 
   function getAllowedChoiceIds(field, allFields) {
-    let allowed = new Set((field.choices || []).map(c => c.id));
     const level = currentLevel(formulaValues);
-    let narrowedByBundle = false;
-    allFields.forEach((other) => {
-      if (other.fieldType !== "dropdown" || other === field) return;
-      const choice = (other.choices || []).find(c => c.id === other.selected);
-      const bundle = choice && choice.bundle;
-      if (!bundle) return;
-      (bundle.dropdownAccess || []).forEach((rule) => {
-        if (rule.targetFieldId !== field.id) return;
-        if (rule.minLevel && level < rule.minLevel) return; // not unlocked yet
-        const ruleSet = new Set(rule.allowedChoiceIds || []);
-        allowed = new Set([...allowed].filter(id => ruleSet.has(id)));
-        narrowedByBundle = true;
-      });
-    });
+    const { allowed, narrowed } = narrowChoicesByBundleAccess(field, allFields, level);
     // Fallback only. If an applied Class bundle already narrowed the
-    // Subclass field via a real dropdownAccess rule above (imported from
-    // JSON — see default-bundles/*.json), that data wins outright and
-    // this hardcoded PHB table is skipped, so a full imported subclass
-    // list never gets clipped back down to the small built-in one. This
-    // only kicks in for sheets that don't have a bundle wired up yet.
-    if (!narrowedByBundle && (field.id === "subclass" || field.label === "Subclass")) {
+    // Subclass field via a real dropdownAccess rule above, that data
+    // wins outright and this hardcoded table is skipped, so a full
+    // imported subclass list never gets clipped back down to the
+    // small built-in one. Only kicks in for sheets without a bundle
+    // wired up yet.
+    if (!narrowed && isSubclassField(field)) {
       const className = selectedChoiceName("class", "Class");
       const classEntry = getRulesetClass(character.rules?.rulesetId || character.rulesetId, className);
-      const level = currentCharacterLevel();
-      if (classEntry && level != null) {
-        const names = level >= classEntry.subclassLevel ? new Set(classEntry.subclasses) : new Set();
-        allowed = new Set([...allowed].filter((id) => {
-          const choice = (field.choices || []).find((candidate) => candidate.id === id);
-          return names.has(choice?.text);
-        }));
-      }
+      return applySubclassFallback(allowed, field, {
+        className,
+        classEntry,
+        level: currentCharacterLevel(),
+      });
     }
     return allowed;
   }
@@ -1586,15 +1520,7 @@ export function renderCustomSheet(root, character, store) {
    *  whether anything actually changed, so the caller knows whether
    *  to persist the correction. */
   function normalizeDropdownSelections(allFields) {
-    let changed = false;
-    allFields.forEach((field) => {
-      if (field.fieldType !== "dropdown" || !field.selected) return;
-      if (!getAllowedChoiceIds(field, allFields).has(field.selected)) {
-        field.selected = null;
-        changed = true;
-      }
-    });
-    return changed;
+    return normalizeDropdownSelectionsIn(allFields, (field, fields) => getAllowedChoiceIds(field, fields));
   }
 
   /** Applies every active bundle's stat modifiers on top of the plain
@@ -1633,236 +1559,71 @@ export function renderCustomSheet(root, character, store) {
    *  is much bigger and each grant needs to name exactly which entry
    *  it means. */
   function applyStatModifiers(modifiers, valueMap, checkboxGrants, tagGrants, level) {
-    (modifiers || []).forEach((mod) => {
-      if (!mod.targetFieldId) return;
-      if (mod.minLevel && level < mod.minLevel) return;
-      if (mod.op === "grant") {
-        const key = `${mod.targetFieldId}::${mod.targetIndex || 0}`;
-        checkboxGrants.add(key);
-        valueMap[key] = 1;
-        return;
-      }
-      if (mod.op === "grantTag") {
-        if (!mod.value) return;
-        if (!tagGrants.has(mod.targetFieldId)) tagGrants.set(mod.targetFieldId, new Set());
-        tagGrants.get(mod.targetFieldId).add(mod.value);
-        return;
-      }
-      const current = Number.isFinite(valueMap[mod.targetFieldId]) ? valueMap[mod.targetFieldId] : 0;
-      const amount = Number.isFinite(mod.value) ? mod.value : 0;
-      switch (mod.op) {
-        case "add": valueMap[mod.targetFieldId] = current + amount; break;
-        case "subtract": valueMap[mod.targetFieldId] = current - amount; break;
-        case "multiply": valueMap[mod.targetFieldId] = current * amount; break;
-        case "set": valueMap[mod.targetFieldId] = amount; break;
-        default: break;
-      }
-    });
+    applySharedStatModifiers(modifiers, valueMap, checkboxGrants, tagGrants, level);
   }
 
   function activeRuleChoiceGroups(fields, valueMap) {
-    const level = currentLevel(valueMap);
-    const groups = [];
-    fields.forEach((field) => {
-      if (field.fieldType !== "dropdown") return;
-      const choice = (field.choices || []).find((candidate) => candidate.id === field.selected);
-      const bundle = choice?.bundle;
-      (bundle?.choiceGroups || []).forEach((group, index) => {
-        if (group.minLevel && level < group.minLevel) return;
-        if (!Array.isArray(group.options) || group.options.length === 0) return;
-        groups.push({
-          ...group,
-          key: `${field.id}:${choice.id}:${group.id || index}`,
-          source: choice.text || field.label,
-          minLevel: Number.isFinite(group.minLevel) ? group.minLevel : 0,
-          maxSelections: Math.max(1, Number.parseInt(group.maxSelections, 10) || 1),
-          minSelections: Math.max(0, Number.parseInt(group.minSelections, 10) || 0),
-        });
-      });
-    });
-    return groups;
+    return activeChoiceGroupsFor(fields, currentLevel(valueMap));
   }
 
   function selectedRuleOptions(fields, valueMap) {
-    const selections = character.rules?.choices || {};
-    return activeRuleChoiceGroups(fields, valueMap).flatMap((group) => {
-      const selected = new Set(Array.isArray(selections[group.key]) ? selections[group.key] : []);
-      return group.options
-        .filter((option) => selected.has(option.id))
-        .map((option) => ({ option, group }));
-    });
+    return selectedRuleOptionsIn(
+      activeRuleChoiceGroups(fields, valueMap),
+      character.rules?.choices || {}
+    );
   }
 
-  /** Third source alongside a dropdown's selected bundle and
-   *  selectedRuleOptions' choiceGroups — feats taken in place of an
-   *  Ability Score Improvement (see the Leveling wizard's ASI step),
-   *  stored as {name, level} in character.rules.feats rather than tied
-   *  to any one dropdown field, since a character can pick up several
-   *  over a career. Matched against bundleLibraryCache by name+ruleset
-   *  the same way a Race/Class/Background selection is, so a feat with
-   *  statModifiers/featureGrants/resourceGrants set up in the Bundle
-   *  Library actually takes effect once chosen here, not just noted in
-   *  text. Feats never unlock later, so no minLevel gate here — once
-   *  taken they're permanent, same as any other applied bundle. */
   function selectedFeatBundles() {
-    const rulesetId = character.rules?.rulesetId || character.rulesetId;
-    return (character.rules?.feats || [])
-      .map((entry) => {
-        const name = entry?.name;
-        if (!name) return null;
-        const bundle = bundleFor("Feat", name, rulesetId);
-        return bundle ? { name, bundle } : null;
-      })
-      .filter(Boolean);
+    return selectedFeatBundlesIn(
+      character.rules?.feats || [],
+      character.rules?.rulesetId || character.rulesetId,
+      (category, name, rulesetId) => bundleFor(category, name, rulesetId)
+    );
   }
 
   function applyBundleModifiers(fields, valueMap, grantedCheckboxes, grantedTags) {
-    const level = currentLevel(valueMap);
-    fields.forEach((field) => {
-      if (field.fieldType !== "dropdown") return;
-      const choice = (field.choices || []).find(c => c.id === field.selected);
-      const bundle = choice && choice.bundle;
-      if (!bundle) return;
-      applyStatModifiers(bundle.statModifiers, valueMap, grantedCheckboxes, grantedTags, level);
-    });
-    selectedRuleOptions(fields, valueMap).forEach(({ option }) => {
-      applyStatModifiers(option.statModifiers, valueMap, grantedCheckboxes, grantedTags, level);
-    });
-    selectedFeatBundles().forEach(({ bundle }) => {
-      applyStatModifiers(bundle.statModifiers, valueMap, grantedCheckboxes, grantedTags, level);
-    });
+    return applyBundleModifiersIn(
+      fields,
+      valueMap,
+      grantedCheckboxes,
+      grantedTags,
+      currentLevel(valueMap),
+      selectedRuleOptions(fields, valueMap),
+      selectedFeatBundles(),
+      (modifiers, vm, cb, tags, level) => applyStatModifiers(modifiers, vm, cb, tags, level)
+    );
   }
 
-  /** Companion to applyBundleModifiers, same "walk every dropdown's
-   *  selected bundle" shape, but for featureGrants instead of
-   *  statModifiers — these are display-only (a name + description
-   *  string, e.g. "Rage"), so unlike statModifiers/the "grant" op they
-   *  never touch valueMap, just the returned list. Multiple bundles
-   *  (Class AND Race AND Background, say) can each contribute features
-   *  at the same render; entries are tagged with `source` (the
-   *  dropdown field's label) so a duplicate feature name from two
-   *  different bundles still shows twice rather than silently
-   *  colliding. Sorted by level then source so a level-up visibly adds
-   *  new entries at the bottom of "so far" rather than reshuffling
-   *  the whole list. */
   function collectGrantedFeatures(fields, valueMap) {
-    const level = currentLevel(valueMap);
-    const features = [];
-    fields.forEach((field) => {
-      if (field.fieldType !== "dropdown") return;
-      const choice = (field.choices || []).find(c => c.id === field.selected);
-      const bundle = choice && choice.bundle;
-      if (!bundle) return;
-      (bundle.featureGrants || []).forEach((grant) => {
-        if (grant.minLevel && level < grant.minLevel) return; // not unlocked yet
-        features.push({
-          name: grant.name,
-          description: grant.description || "",
-          level: Number.isFinite(grant.minLevel) ? grant.minLevel : 0,
-          source: field.label,
-        });
-      });
-    });
-    selectedRuleOptions(fields, valueMap).forEach(({ option, group }) => {
-      (option.featureGrants || []).forEach((grant) => {
-        features.push({
-          name: grant.name,
-          description: grant.description || "",
-          level: group.minLevel,
-          source: option.name || group.label || group.source,
-        });
-      });
-    });
-    selectedFeatBundles().forEach(({ name, bundle }) => {
-      (bundle.featureGrants || []).forEach((grant) => {
-        features.push({
-          name: grant.name,
-          description: grant.description || "",
-          level: Number.isFinite(grant.minLevel) ? grant.minLevel : 0,
-          source: name,
-        });
-      });
-    });
-    features.sort((a, b) => a.level - b.level || a.source.localeCompare(b.source));
-    return features;
+    return collectGrantedFeaturesIn(
+      fields,
+      currentLevel(valueMap),
+      selectedRuleOptions(fields, valueMap),
+      selectedFeatBundles()
+    );
   }
 
-  /** A resource that scales with level (Rage uses, Ki points, ...) is
-   *  written as one resourceGrants entry per level tier — same
-   *  approach as featureGrants/ASI. Naively pushing every tier whose
-   *  minLevel is <= the current level would show the same resource
-   *  several times over (all its past tiers, not just the current
-   *  one), so candidates are collected first and then reduced to the
-   *  single highest-minLevel tier per resource. The dedup key —
-   *  and, importantly, the *storage* key used to remember how many
-   *  uses are left — is based on the resource's name, not which tier
-   *  is currently active, so leveling up from one tier to the next
-   *  doesn't reset how many uses were already spent.
-   *
-   *  A grant's maximum is normally a flat integer, but some resources
-   *  (Bardic Inspiration = CHA modifier, minimum 1) scale off an
-   *  ability score rather than level — grant.maximumFormula, when
-   *  present, is a formula node (same {type,text}/{type:"if",...}
-   *  shape as a field's own `formula`) evaluated against the current
-   *  valueMap instead, and takes priority over a flat grant.maximum. */
   function collectResourceGrants(fields, valueMap) {
-    const level = currentLevel(valueMap);
-    const candidates = [];
-    const resolveMaximum = (grant) => {
-      if (grant.maximumFormula) {
-        const computed = evaluateFormulaNode(grant.maximumFormula, valueMap);
-        return Number.isFinite(computed) ? Math.max(0, Math.round(computed)) : 0;
-      }
-      return Math.max(0, Number.parseInt(grant.maximum, 10) || 0);
-    };
-    const add = (grant, keyBase, source) => {
-      if (grant.minLevel && level < grant.minLevel) return;
-      const maximum = resolveMaximum(grant);
-      if (!grant.name || maximum < 1) return;
-      candidates.push({ key: `${keyBase}:${grant.name}`, name: grant.name, maximum, minLevel: grant.minLevel || 0, reset: grant.reset || "rest", source });
-    };
-    fields.forEach((field) => {
-      if (field.fieldType !== "dropdown") return;
-      const choice = (field.choices || []).find((candidate) => candidate.id === field.selected);
-      const bundle = choice?.bundle;
-      (bundle?.resourceGrants || []).forEach((grant) => {
-        add(grant, `${field.id}:${choice.id}:resource`, choice.text || field.label);
-      });
-    });
-    selectedRuleOptions(fields, valueMap).forEach(({ option, group }) => {
-      (option.resourceGrants || []).forEach((grant) => {
-        add(grant, `${group.key}:${option.id}:resource`, option.name || group.label || group.source);
-      });
-    });
-    selectedFeatBundles().forEach(({ name, bundle }) => {
-      (bundle.resourceGrants || []).forEach((grant) => {
-        add(grant, `feat:${name}:resource`, name);
-      });
-    });
-    const byKey = new Map();
-    candidates.forEach((candidate) => {
-      const existing = byKey.get(candidate.key);
-      if (!existing || candidate.minLevel >= existing.minLevel) byKey.set(candidate.key, candidate);
-    });
-    return [...byKey.values()];
+    return collectResourceGrantsIn(
+      fields,
+      currentLevel(valueMap),
+      valueMap,
+      selectedRuleOptions(fields, valueMap),
+      selectedFeatBundles(),
+      (formula, vm) => evaluateFormulaNode(formula, vm)
+    );
   }
 
   function computeSheetValues(fields) {
-    const valueMap = computeAllFormulas(fields);
-    grantedCheckboxes = new Set();
-    grantedTags = new Map();
-    applyBundleModifiers(fields, valueMap, grantedCheckboxes, grantedTags);
-    grantedFeatures = collectGrantedFeatures(fields, valueMap);
-    // One more settle pass so anything a bundle modifier just changed
-    // (e.g. a race bonus on Strength) flows through to formulas that
-    // reference it (e.g. a Strength-based skill).
-    const formulaFields = fields.filter(f => f.fieldType === "text" && f.formula);
-    for (let pass = 0; pass < 3; pass++) {
-      formulaFields.forEach((f) => {
-        const result = evaluateFormulaNode(f.formula, valueMap);
-        if (Number.isFinite(result)) valueMap[f.id] = result;
-      });
-    }
+    const { valueMap, granted } = computeSheetValuesIn(fields, {
+      computeAllFormulasFn: (f) => computeAllFormulas(f),
+      applyBundleModifiersFn: (f, vm, cb, tags) => applyBundleModifiers(f, vm, cb, tags),
+      collectGrantedFeaturesFn: (f, vm) => collectGrantedFeatures(f, vm),
+      evaluateFormulaNodeFn: (formula, vm) => evaluateFormulaNode(formula, vm),
+    });
+    grantedCheckboxes = granted.checkboxes;
+    grantedTags = granted.tags;
+    grantedFeatures = granted.features;
     return valueMap;
   }
 
@@ -1874,14 +1635,7 @@ export function renderCustomSheet(root, character, store) {
    *  Clamped to zero or more and rounded, since a fractional or
    *  negative button count isn't meaningful. */
   function computeRadioOptionCounts(fields, valueMap) {
-    const counts = {};
-    fields.forEach((f) => {
-      if (f.fieldType === "radio" && f.optionsFormula) {
-        const result = evaluateFormulaNode(f.optionsFormula, valueMap);
-        counts[f.id] = Number.isFinite(result) ? Math.max(0, Math.round(result)) : 0;
-      }
-    });
-    return counts;
+    return computeRadioOptionCountsIn(fields, valueMap, (formula, vm) => evaluateFormulaNode(formula, vm));
   }
 
   /** Live spell-slot counts for the sheet's standard slots1-slots9
@@ -1898,16 +1652,16 @@ export function renderCustomSheet(root, character, store) {
    *  ensureStandardSpellSlotFields and the wizard's own summary text
    *  already trust. */
   function computeSpellSlotCounts(fields, valueMap) {
-    const counts = {};
-    const rulesetId = character.rules?.rulesetId || character.rulesetId;
-    const className = selectedChoiceName("class", "Class");
-    if (!rulesetId || !className) return counts;
-    const level = currentLevel(valueMap);
-    if (!Number.isFinite(level)) return counts;
-    (getLevelUpPlan(rulesetId, className, level)?.slotChanges || []).forEach((change) => {
-      counts[change.fieldId] = change.options;
+    // Sourced from the sheet's actual Class dropdown selection (not
+    // character.rules.className, which only updates when the
+    // Creation/Leveling wizard is actually used) and the same
+    // currentLevel(valueMap) every other live computation uses.
+    return computeSpellSlotCountsIn(fields, valueMap, {
+      rulesetId: character.rules?.rulesetId || character.rulesetId,
+      className: selectedChoiceName("class", "Class"),
+      level: currentLevel(valueMap),
+      planFn: (rulesetId, className, level) => getLevelUpPlan(rulesetId, className, level),
     });
-    return counts;
   }
 
   /** If a radio field's live button count just shrank below its
@@ -1918,28 +1672,15 @@ export function renderCustomSheet(root, character, store) {
    *  a button that no longer exists — same reasoning as
    *  normalizeDropdownSelections. */
   function normalizeRadioSelections(fields, formulaCounts, slotCounts) {
-    let changed = false;
-    fields.forEach((f) => {
-      if (f.fieldType !== "radio" || f.selected == null) return;
-      const isSlotField = Object.prototype.hasOwnProperty.call(slotCounts, f.id);
-      if (!f.optionsFormula && !isSlotField) return;
-      const count = f.optionsFormula ? (formulaCounts[f.id] || 0) : (slotCounts[f.id] || 0);
-      if (f.selected > count) {
-        f.selected = count > 0 ? count : null;
-        changed = true;
-      }
-    });
-    return changed;
+    return normalizeRadioSelectionsIn(fields, formulaCounts, slotCounts);
   }
 
   function sourceBlockFor(block) {
-    if (!block.sourceBlockId) return block;
-    return globalLayout().find(candidate => candidate.id === block.sourceBlockId) || block;
+    return resolveSourceBlock(block, globalLayout());
   }
 
   function effectiveStyle(block) {
-    const source = sourceBlockFor(block);
-    return { ...(source.style || {}), ...(block.styleOverrides || {}) };
+    return effectiveStyleFor(block, sourceBlockFor(block));
   }
 
   function styleForEditing(node) {
@@ -1960,10 +1701,6 @@ export function renderCustomSheet(root, character, store) {
     } else {
       node.styleOverrides[styleKey] = value;
     }
-  }
-
-  function valuesMatch(a, b) {
-    return (a ?? null) === (b ?? null);
   }
 
   /** Flips whether a block/field's own border is drawn at all (its
@@ -1993,34 +1730,12 @@ export function renderCustomSheet(root, character, store) {
     return btn;
   }
 
-  function mergeTextStyle(baseStyle = {}, localStyle = {}) {
-    return {
-      ...localStyle,
-      fontFamily: localStyle.fontFamily ?? baseStyle.fontFamily ?? null,
-      fontSize: localStyle.fontSize ?? baseStyle.fontSize ?? null,
-      bold: !!(localStyle.bold || baseStyle.bold),
-      italic: !!(localStyle.italic || baseStyle.italic),
-      underline: !!(localStyle.underline || baseStyle.underline),
-      color: localStyle.color ?? baseStyle.color ?? null,
-    };
-  }
-
   function effectiveBlock(block) {
-    const source = sourceBlockFor(block);
-    return {
-      ...source,
-      ...block,
-      blockType: source.blockType || block.blockType || "stat",
-      name: source.name || block.name,
-      children: source.children || block.children || [],
-      style: effectiveStyle(block),
-    };
+    return effectiveBlockFor(block, sourceBlockFor(block));
   }
 
   function blockTabs(blockId) {
-    return character.sheetTabs
-      .filter(tab => tab.layout.some(block => block.id === blockId || block.sourceBlockId === blockId))
-      .map(tab => tab.name);
+    return blockTabsFor(blockId, character.sheetTabs);
   }
 
   function addBlockReferenceToActiveTab(blockId, x, y) {
@@ -2059,8 +1774,7 @@ export function renderCustomSheet(root, character, store) {
 
   function colWidthPx() {
     const availableWidth = scrollWrapper.clientWidth || root.clientWidth || 960;
-    const natural = (availableWidth - (PAGE_COLS - 1) * GAP_PX) / PAGE_COLS;
-    return Math.max(MIN_CELL_PX, natural);
+    return colWidthFor(availableWidth, PAGE_COLS, GAP_PX, MIN_CELL_PX);
   }
 
   /** How tall the scroll wrapper should be to fill the rest of the
@@ -2089,10 +1803,11 @@ export function renderCustomSheet(root, character, store) {
 
   function applyRect(el, node, cw) {
     const inset = editMode ? NODE_INSET_PX : 0;
-    el.style.left = `${node.x * (cw + GAP_PX) + inset}px`;
-    el.style.top = `${node.y * (cw + GAP_PX) + inset}px`;
-    el.style.width = `${node.w * cw + (node.w - 1) * GAP_PX - inset * 2}px`;
-    el.style.height = `${node.h * cw + (node.h - 1) * GAP_PX - inset * 2}px`;
+    const s = rectStyle(node, cw, GAP_PX, inset);
+    el.style.left = s.left;
+    el.style.top = s.top;
+    el.style.width = s.width;
+    el.style.height = s.height;
   }
 
   /** The actual width-growing loop: if a field's label no longer fits
@@ -2111,9 +1826,9 @@ export function renderCustomSheet(root, character, store) {
    *  whether it actually grew anything. */
   function growFieldToFitLabel(labelEl, field, fieldEl, parentBlock) {
     if (!parentBlock) return false;
-    const maxW = parentBlock.w - field.x;
-    if (field.w >= maxW || labelEl.scrollWidth <= labelEl.clientWidth + 1) return false;
-    while (labelEl.scrollWidth > labelEl.clientWidth + 1 && field.w < maxW) {
+    const maxW = labelMaxWidth(parentBlock, field);
+    if (!shouldGrowForLabel(field.w, maxW, labelEl.scrollWidth, labelEl.clientWidth)) return false;
+    while (shouldGrowForLabel(field.w, maxW, labelEl.scrollWidth, labelEl.clientWidth)) {
       field.w += 1;
       applyRect(fieldEl, field, colWidthPx());
     }
@@ -2130,25 +1845,15 @@ export function renderCustomSheet(root, character, store) {
    *  a save for doing nothing. */
   function growFieldIfLabelOverflows(labelEl, field, fieldEl, parentBlock) {
     if (!parentBlock) return;
-    const maxW = parentBlock.w - field.x;
-    if (field.w >= maxW || labelEl.scrollWidth <= labelEl.clientWidth + 1) return;
+    const maxW = labelMaxWidth(parentBlock, field);
+    if (!shouldGrowForLabel(field.w, maxW, labelEl.scrollWidth, labelEl.clientWidth)) return;
     commitMutation(() => {
       growFieldToFitLabel(labelEl, field, fieldEl, parentBlock);
     }, { render: false });
   }
 
   function applyNodeStyle(el, style) {
-    el.style.background = style.bg || "";
-    el.style.backgroundImage = style.bgImage ? `url(${style.bgImage})` : "";
-    el.style.backgroundSize = style.bgImage ? "cover" : "";
-    el.style.backgroundPosition = style.bgImage ? "center" : "";
-    el.style.fontFamily = style.fontFamily || "";
-    el.style.fontSize = style.fontSize ? `${style.fontSize}px` : "";
-    el.style.fontWeight = style.bold ? "bold" : "";
-    el.style.fontStyle = style.italic ? "italic" : "";
-    el.style.textDecoration = style.underline ? "underline" : "";
-    el.style.color = style.color || "";
-    el.classList.toggle("border-hidden", style.showBorder === false);
+    applyCssToEl(el, styleToCss(style || {}));
   }
 
   function renderPageGrid() {
@@ -2165,28 +1870,25 @@ export function renderCustomSheet(root, character, store) {
     pageGrid.classList.toggle("is-edit-mode", editMode);
     pendingLabelOverflowChecks = [];
     const allFields = flattenGlobalFields();
-    let needsNormalizedPersist = false;
-    if (normalizeChoiceObjects(allFields)) needsNormalizedPersist = true;
     // Computed BEFORE normalizing dropdown selections (not after, as
     // you might expect) so that a minLevel-gated dropdown-access rule
-    // (see getAllowedChoiceIds) checks the level this render actually
-    // computed, not last render's — otherwise leveling up and a
-    // selection becoming valid/invalid again would always be one
-    // render behind. If normalizing invalidates a selection, that can
-    // in turn change which bundle is active, so it's recomputed once
-    // more afterward — same "a few passes to settle" idea
-    // computeSheetValues already uses internally.
-    formulaValues = computeSheetValues(allFields);
-    if (normalizeDropdownSelections(allFields)) {
-      needsNormalizedPersist = true;
-      formulaValues = computeSheetValues(allFields);
-    }
-    radioOptionCounts = computeRadioOptionCounts(allFields, formulaValues);
-    spellSlotCounts = computeSpellSlotCounts(allFields, formulaValues);
-    if (normalizeRadioSelections(allFields, radioOptionCounts, spellSlotCounts)) {
-      needsNormalizedPersist = true;
-    }
-    if (needsNormalizedPersist) persist();
+    // checks the level this render actually computed, not last
+    // render's — otherwise leveling up and a selection becoming
+    // valid/invalid again would always be one render behind. If
+    // normalizing invalidates a selection, that can in turn change
+    // which bundle is active, so it's recomputed once more afterward.
+    const renderState = prepareRenderState(allFields, {
+      normalizeChoiceObjectsFn: (f) => normalizeChoiceObjects(f),
+      computeValuesFn: (f) => computeSheetValues(f),
+      normalizeDropdownsFn: (f) => normalizeDropdownSelections(f),
+      optionCountsFn: (f, vm) => computeRadioOptionCounts(f, vm),
+      slotCountsFn: (f, vm) => computeSpellSlotCounts(f, vm),
+      normalizeRadioFn: (f, counts, slots) => normalizeRadioSelections(f, counts, slots),
+    });
+    formulaValues = renderState.formulaValues;
+    radioOptionCounts = renderState.radioCounts;
+    spellSlotCounts = renderState.slotCounts;
+    if (renderState.needsNormalizedPersist) persist();
     const availableHeight = availableViewportHeight();
     scrollWrapper.style.height = `${availableHeight}px`;
 
@@ -2204,47 +1906,21 @@ export function renderCustomSheet(root, character, store) {
     pageGrid.classList.remove("page-grid--leveling");
 
     const cw = colWidthPx();
-    // Explicit width so the grid can exceed the wrapper's width (and
-    // scroll) once cw hits its floor, rather than being crushed to fit.
-    pageGrid.style.width = `${PAGE_COLS * cw + (PAGE_COLS - 1) * GAP_PX}px`;
-    // At least tall enough to fill the visible canvas (so there's
-    // always room to drag things into open space), taller only if the
-    // actual content needs more — in which case it scrolls.
-    const contentPx = contentHeight(currentLayout()) * (cw + GAP_PX);
-    pageGrid.style.height = `${Math.max(availableHeight, contentPx)}px`;
-    applyGridLines(pageGrid, cw);
-    currentLayout().forEach(block => {
-      pageGrid.append(renderBlockNode(block, cw));
+    renderMainGridInto(pageGrid, scrollWrapper, {
+      cw,
+      availableHeight,
+      layout: currentLayout(),
+      pageCols: PAGE_COLS,
+      gapPx: GAP_PX,
+      contentHeightFn: (layout) => contentHeight(layout),
+      gridLinesFn: (el, w, origin) => applyGridLines(el, w, origin),
+      blockNodeFn: (block, w) => renderBlockNode(block, w),
+      growFn: (labelEl, field, fieldEl, parentBlock) => growFieldToFitLabel(labelEl, field, fieldEl, parentBlock),
+      overflowChecks: pendingLabelOverflowChecks,
+      paintFn: () => paintSelection(),
+      toolbarEls: [groupToolbar, groupBorderOverlay],
+      isEdit: editMode,
     });
-
-    // Every field is now actually in the document and has real layout,
-    // so this is the first point where checking a label against its
-    // cell means anything (see the comment on pendingLabelOverflowChecks
-    // above, and on growFieldToFitLabel). Deliberately not wrapped in
-    // commitMutation/persist — this is a fresh, idempotent fit-up of
-    // whatever's on screen right now, not a discrete edit worth its own
-    // undo step, and it isn't needed for correctness on the next load
-    // either: an unpersisted grow just gets recomputed the same way
-    // next time this runs.
-    pendingLabelOverflowChecks.forEach(({ labelEl, field, fieldEl, parentBlock }) => {
-      growFieldToFitLabel(labelEl, field, fieldEl, parentBlock);
-    });
-
-    // Now that every block is actually laid out, re-anchor each one's
-    // local body grid to the page grid's phase (see applyGridLines).
-    if (editMode) {
-      pageGrid.querySelectorAll(".block-body").forEach(bodyEl => {
-        applyGridLines(bodyEl, cw, pageGrid);
-      });
-    }
-
-    paintSelection(); // a full render tears down and rebuilds every
-      // .grid-node — repaint .is-selected on whichever ones still
-      // exist, so selection survives an unrelated edit elsewhere
-    pageGrid.append(groupToolbar, groupBorderOverlay); // innerHTML="" above
-      // wiped them out along with everything else — they're persistent
-      // elements (created once, not per-render), so just put them back
-      // rather than rebuild them
     scrollWrapper.scrollTop = preservedScrollTop;
   }
 
@@ -2263,16 +1939,7 @@ export function renderCustomSheet(root, character, store) {
   // in any tab's layout, and are always editable regardless of edit
   // mode, same as any other field's value.
 
-  const LEVEL_UP_FIELDS = [
-    { key: "hp", label: "HP Gained", placeholder: "e.g. +7, or rolled 1d8+2" },
-    { key: "asiFeat", label: "Ability Score Improvement / Feat", placeholder: "e.g. +2 STR, or the Alert feat" },
-    { key: "subclass", label: "Subclass", placeholder: "e.g. Champion" },
-    { key: "skillProfs", label: "Skill Proficiencies Gained", placeholder: "e.g. Persuasion, Insight" },
-    { key: "itemProfs", label: "Tool / Weapon / Armor Proficiencies Gained", placeholder: "e.g. Thieves' Tools" },
-    { key: "spells", label: "Spells Learned / Prepared", placeholder: "e.g. Fireball, Misty Step" },
-    { key: "features", label: "Features Gained", placeholder: "e.g. Extra Attack, Uncanny Dodge" },
-    { key: "notes", label: "Notes", placeholder: "Anything else worth remembering" },
-  ];
+  const LEVEL_UP_FIELDS = SHARED_LEVEL_UP_FIELDS;
 
   const saveLevelUps = debounce(() => saveWithStatus("levelUps", character.levelUps), 400);
 
@@ -2298,10 +1965,7 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function selectedChoiceName(fieldId, label) {
-    const field = flattenGlobalFields().find((candidate) => candidate.id === fieldId)
-      || flattenGlobalFields().find((candidate) => candidate.fieldType === "dropdown" && candidate.label === label);
-    if (!field || field.fieldType !== "dropdown") return "";
-    return (field.choices || []).find((choice) => choice.id === field.selected)?.text || "";
+    return selectedChoiceNameIn(flattenGlobalFields(), fieldId, label);
   }
 
   /** Same "prefer the applied bundle's real data over the hardcoded PHB
@@ -2315,14 +1979,8 @@ export function renderCustomSheet(root, character, store) {
     const classField = findStarterField("class", "Class");
     const subclassField = findStarterField("subclass", "Subclass");
     const classChoice = classField?.choices?.find((c) => c.text === className);
-    const rule = classChoice?.bundle?.dropdownAccess?.find((r) => r.targetFieldId === subclassField?.id);
-    if (rule && subclassField) {
-      const idSet = new Set(rule.allowedChoiceIds || []);
-      const names = subclassField.choices.filter((c) => idSet.has(c.id)).map((c) => c.text);
-      if (names.length) {
-        return { subclasses: names, subclassLevel: Number.isFinite(rule.minLevel) ? rule.minLevel : 1 };
-      }
-    }
+    const fromBundle = subclassNamesFromBundleRule(classChoice, subclassField);
+    if (fromBundle) return fromBundle;
     const classEntry = getRulesetClass(character.rules?.rulesetId || character.rulesetId, className);
     return classEntry
       ? { subclasses: classEntry.subclasses, subclassLevel: classEntry.subclassLevel }
@@ -2350,119 +2008,11 @@ export function renderCustomSheet(root, character, store) {
    *  see getAllowedChoiceIds/applyBundleModifiers, which recompute
    *  everything from the current selection on every render anyway. */
   function renderStepWizard(steps, stepState, { title, intro } = {}) {
-    const stepApplicable = (step) => !step.isApplicable || step.isApplicable();
-    const applicableSteps = steps.filter(stepApplicable);
-    if (applicableSteps.length === 0) return null;
-    if (stepState.index >= applicableSteps.length) stepState.index = applicableSteps.length - 1;
-    if (stepState.index < 0) stepState.index = 0;
-
-    const wrap = document.createElement("section");
-    wrap.className = "leveling-tab character-rules wizard";
-    if (title) {
-      const heading = document.createElement("h2");
-      heading.textContent = title;
-      wrap.append(heading);
-    }
-    if (intro) {
-      const introEl = document.createElement("p");
-      introEl.className = "leveling-tab__intro";
-      introEl.textContent = intro;
-      wrap.append(introEl);
-    }
-
-    const dots = document.createElement("div");
-    dots.className = "wizard__dots";
-    // Every step gets a dot, even ones that don't currently apply (e.g.
-    // "Feats" for a class/level combo that doesn't grant one at
-    // creation) — those render disabled with a tooltip explaining why,
-    // rather than disappearing outright, so the wizard's shape doesn't
-    // shift around as earlier answers change. Next/Back still only
-    // walk applicableSteps, so an inapplicable step is skipped
-    // automatically rather than needing to be clicked past.
-    steps.forEach((step) => {
-      const dot = document.createElement("button");
-      dot.type = "button";
-      dot.textContent = step.title;
-      if (!stepApplicable(step)) {
-        dot.className = "wizard__dot wizard__dot--disabled";
-        dot.disabled = true;
-        if (step.unavailableMessage) dot.title = step.unavailableMessage();
-        dots.append(dot);
-        return;
-      }
-      const i = applicableSteps.indexOf(step);
-      dot.className = "wizard__dot"
-        + (i === stepState.index ? " wizard__dot--active" : "")
-        + (i < stepState.index ? " wizard__dot--done" : "");
-      dot.addEventListener("click", () => { stepState.index = i; renderPageGrid(); });
-      dots.append(dot);
-    });
-    wrap.append(dots);
-
-    const currentStep = applicableSteps[stepState.index];
-    if (currentStep.descriptionItems && currentStep.descriptionItems.length) {
-      const list = document.createElement("ul");
-      list.className = "leveling-tab__intro wizard__step-description wizard__step-description--list";
-      currentStep.descriptionItems.forEach((item) => {
-        const li = document.createElement("li");
-        li.textContent = item;
-        list.append(li);
-      });
-      wrap.append(list);
-    } else if (currentStep.description) {
-      const description = document.createElement("p");
-      description.className = "leveling-tab__intro wizard__step-description";
-      description.textContent = currentStep.description;
-      wrap.append(description);
-    }
-
-    // Built fresh each call (rather than reused) since a DOM node can
-    // only live in one place at a time, and this is placed both above
-    // and below the step body below.
-    const buildNav = (extraClass) => {
-      const nav = document.createElement("div");
-      nav.className = extraClass ? `wizard__nav ${extraClass}` : "wizard__nav";
-      if (stepState.index > 0) {
-        const back = document.createElement("button");
-        back.type = "button";
-        back.className = "btn";
-        back.textContent = "← Back";
-        back.addEventListener("click", () => { stepState.index -= 1; renderPageGrid(); });
-        nav.append(back);
-      }
-      if (stepState.index < applicableSteps.length - 1) {
-        const forward = document.createElement("button");
-        forward.type = "button";
-        forward.className = "btn btn--primary";
-        forward.textContent = "Next →";
-        forward.addEventListener("click", () => { stepState.index += 1; renderPageGrid(); });
-        nav.append(forward);
-      }
-      return nav;
-    };
-
-    wrap.append(buildNav("wizard__nav--top"));
-
-    const body = document.createElement("div");
-    body.className = "wizard__body level-guide__form";
-    wrap.append(body);
-    currentStep.render(body);
-
-    wrap.append(buildNav());
-    return wrap;
+    return renderStepWizardInto(steps, stepState, { title, intro }, () => renderPageGrid());
   }
 
-  /** Bundle-library class/race/background names tagged to a ruleset —
-   *  same live-over-hardcoded preference as liveSubclassData, so the
-   *  wizard's pickers immediately reflect an imported classes.json
-   *  instead of the small built-in PHB list. Falls back to the
-   *  hardcoded ruleset's class list (Class only — Race/Background have
-   *  no hardcoded fallback since they were never in dnd5e.js). */
   function rulesetOptionNames(rulesetId, category, fallback = []) {
-    const fromBundles = bundleLibraryCache
-      .filter((entry) => entry.rulesetId === rulesetId && entry.category === category)
-      .map((entry) => entry.name);
-    return fromBundles.length ? fromBundles : fallback;
+    return rulesetOptionNamesIn(bundleLibraryCache, rulesetId, category, fallback);
   }
 
   /** Best-effort flavor lookup for the character-creation wizard's
@@ -2476,21 +2026,7 @@ export function renderCustomSheet(root, character, store) {
    *  do later" note about wiring these two systems together properly.
    *  Degrades gracefully (name + placeholder icon) when nothing matches. */
   function catalogEntryInfo(keywords, name) {
-    if (!name) return null;
-    const norm = (s) => (s || "").trim().toLowerCase();
-    let catalog = catalogCache.find((c) => keywords.some((kw) => norm(c.name).includes(kw)));
-    // Fall back to checking every catalog's tabs directly — covers a
-    // catalog like the baked-in "Classes" one, which holds a
-    // "Subclasses" tab under a name that doesn't itself contain
-    // "subclass", so the keyword match above never finds it.
-    const candidates = catalog ? [catalog] : catalogCache;
-    for (const cat of candidates) {
-      for (const tab of cat.tabs || []) {
-        const entry = (tab.entries || []).find((e) => norm(e.name) === norm(name));
-        if (entry) return { description: entry.description || "", imageData: entry.imageData || null };
-      }
-    }
-    return null;
+    return catalogEntryInfoIn(catalogCache, keywords, name);
   }
 
   /** Shared row-list UI for the wizard's Race/Class/Subclass/
@@ -2507,54 +2043,8 @@ export function renderCustomSheet(root, character, store) {
    *  mechanicsPreviewFor below) renders as a third line under the
    *  description, so "what does this actually do" is visible before
    *  picking, not just its flavor text. */
-  function renderSelectableRows(container, names, { selectedName, onSelect, getInfo, getMechanics, afterRow, nested = false } = {}) {
-    const list = document.createElement("div");
-    list.className = "choice-row-list" + (nested ? " choice-row-list--nested" : "");
-    names.forEach((name) => {
-      const info = getInfo ? getInfo(name) : null;
-      const selected = name === selectedName;
-      const row = document.createElement("div");
-      row.className = "choice-row" + (nested ? " choice-row--nested" : "") + (selected ? " choice-row--selected" : "");
-      row.tabIndex = 0;
-      row.setAttribute("role", "button");
-      row.setAttribute("aria-pressed", String(selected));
-      row.addEventListener("click", () => onSelect(name));
-      row.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(name); }
-      });
-      const portrait = document.createElement("div");
-      portrait.className = "choice-row__portrait";
-      if (info?.imageData) {
-        const img = document.createElement("img");
-        img.src = info.imageData;
-        img.alt = "";
-        portrait.append(img);
-      } else {
-        portrait.textContent = (name || "?").charAt(0).toUpperCase();
-      }
-      row.append(portrait);
-      const body = document.createElement("div");
-      body.className = "choice-row__body";
-      const label = document.createElement("div");
-      label.className = "choice-row__label";
-      label.textContent = name;
-      body.append(label);
-      const desc = document.createElement("div");
-      desc.className = "choice-row__description";
-      desc.textContent = info?.description || "No description available yet.";
-      body.append(desc);
-      if (getMechanics) {
-        const mechanics = document.createElement("div");
-        mechanics.className = "choice-row__mechanics";
-        mechanics.textContent = getMechanics(name) || "No mechanical data linked yet.";
-        body.append(mechanics);
-      }
-      row.append(body);
-      list.append(row);
-      if (afterRow) afterRow(name, row);
-    });
-    container.append(list);
-    return list;
+  function renderSelectableRows(container, names, opts = {}) {
+    return renderSelectableRowsInto(container, names, opts);
   }
 
   /** Human-readable label for a statModifier's targetFieldId — special-
@@ -2571,26 +2061,21 @@ export function renderCustomSheet(root, character, store) {
    *  id at all — bundles are written assuming a compatible sheet, same
    *  as applyStatModifiers itself assumes). */
   function statModifierLabel(mod) {
-    const abilityId = ABILITY_IDS.find((id) => mod.targetFieldId === `${id}Score`);
-    if (abilityId) return abilityId.toUpperCase();
-    const saveAbility = ABILITIES.find((a) => mod.targetFieldId === `${a.id}SaveProf`);
-    if (saveAbility) return `${saveAbility.label} Save`;
-    const skill = SKILLS.find((s) => mod.targetFieldId === `${s.id}Prof`);
-    if (skill) return skill.label;
-    return resolveFieldById(mod.targetFieldId)?.label || mod.targetFieldId;
+    return sharedStatModifierLabel(mod, {
+      abilityIds: ABILITY_IDS,
+      abilities: ABILITIES,
+      skills: SKILLS,
+      resolveLabel: (id) => resolveFieldById(id)?.label,
+    });
   }
 
   function statModifierSummary(mod) {
-    const label = statModifierLabel(mod);
-    const amount = Number.isFinite(mod.value) ? mod.value : 0;
-    switch (mod.op) {
-      case "grant": return label;
-      case "add": return `${amount >= 0 ? "+" : ""}${amount} ${label}`;
-      case "subtract": return `-${Math.abs(amount)} ${label}`;
-      case "set": return `${label} = ${amount}`;
-      case "multiply": return `${label} ×${amount}`;
-      default: return label;
-    }
+    return sharedStatModifierSummary(mod, {
+      abilityIds: ABILITY_IDS,
+      abilities: ABILITIES,
+      skills: SKILLS,
+      resolveLabel: (id) => resolveFieldById(id)?.label,
+    });
   }
 
   /** The "what does this actually do" preview shown alongside a Race/
@@ -2605,19 +2090,7 @@ export function renderCustomSheet(root, character, store) {
    *  legitimately be flavor-only) — renderSelectableRows tells those
    *  two apart in what it displays. */
   function mechanicsPreviewFor(bundle, level) {
-    if (!bundle) return null;
-    const mods = bundle.statModifiers || [];
-    const features = bundle.featureGrants || [];
-    const activeMods = mods.filter((m) => !m.minLevel || m.minLevel <= level);
-    const activeFeatures = features.filter((g) => !g.minLevel || g.minLevel <= level);
-    const laterCount = (mods.length - activeMods.length) + (features.length - activeFeatures.length);
-    const bits = [
-      ...activeMods.map(statModifierSummary),
-      ...activeFeatures.map((g) => g.name).filter(Boolean),
-    ];
-    if (laterCount > 0) bits.push(`+${laterCount} more at higher levels`);
-    if (!bits.length) return "No stat bonuses or features on file — flavor only.";
-    return bits.join(" · ");
+    return sharedMechanicsPreviewFor(bundle, level, { summarize: (m) => statModifierSummary(m) });
   }
 
   // Which free-text choiceGroup.label a group's checkboxes/radios land
@@ -2626,80 +2099,22 @@ export function renderCustomSheet(root, character, store) {
   // bundle library editor). "proficiencies" is the catch-all so an
   // unrecognized label still surfaces somewhere rather than silently
   // vanishing from the wizard.
-  const CREATION_CHOICE_CATEGORIES = [
-    { key: "spells", title: "Spells & Special Abilities", test: /spell|cantrip|invocation/i },
-    { key: "languages", title: "Languages", test: /language/i },
-    { key: "equipment", title: "Starting Equipment", test: /equipment|\bgear\b|weapon|armor|\bpack\b/i },
-    { key: "feats", title: "Feats", test: /\bfeat\b/i },
-    { key: "proficiencies", title: "Ability Proficiencies", test: null },
-  ];
+  const CREATION_CHOICE_CATEGORIES = SHARED_CREATION_CHOICE_CATEGORIES;
 
   function categorizeChoiceGroup(group) {
-    const label = group.label || "";
-    const found = CREATION_CHOICE_CATEGORIES.find((cat) => cat.test && cat.test.test(label));
-    return (found || CREATION_CHOICE_CATEGORIES[CREATION_CHOICE_CATEGORIES.length - 1]).key;
+    return sharedCategorizeChoiceGroup(group);
   }
 
-  /** Creation-time equivalent of activeRuleChoiceGroups (used during
-   *  Leveling, see below) — that one reads a dropdown FIELD's selected
-   *  choice's bundle, which doesn't exist yet at creation time since
-   *  nothing's been synced to the sheet. This instead looks straight
-   *  up bundleLibraryCache by category+name for whichever Race/Class/
-   *  Subclass/Background the wizard's earlier steps have already set
-   *  on character.rules — the same matching rule syncRulesToSheet uses
-   *  when it applies these bundles for real at Finish Setup. */
-  /** Look up a Bundle Library entry by category+name+ruleset — the
-   *  same case/whitespace-insensitive matching syncRulesetBundles uses
-   *  to actually apply a bundle to a sheet field, exposed standalone
-   *  so anything that just needs to READ a bundle's data (the
-   *  mechanics preview below, creationChoiceGroupsFor's per-category
-   *  lookups, selectedFeatBundles) doesn't have to re-implement the
-   *  match. */
-  const CATEGORY_FIELD = { Race: ["race", "Race"], Class: ["class", "Class"], Background: ["background", "Background"], Subclass: ["subclass", "Subclass"] };
+  const CATEGORY_FIELD = SHARED_CATEGORY_FIELD;
 
   function bundleFor(category, name, rulesetId) {
-    if (!name) return null;
-    const norm = (s) => (s || "").trim().toLowerCase();
-    const fromLibrary = bundleLibraryCache.find((entry) => entry.rulesetId === rulesetId
-      && norm(entry.category) === norm(category) && norm(entry.name) === norm(name));
-    if (fromLibrary) return fromLibrary;
-    // Fall back to the sheet's own starter field — this is where a
-    // baked-in bundle (see defaultContent.js/blockModel.js) actually
-    // lives for Race/Class/Background/Subclass, since none of that
-    // goes through the Bundle Library/Firestore at all. Without this,
-    // the wizard's mechanics preview and choice-group steps only ever
-    // saw whatever was imported into bundleLibraryCache (nothing, for
-    // baked-in content) even though the real bundle was sitting right
-    // there on the dropdown's own choice.
-    const target = CATEGORY_FIELD[category] && findStarterField(...CATEGORY_FIELD[category]);
-    const choice = target?.choices?.find((c) => norm(c.text) === norm(name));
-    return choice?.bundle || null;
+    return bundleForIn(category, name, rulesetId, bundleLibraryCache, (cat) =>
+      CATEGORY_FIELD[cat] ? findStarterField(...CATEGORY_FIELD[cat]) : null
+    );
   }
 
   function creationChoiceGroupsFor(state) {
-    const level = state.level;
-    const groups = [];
-    const push = (category, name) => {
-      if (!name) return;
-      const lib = bundleFor(category, name, state.rulesetId);
-      (lib?.choiceGroups || []).forEach((group, index) => {
-        if (group.minLevel && level < group.minLevel) return;
-        if (!Array.isArray(group.options) || group.options.length === 0) return;
-        groups.push({
-          ...group,
-          key: `creation:${category}:${name}:${group.id || index}`,
-          source: name,
-          minLevel: Number.isFinite(group.minLevel) ? group.minLevel : 0,
-          maxSelections: Math.max(1, Number.parseInt(group.maxSelections, 10) || 1),
-          minSelections: Math.max(0, Number.parseInt(group.minSelections, 10) || 0),
-        });
-      });
-    };
-    push("Race", state.species);
-    push("Class", state.className);
-    push("Subclass", state.subclass);
-    push("Background", state.background);
-    return groups;
+    return creationChoiceGroupsForState(state, bundleFor);
   }
 
   // Same checkbox/radio-group rendering as the Leveling wizard's
@@ -2717,12 +2132,7 @@ export function renderCustomSheet(root, character, store) {
    *  everywhere else reads fixed grants from) don't have anything
    *  `.selected` yet at that point in the flow. */
   function creationFixedBundles(state) {
-    return [
-      bundleFor("Race", state.species, state.rulesetId),
-      bundleFor("Class", state.className, state.rulesetId),
-      bundleFor("Subclass", state.subclass, state.rulesetId),
-      bundleFor("Background", state.background, state.rulesetId),
-    ].filter(Boolean);
+    return creationFixedBundlesFor(state, bundleFor);
   }
 
   /** Core of "what skill proficiencies are already accounted for,
@@ -2742,23 +2152,7 @@ export function renderCustomSheet(root, character, store) {
    *  own point of view its own prior picks were never "someone
    *  else's" to begin with. */
   function ownedSkillIdsFrom(fixedBundles, otherGroups, excludeGroupKey) {
-    const owned = new Set();
-    fixedBundles.forEach((bundle) => {
-      (bundle?.statModifiers || []).forEach((mod) => {
-        if (mod.op === "grant") owned.add(mod.targetFieldId);
-      });
-    });
-    otherGroups.forEach((group) => {
-      if (group.key === excludeGroupKey) return;
-      const picks = character.rules.choices[group.key] || [];
-      group.options.forEach((option) => {
-        if (!picks.includes(option.id)) return;
-        (option.statModifiers || []).forEach((mod) => {
-          if (mod.op === "grant") owned.add(mod.targetFieldId);
-        });
-      });
-    });
-    return owned;
+    return ownedSkillIdsFromBundles(fixedBundles, otherGroups, excludeGroupKey, character.rules?.choices || {});
   }
 
   /** Post-Setup version of the "already have this" check — fixed
@@ -2792,174 +2186,19 @@ export function renderCustomSheet(root, character, store) {
    *  from whatever's left. Re-renders itself after every change so
    *  the disabled state always matches the current count. */
   function renderChoiceGroups(container, groups, choicesStore, namePrefix, onChange, ownedResolver) {
-    container.innerHTML = "";
-    if (!groups.length) {
-      const note = document.createElement("p");
-      note.className = "leveling-tab__intro";
-      note.textContent = "Nothing to choose here yet for your current Race/Class/Background selections.";
-      container.append(note);
-      return;
-    }
-    const rerender = () => renderChoiceGroups(container, groups, choicesStore, namePrefix, onChange, ownedResolver);
-    groups.forEach((group) => {
-      if (!choicesStore[group.key]) choicesStore[group.key] = [];
-      const selected = choicesStore[group.key];
-      const owned = ownedResolver ? ownedResolver(group.key) : new Set();
-      const choiceGroup = document.createElement("fieldset");
-      choiceGroup.className = "level-guide__choices";
-      const legend = document.createElement("legend");
-      const count = group.minSelections === group.maxSelections
-        ? `Choose ${group.maxSelections}`
-        : `Choose up to ${group.maxSelections}`;
-      legend.textContent = `${group.label || "Choose an option"} (${count} — ${selected.length}/${group.maxSelections} picked)`;
-      choiceGroup.append(legend);
-      const source = document.createElement("p");
-      source.className = "level-guide__choice-source";
-      source.textContent = group.source;
-      choiceGroup.append(source);
-      if (group.categories) {
-        renderCrossCategoryChoice(choiceGroup, group, choicesStore, rerender, onChange);
-      } else {
-        renderFlatChoiceOptions(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange);
-      }
-      container.append(choiceGroup);
-    });
+    return renderChoiceGroupsInto(container, groups, choicesStore, namePrefix, onChange, ownedResolver);
   }
 
-  /** "Pick N total, but the options are split across two or more
-   *  separate categories" (Monk's "one artisan tool OR musical
-   *  instrument", Urban Bounty Hunter's "two from a gaming set, a
-   *  musical instrument, or thieves' tools") — one <select> per
-   *  category instead of one flat checkbox/radio list, since the
-   *  categories themselves are the meaningful grouping here, not just
-   *  a long combined list. All the dropdowns share ONE pick budget
-   *  (group.maxSelections) across all of them: picking a new value in
-   *  any dropdown clears that SAME dropdown's own prior pick first
-   *  (a <select> only ever holds one value anyway), then if the
-   *  shared total is now over budget, the OLDEST pick — regardless of
-   *  which dropdown it came from — is evicted to make room, so the
-   *  most recent decision across every category is always the one
-   *  that sticks. */
   function renderCrossCategoryChoice(container, group, choicesStore, rerender, onChange) {
-    const selected = choicesStore[group.key];
-    group.categories.forEach((category) => {
-      const row = document.createElement("label");
-      row.className = "level-guide__choice-option level-guide__category-choice";
-      const text = document.createElement("span");
-      text.textContent = category.label;
-      const select = document.createElement("select");
-      select.className = "input-group__control";
-      const noneOpt = document.createElement("option");
-      noneOpt.value = "";
-      noneOpt.textContent = "— None —";
-      select.append(noneOpt);
-      category.options.forEach((option) => {
-        const optionEl = document.createElement("option");
-        optionEl.value = option.id;
-        optionEl.textContent = option.name;
-        select.append(optionEl);
-      });
-      const current = category.options.find((o) => selected.includes(o.id));
-      select.value = current ? current.id : "";
-      select.addEventListener("change", () => {
-        // This dropdown can only ever hold one value, so its own
-        // prior pick (if any) always drops first regardless of budget.
-        let next = selected.filter((id) => !category.options.some((o) => o.id === id));
-        if (select.value) next.push(select.value);
-        while (next.length > group.maxSelections) next.shift(); // oldest (across ALL categories) evicted first
-        choicesStore[group.key] = next;
-        if (onChange) onChange();
-        rerender();
-      });
-      row.append(text, select);
-      container.append(row);
-    });
+    return renderCrossCategoryChoiceInto(container, group, choicesStore, rerender, onChange);
   }
 
   function renderFlatChoiceOptions(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange) {
-      const atMax = selected.length >= group.maxSelections;
-      group.options.forEach((option) => {
-        const optionLabel = document.createElement("label");
-        optionLabel.className = "level-guide__choice-option";
-        const alreadyOwned = (option.statModifiers || []).some((mod) => mod.op === "grant" && owned.has(mod.targetFieldId));
-        const input = document.createElement("input");
-        input.type = group.maxSelections === 1 ? "radio" : "checkbox";
-        input.name = `${namePrefix}-${group.key}`;
-        input.value = option.id;
-        const isChecked = selected.includes(option.id);
-        input.checked = isChecked || alreadyOwned;
-        if (alreadyOwned) {
-          input.disabled = true;
-          optionLabel.classList.add("level-guide__choice-option--granted");
-          optionLabel.title = "Already have this from another selection — pick something else instead";
-        } else if (input.type === "checkbox" && atMax && !isChecked) {
-          input.disabled = true;
-        }
-        input.addEventListener("change", () => {
-          if (input.type === "radio") {
-            choicesStore[group.key] = input.checked ? [option.id] : [];
-          } else if (input.checked) {
-            // Guards a full group even if disabling the input above
-            // hasn't taken effect yet (e.g. two change events racing).
-            if (selected.length >= group.maxSelections) { input.checked = false; return; }
-            if (!selected.includes(option.id)) selected.push(option.id);
-          } else {
-            choicesStore[group.key] = selected.filter((id) => id !== option.id);
-          }
-          if (onChange) onChange();
-          rerender();
-        });
-        const text = document.createElement("span");
-        text.textContent = option.name || "Unnamed option";
-        optionLabel.append(input, text);
-        if (option.description) {
-          const description = document.createElement("span");
-          description.className = "level-guide__choice-description";
-          description.textContent = option.description;
-          optionLabel.append(description);
-        }
-        choiceGroup.append(optionLabel);
-      });
+    return renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange);
   }
 
-  /** Multi-select sibling of renderSelectableRows — same row/portrait/
-   *  description look (shares its CSS classes), but toggles membership
-   *  in a Set instead of picking one name, for pickers like "which
-   *  spells do you know" where more than one can be checked at once. */
-  function renderMultiSelectableRows(container, names, { selectedSet, onToggle, getInfo } = {}) {
-    const list = document.createElement("div");
-    list.className = "choice-row-list";
-    names.forEach((name) => {
-      const info = getInfo ? getInfo(name) : null;
-      const selected = selectedSet.has(name);
-      const row = document.createElement("div");
-      row.className = "choice-row" + (selected ? " choice-row--selected" : "");
-      row.tabIndex = 0;
-      row.setAttribute("role", "checkbox");
-      row.setAttribute("aria-checked", String(selected));
-      row.addEventListener("click", () => onToggle(name));
-      row.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(name); }
-      });
-      const portrait = document.createElement("div");
-      portrait.className = "choice-row__portrait";
-      portrait.textContent = selected ? "✓" : (name || "?").charAt(0).toUpperCase();
-      row.append(portrait);
-      const body = document.createElement("div");
-      body.className = "choice-row__body";
-      const label = document.createElement("div");
-      label.className = "choice-row__label";
-      label.textContent = name;
-      body.append(label);
-      const desc = document.createElement("div");
-      desc.className = "choice-row__description";
-      desc.textContent = info?.description || "No description available yet.";
-      body.append(desc);
-      row.append(body);
-      list.append(row);
-    });
-    container.append(list);
-    return list;
+  function renderMultiSelectableRows(container, names, opts = {}) {
+    return renderMultiSelectableRowsInto(container, names, opts);
   }
 
   // A Catalog whose name mentions "spell" is treated as the spell
@@ -2970,43 +2209,20 @@ export function renderCustomSheet(root, character, store) {
   // free-text choiceGroup labels), so filtering by level here is
   // solid, not a keyword guess.
   function spellListCatalog() {
-    return catalogCache.find((c) => /spell/i.test(c.name || "")) || null;
+    return findSpellCatalog(catalogCache);
   }
 
   function spellsForLevel(levelNum, className) {
-    const catalog = spellListCatalog();
-    if (!catalog) return [];
-    const tabId = levelNum === 0 ? "cantrips" : `level${levelNum}`;
-    const tab = (catalog.tabs || []).find((t) => t.id === tabId)
-      || (catalog.tabs || []).find((t) => (levelNum === 0 ? /cantrip/i : new RegExp(`^${levelNum}`)).test(t.name || ""));
-    const entries = (tab?.entries || [])
-      .map((e) => ({ name: e.name, description: e.description || "", classes: (e.fieldValues?.classes || "").trim() }))
-      .filter((e) => e.name);
-    if (!className) return entries;
-    // A spell with no "Classes" value set (the field is opt-in — see
-    // the "Classes" requirement added to the Spell List catalog's
-    // archetype) is shown to everyone rather than hidden, so existing
-    // untagged catalogs keep working exactly as before this filter
-    // existed; only an explicitly-tagged spell actually gets narrowed
-    // down to the classes listed.
-    const norm = (s) => (s || "").toLowerCase();
-    return entries.filter((e) => !e.classes || norm(e.classes).includes(norm(className)));
+    return spellsForLevelIn(spellListCatalog(), levelNum, className);
   }
 
-  // Auto-creates a "Spells Known" list in the starter Spellcasting
-  // block the first time it's needed — same "extend in place rather
-  // than make the player rebuild their sheet" precedent as
-  // ensureStandardSpellSlotFields above it.
   function ensureSpellListField() {
-    const spellcasting = globalLayout().find((block) => block.name === "Spellcasting");
-    if (!spellcasting) return null;
-    const existing = findStarterField("spellsKnown", "Spells Known");
-    if (existing) return existing;
-    const field = createField({ fieldType: "textlist", label: "Spells Known", x: 0, y: 4, w: 6, h: 2 });
-    field.id = "spellsKnown";
-    spellcasting.children.push(field);
-    spellcasting.h = Math.max(spellcasting.h, 6);
-    return field;
+    return ensureSpellListFieldIn(
+      globalLayout(),
+      (id, label) => findStarterField(id, label),
+      (opts) => createField(opts),
+      null
+    );
   }
 
   /** Which of `field.items` (the sheet's whole known-spells list, which
@@ -3016,116 +2232,22 @@ export function renderCustomSheet(root, character, store) {
    *  cantrips/spells limits below without changing what's actually
    *  stored on the sheet. */
   function spellLevelByName(name) {
-    const catalog = spellListCatalog();
-    if (!catalog) return null;
-    for (const tab of catalog.tabs || []) {
-      if ((tab.entries || []).some((e) => e.name === name)) {
-        return tab.id === "cantrips" ? 0 : Number.parseInt((tab.id || "").replace("level", ""), 10) || 0;
-      }
-    }
-    return null;
+    return spellLevelByNameIn(spellListCatalog(), name);
   }
 
-  /** Shared by the Creation wizard's "Spells & Abilities" step and the
-   *  Leveling wizard's "Spells" step — check off which spells are
-   *  known so far, grouped by level, writing straight to the sheet's
-   *  "Spells Known" list (via ensureSpellListField) so there's exactly
-   *  one copy of this list, not a separate one to keep in sync.
-   *  Filters the offered spells to the current class's list (see
-   *  spellsForLevel — an untagged spell still shows for everyone) and
-   *  enforces the class's cantrips-known / spells-known-or-prepared
-   *  limit at the current level (see spellLimitFor in rulesEngine.js),
-   *  refusing to check off more than that. KNOWN SIMPLIFICATION: a
-   *  prepared caster's "spells prepared" and a Wizard's "spells in my
-   *  spellbook" are two different 5e concepts this app doesn't
-   *  distinguish — both are enforced here as a single combined cap. */
   function renderSpellPicker(container, { rulesetId, className, level }) {
-    const info = getSpellcastingInfo(className);
-    if (!info) {
-      const note = document.createElement("p");
-      note.className = "leveling-tab__intro";
-      note.textContent = `${className || "This class"} doesn't cast spells, as far as this data goes.`;
-      container.append(note);
-      return;
-    }
-    const field = ensureSpellListField();
-    if (!field) {
-      const note = document.createElement("p");
-      note.className = "leveling-tab__intro";
-      note.textContent = "This sheet doesn't have a Spellcasting block to record spells in.";
-      container.append(note);
-      return;
-    }
-    const plan = getLevelUpPlan(rulesetId, className, level);
-    const availableLevels = [0]; // cantrips, once the class casts at all
-    // Cumulative (1 through the highest slot level found), not just
-    // "whichever indices happen to be nonzero" — those're the same
-    // thing for a full/half caster's slots (already-unlocked levels
-    // stay nonzero forever as you level up further), but NOT for a
-    // Warlock's Pact Magic slots (see WARLOCK_PACT_SLOTS in dnd5e.js),
-    // where only the current pact level is ever nonzero even though a
-    // Warlock can still pick spells of any lower level too.
-    const maxSlotLevel = (plan?.slotChanges || []).reduce((max, change, index) => (change.options > 0 ? Math.max(max, index + 1) : max), 0);
-    for (let lvl = 1; lvl <= maxSlotLevel; lvl++) availableLevels.push(lvl);
-    const limit = spellLimitFor(className, level, character.rules?.abilityScores);
-    const known = new Set(field.items || []);
-    const ordinal = (n) => (n === 1 ? "1st" : n === 2 ? "2nd" : n === 3 ? "3rd" : `${n}th`);
-    const limitNote = document.createElement("p");
-    limitNote.className = "leveling-tab__intro";
-    container.append(limitNote);
-    const updateLimitNote = () => {
-      const cantripCount = [...known].filter((name) => spellLevelByName(name) === 0).length;
-      const spellCount = [...known].filter((name) => { const lvl = spellLevelByName(name); return lvl != null && lvl > 0; }).length;
-      const bits = [];
-      if (limit.cantrips) bits.push(`${cantripCount}/${limit.cantrips} cantrips known`);
-      bits.push(`${spellCount}/${limit.spells} spells ${limit.style === "known" ? "known" : "prepared"}`);
-      limitNote.textContent = bits.join(", ") + ".";
-    };
-
-    let anySpellsListed = false;
-    availableLevels.forEach((levelNum) => {
-      const spells = spellsForLevel(levelNum, className);
-      if (!spells.length) return;
-      anySpellsListed = true;
-      const heading = document.createElement("p");
-      heading.className = "wizard__section-label";
-      heading.textContent = levelNum === 0 ? "Cantrips" : `${ordinal(levelNum)}-Level Spells`;
-      container.append(heading);
-      renderMultiSelectableRows(container, spells.map((s) => s.name), {
-        selectedSet: known,
-        getInfo: (name) => spells.find((s) => s.name === name),
-        onToggle: (name) => {
-          if (!Array.isArray(field.items)) field.items = [];
-          if (known.has(name)) {
-            field.items = field.items.filter((item) => item !== name);
-          } else {
-            const cap = levelNum === 0 ? limit.cantrips : limit.spells;
-            const currentCount = [...known].filter((n) => {
-              const lvl = spellLevelByName(n);
-              return levelNum === 0 ? lvl === 0 : lvl != null && lvl > 0;
-            }).length;
-            if (currentCount >= cap) {
-              limitNote.textContent = levelNum === 0
-                ? `You already know your ${cap} cantrip${cap === 1 ? "" : "s"} for this level — uncheck one first to swap it.`
-                : `You've already ${limit.style === "known" ? "learned" : "prepared"} your ${cap} spell${cap === 1 ? "" : "s"} for this level — uncheck one first to swap it.`;
-              limitNote.classList.add("level-guide__feedback--error");
-              return;
-            }
-            appendUniqueTextListItem(field, name);
-          }
-          limitNote.classList.remove("level-guide__feedback--error");
-          saveWithStatus("layout", character.layout);
-          renderPageGrid();
-        },
-      });
+    renderSpellPickerInto(container, { rulesetId, className, level }, {
+      spellcastingInfoFn: (name) => getSpellcastingInfo(name),
+      ensureFieldFn: () => ensureSpellListField(),
+      planFn: (id, name, lvl) => getLevelUpPlan(id, name, lvl),
+      limitFn: (name, lvl) => spellLimitFor(name, lvl, character.rules?.abilityScores),
+      levelByNameFn: (name) => spellLevelByName(name),
+      spellsForLevelFn: (lvl, name) => spellsForLevel(lvl, name),
+      appendUniqueFn: (field, name) => appendUniqueTextListItem(field, name),
+      saveFn: () => saveWithStatus("layout", character.layout),
+      gridFn: () => renderPageGrid(),
+      multiRowsFn: (c, names, opts) => renderMultiSelectableRows(c, names, opts),
     });
-    updateLimitNote();
-    if (!anySpellsListed) {
-      const note = document.createElement("p");
-      note.className = "leveling-tab__intro";
-      note.textContent = "No spells found in an imported Spell List catalog yet — import one from the Catalog Libraries manager, or just track spells directly on the sheet's Spells Known list.";
-      container.append(note);
-    }
   }
 
   /** "Pick a ruleset and the sheet just works" — walks every dropdown
@@ -3141,24 +2263,16 @@ export function renderCustomSheet(root, character, store) {
   function syncRulesetBundles(rulesetId) {
     if (!rulesetId) return null;
     const allFields = flattenGlobalFields();
-    const norm = (s) => (s || "").trim().toLowerCase();
     const rulesetBundles = bundleLibraryCache.filter((entry) => entry.rulesetId === rulesetId);
-    if (!rulesetBundles.length) return "No bundles are tagged for this ruleset yet — import some from the Bundle Libraries manager first.";
     let applied = 0;
-    allFields.forEach((field) => {
-      if (field.fieldType !== "dropdown") return;
-      (field.choices || []).forEach((choice) => {
-        const lib = rulesetBundles.find((entry) => norm(entry.name) === norm(choice.text));
-        if (lib && applyBundleLibraryToChoice(lib, choice, allFields)) applied++;
-      });
+    rulesetBundleMatches(allFields, rulesetBundles).forEach(({ choice, lib }) => {
+      if (applyBundleLibraryToChoice(lib, choice, allFields)) applied++;
     });
     if (applied > 0) {
       mirrorFirstTabLayout();
       saveWithStatus("layout", character.layout);
     }
-    return applied > 0
-      ? `Wired up ${applied} choice${applied === 1 ? "" : "s"} from this ruleset's bundles.`
-      : "Everything from this ruleset's bundles was already applied.";
+    return syncResultMessage(applied, rulesetBundles.length > 0);
   }
 
   /** Whether `level` grants an Ability Score Improvement for this
@@ -3176,7 +2290,7 @@ export function renderCustomSheet(root, character, store) {
     // every matching grant's own minLevel (rather than just the first
     // one found, plus a fixed standard-levels set) is what catches
     // those without hardcoding them here.
-    return grants.some((g) => g.minLevel === level && /ability score improvement/i.test(g.name || ""));
+    return classGrantsAsiIn(grants, level);
   }
 
   /** New featureGrants this class picks up exactly at `level` — shown
@@ -3189,13 +2303,11 @@ export function renderCustomSheet(root, character, store) {
   function classFeatureGrantsAtLevel(className, level) {
     const classField = findStarterField("class", "Class");
     const choice = classField?.choices?.find((c) => c.text === className);
-    return (choice?.bundle?.featureGrants || [])
-      .filter((g) => g.minLevel === level && !/ability score improvement/i.test(g.name || ""));
+    return classFeatureGrantsAtLevelIn(choice?.bundle?.featureGrants || [], level);
   }
 
   function findStarterField(id, label) {
-    return flattenGlobalFields().find((field) => field.id === id)
-      || flattenGlobalFields().find((field) => field.label === label);
+    return findStarterFieldIn(flattenGlobalFields(), id, label);
   }
 
   // Older starter sheets only had slot fields through fifth level. When a
@@ -3220,16 +2332,11 @@ export function renderCustomSheet(root, character, store) {
 
   function numericFieldValue(field) {
     if (!field) return 0;
-    const holder = document.createElement("div");
-    holder.innerHTML = field.value || "";
-    const value = Number.parseInt(holder.textContent, 10);
-    return Number.isFinite(value) ? value : 0;
+    return intFromRichText(field.value || "");
   }
 
   function appendUniqueTextListItem(field, item) {
-    if (!field || field.fieldType !== "textlist" || !item) return;
-    if (!Array.isArray(field.items)) field.items = [];
-    if (!field.items.includes(item)) field.items.push(item);
+    appendUniqueTextListItemTo(field, item);
   }
 
   /** Shared by the Character-setup wizard's Review step and (unchanged
@@ -3247,17 +2354,7 @@ export function renderCustomSheet(root, character, store) {
     const levelField = findStarterField("level", "Level");
     const subclassField = findStarterField("subclass", "Subclass");
     const choose = (target, value) => {
-      if (!target || !value) return;
-      let choice = target.choices?.find((entry) => entry.text === value);
-      // If this ruleset's option came from an imported bundle rather
-      // than a hand-built dropdown, the sheet might not have a
-      // matching choice yet — create one so the bundle can still be
-      // applied to it below.
-      if (!choice && Array.isArray(target.choices)) {
-        choice = { id: newId(), text: value, statModifiers: [] };
-        target.choices.push(choice);
-      }
-      if (choice) target.selected = choice.id;
+      chooseTargetValue(target, value, newId);
     };
     choose(classField, character.rules.className);
     choose(speciesField, character.rules.species);
@@ -3272,48 +2369,28 @@ export function renderCustomSheet(root, character, store) {
       const target = findStarterField(change.fieldId, change.label);
       if (target) { target.options = change.options; syncOptionWidth(target); }
     });
-    // The Setup wizard's own "Choices" steps (Proficiencies,
-    // Languages, Equipment, Feats, Spells) save picks under a
+    // The Setup wizard's own "Choices" steps save picks under a
     // temporary key — creation:<category>:<name>:<groupId> — built
-    // from creationChoiceGroupsFor's staged state, since the real
-    // Class/Race/Background/Subclass fields above don't have a
-    // `.selected` choice yet at that point in the wizard for a real
-    // key to be built from. Every OTHER choiceGroups reader
-    // (activeRuleChoiceGroups, and therefore the main sheet's own
-    // checkbox display and the cross-selection "already have this"
-    // check below) uses the real key — <fieldId>:<choiceId>:<groupId>
-    // — once those fields ARE actually set, which just happened
-    // above. Without migrating from one key to the other here, a
-    // proficiency picked during Setup would silently stop being
-    // recognized as picked the moment Setup finishes: it'd show
-    // unchecked on the sheet, and nothing later would know the player
-    // already has it.
-    [["Race", speciesField, character.rules.species], ["Class", classField, character.rules.className],
-     ["Subclass", subclassField, character.rules.subclass], ["Background", backgroundField, character.rules.background]]
-      .forEach(([category, target, name]) => {
-        if (!target || !name) return;
-        const choice = target.choices?.find((c) => c.id === target.selected);
-        (choice?.bundle?.choiceGroups || []).forEach((group, index) => {
-          const oldKey = `creation:${category}:${name}:${group.id || index}`;
-          const newKey = `${target.id}:${choice.id}:${group.id || index}`;
-          if (character.rules.choices[oldKey] && !character.rules.choices[newKey]) {
-            character.rules.choices[newKey] = character.rules.choices[oldKey];
-            delete character.rules.choices[oldKey];
-          }
-        });
-      });
+    // from staged state, since the real Class/Race/Background fields
+    // don't have a `.selected` choice yet at that point. Every OTHER
+    // choiceGroups reader uses the real key once those fields ARE set,
+    // which just happened above. Without migrating here, a Setup pick
+    // would silently stop being recognized the moment Setup finishes.
+    migrateCreationChoiceKeys(
+      [["Race", speciesField, character.rules.species], ["Class", classField, character.rules.className],
+       ["Subclass", subclassField, character.rules.subclass], ["Background", backgroundField, character.rules.background]],
+      character.rules.choices
+    );
     // Now that the choices exist and are selected, apply any
     // ruleset-tagged library bundle whose name matches — same matching
-    // rule as Bulk Apply, just run automatically for the three/four
-    // fields the wizard just touched instead of requiring a trip to
-    // each field's ⚙ editor.
-    const norm = (s) => (s || "").trim().toLowerCase();
-    [classField, speciesField, backgroundField, subclassField].forEach((target) => {
-      if (!target) return;
-      const choice = target.choices?.find((c) => c.id === target.selected);
-      if (!choice) return;
-      const lib = bundleLibraryCache.find((entry) => entry.rulesetId === character.rules.rulesetId && norm(entry.name) === norm(choice.text));
-      if (lib) applyBundleLibraryToChoice(lib, choice, flattenGlobalFields());
+    // rule as Bulk Apply, just run automatically for the fields the
+    // wizard just touched instead of requiring a trip to each ⚙ editor.
+    matchLibraryForChosen(
+      [classField, speciesField, backgroundField, subclassField],
+      bundleLibraryCache,
+      character.rules.rulesetId
+    ).forEach(({ choice, lib }) => {
+      applyBundleLibraryToChoice(lib, choice, flattenGlobalFields());
     });
     mirrorFirstTabLayout();
     // This is what actually finishes character creation: once synced,
@@ -3332,68 +2409,37 @@ export function renderCustomSheet(root, character, store) {
 
   function renderRulesTab() {
     const state = character.rules = normalizeRulesState(character.rules);
-    const resolved = resolveRulesState(state);
-    // Prefer a live, bundle-driven subclass list (from an applied
-    // classes.json import) over resolveRulesState's hardcoded PHB one.
-    const liveSubclasses = liveSubclassData(state.className);
-    if (liveSubclasses.subclasses.length) {
-      resolved.availableSubclasses = state.level >= liveSubclasses.subclassLevel ? liveSubclasses.subclasses : [];
-    }
+    const resolved = applyLiveSubclassOverrideToResolved(
+      resolveRulesState(state),
+      state,
+      liveSubclassData(state.className)
+    );
     const saveRules = debounce(() => saveWithStatus("rules", character.rules), 400);
     const field = (container, label, control) => {
-      const group = document.createElement("label");
-      group.className = "level-guide__field";
-      group.textContent = label;
-      group.append(control);
-      container.append(group);
+      appendFieldGroup(container, label, control);
     };
     const update = (key, value) => {
       character.rules[key] = value;
       character.rules = normalizeRulesState(character.rules);
-      // A subclass chosen for a different class, or one that needs a
-      // higher Starting Level than is currently set, is otherwise left
-      // behind stale — Review and Finish Setup would keep showing/
-      // applying a subclass that no longer belongs to the current
-      // Class/Starting Level pick (e.g. switching Wizard → Fighter
-      // after choosing "Evoker", or dropping Starting Level back down
-      // below a subclass's minimum level).
-      if (character.rules.subclass) {
-        const subs = liveSubclassData(character.rules.className);
-        const eligible = subs.subclasses.includes(character.rules.subclass) && character.rules.level >= subs.subclassLevel;
-        if (!eligible) character.rules.subclass = "";
-      }
+      cleanStaleSubclass(character.rules, (className) => liveSubclassData(className));
       saveRules();
       renderPageGrid();
     };
 
     function wizardFieldOptionNames(fieldId, fieldLabel) {
-      const target = findStarterField(fieldId, fieldLabel);
-      return (target?.choices || []).map((c) => c.text).filter(Boolean);
+      return wizardFieldOptionNamesIn((id, label) => findStarterField(id, label), fieldId, fieldLabel);
     }
 
-    const ABILITY_DESCRIPTIONS = {
-      str: "Physical power — melee attacks, carrying capacity, and Athletics checks.",
-      dex: "Agility and reflexes — Armor Class, ranged attacks, initiative, and Acrobatics/Stealth checks.",
-      con: "Endurance and fortitude — sets your hit points at every level.",
-      int: "Reasoning and memory — Investigation/Arcana checks, and some casters' spells.",
-      wis: "Awareness and intuition — Perception/Insight checks, and some casters' spells.",
-      cha: "Force of personality — Persuasion/Deception checks, and some casters' spells.",
-    };
-    const HP_METHOD_OPTIONS = [
-      { value: "average", label: "Fixed average", description: "Always take the fixed average for your hit die (e.g. 5 for a d8), plus your Constitution modifier. Consistent and predictable, no rolling involved." },
-      { value: "roll", label: "Roll in-browser", description: "Roll your hit die right here each time you level up, plus your Constitution modifier. Keeps the randomness without needing physical dice." },
-      { value: "manual", label: "I'll roll at the table and type it in", description: "Roll however you prefer at the table (or elsewhere) and just type the result in when you level up." },
-    ];
-    const POINT_BUY_MIN = 8;
-    const POINT_BUY_MAX = 15;
-    const POINT_BUY_BUDGET = 27;
+    const ABILITY_DESCRIPTIONS = SHARED_ABILITY_DESCRIPTIONS;
+    const HP_METHOD_OPTIONS = SHARED_HP_METHOD_OPTIONS;
+    const POINT_BUY_MIN = SHARED_POINT_BUY_MIN;
+    const POINT_BUY_MAX = SHARED_POINT_BUY_MAX;
+    const POINT_BUY_BUDGET = SHARED_POINT_BUY_BUDGET;
     // Standard point-buy cost (1 point per point of score) through 13,
     // then 2 points per point from 14 on, up through the standard
     // 15 cap.
     function pointBuyCost(score) {
-      let cost = 0;
-      for (let s = POINT_BUY_MIN + 1; s <= score; s++) cost += s >= 14 ? 2 : 1;
-      return cost;
+      return sharedPointBuyCost(score, POINT_BUY_MIN);
     }
     // Highest score `id` could be raised to without pushing total
     // spend over budget, given what's already committed to every
@@ -3401,30 +2447,23 @@ export function renderCustomSheet(root, character, store) {
     // point the budget runs out, rather than letting it go over and
     // just flagging it after the fact.
     function maxAffordablePointBuyScore(id) {
-      const spentElsewhere = ABILITY_IDS.filter((otherId) => otherId !== id)
-        .reduce((sum, otherId) => sum + pointBuyCost(character.rules.abilityScores[otherId]), 0);
-      const remaining = POINT_BUY_BUDGET - spentElsewhere;
-      let max = POINT_BUY_MIN;
-      for (let s = POINT_BUY_MIN; s <= POINT_BUY_MAX; s++) {
-        if (pointBuyCost(s) <= remaining) max = s;
-      }
-      return max;
+      return maxAffordableScore(id, character.rules.abilityScores, {
+        budget: POINT_BUY_BUDGET,
+        min: POINT_BUY_MIN,
+        max: POINT_BUY_MAX,
+        abilityIds: ABILITY_IDS,
+      });
     }
-    const rollAbilityScore = () => {
-      const dice = [1, 2, 3, 4].map(() => 1 + Math.floor(Math.random() * 6)).sort((a, b) => a - b);
-      dice.shift(); // drop the lowest of the four
-      return dice.reduce((sum, n) => sum + n, 0);
-    };
+    const rollAbilityScore = () => sharedRollAbilityScore();
 
     // Choices offered by whichever Race/Class/Subclass/Background are
     // currently picked, bucketed into the wizard's new Spells/
     // Languages/Equipment/Feats/Proficiencies pages — see
     // creationChoiceGroupsFor and categorizeChoiceGroup above.
     const creationGroups = creationChoiceGroupsFor(state);
-    const creationGroupsByCategory = Object.fromEntries(CREATION_CHOICE_CATEGORIES.map((cat) => [cat.key, []]));
-    creationGroups.forEach((group) => creationGroupsByCategory[categorizeChoiceGroup(group)].push(group));
+    const creationGroupsByCategory = bucketGroupsByCategory(creationGroups, CREATION_CHOICE_CATEGORIES, categorizeChoiceGroup);
     function wizardUnavailableMessage() {
-      return `As a level ${state.level} ${state.species || "character"} ${state.className || "character"}${state.subclass ? ` (${state.subclass})` : ""}, this page is not applicable.`;
+      return wizardUnavailableMessageFor(state);
     }
 
     const steps = [
@@ -3433,35 +2472,25 @@ export function renderCustomSheet(root, character, store) {
         title: "Ruleset",
         description: "Start by picking which rulebook you're building this character for. Everything else in this wizard — available classes, races, and backgrounds — depends on this choice, and it can't be changed later without redoing those steps.",
         render(container) {
-          const ruleset = document.createElement("select");
-          ruleset.className = "input-group__control";
-          const blank = document.createElement("option"); blank.value = ""; blank.textContent = "Choose ruleset"; ruleset.append(blank);
-          listRulesets().forEach((entry) => { const option = document.createElement("option"); option.value = entry.id; option.textContent = entry.name; ruleset.append(option); });
-          ruleset.value = state.rulesetId || "";
-          ruleset.addEventListener("change", () => {
-            const next = ruleset.value || null;
-            if (next === character.rulesetId) return;
-            const hasDownstreamChoices = character.rules.species || character.rules.className || character.rules.subclass || character.rules.background;
-            // Race/Class/Subclass/Background are all ruleset-specific
-            // (they come from that ruleset's bundle library) — carrying
-            // them over to a different ruleset would leave the wizard
-            // showing choices that don't actually belong to anything
-            // selectable anymore, so they're cleared here rather than
-            // left stale and confusing.
-            if (hasDownstreamChoices && !window.confirm("Changing rulesets clears your Race, Class, Subclass, and Background choices below, since those are specific to a ruleset. Continue?")) {
-              ruleset.value = character.rulesetId || "";
-              return;
-            }
-            character.rulesetId = next;
-            character.rules.species = "";
-            character.rules.className = "";
-            character.rules.subclass = "";
-            character.rules.background = "";
-            update("rulesetId", character.rulesetId);
-            const syncMessage = syncRulesetBundles(character.rulesetId);
-            if (syncMessage) statusEl.textContent = syncMessage;
+          renderRulesetStepInto(container, state, {
+            listRulesetsFn: () => listRulesets(),
+            currentRulesetId: character.rulesetId,
+            hasDownstreamChoices: !!(character.rules.species || character.rules.className || character.rules.subclass || character.rules.background),
+            confirmFn: (msg) => window.confirm(msg),
+            updateFn: (key, value, opts) => {
+              if (opts?.clearDownstream) {
+                character.rulesetId = value;
+                character.rules.species = "";
+                character.rules.className = "";
+                character.rules.subclass = "";
+                character.rules.background = "";
+              }
+              update(key, value);
+            },
+            syncFn: (id) => syncRulesetBundles(id),
+            statusFn: (msg) => { statusEl.textContent = msg; },
+            fieldFn: (c, label, control) => field(c, label, control),
           });
-          field(container, "Ruleset", ruleset);
         },
       },
       {
@@ -3469,47 +2498,21 @@ export function renderCustomSheet(root, character, store) {
         title: "Identity",
         description: "Give your character a name, set the level you're starting at (almost always level 1 for a new character), and choose a race or species. Race/species determines ability score bonuses, speed, and racial traits.",
         render(container) {
-          const nameField = document.createElement("input");
-          nameField.type = "text";
-          nameField.className = "input-group__control";
-          nameField.value = character.name || "";
-          // Debounced on "input" (not "change"/blur) to match the
-          // toolbar's own name field — otherwise a name typed here and
-          // followed immediately by "Next →" (no blur in between)
-          // would be lost.
-          nameField.addEventListener("input", debounce(() => {
-            character.name = nameField.value;
-            nameInput.value = nameField.value;
-            saveWithStatus("name", character.name);
-          }, 400));
-          field(container, "Character Name", nameField);
-
-          const level = document.createElement("input");
-          level.type = "number"; level.min = "1"; level.max = "20"; level.value = String(state.level); level.className = "input-group__control";
-          level.addEventListener("change", () => update("level", level.value));
-          field(container, "Starting Level", level);
-
-          const raceLabel = document.createElement("p");
-          raceLabel.className = "wizard__section-label";
-          raceLabel.textContent = "Race/Species";
-          container.append(raceLabel);
-
-          const liveNames = rulesetOptionNames(state.rulesetId, "Race", wizardFieldOptionNames("race", "Race"));
-          if (liveNames.length) {
-            renderSelectableRows(container, liveNames, {
-              selectedName: state.species,
-              getInfo: (name) => catalogEntryInfo(["race", "species"], name),
-              getMechanics: (name) => mechanicsPreviewFor(bundleFor("Race", name, state.rulesetId), state.level),
-              onSelect: (name) => update("species", name),
-            });
-          } else {
-            const input = document.createElement("input");
-            input.type = "text"; input.className = "input-group__control";
-            input.placeholder = "No Race options found for this ruleset yet — type it in for now";
-            input.value = state.species || "";
-            input.addEventListener("change", () => update("species", input.value));
-            field(container, "Race/Species", input);
-          }
+          renderIdentityStepInto(container, state, {
+            characterName: character.name,
+            nameInputSetFn: (v) => { nameInput.value = v; },
+            saveNameFn: (v) => {
+              character.name = v;
+              saveWithStatus("name", v);
+            },
+            updateFn: (key, value) => update(key, value),
+            fieldFn: (c, label, control) => field(c, label, control),
+            optionNamesFn: (rulesetId, category) => rulesetOptionNames(rulesetId, category, wizardFieldOptionNames("race", "Race")),
+            catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
+            mechanicsFn: (category, name, rulesetId, level) => mechanicsPreviewFor(bundleFor(category, name, rulesetId), level),
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, opts),
+            debounceFn: (fn, ms) => debounce(fn, ms),
+          });
         },
       },
       {
@@ -3518,37 +2521,17 @@ export function renderCustomSheet(root, character, store) {
         description: "Choose your class. If it picks a subclass right away at your starting level, its row expands below to let you choose one — otherwise the Leveling tab will ask when you reach the level that unlocks it.",
         render(container) {
           const classFallback = wizardFieldOptionNames("class", "Class");
-          const liveNames = rulesetOptionNames(state.rulesetId, "Class", classFallback.length ? classFallback : (resolved.ruleset?.classes || []).map((c) => c.name));
-          renderSelectableRows(container, liveNames, {
-            selectedName: state.className,
-            getInfo: (name) => catalogEntryInfo(["class"], name),
-            getMechanics: (name) => mechanicsPreviewFor(bundleFor("Class", name, state.rulesetId), state.level),
-            onSelect: (name) => update("className", name),
-            afterRow: (name, rowEl) => {
-              if (name !== state.className) return;
-              const subs = liveSubclassData(name);
-              if (!(subs.subclasses.length && state.level >= subs.subclassLevel)) {
-                const note = document.createElement("p");
-                note.className = "leveling-tab__intro wizard__subclass-note";
-                note.textContent = `${name} doesn't choose a subclass until level ${subs.subclassLevel === Infinity ? "?" : subs.subclassLevel} — the Leveling tab will ask when you get there.`;
-                rowEl.after(note);
-                return;
-              }
-              // Built against a detached holder so the nested list's
-              // own container.append() call (inside
-              // renderSelectableRows) doesn't land it at the end of
-              // the whole class list — it belongs right under this
-              // one selected class's row instead.
-              const holder = document.createElement("div");
-              renderSelectableRows(holder, subs.subclasses, {
-                selectedName: state.subclass,
-                getInfo: (n) => catalogEntryInfo(["subclass"], n),
-                getMechanics: (n) => mechanicsPreviewFor(bundleFor("Subclass", n, state.rulesetId), state.level),
-                onSelect: (n) => update("subclass", n),
-                nested: true,
-              });
-              rowEl.after(holder.firstElementChild);
-            },
+          renderClassStepInto(container, state, {
+            optionNamesFn: (rulesetId, category) => rulesetOptionNames(
+              rulesetId,
+              category,
+              classFallback.length ? classFallback : (resolved.ruleset?.classes || []).map((c) => c.name)
+            ),
+            catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
+            mechanicsFn: (category, name, rulesetId, level) => mechanicsPreviewFor(bundleFor(category, name, rulesetId), level),
+            subclassDataFn: (name) => liveSubclassData(name),
+            updateFn: (key, value) => update(key, value),
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, opts),
           });
         },
       },
@@ -3564,151 +2547,25 @@ export function renderCustomSheet(root, character, store) {
           "Manual Entry lets you type in scores from a physical roll or another source.",
         ],
         render(container) {
-          const intro = document.createElement("p");
-          intro.className = "leveling-tab__intro";
-          intro.textContent = "Set your six ability scores. Switching methods below resets the scores to fit it.";
-          container.append(intro);
-
-          const methodGroup = document.createElement("label");
-          methodGroup.className = "level-guide__field wizard__ability-method";
-          methodGroup.textContent = "Method";
-          const methodSelect = document.createElement("select");
-          methodSelect.className = "input-group__control";
-          [["pointbuy", "Point Buy (27 points)"], ["roll", "Random Roll (4d6, drop lowest)"], ["manual", "Manual Entry"]].forEach(([value, label]) => {
-            const option = document.createElement("option"); option.value = value; option.textContent = label; methodSelect.append(option);
+          renderAbilitiesStepInto(container, {
+            abilityIds: ABILITY_IDS,
+            descriptions: ABILITY_DESCRIPTIONS,
+            scores: character.rules.abilityScores,
+            method: character.rules.abilityScoreMethod,
+            budget: POINT_BUY_BUDGET,
+            min: POINT_BUY_MIN,
+            max: POINT_BUY_MAX,
+            costFn: (score) => pointBuyCost(score),
+            affordableFn: (id) => maxAffordablePointBuyScore(id),
+            rollFn: () => rollAbilityScore(),
+            modifierFn: (score) => sharedAbilityModifier(score),
+            formatFn: (mod) => sharedFormatModifier(mod),
+            saveFn: () => saveRules(),
+            onMethodChange: (method) => {
+              character.rules.abilityScoreMethod = method;
+              saveRules();
+            },
           });
-          methodSelect.value = character.rules.abilityScoreMethod || "manual";
-          methodGroup.append(methodSelect);
-          container.append(methodGroup);
-
-          const scoresWrap = document.createElement("div");
-          scoresWrap.className = "wizard__ability-scores";
-          container.append(scoresWrap);
-
-          const abilityModifier = (score) => Math.floor((score - 10) / 2);
-          const formatModifier = (mod) => (mod >= 0 ? `+${mod}` : String(mod));
-
-          // Returns an updater the caller invokes whenever `control`'s
-          // value changes, so the modifier box stays in sync with
-          // whichever method (Point Buy/Roll/Manual) is driving the
-          // score — none of those write to the modifier directly.
-          function abilityRow(id, control) {
-            const row = document.createElement("div");
-            row.className = "wizard__ability-row";
-            const group = document.createElement("label");
-            group.className = "level-guide__field";
-            group.textContent = id.toUpperCase();
-            group.append(control);
-            row.append(group);
-
-            const modGroup = document.createElement("div");
-            modGroup.className = "level-guide__field wizard__ability-modifier";
-            const modLabel = document.createElement("span");
-            modLabel.textContent = "Modifier";
-            modGroup.append(modLabel);
-            const modValue = document.createElement("div");
-            modValue.className = "input-group__control wizard__ability-modifier-value";
-            modGroup.append(modValue);
-            row.append(modGroup);
-
-            const desc = document.createElement("p");
-            desc.className = "wizard__ability-row-description";
-            desc.textContent = ABILITY_DESCRIPTIONS[id];
-            row.append(desc);
-            scoresWrap.append(row);
-
-            const updateModifier = () => {
-              const score = Number(control.value);
-              modValue.textContent = formatModifier(abilityModifier(Number.isFinite(score) ? score : 10));
-            };
-            updateModifier();
-            return updateModifier;
-          }
-
-          function renderScores() {
-            scoresWrap.innerHTML = "";
-            const method = methodSelect.value;
-
-            if (method === "pointbuy") {
-              const note = document.createElement("p");
-              note.className = "leveling-tab__intro wizard__ability-note";
-              scoresWrap.append(note);
-              const updateNote = () => {
-                const spent = ABILITY_IDS.reduce((sum, id) => sum + pointBuyCost(character.rules.abilityScores[id]), 0);
-                note.textContent = `Points spent: ${spent}/${POINT_BUY_BUDGET}`;
-              };
-              ABILITY_IDS.forEach((id) => {
-                if (character.rules.abilityScores[id] < POINT_BUY_MIN || character.rules.abilityScores[id] > POINT_BUY_MAX) character.rules.abilityScores[id] = POINT_BUY_MIN;
-                const input = document.createElement("input");
-                input.type = "number"; input.min = String(POINT_BUY_MIN); input.max = String(POINT_BUY_MAX);
-                input.className = "input-group__control";
-                input.value = String(character.rules.abilityScores[id]);
-                const updateModifier = abilityRow(id, input);
-                input.addEventListener("change", () => {
-                  let value = Number.parseInt(input.value, 10);
-                  if (!Number.isFinite(value)) value = POINT_BUY_MIN;
-                  value = Math.min(POINT_BUY_MAX, Math.max(POINT_BUY_MIN, value));
-                  // Stop the increase right at whatever's still
-                  // affordable rather than letting it go over budget —
-                  // e.g. with only 1 point left, typing/stepping to 12
-                  // when 11 is the last thing they can afford snaps
-                  // back to 11, not 12.
-                  const affordable = maxAffordablePointBuyScore(id);
-                  if (value > affordable) value = affordable;
-                  input.value = String(value);
-                  character.rules.abilityScores[id] = value;
-                  saveRules();
-                  updateNote();
-                  updateModifier();
-                });
-              });
-              updateNote();
-            } else if (method === "roll") {
-              const noteRow = document.createElement("div");
-              noteRow.className = "wizard__ability-note";
-              const rollIntro = document.createElement("p");
-              rollIntro.className = "leveling-tab__intro";
-              rollIntro.textContent = "Click Roll All to roll 4d6 (dropping the lowest die) for each score — or edit any value by hand afterward.";
-              noteRow.append(rollIntro);
-              const rollAllBtn = document.createElement("button");
-              rollAllBtn.type = "button"; rollAllBtn.className = "btn"; rollAllBtn.textContent = "Roll All";
-              noteRow.append(rollAllBtn);
-              scoresWrap.append(noteRow);
-              const inputs = {};
-              const modifierUpdaters = {};
-              rollAllBtn.addEventListener("click", () => {
-                ABILITY_IDS.forEach((id) => {
-                  character.rules.abilityScores[id] = rollAbilityScore();
-                  inputs[id].value = String(character.rules.abilityScores[id]);
-                  modifierUpdaters[id]();
-                });
-                saveRules();
-              });
-              ABILITY_IDS.forEach((id) => {
-                const input = document.createElement("input");
-                input.type = "number"; input.min = "3"; input.max = "18"; input.className = "input-group__control";
-                input.value = String(character.rules.abilityScores[id]);
-                const updateModifier = abilityRow(id, input);
-                input.addEventListener("change", () => { character.rules.abilityScores[id] = Number(input.value) || 10; saveRules(); updateModifier(); });
-                inputs[id] = input;
-                modifierUpdaters[id] = updateModifier;
-              });
-            } else {
-              ABILITY_IDS.forEach((id) => {
-                const input = document.createElement("input");
-                input.type = "number"; input.min = "1"; input.max = "30"; input.className = "input-group__control";
-                input.value = String(character.rules.abilityScores[id]);
-                const updateModifier = abilityRow(id, input);
-                input.addEventListener("change", () => { character.rules.abilityScores[id] = Number(input.value) || 10; saveRules(); updateModifier(); });
-              });
-            }
-          }
-          methodSelect.addEventListener("change", () => {
-            character.rules.abilityScoreMethod = methodSelect.value;
-            saveRules();
-            renderScores();
-          });
-          renderScores();
         },
       },
       {
@@ -3716,22 +2573,21 @@ export function renderCustomSheet(root, character, store) {
         title: "Background",
         description: "Choose your character's background. This grants skill/tool/language proficiencies and a starting equipment package.",
         render(container) {
-          const liveNames = rulesetOptionNames(state.rulesetId, "Background", wizardFieldOptionNames("background", "Background"));
-          if (liveNames.length) {
-            renderSelectableRows(container, liveNames, {
-              selectedName: state.background,
-              getInfo: (name) => catalogEntryInfo(["background"], name),
-              getMechanics: (name) => mechanicsPreviewFor(bundleFor("Background", name, state.rulesetId), state.level),
-              onSelect: (name) => update("background", name),
-            });
-          } else {
-            const input = document.createElement("input");
-            input.type = "text"; input.className = "input-group__control";
-            input.placeholder = "No Background options found for this ruleset yet — type it in for now";
-            input.value = state.background || "";
-            input.addEventListener("change", () => update("background", input.value));
-            field(container, "Background", input);
-          }
+          renderRowListStepInto(container, state, {
+            optionNamesFn: (rulesetId, category) => rulesetOptionNames(rulesetId, category, wizardFieldOptionNames("background", "Background")),
+            fallbackNames: [],
+            keywords: ["background"],
+            category: "Background",
+            selectedKey: "background",
+            inputLabel: "Background",
+            inputPlaceholder: "No Background options found for this ruleset yet — type it in for now",
+            updateKey: "background",
+            updateFn: (key, value) => update(key, value),
+            fieldFn: (c, label, control) => field(c, label, control),
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, opts),
+            catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
+            mechanicsFn: (cat, name, rulesetId, level) => mechanicsPreviewFor(bundleFor(cat, name, rulesetId), level),
+          });
         },
       },
       {
@@ -3739,21 +2595,11 @@ export function renderCustomSheet(root, character, store) {
         title: "Preferences",
         description: "How you want HP handled by default whenever you level up — can be changed anytime later once a Settings tab exists.",
         render(container) {
-          // Label sits on its own line above the row-list, matching
-          // the Race/Class/Background pickers elsewhere in the wizard
-          // — a clickable row per option with its explanation right
-          // there, rather than a dropdown the user has to guess about.
-          const hpLabel = document.createElement("p");
-          hpLabel.className = "wizard__preference-label";
-          hpLabel.textContent = "HP on level-up";
-          container.append(hpLabel);
-
-          const currentMethod = character.rules.hpMethod || "manual";
-          const selected = HP_METHOD_OPTIONS.find((opt) => opt.value === currentMethod);
-          renderSelectableRows(container, HP_METHOD_OPTIONS.map((opt) => opt.label), {
-            selectedName: selected?.label,
-            getInfo: (label) => ({ description: HP_METHOD_OPTIONS.find((opt) => opt.label === label)?.description || "" }),
-            onSelect: (label) => update("hpMethod", HP_METHOD_OPTIONS.find((opt) => opt.label === label)?.value),
+          renderPreferencesStepInto(container, state, {
+            hpOptions: HP_METHOD_OPTIONS,
+            currentMethod: character.rules.hpMethod || "manual",
+            updateFn: (key, value) => update(key, value),
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, opts),
           });
         },
       },
@@ -3764,14 +2610,13 @@ export function renderCustomSheet(root, character, store) {
         isApplicable: () => creationGroupsByCategory.spells.length > 0 || Boolean(getRulesetClass(state.rulesetId, state.className)?.caster),
         unavailableMessage: wizardUnavailableMessage,
         render(container) {
-          renderCreationChoiceGroups(container, creationGroupsByCategory.spells, saveRules, state);
-          if (getRulesetClass(state.rulesetId, state.className)?.caster) {
-            const heading = document.createElement("p");
-            heading.className = "wizard__section-label";
-            heading.textContent = "Spells Known";
-            container.append(heading);
-            renderSpellPicker(container, { rulesetId: state.rulesetId, className: state.className, level: state.level });
-          }
+          renderSpellsStepInto(container, state, {
+            groups: creationGroupsByCategory.spells,
+            saveRules,
+            choiceGroupsFn: (c, groups, save) => renderCreationChoiceGroups(c, groups, save, state),
+            casterInfoFn: (rulesetId, className) => getRulesetClass(rulesetId, className)?.caster,
+            spellPickerFn: (c, opts) => renderSpellPicker(c, opts),
+          });
         },
       },
       {
@@ -3780,7 +2625,7 @@ export function renderCustomSheet(root, character, store) {
         description: "Languages you get to choose from your race, class, subclass, or background.",
         isApplicable: () => creationGroupsByCategory.languages.length > 0,
         unavailableMessage: wizardUnavailableMessage,
-        render(container) { renderCreationChoiceGroups(container, creationGroupsByCategory.languages, saveRules, state); },
+        render(container) { renderChoicePageStepInto(container, creationGroupsByCategory.languages, saveRules, (c, groups, save) => renderCreationChoiceGroups(c, groups, save, state)); },
       },
       {
         id: "equipment",
@@ -3788,7 +2633,7 @@ export function renderCustomSheet(root, character, store) {
         description: "Equipment packages or choices granted by your class or background.",
         isApplicable: () => creationGroupsByCategory.equipment.length > 0,
         unavailableMessage: wizardUnavailableMessage,
-        render(container) { renderCreationChoiceGroups(container, creationGroupsByCategory.equipment, saveRules, state); },
+        render(container) { renderChoicePageStepInto(container, creationGroupsByCategory.equipment, saveRules, (c, groups, save) => renderCreationChoiceGroups(c, groups, save, state)); },
       },
       {
         id: "feats",
@@ -3796,7 +2641,7 @@ export function renderCustomSheet(root, character, store) {
         description: "Feats granted at character creation by your race or background.",
         isApplicable: () => creationGroupsByCategory.feats.length > 0,
         unavailableMessage: wizardUnavailableMessage,
-        render(container) { renderCreationChoiceGroups(container, creationGroupsByCategory.feats, saveRules, state); },
+        render(container) { renderChoicePageStepInto(container, creationGroupsByCategory.feats, saveRules, (c, groups, save) => renderCreationChoiceGroups(c, groups, save, state)); },
       },
       {
         id: "proficiencies",
@@ -3804,53 +2649,20 @@ export function renderCustomSheet(root, character, store) {
         description: "Skill, tool, and saving throw proficiencies granted by your race, class, subclass, or background.",
         isApplicable: () => creationGroupsByCategory.proficiencies.length > 0,
         unavailableMessage: wizardUnavailableMessage,
-        render(container) { renderCreationChoiceGroups(container, creationGroupsByCategory.proficiencies, saveRules, state); },
+        render(container) { renderChoicePageStepInto(container, creationGroupsByCategory.proficiencies, saveRules, (c, groups, save) => renderCreationChoiceGroups(c, groups, save, state)); },
       },
       {
         id: "review",
         title: "Review",
         description: "Here's everything you've chosen. If it looks right, hit Finish Setup to apply it to your sheet — this also wires up your class/race/background bundles and switches you over to the Leveling tab for next time.",
         render(container) {
-          const rows = document.createElement("div");
-          rows.className = "wizard__review-rows";
-          const noteLines = [
-            character.name && `Name: ${character.name}`,
-            state.rulesetId ? getRuleset(state.rulesetId)?.name : null,
-            state.species && `Race: ${state.species}`,
-            state.className && `Class: ${state.className}${state.subclass ? ` (${state.subclass})` : ""}`,
-            state.background && `Background: ${state.background}`,
-            `Level ${state.level}`,
-          ].filter(Boolean);
-          if (resolved.derived.spellLimit) {
-            const { style, cantrips, spells } = resolved.derived.spellLimit;
-            const bits = [];
-            if (cantrips) bits.push(`${cantrips} cantrip${cantrips === 1 ? "" : "s"}`);
-            bits.push(`${spells} spell${spells === 1 ? "" : "s"} ${style === "known" ? "known" : "prepared"}`);
-            noteLines.push(`Spells: ${bits.join(", ")}`);
-          }
-          resolved.derived.resources.forEach((resource) => noteLines.push(`${resource.name}: ${resource.maximum}`));
-          if (noteLines.length === 0) {
-            const empty = document.createElement("p");
-            empty.className = "level-guide__summary";
-            empty.textContent = "Nothing chosen yet.";
-            rows.append(empty);
-          } else {
-            noteLines.forEach((line) => {
-              const row = document.createElement("p");
-              row.className = "wizard__review-row";
-              row.textContent = line;
-              rows.append(row);
-            });
-          }
-          container.append(rows);
-
-          const buttonRow = document.createElement("div");
-          buttonRow.className = "wizard__review-button-row";
-          const sync = document.createElement("button");
-          sync.type = "button"; sync.className = "btn btn--primary wizard__finish-btn"; sync.textContent = "Finish Setup";
-          sync.addEventListener("click", () => syncRulesToSheet(resolved));
-          buttonRow.append(sync);
-          container.append(buttonRow);
+          renderReviewStepInto(container, state, {
+            characterName: character.name,
+            rulesetName: state.rulesetId ? getRuleset(state.rulesetId)?.name : null,
+            spellLimit: resolved.derived.spellLimit,
+            resources: resolved.derived.resources,
+            syncFn: () => syncRulesToSheet(resolved),
+          });
         },
       },
     ];
@@ -3867,18 +2679,10 @@ export function renderCustomSheet(root, character, store) {
     const className = selectedChoiceName("class", "Class");
     const level = currentCharacterLevel();
     const selectedSubclass = selectedChoiceName("subclass", "Subclass");
-    const plan = getLevelUpPlan(character.rules?.rulesetId || character.rulesetId, className, level, selectedSubclass);
-    // Same override as renderRulesTab above: a live, bundle-driven
-    // subclass list (from an applied classes.json import) wins over
-    // getLevelUpPlan's hardcoded PHB one, so new subclasses show up
-    // here the moment they're imported and applied — no code edit.
-    if (plan) {
-      const liveSubclasses = liveSubclassData(className);
-      if (liveSubclasses.subclasses.length) {
-        plan.needsSubclass = !selectedSubclass && level >= liveSubclasses.subclassLevel;
-        plan.subclassChoices = plan.needsSubclass ? liveSubclasses.subclasses : [];
-      }
-    }
+    const plan = applyLiveSubclassOverride(
+      getLevelUpPlan(character.rules?.rulesetId || character.rulesetId, className, level, selectedSubclass),
+      { selectedSubclass, level, liveSubclasses: liveSubclassData(className) }
+    );
     const contentGroups = level == null ? [] : activeRuleChoiceGroups(flattenGlobalFields(), formulaValues)
       .filter((group) => group.minLevel <= level);
     const newFeatures = level == null || !className ? [] : classFeatureGrantsAtLevel(className, level);
@@ -3887,42 +2691,19 @@ export function renderCustomSheet(root, character, store) {
 
     const priorLevelUp = character.levelUps?.[String(level)] || {};
     if (plan && priorLevelUp.appliedRulesetId === plan.ruleset.id) {
-      const panel = document.createElement("section");
-      panel.className = "level-guide";
-      const heading = document.createElement("div");
-      heading.className = "level-guide__heading";
-      const title = document.createElement("h2");
-      title.textContent = `${className || "Character"} Level ${level}`;
-      heading.append(title);
-      panel.append(heading);
-      const complete = document.createElement("p");
-      complete.className = "level-guide__feedback";
-      complete.textContent = `This level was already applied using ${plan.ruleset.name}.`;
-      panel.append(complete);
-      return panel;
+      return alreadyAppliedPanel(className, level, plan.ruleset.name);
     }
 
     // In-progress answers for this level — see levelingPendingState
     // comment near its declaration for why this can't just be a local.
     const levelKey = String(level);
-    if (!levelingPendingState[levelKey]) {
-      levelingPendingState[levelKey] = {
-        hp: "",
-        subclass: selectedSubclass || "",
-        notes: "",
-        asiMode: "feat",
-        asiAbility1: "",
-        asiAbility2: "",
-        featChoice: "",
-        choices: Object.fromEntries(contentGroups.map((group) => [group.key, [...(character.rules?.choices?.[group.key] || [])]])),
-      };
-    }
-    const pending = levelingPendingState[levelKey];
-    contentGroups.forEach((group) => {
-      if (!pending.choices[group.key]) pending.choices[group.key] = [...(character.rules?.choices?.[group.key] || [])];
+    const pending = initPendingLevelState(levelingPendingState, levelKey, {
+      subclass: selectedSubclass,
+      choices: Object.fromEntries(contentGroups.map((group) => [group.key, character.rules?.choices?.[group.key] || []])),
     });
+    syncPendingChoices(pending, contentGroups, character.rules?.choices || {});
 
-    const slots = (plan?.slotChanges || []).filter((change) => change.options > 0).map((change) => `${change.options} ${change.label}-level`).join(", ");
+    const slots = slotsSummary(plan);
     const feedback = document.createElement("p");
     feedback.className = "level-guide__feedback";
 
@@ -3934,21 +2715,7 @@ export function renderCustomSheet(root, character, store) {
         title: "Subclass",
         description: `${className} chooses a subclass at this level. Pick one below — this can't easily be undone once you apply this level's changes, so make sure it's the one you want.`,
         render(container) {
-          const group = document.createElement("label");
-          group.className = "level-guide__field";
-          group.textContent = "Subclass";
-          const select = document.createElement("select");
-          select.className = "input-group__control";
-          const blank = document.createElement("option"); blank.value = ""; blank.textContent = "Choose subclass"; select.append(blank);
-          plan.subclassChoices.forEach((name) => {
-            const option = document.createElement("option");
-            option.value = name; option.textContent = name;
-            select.append(option);
-          });
-          select.value = pending.subclass || "";
-          select.addEventListener("change", () => { pending.subclass = select.value; });
-          group.append(select);
-          container.append(group);
+          renderGuideSubclassStepInto(container, pending, plan.subclassChoices);
         },
       });
     }
@@ -3959,72 +2726,15 @@ export function renderCustomSheet(root, character, store) {
         title: "Ability Score Improvement",
         description: `${className} gets an Ability Score Improvement at this level. Increase one ability score by 2, two ability scores by 1 each, or take a feat instead.`,
         render(container) {
-          const modeGroup = document.createElement("label");
-          modeGroup.className = "level-guide__field";
-          modeGroup.textContent = "This level's ASI";
-          const modeSelect = document.createElement("select");
-          modeSelect.className = "input-group__control";
-          [["single", "+2 to one score"], ["double", "+1 to two scores"], ["feat", "Took a feat instead"]].forEach(([value, label]) => {
-            const option = document.createElement("option"); option.value = value; option.textContent = label; modeSelect.append(option);
+          renderGuideAsiStepInto(container, pending, {
+            abilityIds: ABILITY_IDS,
+            rulesetId: character.rules?.rulesetId || character.rulesetId,
+            takenFeats: (character.rules?.feats || []).map((f) => f.name),
+            featNamesFn: (rulesetId) => rulesetOptionNames(rulesetId, "Feat"),
+            catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, opts),
+            gridFn: () => renderPageGrid(),
           });
-          modeSelect.value = pending.asiMode;
-          modeGroup.append(modeSelect);
-          container.append(modeGroup);
-
-          const abilityRow = document.createElement("div");
-          const featWrap = document.createElement("div");
-          const renderModeBody = () => {
-            abilityRow.innerHTML = "";
-            featWrap.innerHTML = "";
-            if (modeSelect.value === "feat") {
-              const rulesetId = character.rules?.rulesetId || character.rulesetId;
-              const names = rulesetOptionNames(rulesetId, "Feat");
-              const alreadyTaken = (character.rules?.feats || []).map((f) => f.name);
-              if (alreadyTaken.length) {
-                const takenNote = document.createElement("p");
-                takenNote.className = "leveling-tab__intro";
-                takenNote.textContent = `Already taken: ${alreadyTaken.join(", ")}.`;
-                featWrap.append(takenNote);
-              }
-              if (names.length) {
-                renderSelectableRows(featWrap, names, {
-                  selectedName: pending.featChoice,
-                  getInfo: (name) => catalogEntryInfo(["feat"], name),
-                  onSelect: (name) => { pending.featChoice = name; renderPageGrid(); },
-                });
-              } else {
-                const featGroup = document.createElement("label");
-                featGroup.className = "level-guide__field";
-                featGroup.textContent = "Feat";
-                const input = document.createElement("input");
-                input.type = "text"; input.className = "input-group__control";
-                input.placeholder = "No Feat bundles found for this ruleset yet — type it in for now";
-                input.value = pending.featChoice || "";
-                input.addEventListener("change", () => { pending.featChoice = input.value; });
-                featGroup.append(input);
-                featWrap.append(featGroup);
-              }
-              return;
-            }
-            const count = modeSelect.value === "single" ? 1 : 2;
-            for (let i = 0; i < count; i++) {
-              const abilityGroup = document.createElement("label");
-              abilityGroup.className = "level-guide__field";
-              abilityGroup.textContent = i === 0 ? "Ability" : "Second ability";
-              const abilitySelect = document.createElement("select");
-              abilitySelect.className = "input-group__control";
-              const blank = document.createElement("option"); blank.value = ""; blank.textContent = "Choose"; abilitySelect.append(blank);
-              ABILITY_IDS.forEach((id) => { const option = document.createElement("option"); option.value = id; option.textContent = id.toUpperCase(); abilitySelect.append(option); });
-              abilitySelect.value = i === 0 ? pending.asiAbility1 : pending.asiAbility2;
-              abilitySelect.addEventListener("change", () => { if (i === 0) pending.asiAbility1 = abilitySelect.value; else pending.asiAbility2 = abilitySelect.value; });
-              abilityGroup.append(abilitySelect);
-              abilityRow.append(abilityGroup);
-            }
-          };
-          modeSelect.addEventListener("change", () => { pending.asiMode = modeSelect.value; renderModeBody(); });
-          renderModeBody();
-          container.append(abilityRow);
-          container.append(featWrap);
         },
       });
     }
@@ -4035,17 +2745,7 @@ export function renderCustomSheet(root, character, store) {
         title: "New Features",
         description: `${className} gains new features at this level — just informational, nothing to fill in here. Read them over, then move on to the next step.`,
         render(container) {
-          newFeatures.forEach((feature) => {
-            const block = document.createElement("div");
-            block.className = "level-guide__choices";
-            const name = document.createElement("strong");
-            name.textContent = feature.name;
-            const desc = document.createElement("p");
-            desc.className = "level-guide__choice-description";
-            desc.textContent = feature.description || "";
-            block.append(name, desc);
-            container.append(block);
-          });
+          renderGuideFeaturesStepInto(container, newFeatures);
         },
       });
     }
@@ -4081,41 +2781,11 @@ export function renderCustomSheet(root, character, store) {
       title: "Hit Points",
       description: "Record the hit points you gained this level. It's pre-filled based on your preferred method from Character Setup, but you can always edit it by hand.",
       render(container) {
-        const conMod = Math.floor(((Number(character.rules?.abilityScores?.con) || 10) - 10) / 2);
-        const dieSize = character.rules?.hitDieSize || 8;
-        const method = character.rules?.hpMethod || "manual";
-        const rollOnce = () => Math.max(1, Math.floor(Math.random() * dieSize) + 1 + conMod);
-        const averageOnce = () => Math.max(1, Math.floor(dieSize / 2) + 1 + conMod);
-        if (!pending.hp) {
-          if (method === "average") pending.hp = String(averageOnce());
-          else if (method === "roll") pending.hp = String(rollOnce());
-        }
-
-        const hpGroup = document.createElement("label");
-        hpGroup.className = "level-guide__field";
-        hpGroup.textContent = "HP Gained";
-        const hpInput = document.createElement("input");
-        hpInput.type = "number"; hpInput.min = "1"; hpInput.step = "1"; hpInput.required = true;
-        hpInput.placeholder = "Rolled or average"; hpInput.className = "input-group__control";
-        hpInput.value = pending.hp || "";
-        hpInput.addEventListener("change", () => { pending.hp = hpInput.value; });
-        hpGroup.append(hpInput);
-        container.append(hpGroup);
-
-        if (method === "roll") {
-          const rerollBtn = document.createElement("button");
-          rerollBtn.type = "button"; rerollBtn.className = "btn";
-          rerollBtn.textContent = `Reroll (d${dieSize} ${conMod >= 0 ? "+" : ""}${conMod} CON)`;
-          rerollBtn.addEventListener("click", () => { pending.hp = String(rollOnce()); hpInput.value = pending.hp; });
-          container.append(rerollBtn);
-        } else {
-          const note = document.createElement("p");
-          note.className = "leveling-tab__intro";
-          note.textContent = method === "average"
-            ? `Prefilled with the fixed average for a d${dieSize} (set in Character Setup) — edit it if this class's hit die is different.`
-            : "Roll at the table and type the result in — change your default under Character Setup → Preferences.";
-          container.append(note);
-        }
+        renderGuideHpStepInto(container, pending, {
+          conScore: character.rules?.abilityScores?.con,
+          dieSize: character.rules?.hitDieSize || 8,
+          method: character.rules?.hpMethod || "manual",
+        });
       },
     });
 
@@ -4124,15 +2794,7 @@ export function renderCustomSheet(root, character, store) {
       title: "Notes",
       description: "Jot down anything else worth recording from your source book — new proficiencies, invocations, spells, or other choices that don't fit neatly into the steps above.",
       render(container) {
-        const benefitsGroup = document.createElement("label");
-        benefitsGroup.className = "level-guide__field level-guide__field--wide";
-        benefitsGroup.textContent = "Features and Choices to Record";
-        const benefitsInput = document.createElement("textarea");
-        benefitsInput.placeholder = "Record features, spells, proficiencies, or other choices from your source book.";
-        benefitsInput.value = pending.notes || "";
-        benefitsInput.addEventListener("input", () => { pending.notes = benefitsInput.value; });
-        benefitsGroup.append(benefitsInput);
-        container.append(benefitsGroup);
+        renderGuideNotesStepInto(container, pending);
       },
     });
 
@@ -4143,11 +2805,15 @@ export function renderCustomSheet(root, character, store) {
       render(container) {
         const summary = document.createElement("p");
         summary.className = "level-guide__summary";
-        const parts = [`HP +${pending.hp || "?"}`];
-        if (pending.subclass) parts.push(`Subclass: ${pending.subclass}`);
-        if (needsAsi) parts.push(pending.asiMode === "feat" ? `Feat: ${pending.featChoice || "not chosen yet"}` : `ASI: ${[pending.asiAbility1, pending.asiAbility2].filter(Boolean).map((id) => id.toUpperCase()).join(", ") || "not chosen yet"}`);
-        if (slots) parts.push(`Spell slots: ${slots}`);
-        summary.textContent = parts.join(" · ");
+        summary.textContent = levelReviewSummary({
+          hp: pending.hp,
+          subclass: pending.subclass,
+          needsAsi,
+          asiMode: pending.asiMode,
+          featChoice: pending.featChoice,
+          asiAbilities: [pending.asiAbility1, pending.asiAbility2],
+          slots,
+        });
         container.append(summary);
         container.append(feedback);
 
@@ -4156,31 +2822,17 @@ export function renderCustomSheet(root, character, store) {
         applyBtn.className = "btn btn--primary";
         applyBtn.textContent = `Apply Level ${level} Changes`;
         applyBtn.addEventListener("click", async () => {
-          const hpGain = Number.parseInt(pending.hp, 10);
-          if (!Number.isFinite(hpGain) || hpGain < 1) {
-            feedback.textContent = "Enter the HP gained for this level before applying it.";
-            feedback.classList.add("level-guide__feedback--error");
-            return;
-          }
-          for (const group of contentGroups) {
-            const selected = pending.choices[group.key] || [];
-            if (selected.length < group.minSelections || selected.length > group.maxSelections) {
-              feedback.textContent = `${group.label || "This choice"} needs ${group.minSelections === group.maxSelections ? group.maxSelections : `${group.minSelections}-${group.maxSelections}`} selection(s).`;
-              feedback.classList.add("level-guide__feedback--error");
-              return;
-            }
-          }
-          if (needsAsi && pending.asiMode !== "feat") {
-            const chosen = [pending.asiAbility1, pending.asiAbility2].filter(Boolean);
-            const required = pending.asiMode === "single" ? 1 : 2;
-            if (chosen.length < required || new Set(chosen).size !== chosen.length) {
-              feedback.textContent = "Choose the ability score(s) for this level's Ability Score Improvement (or switch it to \"Took a feat instead\").";
-              feedback.classList.add("level-guide__feedback--error");
-              return;
-            }
-          }
-          if (needsAsi && pending.asiMode === "feat" && !pending.featChoice) {
-            feedback.textContent = "Choose a feat for this level's Ability Score Improvement (or switch it to a stat increase).";
+          const error = validateLevelApply({
+            hpGain: Number.parseInt(pending.hp, 10),
+            contentGroups,
+            pendingChoices: pending.choices,
+            needsAsi,
+            asiMode: pending.asiMode,
+            asiAbilities: [pending.asiAbility1, pending.asiAbility2],
+            featChoice: pending.featChoice,
+          });
+          if (error) {
+            feedback.textContent = error;
             feedback.classList.add("level-guide__feedback--error");
             return;
           }
@@ -4190,13 +2842,14 @@ export function renderCustomSheet(root, character, store) {
           const slotChanges = plan?.slotChanges || [];
           ensureStandardSpellSlotFields(slotChanges);
           const missingSlots = slotChanges.filter((change) => !findStarterField(change.fieldId, change.label));
-          if (plan?.needsSubclass && (!subclassField || !subclassChoice)) {
-            feedback.textContent = "This sheet needs a Subclass dropdown containing the ruleset's available choices.";
-            feedback.classList.add("level-guide__feedback--error");
-            return;
-          }
-          if (missingSlots.length > 0) {
-            feedback.textContent = `This sheet is missing the ${missingSlots.map((change) => change.label).join(", ")} spell-slot field(s) needed for this level.`;
+          const prereqError = checkLevelPrereqs({
+            needsSubclass: plan?.needsSubclass,
+            hasSubclassField: !!subclassField,
+            hasSubclassChoice: !!subclassChoice,
+            missingSlots,
+          });
+          if (prereqError) {
+            feedback.textContent = prereqError;
             feedback.classList.add("level-guide__feedback--error");
             return;
           }
@@ -4224,27 +2877,33 @@ export function renderCustomSheet(root, character, store) {
           if (hpCurrent) hpCurrent.value = String(numericFieldValue(hpCurrent) + hpGain);
           let asiSummary = "";
           if (needsAsi && pending.asiMode !== "feat") {
-            const bump = (id, amount) => {
-              character.rules.abilityScores[id] = (Number(character.rules.abilityScores[id]) || 10) + amount;
+            const syncScoreField = (id) => {
               const target = findStarterField(`${id}Score`, id.toUpperCase());
               if (target) target.value = String(character.rules.abilityScores[id]);
             };
-            if (pending.asiMode === "single") { bump(pending.asiAbility1, 2); asiSummary = `+2 ${pending.asiAbility1.toUpperCase()}`; }
-            else { bump(pending.asiAbility1, 1); bump(pending.asiAbility2, 1); asiSummary = `+1 ${pending.asiAbility1.toUpperCase()}, +1 ${pending.asiAbility2.toUpperCase()}`; }
+            if (pending.asiMode === "single") {
+              asiSummary = applyAsiToScores(character.rules.abilityScores, "single", pending.asiAbility1);
+              syncScoreField(pending.asiAbility1);
+            } else {
+              asiSummary = applyAsiToScores(character.rules.abilityScores, "double", pending.asiAbility1, pending.asiAbility2);
+              syncScoreField(pending.asiAbility1);
+              syncScoreField(pending.asiAbility2);
+            }
           } else if (needsAsi) {
             character.rules.feats = [...(character.rules.feats || []), { name: pending.featChoice, level }];
             asiSummary = `Took the ${pending.featChoice} feat instead of an ASI`;
           }
           appendUniqueTextListItem(features, featureEntry);
-          character.levelUps[String(level)] = {
-            ...(character.levelUps[String(level)] || {}),
-            hp: `+${hpGain}`,
-            subclass: selectedSubclassName || "",
-            spells: slots ? `Spell slots: ${slots}.` : "",
-            features: featureEntry,
-            asi: asiSummary,
+          character.levelUps[String(level)] = buildLevelUpEntry({
+            level,
+            hpGain,
+            subclassName: selectedSubclassName,
+            slots,
+            featureEntry,
+            asiSummary,
             appliedRulesetId: plan?.ruleset?.id || "content",
-          };
+            prev: character.levelUps[String(level)] || {},
+          });
           mirrorFirstTabLayout();
           unsavedChanges = true;
           try {
@@ -4276,153 +2935,48 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function renderResourceTrackers() {
-    const resources = collectResourceGrants(flattenGlobalFields(), formulaValues);
-    if (resources.length === 0) return null;
-    character.rules = normalizeRulesState(character.rules);
-    const section = document.createElement("section");
-    section.className = "rule-resources";
-    const title = document.createElement("h2");
-    title.textContent = "Feature Uses";
-    section.append(title);
-    resources.forEach((resource) => {
-      const row = document.createElement("div");
-      row.className = "rule-resources__row";
-      const label = document.createElement("span");
-      label.className = "rule-resources__name";
-      label.textContent = resource.name;
-      const reset = document.createElement("span");
-      reset.className = "rule-resources__reset";
-      reset.textContent = `Resets: ${resource.reset}`;
-      const value = document.createElement("input");
-      value.type = "number";
-      value.min = "0";
-      value.max = String(resource.maximum);
-      value.className = "rule-resources__value";
-      const saved = Number.parseInt(character.rules.resourceUses[resource.key], 10);
-      value.value = String(Number.isFinite(saved) ? Math.min(resource.maximum, Math.max(0, saved)) : resource.maximum);
-      value.addEventListener("change", () => {
-        character.rules.resourceUses[resource.key] = Math.min(resource.maximum, Math.max(0, Number.parseInt(value.value, 10) || 0));
-        value.value = String(character.rules.resourceUses[resource.key]);
-        saveWithStatus("rules", character.rules);
-      });
-      const maximum = document.createElement("span");
-      maximum.className = "rule-resources__maximum";
-      maximum.textContent = `/ ${resource.maximum}`;
-      const restore = document.createElement("button");
-      restore.type = "button";
-      restore.className = "btn formula-toolbar__btn";
-      restore.textContent = "Restore";
-      restore.addEventListener("click", () => {
-        character.rules.resourceUses[resource.key] = resource.maximum;
-        value.value = String(resource.maximum);
-        saveWithStatus("rules", character.rules);
-      });
-      row.append(label, reset, value, maximum, restore);
-      section.append(row);
-    });
-    return section;
+    return renderResourceTrackersInto(
+      collectResourceGrants(flattenGlobalFields(), formulaValues),
+      character.rules,
+      {
+        normalizeFn: () => { character.rules = normalizeRulesState(character.rules); },
+        saveFn: (rules) => saveWithStatus("rules", rules),
+      }
+    );
   }
 
   function renderLevelingTab() {
-    const wrap = document.createElement("div");
-    wrap.className = "leveling-tab";
-
-    const intro = document.createElement("p");
-    intro.className = "leveling-tab__intro";
-    intro.textContent = "Come back here whenever your level goes up. Fill in whatever applies for your class at that level — leave the rest blank.";
-    wrap.append(intro);
-
-    const rulesetGuide = renderRulesetLevelGuide();
-    if (rulesetGuide) wrap.append(rulesetGuide);
-    const resources = renderResourceTrackers();
-    if (resources) wrap.append(resources);
-
     const currentLevel = currentCharacterLevel();
-    if (currentLevel) {
-      const jumpBtn = document.createElement("button");
-      jumpBtn.type = "button";
-      jumpBtn.className = "btn leveling-tab__jump";
-      jumpBtn.textContent = `↓ Jump to Level ${currentLevel}`;
-      jumpBtn.addEventListener("click", () => {
-        expandedLevelUpRows.add(currentLevel);
-        renderPageGrid();
+    renderLevelingTabInto(pageGrid, {
+      guideEl: renderRulesetLevelGuide(),
+      resourcesEl: renderResourceTrackers(),
+      currentLevel,
+      expandedSet: expandedLevelUpRows,
+      gridFn: () => renderPageGrid(),
+      rowFn: (level, isCurrent) => renderLevelUpRow(level, isCurrent),
+      scrollFn: (level) => {
         requestAnimationFrame(() => {
-          pageGrid.querySelector(`[data-level="${currentLevel}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+          pageGrid.querySelector(`[data-level="${level}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
         });
-      });
-      wrap.append(jumpBtn);
-    }
-
-    for (let level = 1; level <= 20; level++) {
-      wrap.append(renderLevelUpRow(level, level === currentLevel));
-    }
-
-    pageGrid.append(wrap);
+      },
+    });
   }
 
   function renderLevelUpRow(level, isCurrent) {
-    const key = String(level);
-    if (!character.levelUps[key] || typeof character.levelUps[key] !== "object") {
-      character.levelUps[key] = {};
-    }
-    const data = character.levelUps[key];
-
-    const row = document.createElement("div");
-    row.className = "leveling-row" + (isCurrent ? " leveling-row--current" : "");
-    row.dataset.level = String(level);
-
-    const header = document.createElement("div");
-    header.className = "leveling-row__header";
-
-    const expanded = expandedLevelUpRows.has(level);
-    const toggleBtn = document.createElement("button");
-    toggleBtn.type = "button";
-    toggleBtn.className = "btn formula-toolbar__btn leveling-row__toggle";
-    toggleBtn.textContent = expanded ? "▾" : "▸";
-    toggleBtn.setAttribute("aria-label", expanded ? `Collapse level ${level}` : `Expand level ${level}`);
-    toggleBtn.addEventListener("click", () => {
-      if (expanded) expandedLevelUpRows.delete(level);
-      else expandedLevelUpRows.add(level);
-      renderPageGrid();
+    const data = ensureLevelData(character.levelUps, level);
+    return renderLevelUpRowInto(level, isCurrent, data, LEVEL_UP_FIELDS, {
+      expandedSet: expandedLevelUpRows,
+      toggleFn: (lvl, wasExpanded) => {
+        if (wasExpanded) expandedLevelUpRows.delete(lvl);
+        else expandedLevelUpRows.add(lvl);
+        renderPageGrid();
+      },
+      inputFn: (rowData, key, value) => {
+        unsavedChanges = true;
+        rowData[key] = value;
+        saveLevelUps();
+      },
     });
-    header.append(toggleBtn);
-
-    const title = document.createElement("span");
-    title.className = "leveling-row__title";
-    title.textContent = `Level ${level}`;
-    header.append(title);
-
-    const filledCount = LEVEL_UP_FIELDS.filter((f) => (data[f.key] || "").trim() !== "").length;
-    const summary = document.createElement("span");
-    summary.className = "leveling-row__summary";
-    summary.textContent = filledCount > 0 ? `${filledCount} filled in` : "Nothing yet";
-    header.append(summary);
-
-    row.append(header);
-
-    if (expanded) {
-      const fields = document.createElement("div");
-      fields.className = "leveling-row__fields";
-      LEVEL_UP_FIELDS.forEach((f) => {
-        const group = document.createElement("div");
-        group.className = "leveling-row__field";
-        const label = document.createElement("label");
-        label.textContent = f.label;
-        const textarea = document.createElement("textarea");
-        textarea.value = data[f.key] || "";
-        textarea.placeholder = f.placeholder || "";
-        textarea.addEventListener("input", () => {
-          unsavedChanges = true;
-          data[f.key] = textarea.value;
-          saveLevelUps();
-        });
-        group.append(label, textarea);
-        fields.append(group);
-      });
-      row.append(fields);
-    }
-
-    return row;
   }
 
   function renderAll() {
@@ -4438,190 +2992,67 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function renderTabs() {
-    tabsBar.innerHTML = "";
-    character.sheetTabs.forEach((tab, index) => {
-      const tabBtn = document.createElement("button");
-      tabBtn.type = "button";
-      tabBtn.className = `sheet-tab${tab.id === activeTab().id ? " active" : ""}`;
-      tabBtn.draggable = editMode && !tab.kind;
-      tabBtn.dataset.tabId = tab.id;
-
-      const nameEl = document.createElement("span");
-      nameEl.className = "sheet-tab__name";
-      nameEl.contentEditable = editMode ? "true" : "false";
-      nameEl.textContent = tab.name;
-      nameEl.addEventListener("pointerdown", (e) => e.stopPropagation());
-      nameEl.addEventListener("input", () => {
+    renderTabsInto(tabsBar, {
+      tabs: character.sheetTabs,
+      activeId: activeTab().id,
+      editMode,
+      defaultName: (tab, index) => defaultTabName(tab, index),
+      onRename: (tab, text) => {
         commitMutation(() => {
-          tab.name = nameEl.textContent.trim() || (tab.kind === "main" ? "Main" : tab.kind === "rules" ? "Character" : tab.kind === "leveling" ? "Leveling" : `Tab ${index + 1}`);
+          tab.name = text;
         }, { render: false });
         renderBlockFrame();
-      });
-
-      tabBtn.addEventListener("click", () => {
+      },
+      onSelect: (tab) => {
         activeTabId = tab.id;
         renderAll();
-      });
-      tabBtn.addEventListener("dragstart", (e) => {
-        if (!editMode || tab.kind) return;
-        e.dataTransfer.setData("application/x-sheet-tab", tab.id);
-        e.dataTransfer.effectAllowed = "move";
-      });
-      tabBtn.addEventListener("dragover", (e) => {
-        if (!editMode) return;
-        e.preventDefault();
-      });
-      tabBtn.addEventListener("drop", (e) => {
-        if (!editMode) return;
-        const draggedId = e.dataTransfer.getData("application/x-sheet-tab");
-        if (!draggedId || draggedId === tab.id) return;
-        e.preventDefault();
+      },
+      onReorder: (draggedId, targetId) => {
         commitMutation(() => {
           const lockedCount = character.sheetTabs.filter(t => t.kind).length;
           const from = character.sheetTabs.findIndex(t => t.id === draggedId);
-          const to = character.sheetTabs.findIndex(t => t.id === tab.id);
+          const to = character.sheetTabs.findIndex(t => t.id === targetId);
           if (from < lockedCount || to < 0) return;
           const [moved] = character.sheetTabs.splice(from, 1);
           character.sheetTabs.splice(Math.max(lockedCount, to), 0, moved);
         });
-      });
-
-      tabBtn.append(nameEl);
-      if (editMode && !tab.kind) {
-        const deleteBtn = document.createElement("span");
-        deleteBtn.className = "sheet-tab__delete";
-        deleteBtn.textContent = "×";
-        deleteBtn.title = "Delete tab";
-        deleteBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          commitMutation(() => {
-            character.sheetTabs = character.sheetTabs.filter(t => t.id !== tab.id);
-            activeTabId = character.sheetTabs[0].id;
-          });
+      },
+      onDelete: (tab) => {
+        commitMutation(() => {
+          character.sheetTabs = character.sheetTabs.filter(t => t.id !== tab.id);
+          activeTabId = character.sheetTabs[0].id;
         });
-        tabBtn.append(deleteBtn);
-      }
-      tabsBar.append(tabBtn);
-    });
-
-    if (editMode) {
-      const addTabBtn = document.createElement("button");
-      addTabBtn.type = "button";
-      addTabBtn.className = "sheet-tab sheet-tab--add";
-      addTabBtn.textContent = "+";
-      addTabBtn.title = "Add tab";
-      addTabBtn.addEventListener("click", () => {
+      },
+      onAdd: () => {
         commitMutation(() => {
           const tab = { id: newId(), name: `Tab ${character.sheetTabs.length + 1}`, layout: [] };
           character.sheetTabs.push(tab);
           activeTabId = tab.id;
         });
-      });
-      tabsBar.append(addTabBtn);
-    }
+      },
+    });
   }
 
   function renderBlockFrame() {
-    blockFrame.innerHTML = "";
-    const title = document.createElement("div");
-    title.className = "sheet-block-frame__title";
-    title.textContent = "Stat Blocks";
-    blockFrame.append(title);
-
-    globalLayout().forEach(block => {
-      const source = effectiveBlock(block);
-      const blockItem = document.createElement("div");
-      blockItem.className = "sheet-block-list__block";
-      blockItem.draggable = true;
-      blockItem.dataset.blockId = block.id;
-      blockItem.addEventListener("dragstart", (e) => {
-        e.dataTransfer.setData("application/x-sheet-block", block.id);
-        e.dataTransfer.effectAllowed = "copy";
-      });
-
-      const blockLine = document.createElement("div");
-      blockLine.className = "sheet-block-list__line";
-      blockLine.dataset.highlightId = block.id;
-      blockLine.addEventListener("click", () => selectBlockAndFields(pageGrid.querySelector(`[data-node-id="${block.id}"]`)));
-
-      const titleRow = document.createElement("div");
-      titleRow.className = "sheet-block-list__title-row";
-
-      const collapsed = collapsedBlockIds.has(block.id);
-      const toggleBtn = document.createElement("button");
-      toggleBtn.type = "button";
-      toggleBtn.className = "sheet-block-list__collapse-toggle";
-      toggleBtn.textContent = collapsed ? "▸" : "▾";
-      toggleBtn.title = collapsed ? "Expand" : "Collapse";
-      toggleBtn.setAttribute("aria-label", collapsed ? "Expand" : "Collapse");
-      toggleBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (collapsedBlockIds.has(block.id)) collapsedBlockIds.delete(block.id);
-        else collapsedBlockIds.add(block.id);
+    renderBlockFrameInto(blockFrame, {
+      layout: globalLayout(),
+      viewOf: (block) => effectiveBlock(block),
+      tabsFor: (blockId) => blockTabs(blockId),
+      tabCount: character.sheetTabs.length,
+      collapsedIds: collapsedBlockIds,
+      onToggle: (blockId) => {
+        if (collapsedBlockIds.has(blockId)) collapsedBlockIds.delete(blockId);
+        else collapsedBlockIds.add(blockId);
         renderBlockFrame();
-      });
-      titleRow.append(toggleBtn);
-
-      const name = document.createElement("span");
-      name.textContent = source.name || "Unnamed Block";
-      titleRow.append(name);
-      blockLine.append(titleRow);
-
-      if (character.sheetTabs.length > 1) {
-        const tabs = document.createElement("span");
-        tabs.className = "sheet-block-list__tabs";
-        tabs.textContent = blockTabs(block.id).join(", ");
-        blockLine.append(tabs);
-      }
-      blockItem.append(blockLine);
-
-      const fieldsWrap = document.createElement("div");
-      fieldsWrap.className = "sheet-block-list__fields";
-      if (collapsed) fieldsWrap.hidden = true;
-
-      (source.children || []).forEach(field => {
-        const fieldItem = document.createElement("div");
-        fieldItem.className = "sheet-block-list__field";
-        fieldItem.textContent = field.label || "Unnamed Field";
-        fieldItem.draggable = true;
-        fieldItem.dataset.highlightId = field.id;
-        fieldItem.addEventListener("click", (e) => {
-          e.stopPropagation();
-          selectOnly(field.id);
-        });
-        fieldItem.addEventListener("dragstart", (e) => {
-          e.stopPropagation();
-          e.dataTransfer.setData("application/x-sheet-field", JSON.stringify({ blockId: block.id, fieldId: field.id }));
-          e.dataTransfer.effectAllowed = "copy";
-        });
-        fieldsWrap.append(fieldItem);
-
-        // Each checkbox in a checkbox field is its own boolean
-        // variable for formulas — exposed as its own draggable row,
-        // rather than the field as a whole.
-        if (field.fieldType === "checkbox") {
-          (field.checked || []).forEach((_, i) => {
-            const cbItem = document.createElement("div");
-            cbItem.className = "sheet-block-list__field sheet-block-list__field--sub";
-            cbItem.textContent = `↳ ${field.label || "Unnamed Field"} ${i + 1}`;
-            cbItem.draggable = true;
-            cbItem.dataset.highlightId = field.id;
-            cbItem.addEventListener("click", (e) => {
-              e.stopPropagation();
-              selectOnly(field.id);
-            });
-            cbItem.addEventListener("dragstart", (e) => {
-              e.stopPropagation();
-              e.dataTransfer.setData("application/x-sheet-field", JSON.stringify({ blockId: block.id, fieldId: field.id, checkboxIndex: i }));
-              e.dataTransfer.effectAllowed = "copy";
-            });
-            fieldsWrap.append(cbItem);
-          });
-        }
-      });
-      blockItem.append(fieldsWrap);
-
-      blockFrame.append(blockItem);
+      },
+      onSelectBlock: (blockId) => selectBlockAndFields(pageGrid.querySelector(`[data-node-id="${blockId}"]`)),
+      onSelectField: (fieldId) => selectOnly(fieldId),
+      fieldDragPayload: (blockId, field, checkboxIndex) =>
+        JSON.stringify(
+          checkboxIndex === null || checkboxIndex === undefined
+            ? { blockId, fieldId: field.id }
+            : { blockId, fieldId: field.id, checkboxIndex }
+        ),
     });
   }
 
@@ -4640,236 +3071,71 @@ export function renderCustomSheet(root, character, store) {
    *  also means it only works once `el` is actually laid out in the
    *  DOM (see the post-append pass in renderPageGrid). */
   function applyGridLines(el, cw, originEl = null) {
-    if (!editMode) {
-      el.style.backgroundImage = "";
-      el.style.backgroundPosition = "";
-      return;
-    }
-    const step = cw + GAP_PX; // cells are square, so column/row spacing match
-    // Halfway between "too bright" in a plain window and "nearly
-    // invisible" under a dark-mode browser extension that recolors it.
-    const line = "rgba(255,255,255,0.16)";
-    el.style.backgroundImage =
-      `repeating-linear-gradient(to right, ${line} 0, ${line} 1px, transparent 1px, transparent ${step}px),` +
-      `repeating-linear-gradient(to bottom, ${line} 0, ${line} 1px, transparent 1px, transparent ${step}px)`;
-
-    if (!originEl) {
-      el.style.backgroundPosition = "0 0";
-      return;
-    }
-    const elRect = el.getBoundingClientRect();
-    const originRect = originEl.getBoundingClientRect();
-    const offsetX = ((elRect.left - originRect.left) % step + step) % step;
-    const offsetY = ((elRect.top - originRect.top) % step + step) % step;
-    el.style.backgroundPosition = `${-offsetX}px ${-offsetY}px`;
+    applyGridLinesTo(el, cw, GAP_PX, editMode, originEl);
   }
 
   // --- Block rendering ----------------------------------------------------
 
   function renderBlockNode(block, cw) {
-    const viewBlock = effectiveBlock(block);
-    const el = document.createElement("div");
-    el.className = `grid-node grid-node--block${viewBlock.blockType === "label" ? " grid-node--label-block" : ""}`;
-    el.dataset.nodeId = block.id;
-    el.dataset.nodeKind = "block";
-    if (editMode) el.tabIndex = 0;
-    applyRect(el, block, cw);
-    applyNodeStyle(el, viewBlock.style);
-
-    if (viewBlock.blockType === "label") {
-      const labelEl = document.createElement("div");
-      labelEl.className = "label-block-text";
-      labelEl.contentEditable = "true";
-      labelEl.textContent = viewBlock.name;
-      labelEl.addEventListener("input", () => {
-        commitMutation(() => {
-          sourceBlockFor(block).name = labelEl.textContent;
-        }, { render: false });
-      });
-      wireGhostDefault(labelEl, "Text Label", (text) => {
-        commitMutation(() => {
-          sourceBlockFor(block).name = text;
-        }, { render: false });
-      });
-      el.append(labelEl);
-      applyTextStyleToOwnText(el, viewBlock.style);
-      el.append(buildDragHandle());
-      el.append(buildResizeHandle());
-      el.append(buildBlockToolbar(block, el));
-      wireDrag(el, block, cw, () => renderAll());
-      wireResize(el, block, cw, {
-        minW: 1,
-        minH: 1,
-        onCommit: () => {
-          persist();
-          renderAll();
-        },
-      });
-      return el;
-    }
-
-    // Name and body are explicitly positioned to occupy exactly
-    // BLOCK_HEADER_ROWS worth of pixels for the name, with the body
-    // starting right after — NOT flexbox auto-sizing. Flexbox sizing
-    // the name to its own font-driven height (rather than a fixed
-    // grid-row height) was what caused blocks to render shorter than
-    // their actual content, spilling into whatever sat below them.
-    const headerPx = BLOCK_HEADER_ROWS * cw + (BLOCK_HEADER_ROWS - 1) * GAP_PX;
-
-    // .block-body sits flush against the inside of this block's own
-    // border (it's absolutely positioned with left/right/bottom: 0,
-    // which CSS measures from the padding box — i.e. right up against
-    // the border, not inset from it). The fields inside it are sized
-    // with the exact same per-cell math as this block itself, so
-    // without this they come out fractionally too wide/tall for that
-    // space and spill a couple of pixels past the border on the
-    // right/bottom edges. Widening the block by twice its own border
-    // width (one border's worth per side) gives the body that space
-    // back — top/left stay put, only width/height grow.
-    const blockBorderCompensationPx = 2; // 2 x --border-width (1px)
-    el.style.width = `${parseFloat(el.style.width) + blockBorderCompensationPx}px`;
-    el.style.height = `${parseFloat(el.style.height) + blockBorderCompensationPx}px`;
-
-    const nameEl = document.createElement("div");
-    nameEl.className = "block-name";
-    nameEl.style.height = `${headerPx}px`;
-    nameEl.contentEditable = "true";
-    nameEl.textContent = viewBlock.name;
-    nameEl.title = viewBlock.name; // belt-and-suspenders: a native
-      // tooltip for the full name on hover even where the ellipsis
-      // (see .block-name in custom-sheet.css) has to cut it short
-    nameEl.addEventListener("input", () => {
-      commitMutation(() => {
-        sourceBlockFor(block).name = nameEl.textContent;
-      }, { render: false });
-      nameEl.title = nameEl.textContent;
-      renderBlockFrame();
+    return renderBlockNodeInto(block, cw, {
+      viewOf: (b) => effectiveBlock(b),
+      isEdit: editMode,
+      gapPx: GAP_PX,
+      headerRows: BLOCK_HEADER_ROWS,
+      applyRectFn: applyRect,
+      applyStyleFn: applyNodeStyle,
+      ghostFn: wireGhostDefault,
+      ownTextFn: applyTextStyleToOwnText,
+      dragHandleFn: buildDragHandle,
+      resizeHandleFn: buildResizeHandle,
+      toolbarFn: (b, el) => buildBlockToolbar(b, el),
+      fieldNodeFn: (f, parent, w, style) => renderFieldNode(f, parent, w, style),
+      dragFn: (el, node, w, onSettled) => wireDrag(el, node, w, onSettled),
+      resizeFn: (el, node, w, opts) => wireResize(el, node, w, opts),
+      commitFn: (fn, opts) => commitMutation(fn, opts),
+      sourceOf: (b) => sourceBlockFor(b),
+      frameFn: () => renderBlockFrame(),
+      renderAllFn: () => renderAll(),
+      persistFn: () => persist(),
     });
-    wireGhostDefault(nameEl, "New Block", (text) => {
-      commitMutation(() => {
-        sourceBlockFor(block).name = text;
-      }, { render: false });
-      renderBlockFrame();
-    });
-    el.append(nameEl);
-
-    const body = document.createElement("div");
-    body.className = "block-body";
-    body.style.top = `${headerPx + GAP_PX}px`;
-    // Grid lines for this body are applied once it's actually in the
-    // DOM — see the post-append pass at the end of renderPageGrid.
-    el.append(body);
-
-    applyTextStyleToOwnText(el, viewBlock.style);
-
-    viewBlock.children.forEach(field => {
-      body.append(renderFieldNode(field, block, cw, viewBlock.style));
-    });
-
-    el.append(buildDragHandle());
-    el.append(buildResizeHandle());
-    el.append(buildBlockToolbar(block, el));
-
-    wireDrag(el, block, cw, () => renderAll());
-    wireResize(el, block, cw, {
-      minW: 1,
-      minH: BLOCK_HEADER_ROWS + 1,
-      onCommit: () => {
-        persist();
-        renderAll();
-      },
-    });
-
-    return el;
   }
 
   function buildBlockToolbar(block, wrapperEl) {
-    const bar = document.createElement("div");
-    bar.className = "node-toolbar";
-
-    bar.append(buildStyleButton(block, wrapperEl));
-    bar.append(buildBorderToggleButton(block, wrapperEl));
-
-    if (effectiveBlock(block).blockType !== "label") {
-      const addFieldBtn = document.createElement("button");
-      addFieldBtn.type = "button";
-      addFieldBtn.title = "Add field";
-      addFieldBtn.textContent = "+";
-      addFieldBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openFieldTypeMenu(addFieldBtn, (fieldType) => {
-          commitMutation(() => {
-            const size = DEFAULT_FIELD_SIZE[fieldType] || { w: 1, h: 1 };
-            const field = createField({
-              fieldType, label: "Stat",
-              x: 0, y: 0, w: size.w, h: size.h,
-            });
-            sourceBlockFor(block).children.push(field);
-          });
-        });
-      });
-      bar.append(addFieldBtn);
-    }
-
-    wireHoverToolbar(wrapperEl, bar);
-    return bar;
+    return buildBlockToolbarInto(block, wrapperEl, {
+      styleBtnFn: (b, el) => buildStyleButton(b, el),
+      borderBtnFn: (b, el) => buildBorderToggleButton(b, el),
+      viewOf: (b) => effectiveBlock(b),
+      typeMenuFn: (anchor, onChoose) => openFieldTypeMenu(anchor, onChoose),
+      commitFn: (fn, opts) => commitMutation(fn, opts),
+      sourceOf: (b) => sourceBlockFor(b),
+      defaultSize: DEFAULT_FIELD_SIZE,
+      createFieldFn: (opts) => createField(opts),
+      hoverFn: (trigger, bar) => wireHoverToolbar(trigger, bar),
+    });
   }
 
   // --- Field rendering ------------------------------------------------------
 
   function renderFieldNode(field, parentBlock, cw, parentStyle = {}) {
-    const el = document.createElement("div");
-    el.className = "grid-node grid-node--field";
-    el.dataset.nodeId = field.id;
-    el.dataset.nodeKind = "field";
-    if (editMode) el.tabIndex = 0;
-    applyRect(el, field, cw);
-    const fieldStyle = mergeTextStyle(parentStyle, field.style || {});
-    applyNodeStyle(el, fieldStyle);
-
-    const labelEl = renderFieldInner(el, field, parentBlock, cw);
-    // el isn't attached to the document yet at this point (the caller
-    // appends it further up the tree once it's built) — labelEl has no
-    // real layout yet either, so checking scrollWidth/clientWidth here
-    // would just compare 0 to 0. Queue it and let renderPageGrid check
-    // it once the whole grid is actually in the DOM (see
-    // pendingLabelOverflowChecks above and its drain at the end of
-    // renderPageGrid).
-    if (labelEl) pendingLabelOverflowChecks.push({ labelEl, field, fieldEl: el, parentBlock });
-    applyTextStyleToOwnText(el, fieldStyle);
-
-    el.append(buildDragHandle());
-    if (RESIZABLE_FIELD_TYPES.has(field.fieldType)) {
-      el.append(buildResizeHandle());
-    }
-    if (field.fieldType === "text") {
-      el.append(buildEquationHint(field));
-    }
-    el.append(buildFieldToolbar(field, parentBlock, el));
-
-    // Fields are confined to their parent block's content area — the
-    // area below the reserved name row (see BLOCK_HEADER_ROWS). They
-    // can move/resize freely WITHIN that, but never past the block's
-    // own edges; the block itself has no such limit (it can go
-    // anywhere on the canvas).
-    const contentRows = parentBlock.h - BLOCK_HEADER_ROWS;
-    wireDrag(el, field, cw, () => renderAll(), {
-      maxX: parentBlock.w - field.w,
-      maxY: contentRows - field.h,
+    return renderFieldNodeInto(field, parentBlock, cw, parentStyle, {
+      isEdit: editMode,
+      resizableTypes: RESIZABLE_FIELD_TYPES,
+      headerRows: BLOCK_HEADER_ROWS,
+      applyRectFn: applyRect,
+      applyStyleFn: applyNodeStyle,
+      mergeStyleFn: mergeTextStyle,
+      innerFn: (fieldEl, f, parent, w) => renderFieldInner(fieldEl, f, parent, w),
+      ownTextFn: applyTextStyleToOwnText,
+      dragHandleFn: buildDragHandle,
+      resizeHandleFn: buildResizeHandle,
+      equationHintFn: (f) => buildEquationHint(f),
+      toolbarFn: (f, parent, el) => buildFieldToolbar(f, parent, el),
+      dragFn: (el, node, w, onSettled, bounds) => wireDrag(el, node, w, onSettled, bounds),
+      resizeFn: (el, node, w, opts) => wireResize(el, node, w, opts),
+      renderAllFn: () => renderAll(),
+      persistFn: () => persist(),
+      queueOverflowFn: (entry) => pendingLabelOverflowChecks.push(entry),
     });
-    if (RESIZABLE_FIELD_TYPES.has(field.fieldType)) {
-      wireResize(el, field, cw, {
-        minW: 1, minH: 1,
-        maxW: parentBlock.w - field.x,
-        maxH: contentRows - field.y,
-        onCommit: () => {
-          persist();
-          renderAll();
-        },
-      });
-    }
-
-    return el;
   }
 
   /** Rebuilds just the label+value area of a field (not its outer
@@ -4877,203 +3143,51 @@ export function renderCustomSheet(root, character, store) {
    *  for the label-position cycle button's FLIP animation. Returns
    *  the label element so the caller can animate it. */
   function renderFieldInner(fieldEl, field, parentBlock) {
-    const old = fieldEl.querySelector(".field-inner");
-    if (old) old.remove();
-
-    const inner = document.createElement("div");
-    inner.className = `field-inner field-inner--${field.labelPosition}`;
-
-    // "label" and "picture" fields are just one element filling the
-    // whole box — no separate caption/value split.
-    if (CAPTIONLESS_FIELD_TYPES.has(field.fieldType)) {
-      const valueEl = buildFieldValue(field, () => {});
-      inner.append(valueEl);
-      fieldEl.prepend(inner);
-      return null;
-    }
-
-    const labelEl = document.createElement("div");
-    labelEl.className = "field-label";
-    labelEl.contentEditable = "true";
-    labelEl.textContent = field.label;
-    labelEl.title = field.label; // same belt-and-suspenders tooltip as
-      // block-name above, for whenever a label doesn't fit its cell
-    let labelBeforeEdit = field.label;
-    labelEl.addEventListener("focus", () => {
-      labelBeforeEdit = field.label;
+    return renderFieldInnerInto(fieldEl, field, parentBlock, {
+      captionlessTypes: CAPTIONLESS_FIELD_TYPES,
+      buildValueFn: (f, onChange) => buildFieldValue(f, onChange),
+      commitFn: (fn, opts) => commitMutation(fn, opts),
+      frameFn: () => renderBlockFrame(),
+      visibilityFn: (f, el) => updateFieldLabelVisibility(f, el),
+      growFn: (labelEl, f, el, parent) => growFieldIfLabelOverflows(labelEl, f, el, parent),
+      ghostFn: (el, text, commit) => wireGhostDefault(el, text, commit),
+      labelInUseFn: (text, f) => isLabelAlreadyInUse(text, f),
+      toastFn: (msg, opts) => showToast(msg, opts),
+      moneyFn: (f) => maybeAutoRegisterMoneyField(f),
     });
-    labelEl.addEventListener("keydown", (e) => {
-      // Plain Enter = done editing (blur); Shift+Enter = an actual new
-      // line in the label, left to the browser's normal contenteditable
-      // behavior.
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        labelEl.blur();
-      }
-    });
-    labelEl.addEventListener("input", () => {
-      commitMutation(() => {
-        field.label = labelEl.textContent;
-      }, { render: false });
-      labelEl.title = labelEl.textContent;
-      renderBlockFrame();
-      updateFieldLabelVisibility(field, labelEl);
-      growFieldIfLabelOverflows(labelEl, field, fieldEl, parentBlock);
-    });
-    labelEl.addEventListener("blur", () => {
-      // Checked on blur (not per-keystroke) so typing itself is never
-      // interrupted — labels double as formula variable names (see
-      // formulaEditor.js's chips) and as the names droppable into the
-      // character-card fields, so two fields sharing one would be
-      // genuinely ambiguous in both places. Dragging a COPY of a field
-      // in (from the sidebar, onto this tab or another) is exempt —
-      // that goes through addFieldReferenceToActiveTab/
-      // addBlockReferenceToActiveTab, never through this rename path,
-      // so cloned duplicates are never blocked here.
-      const current = field.label.trim();
-      if (current && current !== labelBeforeEdit.trim() && isLabelAlreadyInUse(current, field)) {
-        showToast(`The label "${current}" is already in use by another field — reverted to "${labelBeforeEdit}".`, { isError: true });
-        commitMutation(() => {
-          field.label = labelBeforeEdit;
-        }, { render: false });
-        labelEl.textContent = labelBeforeEdit;
-        labelEl.classList.toggle("is-ghost-default", labelBeforeEdit === "Stat");
-        updateFieldLabelVisibility(field, labelEl);
-      } else {
-        maybeAutoRegisterMoneyField(field);
-      }
-    });
-    wireGhostDefault(labelEl, "Stat", (text) => {
-      commitMutation(() => {
-        field.label = text;
-      }, { render: false });
-      renderBlockFrame();
-      updateFieldLabelVisibility(field, labelEl);
-    });
-    labelEl.addEventListener("pointerdown", (e) => e.stopPropagation());
-
-    const valueEl = buildFieldValue(field, () => updateFieldLabelVisibility(field, labelEl));
-    updateFieldLabelVisibility(field, labelEl);
-
-    inner.append(labelEl, valueEl);
-    fieldEl.prepend(inner); // prepend so handles/toolbar (appended later) stay on top
-    return labelEl;
   }
 
-  /** The default "Stat" label acts as a placeholder-style prompt: once
-   *  a text field actually has a value, the still-unedited default
-   *  label is redundant, so it hides — and comes right back the
-   *  instant the value is cleared. A label the user has actually
-   *  renamed (to "STR", say) always stays visible regardless of
-   *  value, since by then it's carrying real information, not
-   *  functioning as a placeholder anymore. Scoped to text fields
-   *  specifically, per how this was asked for. */
   function updateFieldLabelVisibility(field, labelEl) {
-    const isUnrenamedDefault = field.label === "Stat";
-    const hasValue = field.fieldType === "text" && (field.formula ? true : hasVisibleText(field.value));
-    // visibility, not display: the label's SPACE stays reserved either
-    // way, so the value box doesn't expand into it once the label
-    // (still just the unrenamed default) disappears — see the
-    // .field-label/.field-value comments in custom-sheet.css.
-    labelEl.style.visibility = (isUnrenamedDefault && hasValue) ? "hidden" : "";
+    updateFieldLabelVisibilityInto(field, labelEl);
   }
 
   function hasVisibleText(html) {
-    if (!html) return false;
-    const tmp = document.createElement("div");
-    tmp.innerHTML = html;
-    return tmp.textContent.trim().length > 0;
+    return sharedHasVisibleText(html);
   }
 
-  /** Makes a contentEditable element behave like a placeholder: while
-   *  its content is still exactly the sentinel default text (e.g. a
-   *  fresh field's label is literally the string "Stat"), it's shown
-   *  faded/italic via .is-ghost-default — and focusing it clears the
-   *  visible text immediately, so typing a real name doesn't require
-   *  deleting the default first. Blurring with content that's
-   *  genuinely EMPTY (zero characters) restores the ghost and commits
-   *  the sentinel value back via `commit`; anything else — even just
-   *  a space — counts as a real (if unusual) value and is left alone.
-   *  Uses innerHTML rather than textContent so this also works for
-   *  richly-formatted fields (a plain default string round-trips
-   *  through innerHTML identically to textContent). */
   function wireGhostDefault(el, defaultText, commit) {
-    function refreshGhostState() {
-      el.classList.toggle("is-ghost-default", el.innerHTML === defaultText);
-    }
-    refreshGhostState();
-    el.addEventListener("focus", () => {
-      if (el.classList.contains("is-ghost-default")) {
-        el.innerHTML = "";
-        el.classList.remove("is-ghost-default");
-      }
-    });
-    el.addEventListener("blur", () => {
-      if (el.textContent.length === 0) {
-        el.innerHTML = defaultText;
-        el.classList.add("is-ghost-default");
-        commit(defaultText);
-      }
-    });
+    wireGhostDefaultInto(el, defaultText, commit);
   }
 
   function buildFieldValue(field, onValueChange) {
     if (field.fieldType === "text") {
-      const el = document.createElement("div");
-      el.addEventListener("pointerdown", (e) => e.stopPropagation());
-      if (field.formula) {
-        el.className = "field-value field-value--computed";
-        el.contentEditable = "false";
-        el.dataset.fieldId = field.id;
-        el.textContent = formatComputedValue(formulaValues[field.id]);
-      } else {
-        el.className = "field-value";
-        el.contentEditable = "true";
-        el.innerHTML = field.value || "";
-        el.addEventListener("input", () => {
-          commitMutation(() => {
-            field.value = el.innerHTML;
-          }, { render: false });
-          if (onValueChange) onValueChange();
-        });
-        el.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") e.preventDefault(); // single-line — see textarea for multi-line
-        });
-      }
-      return el;
+      return buildTextValueInto(field, onValueChange, {
+        commitFn: (fn, opts) => commitMutation(fn, opts),
+        formattedValue: formatComputedValue(formulaValues[field.id]),
+      });
     }
 
     if (field.fieldType === "label") {
-      const el = document.createElement("div");
-      el.className = "field-value field-value--label";
-      el.contentEditable = "true";
-      el.innerHTML = field.value || "";
-      el.addEventListener("pointerdown", (e) => e.stopPropagation());
-      el.addEventListener("input", () => {
-        commitMutation(() => {
-          field.value = el.innerHTML;
-        }, { render: false });
+      return buildLabelValueInto(field, {
+        commitFn: (fn, opts) => commitMutation(fn, opts),
+        ghostFn: (el, text, commit) => wireGhostDefault(el, text, commit),
       });
-      wireGhostDefault(el, "Label text", (text) => {
-        commitMutation(() => {
-          field.value = text;
-        }, { render: false });
-      });
-      return el;
     }
 
     if (field.fieldType === "textarea") {
-      const el = document.createElement("div");
-      el.className = "field-value field-value--textarea";
-      el.contentEditable = "true";
-      el.innerHTML = field.value || "";
-      el.addEventListener("pointerdown", (e) => e.stopPropagation());
-      el.addEventListener("input", () => {
-        commitMutation(() => {
-          field.value = el.innerHTML;
-        }, { render: false });
+      return buildTextareaValueInto(field, {
+        commitFn: (fn, opts) => commitMutation(fn, opts),
       });
-      return el;
     }
 
     if (field.fieldType === "textlist") {
@@ -5100,85 +3214,11 @@ export function renderCustomSheet(root, character, store) {
       return buildFeatureListValue(field);
     }
 
-    const el = document.createElement("div");
-    el.className = "field-value field-value--options";
-    // A formula-driven radio group's button count is whatever that
-    // formula currently computes (see computeRadioOptionCounts); one
-    // of the standard spell-slot fields (no formula, but a live entry
-    // in spellSlotCounts — see computeSpellSlotCounts) instead tracks
-    // class/level automatically. `options` becomes just the fallback
-    // default, used only when neither applies.
-    const isFormulaRadio = field.fieldType === "radio" && field.optionsFormula;
-    const isLiveSlotField = field.fieldType === "radio" && !field.optionsFormula
-      && Object.prototype.hasOwnProperty.call(spellSlotCounts, field.id);
-    const effectiveOptions = isFormulaRadio ? (radioOptionCounts[field.id] ?? 0)
-      : isLiveSlotField ? (spellSlotCounts[field.id] ?? 0)
-      : (field.options || 1);
-    el.style.gridTemplateColumns = `repeat(${Math.max(1, effectiveOptions)}, minmax(0, 1fr))`;
-
-    if (field.fieldType === "radio") {
-      // Filled left-to-right up through whichever one was clicked
-      // (n <= field.selected), not just that one alone — these are
-      // used as a "how many of N used" meter (spell slots, death
-      // saves), not a real mutually-exclusive choice, even though
-      // they're built from <input type="radio"> for the free grouping
-      // behavior that gives. A plain click only ever checks the one
-      // clicked (that's the browser's own native behavior firing
-      // before our "change" handler even runs), so the rest of the
-      // fill has to be patched in manually right after, via the same
-      // `inputs` this loop is already building.
-      const inputs = [];
-      for (let n = 1; n <= effectiveOptions; n++) {
-        const wrap = document.createElement("label");
-        wrap.className = "option-radio";
-        const input = document.createElement("input");
-        input.type = "radio";
-        input.name = field.id;
-        input.checked = field.selected !== null && n <= field.selected;
-        input.addEventListener("change", () => {
-          commitMutation(() => {
-            field.selected = n;
-          }, { render: false });
-          inputs.forEach((otherInput, idx) => {
-            otherInput.checked = idx + 1 <= n;
-          });
-        });
-        input.addEventListener("pointerdown", (e) => e.stopPropagation());
-        wrap.append(input);
-        el.append(wrap);
-        inputs.push(input);
-      }
-    } else if (field.fieldType === "checkbox") {
-      for (let i = 0; i < field.options; i++) {
-        const wrap = document.createElement("label");
-        wrap.className = "option-checkbox";
-        const granted = grantedCheckboxes.has(`${field.id}::${i}`);
-        const input = document.createElement("input");
-        input.type = "checkbox";
-        input.checked = !!field.checked[i] || granted;
-        if (granted) {
-          // Not independently uncheckable while granted — same
-          // reasoning as the numeric ops overwriting a formula field's
-          // own value: this box's visible state is a computed result
-          // (of the currently-selected Race/Class/etc.), not this
-          // box's own stored data, while it's active. field.checked[i]
-          // underneath is untouched, so a manually-checked box stays
-          // checked on its own after the granting choice changes away.
-          input.disabled = true;
-          wrap.classList.add("option-checkbox--granted");
-          wrap.title = "Granted automatically by a selected Race/Class/etc. — change that selection to remove it";
-        }
-        input.addEventListener("change", () => {
-          commitMutation(() => {
-            field.checked[i] = input.checked;
-          }, { render: false });
-        });
-        input.addEventListener("pointerdown", (e) => e.stopPropagation());
-        wrap.append(input);
-        el.append(wrap);
-      }
-    }
-    return el;
+    const effectiveOptions = effectiveOptionCount(field, radioOptionCounts, spellSlotCounts);
+    return buildOptionsValueInto(field, effectiveOptions, {
+      commitFn: (fn, opts) => commitMutation(fn, opts),
+      grantedCheckboxes,
+    });
   }
 
   /** Draggable-to-reorder bulleted list — used by the "textlist" field
@@ -5186,188 +3226,15 @@ export function renderCustomSheet(root, character, store) {
    *  itself (not the text) is the drag source, so dragging never
    *  fights with placing a text caret. */
   function buildTextListValue(field) {
-    if (!field.items) field.items = [];
-    const el = document.createElement("div");
-    el.className = "field-value field-value--textlist";
-    el.addEventListener("pointerdown", (e) => e.stopPropagation());
-
-    const itemsWrap = document.createElement("div");
-    itemsWrap.className = "textlist-items";
-    let dragFromIndex = null;
-
-    function renderItems() {
-      itemsWrap.innerHTML = "";
-      field.items.forEach((text, index) => {
-        const row = document.createElement("div");
-        row.className = "textlist-item";
-        row.draggable = true;
-
-        row.addEventListener("dragstart", (e) => {
-          dragFromIndex = index;
-          e.dataTransfer.effectAllowed = "move";
-          e.dataTransfer.setData("text/plain", ""); // Firefox needs data set to allow the drag
-          row.classList.add("is-dragging");
-        });
-        row.addEventListener("dragend", () => row.classList.remove("is-dragging"));
-        row.addEventListener("dragover", (e) => {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-        });
-        row.addEventListener("drop", (e) => {
-          e.preventDefault();
-          if (dragFromIndex === null || dragFromIndex === index) return;
-          commitMutation(() => {
-            const [moved] = field.items.splice(dragFromIndex, 1);
-            field.items.splice(index, 0, moved);
-          }, { render: false });
-          renderItems();
-        });
-
-        const handle = document.createElement("span");
-        handle.className = "textlist-item__handle";
-        handle.textContent = "⠿";
-
-        const bullet = document.createElement("span");
-        bullet.className = "textlist-item__bullet";
-        bullet.textContent = "•";
-
-        const textEl = document.createElement("div");
-        textEl.className = "textlist-item__text";
-        textEl.contentEditable = "true";
-        textEl.textContent = text;
-        textEl.addEventListener("pointerdown", (e) => e.stopPropagation());
-        textEl.addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
-        textEl.addEventListener("input", () => {
-          commitMutation(() => {
-            field.items[index] = textEl.textContent;
-          }, { render: false });
-        });
-
-        const removeBtn = document.createElement("button");
-        removeBtn.type = "button";
-        removeBtn.className = "textlist-item__remove";
-        removeBtn.title = "Remove item";
-        removeBtn.textContent = "✕";
-        removeBtn.setAttribute("aria-label", "Remove item");
-        removeBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
-        removeBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          commitMutation(() => {
-            field.items.splice(index, 1);
-          }, { render: false });
-          renderItems();
-        });
-
-        row.append(handle, bullet, textEl, removeBtn);
-        itemsWrap.append(row);
-      });
-    }
-    renderItems();
-
-    const addBtn = document.createElement("button");
-    addBtn.type = "button";
-    addBtn.className = "textlist-add";
-    addBtn.textContent = "+ Add item";
-    addBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
-    addBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      commitMutation(() => {
-        field.items.push("");
-      }, { render: false });
-      renderItems();
-      const lastText = itemsWrap.querySelector(".textlist-item:last-child .textlist-item__text");
-      if (lastText) lastText.focus();
+    return buildTextListValueInto(field, {
+      commitFn: (fn, opts) => commitMutation(fn, opts),
     });
-
-    el.append(itemsWrap, addBtn);
-    return el;
   }
 
-  /** Dropdown-driven list widget — used by the "taglist" field type
-   *  (Languages, Armor/Weapon/Tool Proficiencies): a fixed set of
-   *  choices (field.tagOptions) offered through a <select>; picking
-   *  one adds it to the list below as a chip, same moment you select
-   *  it — no separate "Add" click needed. A tag granted automatically
-   *  (see grantedTags / the "grantTag" statModifier op — a fixed
-   *  Race/Class/Background grant, or a choiceGroups pick like "1
-   *  language of your choice") shows the same way a granted checkbox
-   *  does elsewhere: present, but locked with no remove button, since
-   *  it isn't this field's own stored data to begin with. The
-   *  dropdown only ever offers what isn't already known (granted or
-   *  manually added), so there's no way to end up with a duplicate. */
   function buildTagListValue(field) {
-    if (!field.items) field.items = [];
-    const el = document.createElement("div");
-    el.className = "field-value field-value--taglist";
-    el.addEventListener("pointerdown", (e) => e.stopPropagation());
-
-    const chipsWrap = document.createElement("div");
-    chipsWrap.className = "taglist-chips";
-    const select = document.createElement("select");
-    select.className = "input-group__control taglist-select";
-    select.addEventListener("pointerdown", (e) => e.stopPropagation());
-
-    function buildChip(tag, locked) {
-      const chip = document.createElement("span");
-      chip.className = "taglist-chip" + (locked ? " taglist-chip--granted" : "");
-      if (locked) chip.title = "Granted automatically by a selected Race/Class/etc. — change that selection to remove it";
-      const text = document.createElement("span");
-      text.textContent = tag;
-      chip.append(text);
-      if (!locked) {
-        const removeBtn = document.createElement("button");
-        removeBtn.type = "button";
-        removeBtn.className = "taglist-chip__remove";
-        removeBtn.title = "Remove";
-        removeBtn.textContent = "✕";
-        removeBtn.setAttribute("aria-label", `Remove ${tag}`);
-        removeBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
-        removeBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          commitMutation(() => {
-            field.items = field.items.filter((t) => t !== tag);
-          }, { render: false });
-          refresh();
-        });
-        chip.append(removeBtn);
-      }
-      return chip;
-    }
-
-    function refresh() {
-      chipsWrap.innerHTML = "";
-      const granted = grantedTags.get(field.id) || new Set();
-      const known = new Set([...field.items, ...granted]);
-      [...granted].sort().forEach((tag) => chipsWrap.append(buildChip(tag, true)));
-      field.items.slice().sort().forEach((tag) => { if (!granted.has(tag)) chipsWrap.append(buildChip(tag, false)); });
-
-      select.innerHTML = "";
-      const available = (field.tagOptions || []).filter((opt) => !known.has(opt));
-      const placeholder = document.createElement("option");
-      placeholder.value = "";
-      placeholder.textContent = available.length ? "Add…" : "Nothing left to add";
-      select.append(placeholder);
-      available.forEach((opt) => {
-        const optionEl = document.createElement("option");
-        optionEl.value = opt;
-        optionEl.textContent = opt;
-        select.append(optionEl);
-      });
-      select.disabled = available.length === 0;
-    }
-
-    select.addEventListener("change", () => {
-      const value = select.value;
-      if (!value) return;
-      commitMutation(() => {
-        if (!field.items.includes(value)) field.items.push(value);
-      }, { render: false });
-      refresh();
+    return buildTagListValueInto(field, grantedTags.get(field.id) || new Set(), {
+      commitFn: (fn, opts) => commitMutation(fn, opts),
     });
-
-    refresh();
-    el.append(chipsWrap, select);
-    return el;
   }
 
 
@@ -5396,8 +3263,7 @@ export function renderCustomSheet(root, character, store) {
     blank.textContent = "—";
     select.append(blank);
     const allowed = getAllowedChoiceIds(field, flattenGlobalFields());
-    (field.choices || []).forEach((choice) => {
-      if (!allowed.has(choice.id)) return;
+    dropdownVisibleChoices(field.choices || [], allowed).forEach((choice) => {
       const opt = document.createElement("option");
       opt.value = choice.id;
       opt.textContent = choice.text;
@@ -5410,136 +3276,29 @@ export function renderCustomSheet(root, character, store) {
    *  a single Firestore document" warning the block-background image
    *  upload already gives. */
   function readImageFile(file, onLoaded) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (reader.result.length > MAX_IMAGE_BYTES) {
-        showToast("That image is large enough that it (plus the rest of this character) may not fit in a single Firestore document (1MB limit). It'll be applied, but saving might fail — try a smaller image if so.");
-      }
-      onLoaded(reader.result);
-    };
-    reader.readAsDataURL(file);
+    readImageFileInto(file, MAX_IMAGE_BYTES, (msg) => showToast(msg), onLoaded);
   }
 
-  /** A simple filled "person" glyph — used both for the avatar toggle
-   *  button and (larger) as the generic placeholder when a picture
-   *  field has no image yet. Built as inline SVG rather than an emoji
-   *  so it renders identically everywhere instead of depending on the
-   *  OS/browser's emoji font. */
   function personIconSvgMarkup() {
-    return `<svg viewBox="0 0 24 24" class="person-icon" aria-hidden="true">
-      <circle cx="12" cy="8" r="4.2"/>
-      <path d="M4 21c0-4.8 3.6-8.6 8-8.6s8 3.8 8 8.6z"/>
-    </svg>`;
+    return sharedPersonIconMarkup();
   }
 
   function buildAvatarPlaceholderSvg() {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("preserveAspectRatio", "xMidYMid slice");
-    svg.classList.add("picture-placeholder-svg");
-    svg.innerHTML = `
-      <rect width="24" height="24" fill="#2a2520"/>
-      <circle cx="12" cy="9.5" r="4" fill="#4a4038"/>
-      <path d="M12 14.6c-4.8 0-8.2 3.2-8.2 7.7v1.7h16.4v-1.7c0-4.5-3.4-7.7-8.2-7.7z" fill="#4a4038"/>
-    `;
-    return svg;
+    return sharedAvatarPlaceholder();
   }
 
-  /** Clears isAvatar on every OTHER picture field across every tab —
-   *  only one field on the whole character can be "the" avatar shown
-   *  on the character-selection page. Caller is responsible for
-   *  setting the one it actually wants afterward (or leaving all of
-   *  them false, to unset entirely). */
   function clearOtherAvatars(exceptField) {
-    character.sheetTabs.forEach((tab) => {
-      (tab.layout || []).forEach((b) => {
-        (b.children || []).forEach((f) => {
-          if (f.fieldType === "picture" && f !== exceptField) f.isAvatar = false;
-        });
-      });
-    });
+    clearOtherAvatarsIn(character.sheetTabs, exceptField);
   }
 
-  /** A "picture" field: shows the image if one's been set, or a
-   *  generic placeholder silhouette otherwise. Click it (or drag an
-   *  image file onto it) to set/replace the image. The small avatar
-   *  button in the corner marks this as the character's portrait for
-   *  the character-selection page (see findAvatarImageData in
-   *  characterStore-adjacent code / main.js — only one field across
-   *  the whole character can hold that flag at a time). */
   function buildPictureValue(field) {
-    const wrap = document.createElement("div");
-    wrap.className = "field-value field-value--picture";
-    wrap.addEventListener("pointerdown", (e) => e.stopPropagation());
-
-    if (field.imageData) {
-      const img = document.createElement("img");
-      img.className = "picture-field-image";
-      img.src = field.imageData;
-      img.draggable = false;
-      img.alt = field.label || "Portrait";
-      wrap.append(img);
-    } else {
-      wrap.append(buildAvatarPlaceholderSvg());
-    }
-
-    const fileInput = document.createElement("input");
-    fileInput.type = "file";
-    fileInput.accept = "image/*";
-    fileInput.hidden = true;
-    fileInput.addEventListener("pointerdown", (e) => e.stopPropagation());
-    fileInput.addEventListener("change", () => {
-      const file = fileInput.files[0];
-      if (!file) return;
-      readImageFile(file, (dataUrl) => {
-        commitMutation(() => {
-          field.imageData = dataUrl;
-        });
-      });
+    return buildPictureValueInto(field, {
+      readFileFn: (file, onLoaded) => readImageFile(file, onLoaded),
+      commitFn: (fn, opts) => commitMutation(fn, opts),
+      clearAvatarsFn: (f) => clearOtherAvatars(f),
+      placeholderFn: () => buildAvatarPlaceholderSvg(),
+      iconMarkup: personIconSvgMarkup(),
     });
-    wrap.append(fileInput);
-
-    wrap.addEventListener("click", (e) => {
-      if (e.target.closest(".picture-avatar-btn")) return;
-      fileInput.click();
-    });
-    wrap.addEventListener("dragover", (e) => {
-      if (e.dataTransfer.types.includes("Files")) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "copy";
-      }
-    });
-    wrap.addEventListener("drop", (e) => {
-      const file = Array.from(e.dataTransfer.files || []).find((f) => f.type.startsWith("image/"));
-      if (!file) return;
-      e.preventDefault();
-      e.stopPropagation(); // this field is handling it — don't let the
-        // page-grid's own "drop an image to create a new picture
-        // block" handler also fire for the same drop
-      readImageFile(file, (dataUrl) => {
-        commitMutation(() => {
-          field.imageData = dataUrl;
-        });
-      });
-    });
-
-    const avatarBtn = document.createElement("button");
-    avatarBtn.type = "button";
-    avatarBtn.className = "picture-avatar-btn" + (field.isAvatar ? " active" : "");
-    avatarBtn.title = "Set as Avatar";
-    avatarBtn.innerHTML = personIconSvgMarkup();
-    avatarBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
-    avatarBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const makingAvatar = !field.isAvatar;
-      commitMutation(() => {
-        clearOtherAvatars(field);
-        field.isAvatar = makingAvatar;
-      });
-    });
-    wrap.append(avatarBtn);
-
-    return wrap;
   }
 
   /** A "catalog" field is just a button — clicking it opens the
@@ -5549,1018 +3308,115 @@ export function renderCustomSheet(root, character, store) {
    *  on the field — the field only holds WHICH one (scope + id) and
    *  which of this character's own fields is the money it spends. */
   function buildCatalogValue(field) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "field-value field-value--catalog";
-    btn.addEventListener("pointerdown", (e) => e.stopPropagation());
-    btn.textContent = field.catalogSource ? "Open Catalog" : "Set up a catalog…";
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (!field.catalogSource) {
-        openCatalogFieldConfig(field, btn.closest(".grid-node"));
-        return;
-      }
-      const catalog = await store.loadCatalog(field.catalogSource.scope, field.catalogSource.id);
-      if (!catalog) {
-        showToast("That catalog couldn't be found — it may have been deleted. Reconfigure this field from its ⚙ button.", { isError: true });
-        return;
-      }
-      autoAssignMoneyFieldIfNeeded(field);
-      const moneyField = field.moneyFieldId ? flattenAllFieldsAcrossTabs().find(f => f.id === field.moneyFieldId) : null;
-      openCatalogBrowser({
-        catalog,
-        moneyLabel: moneyField ? moneyField.label : null,
-        getMoney: () => readFieldNumericValue(moneyField),
-        spendMoney: (amount) => {
-          if (!moneyField) return;
-          const next = readFieldNumericValue(moneyField) - amount;
-          commitMutation(() => {
-            moneyField.value = String(next);
-          });
-        },
-      });
+    return buildCatalogValueInto(field, {
+      configFn: (f, el) => openCatalogFieldConfig(f, el),
+      loadCatalogFn: (scope, id) => store.loadCatalog(scope, id),
+      toastFn: (msg, opts) => showToast(msg, opts),
+      assignMoneyFn: (f) => autoAssignMoneyFieldIfNeeded(f),
+      findFieldFn: (id) => flattenAllFieldsAcrossTabs().find((f) => f.id === id),
+      readMoneyFn: (f) => readFieldNumericValue(f),
+      browserFn: (opts) => openCatalogBrowser(opts),
+      commitFn: (fn, opts) => commitMutation(fn, opts),
     });
-    return btn;
   }
 
-  /** Read-only — this field has no configuration or stored data of its
-   *  own (see createField's featureList branch in blockModel.js). It
-   *  just re-renders whatever collectGrantedFeatures currently
-   *  computed for the whole character: every feature grant unlocked
-   *  by the level-gated bundles on the character's dropdown choices
-   *  (Class, Race, Background, etc.), sorted by level. Same "computed
-   *  fresh every render" model as a granted checkbox — nothing here is
-   *  ever written back to field or bundle data. */
   function buildFeatureListValue(field) {
-    const el = document.createElement("div");
-    el.className = "field-value field-value--featurelist";
-    el.addEventListener("pointerdown", (e) => e.stopPropagation());
-
-    if (grantedFeatures.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "featurelist-empty";
-      empty.textContent = "No features yet — pick a Class/Race/Background with feature grants, or level up.";
-      el.append(empty);
-      return el;
-    }
-
-    grantedFeatures.forEach((feature) => {
-      const row = document.createElement("div");
-      row.className = "featurelist-row";
-
-      const header = document.createElement("div");
-      header.className = "featurelist-row__header";
-
-      const name = document.createElement("span");
-      name.className = "featurelist-row__name";
-      name.textContent = feature.name;
-      header.append(name);
-
-      if (feature.level > 0) {
-        const level = document.createElement("span");
-        level.className = "featurelist-row__level";
-        level.textContent = `Lvl ${feature.level}`;
-        header.append(level);
-      }
-
-      row.append(header);
-
-      if (feature.description) {
-        const desc = document.createElement("div");
-        desc.className = "featurelist-row__description";
-        desc.textContent = feature.description;
-        row.append(desc);
-      }
-
-      el.append(row);
-    });
-
-    return el;
+    return buildFeatureListValueInto(grantedFeatures);
   }
 
-  /** Popover for a catalog field's own setup: which saved catalog it
-   *  links to, and which of this character's own text fields is the
-   *  money it spends from (dragged in from the sidebar, same
-   *  "application/x-sheet-field" payload every other field-drag uses). */
   function openCatalogFieldConfig(field, wrapperEl) {
-    closeOpenPopovers();
-    if (!wrapperEl) return;
-
-    const pop = document.createElement("div");
-    pop.className = "style-popover catalog-field-config";
-    pop.addEventListener("pointerdown", (e) => e.stopPropagation());
-
-    const title = document.createElement("div");
-    title.className = "style-popover__badge";
-    title.textContent = "Catalog Setup";
-    pop.append(title);
-
-    const catalogLabel = document.createElement("label");
-    catalogLabel.textContent = "Catalog";
-    const catalogSelect = document.createElement("select");
-    const blankOpt = document.createElement("option");
-    blankOpt.value = "";
-    blankOpt.textContent = catalogCache.length ? "Choose a catalog…" : "No catalogs saved yet";
-    catalogSelect.append(blankOpt);
-    catalogCache.forEach((cat) => {
-      const opt = document.createElement("option");
-      opt.value = `${cat.scope}::${cat.id}`;
-      opt.textContent = cat.scope === "global" ? `${cat.name} (Global)` : cat.name;
-      if (field.catalogSource && field.catalogSource.scope === cat.scope && field.catalogSource.id === cat.id) {
-        opt.selected = true;
-      }
-      catalogSelect.append(opt);
+    openCatalogFieldConfigInto(field, wrapperEl, {
+      closeFn: () => closeOpenPopovers(),
+      catalogs: catalogCache,
+      commitFn: (fn, opts) => commitMutation(fn, opts),
+      manageFn: () => openCatalogLibraryManager(store, refreshCatalogCache, resolveFieldById),
+      assignMoneyFn: (f) => autoAssignMoneyFieldIfNeeded(f),
+      moneyGroups: moneyCandidatesByTab(character.sheetTabs),
+      positionFn: (pop) => positionPopoverWithinViewport(pop),
+      setOpenPopup: (v) => { toolbarWithOpenPopup = v; },
     });
-    catalogSelect.addEventListener("change", () => {
-      if (!catalogSelect.value) {
-        commitMutation(() => { field.catalogSource = null; }, { render: false });
-        return;
-      }
-      const [scope, id] = catalogSelect.value.split("::");
-      commitMutation(() => { field.catalogSource = { scope, id }; }, { render: false });
-    });
-    pop.append(catalogLabel, catalogSelect);
-
-    const manageBtn = document.createElement("button");
-    manageBtn.type = "button";
-    manageBtn.className = "btn formula-toolbar__btn";
-    manageBtn.textContent = "Manage Catalogs…";
-    manageBtn.addEventListener("click", () => {
-      openCatalogLibraryManager(store, refreshCatalogCache, resolveFieldById);
-    });
-    pop.append(manageBtn);
-
-    const moneyLabel = document.createElement("label");
-    moneyLabel.textContent = "Money field";
-    pop.append(moneyLabel);
-
-    // A <select> rather than a drop zone — dragging a field's own grid
-    // element only ever works within its own block (by design,
-    // elsewhere in this file), so a plain drag target here could only
-    // ever accept fields from the SAME block a Catalog field happens
-    // to live in. This lists every Num Field on the character, grouped
-    // by tab, so any of them is reachable regardless of that.
-    autoAssignMoneyFieldIfNeeded(field);
-    const moneySelect = document.createElement("select");
-    const blankMoneyOpt = document.createElement("option");
-    blankMoneyOpt.value = "";
-    blankMoneyOpt.textContent = "None";
-    moneySelect.append(blankMoneyOpt);
-    character.sheetTabs.forEach((tab) => {
-      const candidates = (tab.layout || []).flatMap((block) => (block.children || []).filter(f => f.fieldType === "text"));
-      if (candidates.length === 0) return;
-      const group = document.createElement("optgroup");
-      group.label = tab.name || "Tab";
-      candidates.forEach((f) => {
-        const opt = document.createElement("option");
-        opt.value = f.id;
-        opt.textContent = f.label || "Field";
-        if (field.moneyFieldId === f.id) opt.selected = true;
-        group.append(opt);
-      });
-      moneySelect.append(group);
-    });
-    moneySelect.addEventListener("change", () => {
-      commitMutation(() => { field.moneyFieldId = moneySelect.value || null; }, { render: false });
-    });
-    pop.append(moneySelect);
-
-    wrapperEl.append(pop);
-    positionPopoverWithinViewport(pop);
-    toolbarWithOpenPopup = wrapperEl.querySelector(".node-toolbar");
   }
 
   /** Popover for managing a dropdown field's choice list: add, remove,
    *  drag to reorder, and an Auto-Alphabetize toggle that keeps the
    *  list sorted (and disables manual dragging, since a fixed order
    *  would just get overwritten by the next sort). */
-  const MODIFIER_OPS = [
-    { value: "add", label: "+" },
-    { value: "subtract", label: "−" },
-    { value: "multiply", label: "×" },
-    { value: "set", label: "=" },
-  ];
+  const MODIFIER_OPS = SHARED_MODIFIER_OPS;
 
   function ensureBundle(choice) {
-    if (!choice.bundle) choice.bundle = { statModifiers: [], dropdownAccess: [], featureGrants: [], resourceGrants: [], choiceGroups: [] };
-    if (!choice.bundle.statModifiers) choice.bundle.statModifiers = [];
-    if (!choice.bundle.dropdownAccess) choice.bundle.dropdownAccess = [];
-    if (!choice.bundle.featureGrants) choice.bundle.featureGrants = [];
-    if (!choice.bundle.resourceGrants) choice.bundle.resourceGrants = [];
-    if (!choice.bundle.choiceGroups) choice.bundle.choiceGroups = [];
-    return choice.bundle;
+    return ensureBundleShape(choice);
   }
 
   function bundleIsEmpty(bundle) {
-    return !bundle || ((bundle.statModifiers || []).length === 0 && (bundle.dropdownAccess || []).length === 0
-      && (bundle.featureGrants || []).length === 0 && (bundle.resourceGrants || []).length === 0
-      && (bundle.choiceGroups || []).length === 0);
+    return bundleIsEmptyShape(bundle);
   }
 
-  /** Materializes a reusable library bundle (see bundleLibraryEditor.js
-   *  — names only, no field ids) onto one specific choice, resolving
-   *  each name against THIS character's actual fields. A name that
-   *  doesn't match anything still gets added (with a null target) so
-   *  it's visibly there to fix by hand, rather than silently dropped —
-   *  e.g. because this character's sheet spells a stat differently.
-   *  Adds on top of whatever's already in the choice's bundle; doesn't
-   *  replace it, so applying a library bundle is a safe starting point
-   *  even if you've already hand-tweaked something here. */
-  /** Every skill/save proficiency checkbox on the starter sheet shares
-   *  the same literal label, "Prof." (see toggleField in
-   *  blockModel.js) — the real skill/ability name ("Acrobatics",
-   *  "Strength", ...) lives in a separate sibling Label field at the
-   *  same row (same block, same y), because a checkbox's own inline
-   *  label has no room for a word like "Investigation". By-name grant
-   *  matching ("grant proficiency in Acrobatics") needs that row's
-   *  real name — matching on the checkbox's own label would find
-   *  nothing (or the wrong box) since all 24 of them say "Prof.".
-   *  This resolves a checkbox's effective name from its row; anything
-   *  that already has a real label of its own (a homebrew "Lucky"
-   *  toggle, say) is returned unchanged. Never mutates the field —
-   *  this is purely a lookup, so nothing extra ends up saved to the
-   *  character. */
   function effectiveGrantName(field) {
-    const label = (field.label || "").trim();
-    if (field.fieldType !== "checkbox" || label.toLowerCase() !== "prof.") return label;
-    for (const block of globalLayout()) {
-      if (!block.children || !block.children.includes(field)) continue;
-      const sibling = block.children.find((f) => f !== field && f.y === field.y
-        && (f.fieldType === "label" || f.fieldType === "text") && f.value);
-      if (sibling) return sibling.value;
-      break;
-    }
-    return label;
+    return effectiveGrantNameFor(field, globalLayout());
   }
 
   function applyBundleLibraryToChoice(libraryEntry, choice, allFields) {
     const bundle = ensureBundle(choice);
-    const norm = (s) => (s || "").trim().toLowerCase();
-
-    // Tracks which library entries have already been applied to this
-    // choice (by library id, not name — a rename in the library
-    // shouldn't cause a re-apply). Makes every caller of this function
-    // — the single "+ Apply" button, Bulk Apply, and the ruleset
-    // auto-sync below — safe to run more than once without stacking
-    // duplicate stat modifiers/features each time. Only real for
-    // library entries that HAVE an id (i.e. actually saved, not a
-    // one-off object); that's true for every caller in this file.
-    if (!bundle.appliedLibraryIds) bundle.appliedLibraryIds = [];
-    if (libraryEntry.id) {
-      if (bundle.appliedLibraryIds.includes(libraryEntry.id)) return false;
-      bundle.appliedLibraryIds.push(libraryEntry.id);
-    }
-
-    (libraryEntry.statModifiers || []).forEach((mod) => {
-      // "grant" targets a proficiency-style checkbox (single-option,
-      // per the toggleField convention createStarterLayout uses for
-      // every skill/save proficiency marker) by label, same as a
-      // numeric op targets a plain text field by label — everything
-      // else about the resolution is identical. Falls back to
-      // whichever fieldType actually matches so a stray text field
-      // named the same as a checkbox (or vice versa) doesn't silently
-      // resolve to the wrong kind of target.
-      const wantType = mod.op === "grant" ? "checkbox" : "text";
-      const match = allFields.find(f => f.fieldType === wantType && norm(effectiveGrantName(f)) === norm(mod.targetFieldName));
-      bundle.statModifiers.push({
-        id: newId(),
-        targetFieldId: match ? match.id : null,
-        targetIndex: mod.op === "grant" ? 0 : null,
-        op: mod.op,
-        value: mod.value,
-        minLevel: Number.isFinite(mod.minLevel) ? mod.minLevel : null,
-      });
-    });
-
-    (libraryEntry.dropdownAccess || []).forEach((rule) => {
-      const targetField = allFields.find(f => f.fieldType === "dropdown" && norm(f.label) === norm(rule.targetFieldName));
-      let allowedChoiceIds = [];
-      if (targetField) {
-        const wanted = new Set((rule.allowedChoiceNames || []).map(norm));
-        allowedChoiceIds = (targetField.choices || [])
-          .filter(c => wanted.has(norm(c.text)))
-          .map(c => c.id);
-      }
-      bundle.dropdownAccess.push({
-        id: newId(),
-        targetFieldId: targetField ? targetField.id : null,
-        allowedChoiceIds,
-        minLevel: Number.isFinite(rule.minLevel) ? rule.minLevel : null,
-      });
-    });
-
-    // Feature grants are just display text (name + description) — unlike
-    // statModifiers/dropdownAccess they don't target any field on this
-    // character, so there's no name-resolution step: copy straight
-    // through with a fresh id, same as everything else here treats the
-    // library entry as a template rather than a shared reference.
-    (libraryEntry.featureGrants || []).forEach((grant) => {
-      bundle.featureGrants.push({
-        id: newId(),
-        name: grant.name,
-        description: grant.description || "",
-        minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
-      });
-    });
-
-    (libraryEntry.resourceGrants || []).forEach((grant) => {
-      bundle.resourceGrants.push({
-        id: newId(),
-        name: grant.name || "",
-        maximum: Number.isFinite(grant.maximum) ? grant.maximum : 0,
-        maximumFormula: grant.maximumFormula || null,
-        reset: grant.reset || "rest",
-        minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
-      });
-    });
-
-    // Choice options use the same name-based library format as ordinary
-    // modifiers. Resolve them once while attaching to a sheet so later
-    // play only reads stable field ids, even if the library is edited.
-    const materializeModifiers = (modifiers) => (modifiers || []).map((mod) => {
-      const wantType = mod.op === "grant" ? "checkbox" : "text";
-      const match = allFields.find((field) => field.fieldType === wantType && norm(effectiveGrantName(field)) === norm(mod.targetFieldName));
-      return {
-        id: newId(),
-        targetFieldId: match ? match.id : null,
-        targetIndex: mod.op === "grant" ? 0 : null,
-        op: mod.op,
-        value: mod.value,
-        minLevel: Number.isFinite(mod.minLevel) ? mod.minLevel : null,
-      };
-    });
-    (libraryEntry.choiceGroups || []).forEach((group) => {
-      bundle.choiceGroups.push({
-        id: group.id || newId(),
-        label: group.label || "Choose an option",
-        minLevel: Number.isFinite(group.minLevel) ? group.minLevel : null,
-        minSelections: Number.isFinite(group.minSelections) ? group.minSelections : 0,
-        maxSelections: Number.isFinite(group.maxSelections) ? group.maxSelections : 1,
-        options: (group.options || []).map((option) => ({
-          id: option.id || newId(),
-          name: option.name || "Unnamed option",
-          description: option.description || "",
-          statModifiers: materializeModifiers(option.statModifiers),
-          featureGrants: (option.featureGrants || []).map((grant) => ({
-            id: grant.id || newId(),
-            name: grant.name || "",
-            description: grant.description || "",
-            minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
-          })),
-          resourceGrants: (option.resourceGrants || []).map((grant) => ({
-            id: grant.id || newId(),
-            name: grant.name || "",
-            maximum: Number.isFinite(grant.maximum) ? grant.maximum : 0,
-            reset: grant.reset || "rest",
-            minLevel: Number.isFinite(grant.minLevel) ? grant.minLevel : null,
-          })),
-        })),
-      });
-    });
-    return true;
+    return applyBundleLibraryToChoiceIn(bundle, libraryEntry, allFields, newId, effectiveGrantName);
   }
 
   function openDropdownChoicesEditor(field, wrapperEl) {
-    closeOpenPopovers();
-    if (!field.choices) field.choices = [];
-    // Set of choice ids whose "Modifiers" accordion is currently open —
-    // survives renderRows() re-renders within this popover session, but
-    // (like the rest of this popover's edits) is lost if a structural
-    // edit closes the whole thing. See the file-level note on why
-    // structural bundle edits do a full render rather than {render:false}.
-    const expanded = new Set();
-
-    const pop = document.createElement("div");
-    pop.className = "style-popover dropdown-choices-editor";
-    pop.addEventListener("pointerdown", (e) => e.stopPropagation());
-
-    const title = document.createElement("div");
-    title.className = "style-popover__badge";
-    title.textContent = "Dropdown Choices";
-    pop.append(title);
-
-    function refreshFieldSelect() {
-      const select = wrapperEl.querySelector("select.field-value");
-      if (select) populateDropdownSelect(select, field);
-    }
-
-    const alphaRow = document.createElement("div");
-    alphaRow.className = "dropdown-choices-editor__alpha-row";
-    const alphaLabel = document.createElement("span");
-    alphaLabel.textContent = "Alphabetize";
-    const alphaBtn = document.createElement("button");
-    alphaBtn.type = "button";
-    function paintAlphaBtn() {
-      alphaBtn.textContent = field.autoAlphabetize ? "ABC↓" : "ABC?";
-      alphaBtn.title = field.autoAlphabetize
-        ? "Auto-Alphabetize is on — click to turn off"
-        : "Auto-Alphabetize is off — click to turn on";
-      alphaBtn.className = "btn dropdown-choices-editor__alpha" + (field.autoAlphabetize ? " active" : "");
-    }
-    paintAlphaBtn();
-    alphaBtn.addEventListener("click", () => {
-      commitMutation(() => {
-        field.autoAlphabetize = !field.autoAlphabetize;
-        if (field.autoAlphabetize) field.choices.sort((a, b) => a.text.localeCompare(b.text));
-      }, { render: false });
-      paintAlphaBtn();
-      renderRows();
-      refreshFieldSelect();
+    openChoicesEditorInto(field, wrapperEl, {
+      closeFn: () => closeOpenPopovers(),
+      populateSelectFn: (select, f) => populateDropdownSelect(select, f),
+      commitFn: (fn, opts) => commitMutation(fn, opts),
+      positionFn: (pop) => positionPopoverWithinViewport(pop),
+      setOpenPopup: (v) => { toolbarWithOpenPopup = v; },
+      libraryCache: bundleLibraryCache,
+      applyLibFn: (lib, choice, allFields) => applyBundleLibraryToChoice(lib, choice, allFields),
+      flattenFieldsFn: () => flattenGlobalFields(),
+      newIdFn: () => newId(),
+      bundleEmptyFn: (bundle) => bundleIsEmpty(bundle),
+      panelBase: {
+        ensureBundleFn: (c) => ensureBundle(c),
+        grantNameFn: (f) => effectiveGrantName(f),
+        modifierOps: MODIFIER_OPS,
+        newIdFn: () => newId(),
+      },
     });
-    alphaRow.append(alphaLabel, alphaBtn);
-    pop.append(alphaRow);
-
-    // --- Bulk Apply from Library ---
-    // Wires an entire imported list (e.g. all 12 classes from
-    // default-bundles/classes.json) to this field's choices in one
-    // click, instead of opening each choice's own "Apply from Library"
-    // one at a time. Matches purely by name (case/whitespace-insensitive)
-    // against whatever's in the Bundle Libraries manager, so the bundle's
-    // name has to match the choice text exactly (e.g. choice "Druid"
-    // needs a library bundle also named "Druid"). Choices that already
-    // have something applied still get the bundle layered on top, same
-    // as the per-choice "+ Apply" button — safe to click again after a
-    // fresh import without duplicating anything already wired by hand.
-    const bulkRow = document.createElement("div");
-    bulkRow.className = "dropdown-choices-editor__alpha-row";
-    const bulkBtn = document.createElement("button");
-    bulkBtn.type = "button";
-    bulkBtn.className = "btn dropdown-choices-editor__alpha";
-    bulkBtn.textContent = "Bulk Apply from Library";
-    bulkBtn.title = "Matches each choice's text to a same-named bundle in your library and applies it to all of them at once";
-    const bulkStatus = document.createElement("span");
-    bulkStatus.className = "dropdown-choices-editor__bulk-status";
-    bulkBtn.addEventListener("click", () => {
-      const norm = (s) => (s || "").trim().toLowerCase();
-      let applied = 0;
-      const misses = [];
-      commitLocal(() => {
-        field.choices.forEach((choice) => {
-          const lib = bundleLibraryCache.find((entry) => norm(entry.name) === norm(choice.text));
-          if (lib) {
-            applyBundleLibraryToChoice(lib, choice, flattenGlobalFields());
-            applied++;
-          } else {
-            misses.push(choice.text);
-          }
-        });
-      });
-      bulkStatus.textContent = misses.length
-        ? `Applied ${applied}/${field.choices.length}. No library match for: ${misses.join(", ")}`
-        : `Applied ${applied}/${field.choices.length}.`;
-      renderRows();
-      refreshFieldSelect();
-    });
-    bulkRow.append(bulkBtn, bulkStatus);
-    pop.append(bulkRow);
-
-    const list = document.createElement("div");
-    list.className = "dropdown-choices-editor__list";
-    pop.append(list);
-
-    /** Every edit in this whole popover — including the bundle editor
-     *  below — uses {render:false} and refreshes just this popover's
-     *  own DOM (renderRows/refreshFieldSelect) rather than a full
-     *  page render, so a multi-step edit (configuring several stat
-     *  modifiers, checking a dozen allowed-choice boxes) doesn't get
-     *  interrupted or lose its accordion state along the way. The
-     *  sheet-wide effects (another dropdown's options changing, a
-     *  modified stat's displayed value) catch up in one full render
-     *  when this popover actually closes — see the document-level
-     *  pointerdown listener further down this file. */
-    function commitLocal(mutator) {
-      commitMutation(mutator, { render: false });
-    }
-
-    function renderRows() {
-      list.innerHTML = "";
-      field.choices.forEach((choice, index) => {
-        const row = document.createElement("div");
-        row.className = "dropdown-choices-editor__row";
-        row.draggable = !field.autoAlphabetize;
-
-        row.addEventListener("dragstart", (e) => {
-          dragFromIndex = index;
-          e.dataTransfer.effectAllowed = "move";
-          e.dataTransfer.setData("text/plain", "");
-        });
-        row.addEventListener("dragover", (e) => {
-          if (field.autoAlphabetize) return;
-          e.preventDefault();
-        });
-        row.addEventListener("drop", (e) => {
-          if (field.autoAlphabetize || dragFromIndex === null || dragFromIndex === index) return;
-          e.preventDefault();
-          commitLocal(() => {
-            const [moved] = field.choices.splice(dragFromIndex, 1);
-            field.choices.splice(index, 0, moved);
-          });
-          renderRows();
-          refreshFieldSelect();
-        });
-
-        const handle = document.createElement("span");
-        handle.className = "dropdown-choices-editor__handle";
-        handle.textContent = field.autoAlphabetize ? "" : "⠿";
-
-        const textEl = document.createElement("div");
-        textEl.className = "dropdown-choices-editor__text";
-        textEl.contentEditable = "true";
-        textEl.textContent = choice.text;
-        textEl.addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
-        textEl.addEventListener("input", () => {
-          commitLocal(() => { choice.text = textEl.textContent; });
-          refreshFieldSelect();
-        });
-
-        const modBtn = document.createElement("button");
-        modBtn.type = "button";
-        modBtn.className = "btn formula-toolbar__btn dropdown-choices-editor__mod-btn" +
-          (!bundleIsEmpty(choice.bundle) ? " active" : "");
-        modBtn.title = "Stat modifiers & dropdown access for this choice";
-        modBtn.textContent = "⚙";
-        modBtn.addEventListener("click", () => {
-          if (expanded.has(choice.id)) expanded.delete(choice.id);
-          else expanded.add(choice.id);
-          renderRows();
-        });
-
-        const removeBtn = document.createElement("button");
-        removeBtn.type = "button";
-        removeBtn.className = "btn formula-toolbar__btn";
-        removeBtn.textContent = "✕";
-        removeBtn.setAttribute("aria-label", "Remove");
-        removeBtn.addEventListener("click", () => {
-          commitLocal(() => {
-            if (field.selected === choice.id) field.selected = null;
-            field.choices.splice(index, 1);
-          });
-          renderRows();
-          refreshFieldSelect();
-        });
-
-        row.append(handle, textEl, modBtn, removeBtn);
-        list.append(row);
-
-        if (expanded.has(choice.id)) {
-          list.append(renderModifiersPanel(field, choice, commitLocal, renderRows));
-        }
-      });
-    }
-    renderRows();
-
-    const addRow = document.createElement("div");
-    addRow.className = "dropdown-choices-editor__add";
-    const addInput = document.createElement("input");
-    addInput.type = "text";
-    addInput.placeholder = "New choice…";
-    const addBtn = document.createElement("button");
-    addBtn.type = "button";
-    addBtn.className = "btn";
-    addBtn.textContent = "+ Add";
-    function addChoice() {
-      const text = addInput.value.trim();
-      if (!text) return;
-      commitLocal(() => {
-        field.choices.push({ id: newId(), text, bundle: null });
-        if (field.autoAlphabetize) field.choices.sort((a, b) => a.text.localeCompare(b.text));
-      });
-      addInput.value = "";
-      renderRows();
-      refreshFieldSelect();
-      addInput.focus();
-    }
-    addBtn.addEventListener("click", addChoice);
-    addInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addChoice(); } });
-    addRow.append(addInput, addBtn);
-    pop.append(addRow);
-
-    wrapperEl.append(pop);
-    positionPopoverWithinViewport(pop);
-    toolbarWithOpenPopup = wrapperEl.querySelector(".node-toolbar");
-  }
-
-  /** The expandable per-choice panel behind the ⚙ button: stat
-   *  modifiers (this choice adds/subtracts/sets/multiplies some OTHER
-   *  field's value) and dropdown-access rules (this choice restricts
-   *  which choices some OTHER dropdown offers) — together, "a bundle"
-   *  in the sense of a race/class/background entry bundling together
-   *  everything it grants or restricts. `field` is the dropdown this
-   *  choice belongs to (so it can exclude itself from the "restrict
-   *  which OTHER dropdown" target list). `commitLocal` and
-   *  `refreshPanel` are passed in from the caller so edits here share
-   *  the same {render:false}-plus-local-refresh approach as the rest
-   *  of this popover (refreshPanel is just the outer renderRows —
-   *  calling it rebuilds this panel along with everything else). */
-  function renderModifiersPanel(field, choice, commitLocal, refreshPanel) {
-    const bundle = ensureBundle(choice);
-    const panel = document.createElement("div");
-    panel.className = "dropdown-choices-editor__mods";
-
-    const textFields = flattenGlobalFields().filter(f => f.fieldType === "text");
-    // Single-option checkboxes only (see toggleField in blockModel.js)
-    // — the proficiency-marker convention every skill/save uses. A
-    // "grant" modifier always targets index 0, so a multi-option
-    // checkbox (like Death Saves) wouldn't have one unambiguous box to
-    // grant and is left out rather than guessing which one.
-    const grantableFields = flattenGlobalFields().filter(f => f.fieldType === "checkbox" && f.options === 1);
-    // Excludes this same field — a dropdown restricting its own
-    // choices based on its own current selection doesn't make sense.
-    const dropdownFields = flattenGlobalFields().filter(f => f.fieldType === "dropdown" && f.id !== field.id);
-
-    // --- Apply from Library ---
-    const libraryHeader = document.createElement("div");
-    libraryHeader.className = "dropdown-choices-editor__mods-header";
-    libraryHeader.textContent = "Apply from Library";
-    panel.append(libraryHeader);
-
-    const libraryRow = document.createElement("div");
-    libraryRow.className = "bundle-mod-row";
-    const librarySelect = document.createElement("select");
-    const blankLibOpt = document.createElement("option");
-    blankLibOpt.value = "";
-    blankLibOpt.textContent = bundleLibraryCache.length ? "Choose a bundle…" : "No bundles saved yet";
-    librarySelect.append(blankLibOpt);
-    bundleLibraryCache.forEach((lib) => {
-      const opt = document.createElement("option");
-      opt.value = lib.id;
-      opt.textContent = lib.category ? `${lib.name} (${lib.category})` : lib.name;
-      librarySelect.append(opt);
-    });
-    const applyLibBtn = document.createElement("button");
-    applyLibBtn.type = "button";
-    applyLibBtn.className = "btn formula-toolbar__btn";
-    applyLibBtn.textContent = "+ Apply";
-    applyLibBtn.title = "Adds this bundle's rules on top of whatever's already here — it doesn't replace them";
-    applyLibBtn.addEventListener("click", () => {
-      const lib = bundleLibraryCache.find(l => l.id === librarySelect.value);
-      if (!lib) return;
-      commitLocal(() => {
-        applyBundleLibraryToChoice(lib, choice, flattenGlobalFields());
-      });
-      refreshPanel();
-    });
-    libraryRow.append(librarySelect, applyLibBtn);
-    panel.append(libraryRow);
-
-    // --- Stat modifiers ---
-    const statHeader = document.createElement("div");
-    statHeader.className = "dropdown-choices-editor__mods-header";
-    statHeader.textContent = "Stat Modifiers";
-    panel.append(statHeader);
-
-    bundle.statModifiers.forEach((mod, i) => {
-      const row = document.createElement("div");
-      row.className = "bundle-mod-row";
-
-      const targetSelect = document.createElement("select");
-      const blankOpt = document.createElement("option");
-      blankOpt.value = "";
-      blankOpt.textContent = mod.op === "grant" ? "Choose a proficiency…" : "Choose a stat…";
-      targetSelect.append(blankOpt);
-      const targetFieldPool = mod.op === "grant" ? grantableFields : textFields;
-      targetFieldPool.forEach((f) => {
-        const opt = document.createElement("option");
-        opt.value = f.id;
-        // A checkbox's raw label is "Prof." for every skill/save row —
-        // effectiveGrantName resolves the row's real name so this
-        // dropdown doesn't show "Prof." 24 times with no way to tell
-        // Acrobatics from Strength.
-        opt.textContent = (mod.op === "grant" ? effectiveGrantName(f) : f.label) || "Stat";
-        if (f.id === mod.targetFieldId) opt.selected = true;
-        targetSelect.append(opt);
-      });
-      targetSelect.addEventListener("change", () => {
-        commitLocal(() => { mod.targetFieldId = targetSelect.value || null; });
-      });
-
-      const opSelect = document.createElement("select");
-      MODIFIER_OPS.forEach(({ value, label }) => {
-        const opt = document.createElement("option");
-        opt.value = value;
-        opt.textContent = label;
-        if (value === mod.op) opt.selected = true;
-        opSelect.append(opt);
-      });
-      opSelect.addEventListener("change", () => {
-        // Switching op also switches which field POOL the target
-        // select offers (stats vs. proficiencies) — the old
-        // targetFieldId almost never makes sense in the new pool, so
-        // clear it rather than leave a stale, invisible-to-the-UI
-        // reference behind.
-        commitLocal(() => {
-          mod.op = opSelect.value;
-          mod.targetFieldId = null;
-          if (mod.op === "grant") mod.targetIndex = 0;
-        });
-        refreshPanel();
-      });
-
-      const minLevelInput = document.createElement("input");
-      minLevelInput.type = "number";
-      minLevelInput.title = "Min level (blank = always active)";
-      minLevelInput.placeholder = "Lvl";
-      minLevelInput.className = "bundle-mod-row__level";
-      minLevelInput.value = Number.isFinite(mod.minLevel) ? mod.minLevel : "";
-      minLevelInput.addEventListener("input", () => {
-        const n = Number(minLevelInput.value);
-        commitLocal(() => { mod.minLevel = minLevelInput.value === "" || !Number.isFinite(n) ? null : n; });
-      });
-
-      const removeBtn = document.createElement("button");
-      removeBtn.type = "button";
-      removeBtn.className = "btn formula-toolbar__btn";
-      removeBtn.textContent = "✕";
-      removeBtn.setAttribute("aria-label", "Remove modifier");
-      removeBtn.addEventListener("click", () => {
-        commitLocal(() => { bundle.statModifiers.splice(i, 1); });
-        refreshPanel();
-      });
-
-      row.append(targetSelect, opSelect);
-      if (mod.op !== "grant") {
-        const valueInput = document.createElement("input");
-        valueInput.type = "number";
-        valueInput.value = Number.isFinite(mod.value) ? mod.value : 0;
-        valueInput.addEventListener("input", () => {
-          commitLocal(() => { mod.value = Number(valueInput.value) || 0; });
-        });
-        row.append(valueInput);
-      }
-      row.append(minLevelInput, removeBtn);
-      panel.append(row);
-    });
-
-    const addModBtn = document.createElement("button");
-    addModBtn.type = "button";
-    addModBtn.className = "btn formula-toolbar__btn";
-    addModBtn.textContent = "+ Add Modifier";
-    addModBtn.addEventListener("click", () => {
-      commitLocal(() => {
-        bundle.statModifiers.push({ id: newId(), targetFieldId: null, op: "add", value: 0, minLevel: null });
-      });
-      refreshPanel();
-    });
-    panel.append(addModBtn);
-
-    // --- Dropdown access ---
-    const accessHeader = document.createElement("div");
-    accessHeader.className = "dropdown-choices-editor__mods-header";
-    accessHeader.textContent = "Dropdown Access";
-    panel.append(accessHeader);
-
-    bundle.dropdownAccess.forEach((rule, i) => {
-      const ruleWrap = document.createElement("div");
-      ruleWrap.className = "bundle-access-rule";
-
-      const targetRow = document.createElement("div");
-      targetRow.className = "bundle-mod-row";
-      const targetSelect = document.createElement("select");
-      const blankOpt = document.createElement("option");
-      blankOpt.value = "";
-      blankOpt.textContent = "Choose a dropdown…";
-      targetSelect.append(blankOpt);
-      dropdownFields.forEach((f) => {
-        const opt = document.createElement("option");
-        opt.value = f.id;
-        opt.textContent = f.label || "Dropdown";
-        if (f.id === rule.targetFieldId) opt.selected = true;
-        targetSelect.append(opt);
-      });
-      targetSelect.addEventListener("change", () => {
-        commitLocal(() => {
-          rule.targetFieldId = targetSelect.value || null;
-          rule.allowedChoiceIds = [];
-        });
-        refreshPanel();
-      });
-      const minLevelInput = document.createElement("input");
-      minLevelInput.type = "number";
-      minLevelInput.title = "Min level (blank = always active)";
-      minLevelInput.placeholder = "Lvl";
-      minLevelInput.className = "bundle-mod-row__level";
-      minLevelInput.value = Number.isFinite(rule.minLevel) ? rule.minLevel : "";
-      minLevelInput.addEventListener("input", () => {
-        const n = Number(minLevelInput.value);
-        commitLocal(() => { rule.minLevel = minLevelInput.value === "" || !Number.isFinite(n) ? null : n; });
-      });
-      const removeRuleBtn = document.createElement("button");
-      removeRuleBtn.type = "button";
-      removeRuleBtn.className = "btn formula-toolbar__btn";
-      removeRuleBtn.textContent = "✕";
-      removeRuleBtn.setAttribute("aria-label", "Remove rule");
-      removeRuleBtn.addEventListener("click", () => {
-        commitLocal(() => { bundle.dropdownAccess.splice(i, 1); });
-        refreshPanel();
-      });
-      targetRow.append(targetSelect, minLevelInput, removeRuleBtn);
-      ruleWrap.append(targetRow);
-
-      const targetField = dropdownFields.find(f => f.id === rule.targetFieldId);
-      if (targetField) {
-        const checklist = document.createElement("div");
-        checklist.className = "bundle-access-checklist";
-        (targetField.choices || []).forEach((targetChoice) => {
-          const label = document.createElement("label");
-          const checkbox = document.createElement("input");
-          checkbox.type = "checkbox";
-          checkbox.checked = (rule.allowedChoiceIds || []).includes(targetChoice.id);
-          checkbox.addEventListener("change", () => {
-            commitLocal(() => {
-              const set = new Set(rule.allowedChoiceIds || []);
-              if (checkbox.checked) set.add(targetChoice.id);
-              else set.delete(targetChoice.id);
-              rule.allowedChoiceIds = [...set];
-            });
-          });
-          label.append(checkbox, document.createTextNode(" " + targetChoice.text));
-          checklist.append(label);
-        });
-        ruleWrap.append(checklist);
-      }
-
-      panel.append(ruleWrap);
-    });
-
-    const addAccessBtn = document.createElement("button");
-    addAccessBtn.type = "button";
-    addAccessBtn.className = "btn formula-toolbar__btn";
-    addAccessBtn.textContent = "+ Add Dropdown Rule";
-    addAccessBtn.addEventListener("click", () => {
-      commitLocal(() => {
-        bundle.dropdownAccess.push({ id: newId(), targetFieldId: null, allowedChoiceIds: [], minLevel: null });
-      });
-      refreshPanel();
-    });
-    panel.append(addAccessBtn);
-
-    return panel;
   }
 
   function buildFieldToolbar(field, parentBlock, wrapperEl) {
-    const bar = document.createElement("div");
-    bar.className = "node-toolbar";
-
-    // A picture/catalog has nothing text-stylable about it (a picture's
-    // image IS its content; a catalog is just a button whose own label
-    // covers styling via the normal field-label path), so skip the
-    // style button entirely rather than showing a popover of controls
-    // that don't apply.
-    if (field.fieldType !== "picture" && field.fieldType !== "catalog") {
-      bar.append(buildStyleButton(field, wrapperEl));
-    }
-    bar.append(buildBorderToggleButton(field, wrapperEl));
-
-    if (!CAPTIONLESS_FIELD_TYPES.has(field.fieldType)) {
-      const cycleLabelBtn = document.createElement("button");
-      cycleLabelBtn.type = "button";
-      cycleLabelBtn.title = "Move label";
-      cycleLabelBtn.textContent = "↻";
-      cycleLabelBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        cycleLabelPosition(field, parentBlock, wrapperEl);
-      });
-      bar.append(cycleLabelBtn);
-    }
-
-    if (field.fieldType === "dropdown") {
-      const editChoicesBtn = document.createElement("button");
-      editChoicesBtn.type = "button";
-      editChoicesBtn.title = "Edit choices";
-      editChoicesBtn.textContent = "☰";
-      editChoicesBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openDropdownChoicesEditor(field, wrapperEl);
-      });
-      bar.append(editChoicesBtn);
-    }
-
-    if (field.fieldType === "catalog") {
-      const configBtn = document.createElement("button");
-      configBtn.type = "button";
-      configBtn.title = "Configure catalog";
-      configBtn.textContent = "⚙";
-      configBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openCatalogFieldConfig(field, wrapperEl);
-      });
-      bar.append(configBtn);
-    }
-
-    if (field.fieldType === "radio") {
-      const slotFormulaBtn = document.createElement("button");
-      slotFormulaBtn.type = "button";
-      slotFormulaBtn.title = field.optionsFormula
-        ? "Edit the formula for how many buttons this has"
-        : "Set a formula for how many buttons this has (e.g. spell slots that scale with Level)";
-      slotFormulaBtn.textContent = "=";
-      slotFormulaBtn.className = field.optionsFormula ? "active" : "";
-      slotFormulaBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openFormulaEditor(
-          { id: field.id, label: field.label, formula: field.optionsFormula },
-          resolveFieldById,
-          (newFormula) => {
-            commitMutation(() => { field.optionsFormula = newFormula; }, { render: false });
-            renderPageGrid();
-          },
-          {
-            title: `Slot-Count Formula for "${field.label || "Field"}"`,
-            hint: "This computes how many radio buttons this group shows — not which one is selected. Good for something like spell slots that scale with Level. Drag stat fields in as variables, same as any other formula.",
-          }
-        );
-      });
-      bar.append(slotFormulaBtn);
-    }
-
-    // Hidden rather than shown-but-inert for a field whose count is
-    // computed live (a formula, or one of the standard spell-slot
-    // fields) — options is just the ignored fallback default then, so
-    // +/- clicking it wouldn't visibly do anything.
-    const hasLiveCount = field.fieldType === "radio"
-      && (field.optionsFormula || Object.prototype.hasOwnProperty.call(spellSlotCounts, field.id));
-    if ((field.fieldType === "radio" || field.fieldType === "checkbox") && !hasLiveCount) {
-      const minusBtn = document.createElement("button");
-      minusBtn.type = "button";
-      minusBtn.title = "Remove option";
-      minusBtn.textContent = "−";
-      minusBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (field.options <= 1) return;
-        commitMutation(() => {
-          field.options -= 1;
-          syncOptionWidth(field);
-        });
-      });
-      const plusBtn = document.createElement("button");
-      plusBtn.type = "button";
-      plusBtn.title = "Add option";
-      plusBtn.textContent = "+";
-      plusBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        commitMutation(() => {
-          field.options += 1;
-          syncOptionWidth(field);
-        });
-      });
-      bar.append(minusBtn, plusBtn);
-    }
-
-    wireHoverToolbar(wrapperEl, bar);
-    return bar;
+    return buildFieldToolbarInto(field, parentBlock, wrapperEl, {
+      styleBtnFn: (f, el) => buildStyleButton(f, el),
+      borderBtnFn: (f, el) => buildBorderToggleButton(f, el),
+      captionlessTypes: CAPTIONLESS_FIELD_TYPES,
+      cycleFn: (f, parent, el) => cycleLabelPosition(f, parent, el),
+      choicesEditorFn: (f, el) => openDropdownChoicesEditor(f, el),
+      catalogConfigFn: (f, el) => openCatalogFieldConfig(f, el),
+      formulaEditorFn: (target, resolve, onSave, opts) => openFormulaEditor(target, resolve, onSave, opts),
+      resolveFn: resolveFieldById,
+      commitFn: (fn, opts) => commitMutation(fn, opts),
+      gridFn: () => renderPageGrid(),
+      liveSlotCounts: spellSlotCounts,
+      syncWidthFn: (f) => syncOptionWidth(f),
+      hoverFn: (trigger, bar) => wireHoverToolbar(trigger, bar),
+    });
   }
 
   function buildEquationHint(field) {
-    const opposite = { top: "bottom", bottom: "top", left: "right", right: "left" }[field.labelPosition];
-    const hint = document.createElement("div");
-    hint.className = `equation-hint equation-hint--${opposite}${field.formula ? " equation-hint--active" : ""}`;
-    hint.textContent = "=";
-    hint.title = field.formula ? "Edit formula" : "Set up a formula";
-    hint.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openFormulaEditor(field, resolveFieldById, (newFormula) => {
-        commitMutation(() => {
-          field.formula = newFormula;
-        }, { render: false });
-        renderPageGrid();
-      });
+    return buildEquationHintInto(field, {
+      editorFn: (f, resolve, onSave) => openFormulaEditor(f, resolve, onSave),
+      resolveFn: resolveFieldById,
+      commitFn: (fn, opts) => commitMutation(fn, opts),
+      gridFn: () => renderPageGrid(),
     });
-    return hint;
   }
 
   function cycleLabelPosition(field, parentBlock, fieldEl) {
-    const labelEl = fieldEl.querySelector(".field-label");
-    const first = labelEl ? labelEl.getBoundingClientRect() : null;
-
-    commitMutation(() => {
-      const idx = LABEL_POSITIONS.indexOf(field.labelPosition);
-      field.labelPosition = LABEL_POSITIONS[(idx + 1) % LABEL_POSITIONS.length];
-    }, { render: false });
-
-    const newLabelEl = renderFieldInner(fieldEl, field, parentBlock);
-    // Unlike the initial-build call in renderFieldNode, fieldEl here is
-    // already attached to the live document (we're editing an existing
-    // node in place), so newLabelEl already has real layout and this
-    // can run immediately rather than needing to be queued.
-    if (newLabelEl) growFieldIfLabelOverflows(newLabelEl, field, fieldEl, parentBlock);
-    // Refresh the equation hint since it always sits opposite the label.
-    const oldHint = fieldEl.querySelector(".equation-hint");
-    if (oldHint) oldHint.remove();
-    if (field.fieldType === "text") {
-      fieldEl.append(buildEquationHint(field));
-    }
-
-    if (first) {
-      const last = newLabelEl.getBoundingClientRect();
-      const dx = first.left - last.left;
-      const dy = first.top - last.top;
-      newLabelEl.style.transition = "none";
-      newLabelEl.style.transform = `translate(${dx}px, ${dy}px)`;
-      requestAnimationFrame(() => {
-        newLabelEl.style.transition = "transform 200ms ease";
-        newLabelEl.style.transform = "";
-      });
-    }
+    cycleLabelPositionInto(field, parentBlock, fieldEl, {
+      commitFn: (fn, opts) => commitMutation(fn, opts),
+      nextPosFn: (pos, positions) => nextLabelPosition(pos, positions),
+      positions: LABEL_POSITIONS,
+      innerFn: (el, f, parent) => renderFieldInner(el, f, parent),
+      growFn: (labelEl, f, el, parent) => growFieldIfLabelOverflows(labelEl, f, el, parent),
+      hintFn: (f) => buildEquationHint(f),
+    });
   }
 
   // --- Drag / resize (shared by blocks and fields) ---------------------------
@@ -6592,17 +3448,18 @@ export function renderCustomSheet(root, character, store) {
       const startX = node.x, startY = node.y;
 
       function onMove(ev) {
-        const dx = Math.round((ev.clientX - startClientX) / (cw + GAP_PX));
-        const dy = Math.round((ev.clientY - startClientY) / (cw + GAP_PX));
-        node.x = Math.min(Math.max(0, maxX), Math.max(0, startX + dx));
-        node.y = Math.min(Math.max(0, maxY), Math.max(0, startY + dy));
+        const dx = cellsDelta(ev.clientX - startClientX, cw, GAP_PX);
+        const dy = cellsDelta(ev.clientY - startClientY, cw, GAP_PX);
+        const pos = dragPos(startX, startY, dx, dy, { maxX, maxY });
+        node.x = pos.x;
+        node.y = pos.y;
         applyRect(el, node, cw);
       }
       function onUp() {
         document.removeEventListener("pointermove", onMove);
         document.removeEventListener("pointerup", onUp);
         el.classList.remove("is-dragging");
-        undoStack.push(before);
+        pushBounded(undoStack, before);
         redoStack.length = 0;
         updateHistoryButtons();
         normalizeTabs();
@@ -6670,20 +3527,22 @@ export function renderCustomSheet(root, character, store) {
       const startW = node.w, startH = node.h;
 
       function onMove(ev) {
-        const dw = Math.round((ev.clientX - startClientX) / (cw + GAP_PX));
-        const dh = Math.round((ev.clientY - startClientY) / (cw + GAP_PX));
-        node.w = Math.min(maxW, Math.max(minW, startW + dw));
-        node.h = Math.min(maxH, Math.max(minH, startH + dh));
+        const dw = cellsDelta(ev.clientX - startClientX, cw, GAP_PX);
+        const dh = cellsDelta(ev.clientY - startClientY, cw, GAP_PX);
+        const dims = resizeDims(startW, startH, dw, dh, { minW, minH, maxW, maxH });
+        node.w = dims.w;
+        node.h = dims.h;
         applyRect(el, node, cw);
 
         if (scaleFields.length > 0) {
           const ratioW = node.w / startW;
           const ratioH = node.h / startH;
           scaleFields.forEach(({ field, startX, startY, startW: fw, startH: fh }) => {
-            field.x = Math.max(0, Math.round(startX * ratioW));
-            field.y = Math.max(0, Math.round(startY * ratioH));
-            field.w = Math.max(1, Math.round(fw * ratioW));
-            field.h = Math.max(1, Math.round(fh * ratioH));
+            const r = scaleFieldRect({ x: startX, y: startY, w: fw, h: fh }, ratioW, ratioH);
+            field.x = r.x;
+            field.y = r.y;
+            field.w = r.w;
+            field.h = r.h;
             const fieldEl = el.querySelector(`[data-node-id="${field.id}"]`);
             if (fieldEl) applyRect(fieldEl, field, cw);
           });
@@ -6693,7 +3552,7 @@ export function renderCustomSheet(root, character, store) {
         document.removeEventListener("pointermove", onMove);
         document.removeEventListener("pointerup", onUp);
         el.classList.remove("is-resizing");
-        undoStack.push(before);
+        pushBounded(undoStack, before);
         redoStack.length = 0;
         updateHistoryButtons();
         normalizeTabs();
@@ -6712,20 +3571,10 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function buildDragHandle() {
-    const h = document.createElement("div");
-    h.className = "node-handle drag-handle";
-    h.textContent = "⠿";
-    // Mouse/touch-drag only — there's no keyboard equivalent for
-    // repositioning a block, so hiding this from assistive tech is
-    // more honest than labeling it as if it were operable.
-    h.setAttribute("aria-hidden", "true");
-    return h;
+    return sharedBuildDragHandle();
   }
   function buildResizeHandle() {
-    const h = document.createElement("div");
-    h.className = "node-handle resize-handle";
-    h.setAttribute("aria-hidden", "true"); // see buildDragHandle
-    return h;
+    return sharedBuildResizeHandle();
   }
 
   // --- Popovers: style editor, add-field type menu ---------------------------
@@ -6741,12 +3590,11 @@ export function renderCustomSheet(root, character, store) {
   let toolbarWithOpenPopup = null;
 
   function closeOpenPopovers() {
-    document.querySelectorAll(".style-popover, .field-type-menu").forEach(p => p.remove());
-    if (toolbarWithOpenPopup) {
-      const tb = toolbarWithOpenPopup;
-      toolbarWithOpenPopup = null;
-      if (tb._scheduleHide) tb._scheduleHide(); // re-checks real hover state now that nothing's forcing it open
-    }
+    closeOpenPopoversIn(
+      document,
+      () => toolbarWithOpenPopup,
+      (v) => { toolbarWithOpenPopup = v; }
+    );
   }
   document.addEventListener("pointerdown", (e) => {
     if (!e.target.closest(".style-popover, .field-type-menu, .node-toolbar button")) {
@@ -6790,37 +3638,13 @@ export function renderCustomSheet(root, character, store) {
   let activeHoverToolbar = null;
 
   function wireHoverToolbar(triggerEl, toolbarEl) {
-    let hideTimer = null;
-    function show() {
-      if (!editMode) return;
-      clearTimeout(hideTimer);
-      if (activeHoverToolbar && activeHoverToolbar !== toolbarEl && toolbarWithOpenPopup !== activeHoverToolbar) {
-        activeHoverToolbar.classList.remove("is-visible");
-      }
-      activeHoverToolbar = toolbarEl;
-      // If there's no real room above (the node is right up against
-      // the top of the visible scroll area), flip the toolbar to sit
-      // just below the node instead — otherwise it renders off the
-      // top of the viewport and is never actually visible.
-      const rect = triggerEl.getBoundingClientRect();
-      const scrollRect = scrollWrapper.getBoundingClientRect();
-      toolbarEl.classList.toggle("toolbar-flip-below", rect.top - scrollRect.top < 40);
-      toolbarEl.classList.add("is-visible");
-    }
-    function scheduleHide() {
-      clearTimeout(hideTimer);
-      hideTimer = setTimeout(() => {
-        if (toolbarWithOpenPopup !== toolbarEl) {
-          toolbarEl.classList.remove("is-visible");
-          if (activeHoverToolbar === toolbarEl) activeHoverToolbar = null;
-        }
-      }, 250);
-    }
-    triggerEl.addEventListener("mouseenter", show);
-    triggerEl.addEventListener("mouseleave", scheduleHide);
-    toolbarEl.addEventListener("mouseenter", show);
-    toolbarEl.addEventListener("mouseleave", scheduleHide);
-    toolbarEl._scheduleHide = scheduleHide;
+    wireHoverToolbarInto(triggerEl, toolbarEl, {
+      isEditMode: () => editMode,
+      scrollWrapper,
+      getOpenPopup: () => toolbarWithOpenPopup,
+      getActiveToolbar: () => activeHoverToolbar,
+      setActiveToolbar: (v) => { activeHoverToolbar = v; },
+    });
   }
 
   /** Positions the group toolbar (see selectionBoundingBox above) at
@@ -6832,13 +3656,7 @@ export function renderCustomSheet(root, character, store) {
    *  than measuring it, since it's only ever a button or two — close
    *  enough for a small floating control like this. */
   function positionFloatingToolbar(el, rightEdgePx, topEdgePx, bottomEdgePx) {
-    const TOOLBAR_H = 28;
-    const GAP = 8; // more clearance than a single node's own toolbar offset,
-      // so the grid line between the toolbar and the selection stays visible
-    const fitsAbove = topEdgePx - TOOLBAR_H - GAP >= 0;
-    el.style.top = fitsAbove ? `${topEdgePx - TOOLBAR_H - GAP}px` : `${bottomEdgePx + GAP}px`;
-    el.style.right = "auto";
-    el.style.left = `${rightEdgePx - 90}px`;
+    positionFloatingToolbarAt(el, rightEdgePx, topEdgePx, bottomEdgePx);
   }
 
   /** Flips a just-appended popover to open leftward instead of
@@ -6847,409 +3665,104 @@ export function renderCustomSheet(root, character, store) {
    *  looks fine until the node it's attached to is in the right half
    *  of a wide sheet. */
   function positionPopoverWithinViewport(pop) {
-    const rect = pop.getBoundingClientRect();
-    if (rect.right > window.innerWidth) {
-      pop.style.left = "auto";
-      pop.style.right = "calc(100% + var(--space-2))";
-    }
+    positionPopoverWithinViewportAt(pop);
   }
 
   function buildStyleButton(node, wrapperEl) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.title = "Style";
-    btn.textContent = "🎨";
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const already = wrapperEl.querySelector(".style-popover");
-      closeOpenPopovers();
-      if (already) return; // toggle: clicking again just closes it
-      const pop = buildStylePopover(node, wrapperEl);
-      wrapperEl.append(pop);
-      positionPopoverWithinViewport(pop);
-      toolbarWithOpenPopup = btn.closest(".node-toolbar");
+    return buildStyleButtonInto(node, wrapperEl, {
+      popoverFn: (n, el) => buildStylePopover(n, el),
+      closeFn: () => closeOpenPopovers(),
+      positionFn: (pop) => positionPopoverWithinViewport(pop),
+      setOpenPopup: (v) => { toolbarWithOpenPopup = v; },
     });
-    return btn;
+  }
+
+  function stylePopoverDeps() {
+    return {
+      forEditing: (n) => styleForEditing(n),
+      setValue: (n, k, v) => setNodeStyleValue(n, k, v),
+      commit: (fn, opts) => commitMutation(fn, opts),
+      applyStyle: (el, s) => applyNodeStyle(el, s),
+      styleChangeFn: (el, n, change) => applyStyleChange(el, n, change),
+      toastFn: (msg) => showToast(msg),
+      maxImageBytes: MAX_BG_IMAGE_BYTES,
+    };
   }
 
   function buildStylePopover(node, wrapperEl) {
-    const pop = document.createElement("div");
-    pop.className = "style-popover";
-    pop.addEventListener("pointerdown", (e) => e.stopPropagation());
-    const editableStyle = styleForEditing(node);
-
-    function buildStyleLabel(text, styleKey) {
-      const label = document.createElement("label");
-      label.textContent = text;
-      if (node.styleOverrides && Object.prototype.hasOwnProperty.call(node.styleOverrides, styleKey)) {
-        const badge = document.createElement("span");
-        badge.className = "style-popover__badge";
-        badge.textContent = "local";
-        label.append(document.createTextNode(" "), badge);
-      }
-      return label;
-    }
-
-    // Background color (whole node only — background doesn't cascade
-    // to children the way font/color properties do, which is exactly
-    // what keeps a field's own background from blotting out its
-    // parent block's background).
-    const bgRow = document.createElement("div");
-    bgRow.className = "style-popover__row";
-    const bgLabel = buildStyleLabel("Background", "bg");
-    const bgInput = document.createElement("input");
-    bgInput.type = "color";
-    bgInput.value = editableStyle.bg || "#1d1a16";
-    bgInput.addEventListener("input", () => {
-      commitMutation(() => {
-        setNodeStyleValue(node, "bg", bgInput.value);
-      }, { render: false });
-      applyNodeStyle(wrapperEl, styleForEditing(node));
-    });
-    bgRow.append(bgLabel, bgInput);
-    pop.append(bgRow);
-
-    // Background image
-    const imgRow = document.createElement("div");
-    imgRow.className = "style-popover__row";
-    const imgLabel = buildStyleLabel("Bg image", "bgImage");
-    const imgInput = document.createElement("input");
-    imgInput.type = "file";
-    imgInput.accept = "image/*";
-    imgInput.addEventListener("change", () => {
-      const file = imgInput.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (reader.result.length > MAX_BG_IMAGE_BYTES) {
-          showToast("That image is large enough that it (plus the rest of this character) may not fit in a single Firestore document (1MB limit). It'll be applied, but saving might fail — try a smaller image if so.");
-        }
-        commitMutation(() => {
-          setNodeStyleValue(node, "bgImage", reader.result);
-        }, { render: false });
-        applyNodeStyle(wrapperEl, styleForEditing(node));
-      };
-      reader.readAsDataURL(file);
-    });
-    imgRow.append(imgLabel, imgInput);
-    pop.append(imgRow);
-
-    // Font family
-    const fontRow = document.createElement("div");
-    fontRow.className = "style-popover__row";
-    const fontLabel = buildStyleLabel("Font", "fontFamily");
-    const fontSelect = document.createElement("select");
-    [
-      ["", "Theme default"],
-      ["var(--font-body)", "Body"],
-      ["var(--font-display)", "Display"],
-      ["Georgia, serif", "Georgia"],
-      ["'Courier New', monospace", "Monospace"],
-      ["'Times New Roman', serif", "Times"],
-    ].forEach(([val, label]) => {
-      const opt = document.createElement("option");
-      opt.value = val; opt.textContent = label;
-      if ((editableStyle.fontFamily || "") === val) opt.selected = true;
-      fontSelect.append(opt);
-    });
-    fontSelect.addEventListener("change", () => {
-      applyStyleChange(wrapperEl, node, { cssProp: "fontFamily", cssValue: fontSelect.value, styleKey: "fontFamily", rawValue: fontSelect.value || null });
-    });
-    fontRow.append(fontLabel, fontSelect);
-    pop.append(fontRow);
-
-    // Font size
-    const sizeRow = document.createElement("div");
-    sizeRow.className = "style-popover__row";
-    const sizeLabel = buildStyleLabel("Size (px)", "fontSize");
-    const sizeInput = document.createElement("input");
-    sizeInput.type = "number";
-    sizeInput.min = "8"; sizeInput.max = "72";
-    sizeInput.value = editableStyle.fontSize || "";
-    sizeInput.addEventListener("change", () => {
-      const px = Number(sizeInput.value) || null;
-      applyStyleChange(wrapperEl, node, { cssProp: "fontSize", cssValue: px ? `${px}px` : "", styleKey: "fontSize", rawValue: px });
-    });
-    sizeRow.append(sizeLabel, sizeInput);
-    pop.append(sizeRow);
-
-    // Text color
-    const colorRow = document.createElement("div");
-    colorRow.className = "style-popover__row";
-    const colorLabel = buildStyleLabel("Text color", "color");
-    const colorInput = document.createElement("input");
-    colorInput.type = "color";
-    colorInput.value = editableStyle.color || "#e8e0d0";
-    colorInput.addEventListener("input", () => {
-      applyStyleChange(wrapperEl, node, { cssProp: "color", cssValue: colorInput.value, styleKey: "color", rawValue: colorInput.value });
-    });
-    colorRow.append(colorLabel, colorInput);
-    pop.append(colorRow);
-
-    // Bold / Italic / Underline
-    const togglesRow = document.createElement("div");
-    togglesRow.className = "style-popover__row";
-    const togglesLabel = document.createElement("label");
-    togglesLabel.textContent = "Style";
-    togglesRow.append(togglesLabel);
-    const toggles = document.createElement("div");
-    toggles.className = "style-popover__toggles";
-    [
-      { key: "bold", label: "B", cssProp: "fontWeight", cssValue: "bold" },
-      { key: "italic", label: "I", cssProp: "fontStyle", cssValue: "italic" },
-      { key: "underline", label: "U", cssProp: "textDecoration", cssValue: "underline" },
-    ].forEach(({ key, label, cssProp, cssValue }) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.textContent = label;
-      btn.title = node.styleOverrides && Object.prototype.hasOwnProperty.call(node.styleOverrides, key)
-        ? `${label} is locally overridden`
-        : label;
-      btn.className = editableStyle[key] ? "active" : "";
-      if (node.styleOverrides && Object.prototype.hasOwnProperty.call(node.styleOverrides, key)) {
-        btn.classList.add("has-local-override");
-      }
-      btn.addEventListener("click", () => {
-        const changedWholeNode = applyStyleChange(wrapperEl, node, { cssProp, cssValue, styleKey: key, toggle: true });
-        // Only reflect the change on the button if it actually changed
-        // the WHOLE node's setting — if a text selection was styled
-        // instead, this button's on/off state doesn't represent that
-        // (there's no single "is this selection bold" answer to show),
-        // so leave it as-is rather than showing something misleading.
-        if (changedWholeNode) {
-          btn.classList.toggle("active", !!styleForEditing(node)[key]);
-        }
-      });
-      toggles.append(btn);
-    });
-    togglesRow.append(toggles);
-    pop.append(togglesRow);
-
-    return pop;
+    return buildStylePopoverInto(node, wrapperEl, stylePopoverDeps());
   }
 
-  /** Applies a style change either to the current text SELECTION (if
-   *  one exists inside this node's editable value area) or to the
-   *  whole node — see the file-level comment for the selection-vs-
-   *  whole-node scope note. Returns true if the WHOLE node's style
-   *  was the thing that changed (false if a selection was styled
-   *  instead), so callers like the B/I/U toggle buttons know whether
-   *  their own on/off display should update. */
   function applyStyleChange(wrapperEl, node, { cssProp, cssValue, styleKey, toggle = false, rawValue }) {
-    const sel = window.getSelection();
-    // Only a FIELD has its own editable value — for a block, this must
-    // be a direct-child lookup, or it would find a nested field's value
-    // (same descendant-search issue as wireDrag/wireResize above) and
-    // wrongly treat a block-level style change as selection-scoped.
-    const valueEl = wrapperEl.querySelector(":scope > .field-inner > .field-value[contenteditable]");
-    const hasSelection = sel && !sel.isCollapsed && valueEl && sel.anchorNode && valueEl.contains(sel.anchorNode);
-
-    if (hasSelection) {
-      wrapSelectionWithStyle(cssProp, cssValue);
-      if (valueEl) {
-        node.value = valueEl.innerHTML; // keep the field's persisted value in sync
-      }
-    } else if (toggle) {
-      const nextValue = !styleForEditing(node)[styleKey];
-      commitMutation(() => {
-        setNodeStyleValue(node, styleKey, nextValue);
-      }, { render: false });
-      applyNodeStyle(wrapperEl, styleForEditing(node));
-      applyDescendantTextStyle(wrapperEl, cssProp, nextValue ? cssValue : "");
-    } else {
-      const nextValue = rawValue !== undefined ? rawValue : cssValue;
-      commitMutation(() => {
-        setNodeStyleValue(node, styleKey, nextValue);
-      }, { render: false });
-      applyNodeStyle(wrapperEl, styleForEditing(node));
-      applyDescendantTextStyle(wrapperEl, cssProp, cssValue);
-    }
-    if (hasSelection) persist();
-    return !hasSelection;
+    return applyStyleChangeInto(wrapperEl, node, { cssProp, cssValue, styleKey, toggle, rawValue }, {
+      forEditing: (n) => styleForEditing(n),
+      setValue: (n, k, v) => setNodeStyleValue(n, k, v),
+      commit: (fn, opts) => commitMutation(fn, opts),
+      applyStyle: (el, s) => applyNodeStyle(el, s),
+      descendFn: (el, prop, val) => applyDescendantTextStyle(el, prop, val),
+      persistFn: () => persist(),
+    });
   }
 
   function wrapSelectionWithStyle(cssProp, cssValue) {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) return;
-    const range = sel.getRangeAt(0);
-    const span = document.createElement("span");
-    if (cssValue) span.style[cssProp] = cssValue;
-    try {
-      range.surroundContents(span);
-    } catch {
-      // Selection spans multiple partial nodes surroundContents can't
-      // wrap directly (a known Range API limitation) — fall back to
-      // extract-and-reinsert instead.
-      const frag = range.extractContents();
-      span.appendChild(frag);
-      range.insertNode(span);
-    }
-    sel.removeAllRanges();
+    sharedWrapSelection(cssProp, cssValue);
   }
 
   function applyDescendantTextStyle(wrapperEl, cssProp, cssValue) {
-    wrapperEl
-      .querySelectorAll(".block-name, .field-label, .field-value, .label-block-text")
-      .forEach(el => {
-        el.style[cssProp] = cssValue || "";
-      });
+    applyDescendantTextStyleTo(wrapperEl, cssProp, cssValue);
   }
 
   function applyTextStyleToOwnText(wrapperEl, style) {
-    const rules = [
-      ["fontFamily", style.fontFamily || ""],
-      ["fontSize", style.fontSize ? `${style.fontSize}px` : ""],
-      ["fontWeight", style.bold ? "bold" : ""],
-      ["fontStyle", style.italic ? "italic" : ""],
-      ["textDecoration", style.underline ? "underline" : ""],
-      ["color", style.color || ""],
-    ];
-    wrapperEl
-      .querySelectorAll(".block-name, .field-label, .field-value, .label-block-text")
-      .forEach(el => {
-        if (el.closest(".style-popover")) return;
-        rules.forEach(([prop, value]) => { el.style[prop] = value; });
-      });
+    applyTextStyleToOwnTextWith(wrapperEl, style);
   }
 
   function openFieldTypeMenu(anchorBtn, onChoose) {
-    closeOpenPopovers();
-    const menu = document.createElement("div");
-    menu.className = "style-popover field-type-menu";
-    menu.addEventListener("pointerdown", (e) => e.stopPropagation());
-
-    // Grouped rather than one flat alphabetical list — nine field
-    // types is enough that a little structure helps you scan for the
-    // one you want. Still alphabetical WITHIN each group.
-    const GROUPS = [
-      { name: "Text", types: ["text", "label", "textarea", "textlist"] },
-      { name: "Choice", types: ["dropdown", "radio", "checkbox"] },
-      { name: "Media", types: ["picture"] },
-      { name: "Interactive", types: ["catalog", "featureList"] },
-    ];
-    const OPTION_DEFS = {
-      text: { label: "Num Field", preview: buildTextPreview },
-      label: { label: "Label", preview: buildLabelPreview },
-      textarea: { label: "Text Area", preview: buildTextareaPreview },
-      textlist: { label: "Text List", preview: buildTextlistPreview },
-      dropdown: { label: "Dropdown", preview: buildDropdownPreview },
-      radio: { label: "Radio Buttons", preview: () => buildOptionPreview("radio", 3) },
-      checkbox: { label: "Checkbox", preview: () => buildOptionPreview("checkbox", 1) },
-      picture: { label: "Image", preview: buildPicturePreview },
-      catalog: { label: "Catalog", preview: buildCatalogPreview },
-      featureList: { label: "Feature List", preview: buildFeatureListPreview },
-    };
-
-    GROUPS.forEach((group) => {
-      const groupLabel = document.createElement("div");
-      groupLabel.className = "field-type-menu__group";
-      groupLabel.textContent = group.name;
-      menu.append(groupLabel);
-
-      group.types
-        .map((type) => ({ type, ...OPTION_DEFS[type] }))
-        .sort((a, b) => a.label.localeCompare(b.label))
-        .forEach(({ type, label, preview }) => {
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "btn field-type-option";
-          const labelSpan = document.createElement("span");
-          labelSpan.className = "field-type-option__label";
-          labelSpan.textContent = label;
-          const previewSpan = document.createElement("span");
-          previewSpan.className = "field-type-option__preview";
-          previewSpan.append(preview());
-          btn.append(labelSpan, previewSpan);
-          btn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            onChoose(type);
-            closeOpenPopovers();
-          });
-          menu.append(btn);
-        });
+    openFieldTypeMenuInto(anchorBtn, onChoose, {
+      closeFn: () => closeOpenPopovers(),
+      positionFn: (menu) => positionPopoverWithinViewport(menu),
+      setOpenPopup: (v) => { toolbarWithOpenPopup = v; },
+      personIconMarkup: personIconSvgMarkup(),
     });
-
-    // Appended to the block/field itself, NOT to the toolbar — the
-    // toolbar's own visibility is hover-gated (see wireHoverToolbar),
-    // and this menu needs to persist independent of that, the same
-    // way style-popover already does.
-    const gridNode = anchorBtn.closest(".grid-node");
-    (gridNode || anchorBtn.parentElement).append(menu);
-    positionPopoverWithinViewport(menu);
-    toolbarWithOpenPopup = anchorBtn.closest(".node-toolbar");
   }
 
   /** A small, non-interactive preview of an empty text field — used in
    *  the field-type picker so each option shows what it'll look like. */
   function buildTextPreview() {
-    const el = document.createElement("span");
-    el.className = "field-type-preview-text";
-    return el;
+    return sharedBuildTextPreview();
   }
 
   function buildLabelPreview() {
-    const el = document.createElement("span");
-    el.className = "field-type-preview-label";
-    el.textContent = "Aa";
-    return el;
+    return sharedBuildLabelPreview();
   }
 
   function buildTextareaPreview() {
-    const el = document.createElement("span");
-    el.className = "field-type-preview-textarea";
-    return el;
+    return sharedBuildTextareaPreview();
   }
 
   function buildTextlistPreview() {
-    const el = document.createElement("span");
-    el.className = "field-type-preview-textlist";
-    for (let i = 0; i < 3; i++) {
-      const line = document.createElement("span");
-      line.className = "field-type-preview-textlist__line";
-      el.append(line);
-    }
-    return el;
+    return sharedBuildTextlistPreview();
   }
 
   function buildDropdownPreview() {
-    const el = document.createElement("span");
-    el.className = "field-type-preview-dropdown";
-    el.textContent = "▾";
-    return el;
+    return sharedBuildDropdownPreview();
   }
 
   function buildPicturePreview() {
-    const el = document.createElement("span");
-    el.className = "field-type-preview-picture";
-    el.innerHTML = personIconSvgMarkup();
-    return el;
+    return sharedBuildPicturePreview(personIconSvgMarkup());
   }
 
   function buildCatalogPreview() {
-    const el = document.createElement("span");
-    el.className = "field-type-preview-catalog";
-    el.textContent = "☰";
-    return el;
+    return sharedBuildCatalogPreview();
   }
 
   function buildFeatureListPreview() {
-    const el = document.createElement("span");
-    el.className = "field-type-preview-catalog"; // same glyph treatment, no dedicated CSS needed
-    el.textContent = "★";
-    return el;
+    return sharedBuildFeatureListPreview();
   }
 
   /** A small, non-interactive preview of `count` empty radio buttons
    *  or checkboxes in a row — same purpose as buildTextPreview above. */
   function buildOptionPreview(kind, count) {
-    const wrap = document.createElement("span");
-    wrap.className = "field-type-preview-options";
-    for (let i = 0; i < count; i++) {
-      const dot = document.createElement("span");
-      dot.className = `field-type-preview-${kind}`;
-      wrap.append(dot);
-    }
-    return wrap;
+    return sharedBuildOptionPreview(kind, count);
   }
 
   // --- Boot + responsive re-render ---------------------------------------

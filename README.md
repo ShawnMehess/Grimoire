@@ -122,10 +122,37 @@ js/
   render/
     formBuilder.js    schema -> DOM. The only place field markup is created.
     characterSheet.js orchestrates schema + rules + formBuilder + store for the sheet view
+    customSheet.js    composition root for the drag/resize/style sheet builder.
+                      Owns session state + store wiring; every DOM structure and
+                      every pure computation lives in sheet/ and is called with
+                      explicit deps — no business logic inline.
+    sheet/            one module per concern, all explicit-deps (no sheet closure):
+      sheetConstants.js  grid + sizing constants (PAGE_COLS, GAP_PX, ...)
+      sheetHelpers.js    debounce, clone/newId, style compare/merge
+      sheetState.js      session-state factory + selection-set helpers
+      sheetMechanics.js  wizard preview text (stat summaries, categories)
+      sheetDrag.js       drag/resize/duplicate/nudge math + wire helpers
+      sheetSelection.js  selection paint/box, hover toolbars, grid click/drop
+      sheetToolbar.js    toolbar/chip/drop/toast builders
+      sheetFields.js     field nodes, value builders, menus, catalog UI
+      sheetBlocks.js     block nodes, sidebar, tabs helpers, grid lines
+      sheetLeveling.js   bundle math, computed values, tabs data, resources
+      sheetWizard.js     choice groups, spells, step shell, row renderers
+      sheetWizardSteps.js  creation + level-up step bodies, review/apply
+      sheetBundles.js    library materialization, choices editor, sync
+      sheetHistory.js    undo stacks, history buttons, shortcut decisions
+      sheetTabs.js       tab lookup/render/normalize
+      sheetStyles.js     style mapping, popover, rich-text selection
+      sheetRules.js      money/numeric/point-buy/ASI/ability helpers
+      sheetRender.js     main-grid render orchestration
+      index.js          barrel (import specific modules, not this, in new code)
   state/
     characterStore.js the ONLY file that imports Firebase. Everything else
                        works with plain JS objects.
   main.js             auth flow + routing between character list / sheet
+scripts/
+  smoke-imports.mjs  node import + pure-logic checks (no test suite yet —
+                     run it after touching sheet/ or customSheet.js)
 data/
   classes.json, races.json, backgrounds.json  shared reference data (static,
   not in Firestore — it's identical for everyone and read-heavy)
