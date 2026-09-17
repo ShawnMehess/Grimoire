@@ -170,7 +170,7 @@ assert(levelingMod.computeSpellSlotCountsIn([], {}, { rulesetId: null, className
   });
   assert(st.formulaValues.a === 1 && st.needsNormalizedPersist === false, "prepareRenderState clean");
 }
-assert(Array.isArray(levelingMod.LEVEL_UP_FIELDS) && levelingMod.LEVEL_UP_FIELDS.length === 8, "LEVEL_UP_FIELDS");
+assert(Array.isArray(levelingMod.LEVEL_UP_FIELDS) && levelingMod.LEVEL_UP_FIELDS.length === 9, "LEVEL_UP_FIELDS");
 assert(levelingMod.clampResourceSaved(5, "99") === "5", "clampResourceSaved clamps");
 assert(levelingMod.clampResourceSaved(5, "abc") === "5", "clampResourceSaved default");
 {
@@ -198,6 +198,30 @@ assert(levelingMod.isSubclassField({ id: "subclass" }) === true, "isSubclassFiel
 {
   const feats = levelingMod.selectedFeatBundlesIn([{ name: "Alert" }], "r", (c, n) => (n === "Alert" ? { statModifiers: [] } : null));
   assert(feats.length === 1, "selectedFeatBundlesIn");
+  {
+    // Per-class level gating: Champion L10 gated on Fighter levels, not total.
+    const fields = [{
+      fieldType: "dropdown", id: "subclass", label: "Subclass", selected: "c1",
+      choices: [{ id: "c1", text: "Champion", bundle: { statModifiers: [{ op: "add", targetFieldId: "strScore", value: 1, minLevel: 10 }] } }],
+    }];
+    const levelFor = (field) => (field.id === "subclass" ? 3 : null);
+    const passThru = (m, v, cb, tags, lvl) => levelingMod.applyStatModifiers(m, v, cb, tags, lvl);
+    const vm = {};
+    levelingMod.applyBundleModifiersIn(fields, vm, new Set(), new Map(), 8, [], [], passThru, levelFor);
+    assert(vm.strScore === undefined, "levelFor gates subclass mods by class level");
+    const vm2 = {};
+    levelingMod.applyBundleModifiersIn(fields, vm2, new Set(), new Map(), 8, [], [], passThru, () => 10);
+    assert(vm2.strScore === 1, "levelFor unlocks at class level");
+    // Extra (non-dropdown) bundles apply at their own level.
+    const vm3 = {};
+    levelingMod.applyBundleModifiersIn([], vm3, new Set(), new Map(), 8, [], [], passThru, null,
+      [{ bundle: { statModifiers: [{ op: "add", targetFieldId: "dexScore", value: 2, minLevel: null }] }, level: 2, source: "Rogue" }]);
+    assert(vm3.dexScore === 2, "extraBundles apply");
+    // Group-key ownership resolution for rule-option gating.
+    const entry = levelingMod.dropdownEntryForGroupKey(fields, "subclass:c1:g");
+    assert(entry && entry.choice.text === "Champion", "dropdownEntryForGroupKey");
+    assert(levelingMod.dropdownEntryForGroupKey(fields, "feat:X:g") === null, "dropdownEntryForGroupKey feat miss");
+  }
 }
 
 const bundlesMod = await import("../js/render/sheet/sheetBundles.js");
@@ -587,6 +611,33 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   }
   assert(wizard.firstIncompleteStep([{ isComplete: () => true }, { isComplete: () => false }]) === 1, "firstIncompleteStep");
   assert(wizard.firstIncompleteStep([{ isComplete: () => { throw new Error("x"); } }]) === -1, "firstIncompleteStep never throws");
+  {
+    const spells = [
+      { name: "B", tags: ["damage"], school: "Abjuration" },
+      { name: "A", tags: ["heal"], school: "Evocation" },
+      { name: "C", tags: [], school: "Evocation" },
+    ];
+    assert(wizard.filterSortSpells(spells, { tag: "all", sort: "name" }).map((s) => s.name).join("") === "ABC", "filterSortSpells name");
+    assert(wizard.filterSortSpells(spells, { tag: "damage", sort: "name" }).map((s) => s.name).join("") === "B", "filterSortSpells tag");
+    assert(wizard.filterSortSpells(spells, { tag: "all", sort: "school" }).map((s) => s.name).join("") === "BAC", "filterSortSpells school");
+    assert(typeof wizard.spellPickerUiStateFor("x").tag === "string", "spellPickerUiStateFor");
+  }
+  {
+    const { TAG_VOCABULARY, SPELL_CATALOG } = await import("../js/data/contentCatalogs.js");
+    assert(Array.isArray(TAG_VOCABULARY) && TAG_VOCABULARY.length > 30, "TAG_VOCABULARY");
+    assert(JSON.stringify(TAG_VOCABULARY) === JSON.stringify([...TAG_VOCABULARY].sort()), "TAG_VOCABULARY sorted");
+    const vocab = new Set(TAG_VOCABULARY);
+    let checked = 0;
+    for (const t of SPELL_CATALOG.tabs) {
+      for (const e of (t.entries || []).slice(0, 30)) {
+        for (const tag of (e.fieldValues?.tags || [])) assert(vocab.has(tag), `tag in vocabulary: ${tag}`);
+        checked++;
+      }
+    }
+    assert(checked > 0, "tag vocabulary check ran");
+    const fireball = SPELL_CATALOG.tabs.flatMap((t) => t.entries || []).find((e) => e.name === "Fireball");
+    assert(fireball.fieldValues.tags.includes("damage") && fireball.fieldValues.tags.includes("evocation"), "Fireball tags");
+  }
 }
 
 // Spell + equipment catalogs import with the expected tabs.
@@ -596,6 +647,54 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   assert(WEAPONS_ARMOR_CATALOG.tabs.length >= 1 && GEAR_CATALOG.tabs.length >= 1, "equipment catalogs");
   const { RACE_EXTRA_ENTRIES } = await import("../js/data/extraRaces.js");
   assert(RACE_EXTRA_ENTRIES.length === 5, "RACE_EXTRA_ENTRIES count");
+}
+
+// Multiclass pure layer: level splits, prereqs, slots, stripping.
+{
+  const rules = await import("../js/data/rulesEngine.js");
+  const dnd = await import("../js/data/dnd5e.js");
+  const solo = rules.classLevelsFor({ className: "Fighter", level: 5, subclass: "Champion", multiclass: [] });
+  assert(solo.length === 1 && solo[0].levels === 5 && solo[0].primary === true, "classLevelsFor single");
+  const multi = rules.classLevelsFor({ className: "Fighter", level: 6, subclass: "", multiclass: [{ name: "Wizard", levels: 2, subclass: "School of Evocation" }] });
+  assert(multi.length === 2 && multi[0].levels === 4 && multi[1].levels === 2, "classLevelsFor split");
+  assert(rules.meetsMulticlassPrereq({ str: 13, int: 13 }, "Fighter", "Wizard") === true, "prereq met both sides");
+  assert(rules.meetsMulticlassPrereq({ str: 13, int: 12 }, "Fighter", "Wizard") === false, "prereq int-missed");
+  assert(rules.meetsMulticlassPrereq({ str: 10, dex: 13 }, "Rogue", "Fighter") === true, "prereq fighter either-or");
+  assert(rules.meetsMulticlassPrereq({ dex: 15, wis: 12 }, "Fighter", "Monk") === false, "prereq monk needs both");
+  assert(rules.meetsMulticlassPrereq({ cha: 13 }, "Sorcerer", "Warlock") === true, "prereq same-side");
+  assert(rules.multiclassPrereqReason({ str: 13, int: 12 }, "Fighter", "Wizard") === "needs INT 13", "prereq reason");
+  assert(rules.multiclassPrereqReason({ str: 13, int: 13 }, "Fighter", "Wizard") === "", "prereq reason empty when met");
+  assert(rules.multiclassPrereqReason({ dex: 15, wis: 12 }, "Fighter", "Monk") === "needs DEX 13 and WIS 13", "prereq reason joining");
+  {
+    const norm = rules.normalizeRulesState({ className: "Fighter", level: 6, multiclass: [
+      { name: "Wizard", levels: 2, subclass: "School of Evocation" },
+      { name: "Fighter", levels: 3 },
+      { name: "Rogue", levels: 0 },
+    ] });
+    assert(norm.multiclass.length === 1 && norm.multiclass[0].name === "Wizard", "normalize multiclass drops primary-dupes and zeroed");
+    assert(rules.classLevelsFor(norm).map((c) => `${c.name}:${c.levels}`).join(",") === "Fighter:4,Wizard:2", "classLevelsFor primary derived");
+    assert(rules.classLevelsFor({ className: "", level: 1, multiclass: [] }).length === 0, "classLevelsFor no primary");
+  }
+  const eff = rules.effectiveScoresFor({ str: 10, cha: 12 }, { statModifiers: [{ op: "add", targetFieldId: "chaScore", value: 2 }] });
+  assert(eff.cha === 14 && eff.str === 10, "effectiveScoresFor");
+  assert(dnd.hitDieFor("Barbarian") === 12 && dnd.hitDieFor("Wizard") === 6 && dnd.hitDieFor("Nope") === 8, "hitDieFor");
+  assert(dnd.casterWeight("full") === 1 && dnd.casterWeight("half") === 0.5 && dnd.casterWeight(null) === 0, "casterWeight basic");
+  assert(dnd.casterWeight(null, "Eldritch Knight") === 1 / 3, "casterWeight EK third");
+  const w3 = dnd.multiclassSlotsFor([{ caster: "full", levels: 3 }]);
+  assert(w3[0].fieldId === "slots1" && w3[0].options === 4 && w3[1].options === 2, "multiclassSlotsFor full-3");
+  assert(dnd.multiclassSlotsFor([{ caster: null, levels: 5 }]).length === 0, "multiclassSlotsFor martial none");
+  assert(dnd.multiclassSlotsFor([{ caster: "pact", levels: 3 }]).length === 0, "multiclassSlotsFor pact separate");
+  const pal5 = dnd.multiclassSlotsFor([{ caster: "half", levels: 5 }]);
+  assert(pal5[0].options === 3 && pal5.length === 1, "multiclassSlotsFor half-5");
+  const { stripSecondaryClassBundle } = await import("../js/data/contentFixups.js");
+  const stripped = stripSecondaryClassBundle({ statModifiers: [
+    { targetFieldId: "strSaveProf", op: "grant" },
+    { targetFieldId: "armorProf", op: "grantTag", value: "Light Armor" },
+    { targetFieldId: "strScore", op: "add", value: 2 },
+    { targetFieldId: "athleticsProf", op: "grant" },
+  ] });
+  assert(stripped.statModifiers.length === 2, "stripSecondaryClassBundle drops saves+armor");
+  assert(stripSecondaryClassBundle(null) === null, "stripSecondaryClassBundle null-safe");
 }
 
 if (!process.exitCode) console.log("smoke-imports: all checks passed");

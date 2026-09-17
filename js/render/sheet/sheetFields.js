@@ -53,6 +53,10 @@ export function renderFieldNodeInto(field, parentBlock, cw, parentStyle = {}, de
   el.className = "grid-node grid-node--field";
   el.dataset.nodeId = field.id;
   el.dataset.nodeKind = "field";
+  // Author-set tooltip (hover toolbar → "?" button) plus any starter
+  // content default — native title keeps it working everywhere with
+  // zero extra chrome.
+  if (field.tooltip) el.title = field.tooltip;
   if (isEdit) el.tabIndex = 0;
   applyRectFn(el, field, cw);
   const fieldStyle = mergeStyleFn(parentStyle, field.style || {});
@@ -691,7 +695,7 @@ export const FIELD_TYPE_GROUPS = [
   { name: "Text", types: ["text", "label", "textarea", "textlist"] },
   { name: "Choice", types: ["dropdown", "radio", "checkbox"] },
   { name: "Media", types: ["picture"] },
-  { name: "Interactive", types: ["catalog", "featureList"] },
+  { name: "Interactive", types: ["catalog", "featureList", "characterlink"] },
 ];
 
 export const FIELD_TYPE_LABELS = {
@@ -705,6 +709,7 @@ export const FIELD_TYPE_LABELS = {
   picture: "Image",
   catalog: "Catalog",
   featureList: "Feature List",
+  characterlink: "Character Link",
 };
 
 /** A small, non-interactive preview of an empty text field — used in
@@ -780,6 +785,13 @@ export function buildOptionPreview(kind, count) {
   return wrap;
 }
 
+export function buildCharacterLinkPreview() {
+  const el = document.createElement("span");
+  el.className = "field-type-preview-characterlink";
+  el.textContent = "🔗";
+  return el;
+}
+
 export function previewForType(type, personIconMarkup) {
   switch (type) {
     case "text": return buildTextPreview();
@@ -792,8 +804,122 @@ export function previewForType(type, personIconMarkup) {
     case "picture": return buildPicturePreview(personIconMarkup);
     case "catalog": return buildCatalogPreview();
     case "featureList": return buildFeatureListPreview();
+    case "characterlink": return buildCharacterLinkPreview();
     default: return buildTextPreview();
   }
+}
+
+/** A link to another character sheet — mounts, companions, and
+ *  familiars are full characters, linked (never embedded) here.
+ *  `openFn(id)` navigates (absent in the demo — the button then only
+ *  shows the name); `listFn()` resolves to your characters for the
+ *  picker; `commitFn` persists link changes. */
+export function buildCharacterLinkValueInto(field, deps) {
+  const { openFn, listFn, commitFn } = deps;
+  const el = document.createElement("div");
+  el.className = "field-value field-value--characterlink";
+  el.addEventListener("pointerdown", (e) => e.stopPropagation());
+
+  const openBtn = document.createElement("button");
+  openBtn.type = "button";
+  openBtn.className = "btn characterlink-open";
+
+  const refresh = () => {
+    const name = field.linkedCharacterName || "";
+    openBtn.textContent = name ? `⇄ ${name}` : "Link character…";
+    openBtn.title = field.linkedCharacterId && typeof openFn === "function"
+      ? `Open ${name || "linked character"}`
+      : "Pick which character this links to";
+    openBtn.disabled = Boolean(field.linkedCharacterId) && typeof openFn !== "function";
+  };
+  refresh();
+
+  const pick = async () => {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    const box = document.createElement("div");
+    box.className = "modal-box";
+    box.addEventListener("click", (e) => e.stopPropagation());
+    const heading = document.createElement("h3");
+    heading.textContent = `Link "${field.label || "Field"}" to…`;
+    const copy = document.createElement("p");
+    copy.className = "modal-copy";
+    copy.textContent = "Mounts and companions are full character sheets — pick one to link here.";
+    box.append(heading, copy);
+    let characters = [];
+    try {
+      characters = (typeof listFn === "function" ? await listFn() : []) || [];
+    } catch {
+      characters = [];
+    }
+    if (!characters.length) {
+      const note = document.createElement("p");
+      note.className = "modal-copy";
+      note.textContent = "No other characters yet — create one from the character list first.";
+      box.append(note);
+    }
+    characters.forEach((c) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "btn characterlink-pick";
+      row.textContent = c.name || "Unnamed";
+      row.addEventListener("click", () => {
+        commitFn(() => {
+          field.linkedCharacterId = c.id;
+          field.linkedCharacterName = c.name || "Unnamed";
+        });
+        refresh();
+        overlay.remove();
+      });
+      box.append(row);
+    });
+    const actions = document.createElement("div");
+    actions.className = "modal-actions";
+    if (field.linkedCharacterId) {
+      const clear = document.createElement("button");
+      clear.type = "button";
+      clear.className = "btn";
+      clear.textContent = "Unlink";
+      clear.addEventListener("click", () => {
+        commitFn(() => {
+          field.linkedCharacterId = null;
+          field.linkedCharacterName = "";
+        });
+        refresh();
+        overlay.remove();
+      });
+      actions.append(clear);
+    }
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "btn";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => overlay.remove());
+    actions.append(cancel);
+    box.append(actions);
+    overlay.addEventListener("click", () => overlay.remove());
+    overlay.append(box);
+    document.body.append(overlay);
+  };
+
+  openBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (field.linkedCharacterId && typeof openFn === "function") openFn(field.linkedCharacterId);
+    else pick();
+  });
+
+  const changeBtn = document.createElement("button");
+  changeBtn.type = "button";
+  changeBtn.className = "btn characterlink-change";
+  changeBtn.textContent = "⛓";
+  changeBtn.title = "Link a different character";
+  changeBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    pick();
+  });
+
+  el.append(openBtn, changeBtn);
+  return el;
 }
 
 export function openFieldTypeMenuInto(anchorBtn, onChoose, deps) {
@@ -860,6 +986,62 @@ export function hasLiveOptionCount(field, liveSlotCounts) {
     && (field.optionsFormula || Object.prototype.hasOwnProperty.call(liveSlotCounts, field.id));
 }
 
+/** Small modal to set/clear one field's hover tooltip
+ *  (field.tooltip). Empty + Save clears it back to unset. */
+export function openFieldTooltipEditorInto(field, deps) {
+  const { commitFn } = deps;
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  const box = document.createElement("div");
+  box.className = "modal-box";
+  box.addEventListener("click", (e) => e.stopPropagation());
+  const heading = document.createElement("h3");
+  heading.textContent = `Tooltip for "${field.label || "Field"}"`;
+  const copy = document.createElement("p");
+  copy.className = "modal-copy";
+  copy.textContent = "Shows when anyone hovers this element. Keep it to what the field is for and how to use it.";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "input-group__control";
+  input.placeholder = "e.g. What this tracks and how to use it";
+  input.value = field.tooltip || "";
+  const row = document.createElement("div");
+  row.className = "modal-actions";
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "btn btn--primary";
+  save.textContent = "Save";
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.className = "btn";
+  clear.textContent = "Clear";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "btn";
+  cancel.textContent = "Cancel";
+  const close = () => overlay.remove();
+  save.addEventListener("click", () => {
+    const text = input.value.trim();
+    commitFn(() => {
+      if (text) field.tooltip = text;
+      else delete field.tooltip;
+    });
+    close();
+  });
+  clear.addEventListener("click", () => {
+    commitFn(() => { delete field.tooltip; });
+    close();
+  });
+  cancel.addEventListener("click", close);
+  overlay.addEventListener("click", close);
+  row.append(save, clear, cancel);
+  box.append(heading, copy, input, row);
+  overlay.append(box);
+  document.body.append(overlay);
+  input.focus();
+  input.select();
+}
+
 export function buildFieldToolbarInto(field, parentBlock, wrapperEl, deps) {
   const {
     styleBtnFn,
@@ -869,6 +1051,7 @@ export function buildFieldToolbarInto(field, parentBlock, wrapperEl, deps) {
     choicesEditorFn,
     catalogConfigFn,
     formulaEditorFn,
+    tooltipEditorFn,
     resolveFn,
     commitFn,
     gridFn,
@@ -912,6 +1095,22 @@ export function buildFieldToolbarInto(field, parentBlock, wrapperEl, deps) {
       choicesEditorFn(field, wrapperEl);
     });
     bar.append(editChoicesBtn);
+  }
+
+  // Hover tooltip for the element itself ("?" button) — starter
+  // content ships a few of these for newbie-unfriendly fields; anyone
+  // can add, edit, or clear them per element here.
+  if (typeof tooltipEditorFn === "function") {
+    const tipBtn = document.createElement("button");
+    tipBtn.type = "button";
+    tipBtn.title = field.tooltip ? `Edit tooltip: "${field.tooltip}"` : "Set a hover tooltip for this element";
+    tipBtn.textContent = "?";
+    if (field.tooltip) tipBtn.className = "active";
+    tipBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      tooltipEditorFn(field);
+    });
+    bar.append(tipBtn);
   }
 
   if (field.fieldType === "catalog") {

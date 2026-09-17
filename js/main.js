@@ -330,6 +330,19 @@ async function openNewCharacterDialog() {
   copy.className = "modal-copy";
   copy.textContent = "Start with a blank sheet or choose a saved template.";
 
+  const modeRow = document.createElement("div");
+  modeRow.className = "modal-copy";
+  modeRow.textContent = "How will you mainly use this sheet? (Changeable anytime from its toolbar.) ";
+  const screenLabel = document.createElement("label");
+  const screenRadio = document.createElement("input");
+  screenRadio.type = "radio"; screenRadio.name = "sheet-mode"; screenRadio.value = "screen"; screenRadio.checked = true;
+  screenLabel.append(screenRadio, " Use on screen");
+  const printLabel = document.createElement("label");
+  const printRadio = document.createElement("input");
+  printRadio.type = "radio"; printRadio.name = "sheet-mode"; printRadio.value = "print";
+  printLabel.append(printRadio, " Print out");
+  modeRow.append(screenLabel, " ", printLabel);
+
   const templateSelect = document.createElement("select");
   templateSelect.className = "input-group__control";
   templateSelect.disabled = true;
@@ -358,7 +371,7 @@ async function openNewCharacterDialog() {
   cancelBtn.textContent = "Cancel";
 
   buttonRow.append(blankBtn, templateBtn, cancelBtn);
-  box.append(title, copy, templateSelect, buttonRow);
+  box.append(title, copy, modeRow, templateSelect, buttonRow);
   overlay.append(box);
   document.body.append(overlay);
 
@@ -366,13 +379,16 @@ async function openNewCharacterDialog() {
   overlay.addEventListener("click", close);
   cancelBtn.addEventListener("click", close);
 
+  const chosenSheetMode = () => (printRadio.checked ? "print" : "screen");
   blankBtn.addEventListener("click", async () => {
     // No `layout` key here on purpose — renderCustomSheet seeds a
     // fresh one (createStarterLayout(), now a real D&D core stat
     // block) the first time a character has none. Explicitly setting
     // layout: [] here used to defeat that check (an empty array is
     // still truthy), so new "blank" characters silently got nothing.
-    const id = await createCharacter(createBlankCharacter(currentUserId()));
+    const data = createBlankCharacter(currentUserId());
+    data.sheetMode = chosenSheetMode();
+    const id = await createCharacter(data);
     close();
     openCharacter(id);
   });
@@ -407,6 +423,7 @@ async function openNewCharacterDialog() {
     const layout = sheetTabs[0]?.layout || cloneLayout(template.layout);
     const characterData = {
       ...createBlankCharacter(currentUserId()),
+      sheetMode: chosenSheetMode(),
       layout,
     };
     if (sheetTabs.length > 0) characterData.sheetTabs = sheetTabs;
@@ -427,5 +444,7 @@ async function openCharacter(characterId) {
 
   const sheetRoot = document.createElement("div");
   appRoot.append(sheetRoot);
-  openSheet = renderCustomSheet(sheetRoot, character, characterStore);
+  openSheet = renderCustomSheet(sheetRoot, character, characterStore, {
+    onOpenCharacter: (id) => leaveCurrentSheet(() => openCharacter(id)),
+  });
 }

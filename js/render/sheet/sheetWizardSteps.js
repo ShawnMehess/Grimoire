@@ -501,7 +501,7 @@ export function applyLiveSubclassOverride(plan, { selectedSubclass, level, liveS
   return plan;
 }
 
-export function initPendingLevelState(pendingState, levelKey, { subclass, choices }) {
+export function initPendingLevelState(pendingState, levelKey, { subclass, choices, className, newClassName } = {}) {
   if (!pendingState[levelKey]) {
     pendingState[levelKey] = {
       hp: "",
@@ -511,12 +511,108 @@ export function initPendingLevelState(pendingState, levelKey, { subclass, choice
       asiAbility1: "",
       asiAbility2: "",
       featChoice: "",
+      className: className || "",
+      newClassName: newClassName || "",
       choices: Object.fromEntries(
         Object.entries(choices || {}).map(([key, picks]) => [key, [...picks]])
       ),
     };
   }
   return pendingState[levelKey];
+}
+
+/** "Which class gains this level" picker for the level-up guide's
+ *  optional first step (only rendered at total level 2+, since
+ *  multiclassing can't start at 1st). Radios for the primary class
+ *  and every existing secondary (with an ✕ to drop a secondary), plus
+ *  a "new class" radio revealing a prereq-gated dropdown. All state
+ *  lives on `pending` (className/newClassName); `onChangeFn`
+ *  re-renders so plan, steps, and gating follow the pick. */
+export function renderGuideLevelClassStepInto(container, pending, deps) {
+  const {
+    primaryName, primaryLevel, entries, level, allClassNames,
+    eligibilityFn, subclassForFn, removeFn, confirmFn, onChangeFn,
+  } = deps;
+  const pick = (value) => {
+    pending.className = value;
+    if (value !== "__new") pending.newClassName = "";
+    pending.subclass = subclassForFn(value === "__new" ? pending.newClassName : value) || "";
+    if (onChangeFn) onChangeFn();
+  };
+  const row = (value, label, sub) => {
+    const rowEl = document.createElement("label");
+    rowEl.className = "level-guide__choice-option";
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "level-class";
+    input.value = value;
+    input.checked = pending.className === value;
+    input.addEventListener("change", () => pick(value));
+    const text = document.createElement("span");
+    text.textContent = label;
+    rowEl.append(input, text);
+    if (sub) {
+      const note = document.createElement("span");
+      note.className = "level-guide__choice-description";
+      note.textContent = sub;
+      rowEl.append(note);
+    }
+    container.append(rowEl);
+    return rowEl;
+  };
+  row(primaryName, `${primaryName} (primary class)`, "Continue as your primary class.");
+  entries.forEach((entry) => {
+    const rowEl = row(entry.name, `${entry.name} — now ${entry.levels}${entry.subclass ? ` (${entry.subclass})` : ""}`, null);
+    const drop = document.createElement("button");
+    drop.type = "button";
+    drop.className = "btn formula-toolbar__btn";
+    drop.textContent = "✕";
+    drop.title = `Remove ${entry.name} levels (features recompute without them)`;
+    drop.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (confirmFn && !confirmFn(`Drop all ${entry.name} levels? Its features and spells will stop applying.`)) return;
+      if (removeFn) removeFn(entry.name);
+      if (pending.className === entry.name) {
+        pending.className = primaryName;
+        pending.newClassName = "";
+        pending.subclass = subclassForFn(primaryName) || "";
+      }
+      if (onChangeFn) onChangeFn();
+    });
+    rowEl.append(drop);
+  });
+  if ((level ?? 1) >= 2) {
+    const newRow = row("__new", "New class…", "Start multiclassing — needs 13+ in the right abilities (checked below).");
+    if (pending.className === "__new") {
+      const group = document.createElement("label");
+      group.className = "level-guide__field";
+      group.textContent = "New class";
+      const select = document.createElement("select");
+      select.className = "input-group__control";
+      const blank = document.createElement("option");
+      blank.value = "";
+      blank.textContent = "Choose class";
+      select.append(blank);
+      const taken = new Set([primaryName, ...entries.map((e) => e.name)]);
+      allClassNames.forEach((name) => {
+        if (taken.has(name)) return;
+        const eligible = eligibilityFn ? eligibilityFn(name) : { ok: true, reason: "" };
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = eligible.ok ? name : `${name} (${eligible.reason})`;
+        option.disabled = !eligible.ok;
+        select.append(option);
+      });
+      select.value = pending.newClassName || "";
+      select.addEventListener("change", () => {
+        pending.newClassName = select.value;
+        pending.subclass = "";
+        if (onChangeFn) onChangeFn();
+      });
+      group.append(select);
+      newRow.append(group);
+    }
+  }
 }
 
 export function syncPendingChoices(pending, contentGroups, savedChoices = {}) {
@@ -563,8 +659,9 @@ export function averageHpOnce(dieSize, conMod) {
   return Math.max(1, Math.floor(dieSize / 2) + 1 + conMod);
 }
 
-export function levelReviewSummary({ hp, subclass, needsAsi, asiMode, featChoice, asiAbilities = [], slots }) {
+export function levelReviewSummary({ hp, subclass, needsAsi, asiMode, featChoice, asiAbilities = [], slots, classLabel }) {
   const parts = [`HP +${hp || "?"}`];
+  if (classLabel) parts.unshift(classLabel);
   if (subclass) parts.push(`Subclass: ${subclass}`);
   if (needsAsi) parts.push(asiMode === "feat" ? `Feat: ${featChoice || "not chosen yet"}` : `ASI: ${asiAbilities.filter(Boolean).map((id) => id.toUpperCase()).join(", ") || "not chosen yet"}`);
   if (slots) parts.push(`Spell slots: ${slots}`);
@@ -807,10 +904,11 @@ export function applyAsiToScores(scores, mode, ability1, ability2) {
   return `+1 ${ability1.toUpperCase()}, +1 ${ability2.toUpperCase()}`;
 }
 
-export function buildLevelUpEntry({ level, hpGain, subclassName, slots, featureEntry, asiSummary, appliedRulesetId, prev = {} }) {
+export function buildLevelUpEntry({ level, hpGain, subclassName, slots, featureEntry, asiSummary, appliedRulesetId, className, prev = {} }) {
   return {
     ...prev,
     hp: `+${hpGain}`,
+    className: className || prev.className || "",
     subclass: subclassName || "",
     spells: slots ? `Spell slots: ${slots}.` : "",
     features: featureEntry,

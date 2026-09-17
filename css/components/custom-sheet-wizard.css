@@ -578,6 +578,41 @@
   font-size: var(--text-sm);
 }
 
+/* Spell picker filter/sort row + tag chips on rows. */
+.spell-picker-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.spell-picker-controls__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.spell-picker-controls__select {
+  max-width: 180px;
+}
+.choice-row__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.choice-row__tag {
+  font-size: var(--text-xs);
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  background: transparent;
+}
+
 /* Locked-by-default picks (e.g. Common): same dim + accent treatment
    as already-granted options, since they read the same way. */
 .level-guide__choice-option--locked {

@@ -81,11 +81,39 @@ export function openCatalogBrowser({ catalog, getMoney, spendMoney, moneyLabel }
   tabsRow.className = "catalog-browser__tabs";
   box.append(tabsRow);
 
+  // Tag filter + sort, shown whenever the active tab's entries carry
+  // meta tags (compiled spell/item catalogs do). Tag options come
+  // from the entries themselves so dead options never appear.
+  let activeTag = "all";
+  let activeSort = "name";
+  const filterRow = document.createElement("div");
+  filterRow.className = "catalog-browser__filters";
+  const tagSelect = document.createElement("select");
+  tagSelect.className = "input-group__control";
+  tagSelect.title = "Filter by tag";
+  const sortSelect = document.createElement("select");
+  sortSelect.className = "input-group__control";
+  sortSelect.title = "Sort entries";
+  [["name", "Name A–Z"], ["cost-asc", "Cost ↑"], ["cost-desc", "Cost ↓"]].forEach(([value, text]) => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    sortSelect.append(o);
+  });
+  tagSelect.addEventListener("change", () => { activeTag = tagSelect.value; renderEntries(); });
+  sortSelect.addEventListener("change", () => { activeSort = sortSelect.value; renderEntries(); });
+  box.append(filterRow);
+
   const entryList = document.createElement("div");
   entryList.className = "catalog-browser__entries";
   box.append(entryList);
 
   function close() { overlay.remove(); }
+
+  function entryTags(entry) {
+    const tags = entry && entry.fieldValues && entry.fieldValues.tags;
+    return Array.isArray(tags) ? tags : [];
+  }
 
   function renderTabs() {
     tabsRow.innerHTML = "";
@@ -104,18 +132,56 @@ export function openCatalogBrowser({ catalog, getMoney, spendMoney, moneyLabel }
     });
   }
 
+  function renderFilterRow(entries) {
+    filterRow.innerHTML = "";
+    const present = [...new Set(entries.flatMap(entryTags))].sort();
+    if (!present.length) {
+      filterRow.style.display = "none";
+      return;
+    }
+    filterRow.style.display = "";
+    if (!present.includes(activeTag)) activeTag = "all";
+    tagSelect.innerHTML = "";
+    const all = document.createElement("option");
+    all.value = "all";
+    all.textContent = "All tags";
+    tagSelect.append(all);
+    present.forEach((tag) => {
+      const o = document.createElement("option");
+      o.value = tag;
+      o.textContent = tag;
+      tagSelect.append(o);
+    });
+    tagSelect.value = activeTag;
+    const tagLabel = document.createElement("span");
+    tagLabel.className = "catalog-browser__filter-label";
+    tagLabel.textContent = "Tag:";
+    const sortLabel = document.createElement("span");
+    sortLabel.className = "catalog-browser__filter-label";
+    sortLabel.textContent = "Sort:";
+    filterRow.append(tagLabel, tagSelect, sortLabel, sortSelect);
+  }
+
   function renderEntries() {
     entryList.innerHTML = "";
     const tab = tabs.find((t) => t.id === activeTabId) || tabs[0];
     const entries = (tab && tab.entries) || [];
-    if (entries.length === 0) {
+    renderFilterRow(entries);
+    let visible = activeTag === "all" ? [...entries] : entries.filter((e) => entryTags(e).includes(activeTag));
+    if (activeSort !== "name") {
+      const costOf = (e) => acquisitionCosts(catalog, tab, e).numericTotal;
+      visible.sort((a, b) => (activeSort === "cost-asc" ? costOf(a) - costOf(b) : costOf(b) - costOf(a)));
+    } else {
+      visible.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }
+    if (visible.length === 0) {
       const empty = document.createElement("div");
       empty.className = "catalog-browser__empty";
-      empty.textContent = "Nothing here yet.";
+      empty.textContent = entries.length === 0 ? "Nothing here yet." : "No entries match this filter.";
       entryList.append(empty);
       return;
     }
-    entries.forEach((entry) => entryList.append(renderEntry(tab, entry)));
+    visible.forEach((entry) => entryList.append(renderEntry(tab, entry)));
   }
 
   function renderEntry(tab, entry) {
@@ -141,6 +207,17 @@ export function openCatalogBrowser({ catalog, getMoney, spendMoney, moneyLabel }
     descEl.className = "catalog-browser__entry-desc";
     descEl.textContent = entry.description || "";
     info.append(nameEl, descEl);
+    if (entryTags(entry).length) {
+      const tagsEl = document.createElement("div");
+      tagsEl.className = "catalog-browser__entry-tags";
+      entryTags(entry).forEach((tag) => {
+        const chip = document.createElement("span");
+        chip.className = "catalog-browser__entry-tag";
+        chip.textContent = tag;
+        tagsEl.append(chip);
+      });
+      info.append(tagsEl);
+    }
     row.append(info);
 
     const costs = acquisitionCosts(catalog, tab, entry);

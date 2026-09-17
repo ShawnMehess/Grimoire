@@ -65,6 +65,81 @@ const SPELL_ABILITY = {
   Bard: "cha", Sorcerer: "cha", Warlock: "cha", Paladin: "cha",
 };
 
+// Standard hit dice by class (Schema.txt has no hit-die section).
+export const CLASS_HIT_DICE = {
+  Barbarian: 12,
+  Fighter: 10, Paladin: 10, Ranger: 10,
+  Bard: 8, Cleric: 8, Druid: 8, Monk: 8, Rogue: 8, Warlock: 8,
+  Sorcerer: 6, Wizard: 6,
+};
+
+/** Hit die size for a class (8 when unknown — the most common die —
+ *  rather than crashing a homebrew flow). Pure. */
+export function hitDieFor(className) {
+  return CLASS_HIT_DICE[className] || 8;
+}
+
+// PHB multiclass spellcaster table: rows are effective caster level
+// (full levels + half levels/2↓ + third levels/3↓, min 1), values are
+// slot counts for slots1..slots9. Eldritch Knight / Arcane Trickster
+// subclasses cast as third-casters; everything else follows its
+// class's own caster type.
+const MULTICLASS_SLOTS = {
+  1: [2, 0, 0, 0, 0, 0, 0, 0, 0],
+  2: [3, 0, 0, 0, 0, 0, 0, 0, 0],
+  3: [4, 2, 0, 0, 0, 0, 0, 0, 0],
+  4: [4, 3, 0, 0, 0, 0, 0, 0, 0],
+  5: [4, 3, 2, 0, 0, 0, 0, 0, 0],
+  6: [4, 3, 3, 0, 0, 0, 0, 0, 0],
+  7: [4, 3, 3, 1, 0, 0, 0, 0, 0],
+  8: [4, 3, 3, 2, 0, 0, 0, 0, 0],
+  9: [4, 3, 3, 3, 1, 0, 0, 0, 0],
+  10: [4, 3, 3, 3, 2, 0, 0, 0, 0],
+  11: [4, 3, 3, 3, 2, 1, 0, 0, 0],
+  12: [4, 3, 3, 3, 2, 1, 0, 0, 0],
+  13: [4, 3, 3, 3, 2, 1, 1, 0, 0],
+  14: [4, 3, 3, 3, 2, 1, 1, 0, 0],
+  15: [4, 3, 3, 3, 2, 1, 1, 1, 0],
+  16: [4, 3, 3, 3, 2, 1, 1, 1, 0],
+  17: [4, 3, 3, 3, 2, 1, 1, 1, 1],
+  18: [4, 3, 3, 3, 3, 1, 1, 1, 1],
+  19: [4, 3, 3, 3, 3, 2, 1, 1, 1],
+  20: [4, 3, 3, 3, 3, 2, 2, 1, 1],
+};
+
+const THIRD_CASTER_SUBCLASSES = new Set(["eldritchknight", "arcanetrickster"]);
+
+/** Effective caster level for one class slice, given its caster type
+ *  and subclass (Eldritch Knight / Arcane Trickster count third). */
+export function casterWeight(caster, subclass) {
+  if (caster === "full") return 1;
+  if (caster === "half") return 1 / 2;
+  const norm = (subclass || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (THIRD_CASTER_SUBCLASSES.has(norm)) return 1 / 3;
+  return 0;
+}
+
+/** Combined spell slots for a multiclassed character: [{ fieldId:
+ *  "slotsN", options: count }], same shape as slotsFor. `classes` is
+ *  [{ caster, levels, subclass }]. Warlock pact slots are NOT part of
+ *  this table (they stay on their own short-rest track) — callers
+ *  with a Warlock slice merge warlockSlots separately. Pure. */
+export function multiclassSlotsFor(classes = []) {
+  let effective = 0;
+  for (const c of classes) {
+    const levels = c.levels || 0;
+    if (levels <= 0) continue;
+    // Rounded down per class (PHB: half/third levels round down).
+    effective += Math.floor(levels * casterWeight(c.caster, c.subclass));
+  }
+  if (effective <= 0) return [];
+  effective = Math.min(20, effective);
+  const row = MULTICLASS_SLOTS[effective] || [];
+  return row
+    .map((count, i) => ({ fieldId: `slots${i + 1}`, options: count }))
+    .filter((change) => change.options > 0);
+}
+
 // Cantrips known and spells known, by level (1-20) — standard 5e
 // tables for the "known" casters. Not derivable from Schema.txt (it
 // has no spellcasting section), so hand-written here rather than

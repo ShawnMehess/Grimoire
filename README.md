@@ -363,6 +363,31 @@ says so instead of an empty picker.
   plus the background's fixed package; applied once at Finish Setup
   (items to Inventory, gold to GP). Review lists every choice made.
 
+## Multiclassing
+
+Starting at total level 2, the Leveling tab asks which class gains
+each level: the primary class, an existing secondary, or a brand-new
+one (gated on 13+ in the right abilities, racial bonuses counted —
+Fighters need Str or Dex, Monks/Paladins/Rangers need both of
+theirs). Secondary classes live in `rules.multiclass`; the primary
+class's levels stay derived (total minus secondary), so single-class
+sheets behave exactly as before.
+
+- Class/subclass features, resources, choice groups, and granted
+  spells gate on each class's own levels, not the total.
+- Spell slots follow the PHB multiclass table (Warlock pact slots
+  stay on their own short-rest track and merge by max per tracker).
+- New classes grant no save proficiencies and no armor/weapon fixed
+  grants (PHB); skills/tools stay pickable, and the Equipment
+  Proficiencies tab covers the rest by hand.
+- Each applied level records which class took it (visible on the
+  level rows). Secondary subclasses live on the multiclass entry —
+  the sheet's Subclass dropdown keeps showing the primary's.
+- Simplifications, stated plainly: skill pick counts use the class's
+  normal groups, secondary-caster spell picks aren't limit-enforced,
+  and the spell picker shows the level's class (anything else goes in
+  Spells Known by hand).
+
 ## Sharing with friends / offline mode
 
 - **Shared (default):** the Firebase project is already configured in

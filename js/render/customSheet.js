@@ -62,13 +62,16 @@ import { openFormulaEditor } from "./formulaEditor.js";
 import { openBundleLibraryManager } from "./bundleLibraryEditor.js";
 import { openCatalogLibraryManager } from "./catalogLibraryEditor.js";
 import { openCatalogBrowser } from "./catalogBrowser.js";
-import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets } from "../data/dnd5e.js";
-import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor } from "../data/rulesEngine.js";
+import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets, hitDieFor, multiclassSlotsFor } from "../data/dnd5e.js";
+import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor, classLevelsFor, meetsMulticlassPrereq, effectiveScoresFor, multiclassPrereqReason } from "../data/rulesEngine.js";
+import { SUBCLASS_SUPPLEMENT } from "../data/subclassContent.js";
+import { stripSecondaryClassBundle } from "../data/contentFixups.js";
 import { DEFAULT_CONTENT } from "../data/defaultContent.js";
 import { FEAT_BUNDLES, FEAT_CATALOG, FEAT_NAMES } from "../data/featBundles.js";
 import { SPELL_CATALOG, WEAPONS_ARMOR_CATALOG, GEAR_CATALOG } from "../data/contentCatalogs.js";
 import { RACE_EXTRA_CATALOG_ENTRIES } from "../data/extraRaces.js";
 import { flavorFor } from "../data/pickerFlavor.js";
+import { SHEET_THEMES, applySheetTheme } from "../data/themes.js";
 import { CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT, goldOptionIdFor, slugId, resolveStartingEquipmentPick } from "../data/startingEquipment.js";
 import { ABILITIES, SKILLS } from "../data/schema.js";
 import {
@@ -160,6 +163,8 @@ import {
   buildTextPreview as sharedBuildTextPreview,
   buildLabelPreview as sharedBuildLabelPreview,
   buildTextareaPreview as sharedBuildTextareaPreview,
+  openFieldTooltipEditorInto,
+  buildCharacterLinkValueInto,
   buildTextlistPreview as sharedBuildTextlistPreview,
   buildDropdownPreview as sharedBuildDropdownPreview,
   buildPicturePreview as sharedBuildPicturePreview,
@@ -287,6 +292,7 @@ import {
   levelReviewSummary,
   validateLevelApply,
   renderGuideSubclassStepInto,
+  renderGuideLevelClassStepInto,
   renderGuideAsiStepInto,
   renderGuideFeaturesStepInto,
   renderGuideHpStepInto,
@@ -340,7 +346,11 @@ import {
   rollAbilityScore as sharedRollAbilityScore,
 } from "./sheet/sheetRules.js";
 
-export function renderCustomSheet(root, character, store) {
+export function renderCustomSheet(root, character, store, opts = {}) {
+  // opts.onOpenCharacter(id) — used by Character Link fields (mounts,
+  // companions) to jump to another sheet. Absent in contexts without
+  // navigation (demo), where links display read-only instead.
+  const openCharacterById = typeof opts?.onOpenCharacter === "function" ? opts.onOpenCharacter : null;
   // Set (not yet saved — see needsLevelFieldAutosave below, which
   // persists this once saveWithStatus/statusEl exist further down this
   // function; calling saveWithStatus this early would throw, since it
@@ -566,7 +576,7 @@ export function renderCustomSheet(root, character, store) {
   sidebarToggleBtn.title = "Show/hide the Stat Blocks list";
   sidebarToggleBtn.addEventListener("click", () => {
     sidebarCollapsed = !sidebarCollapsed;
-    blockFrame.classList.toggle("is-collapsed", sidebarCollapsed);
+    syncSidebarVisibility();
   });
   toolbar.append(sidebarToggleBtn);
 
@@ -639,6 +649,61 @@ export function renderCustomSheet(root, character, store) {
     if (syncMessage) statusEl.textContent = syncMessage;
   });
   toolbar.append(rulesetSyncBtn);
+
+  // Display prefs, changeable anytime: color theme + screen/print
+  // mode + a print button. Theme and mode persist on the character.
+  const themeSelect = document.createElement("select");
+  themeSelect.className = "input-group__control";
+  themeSelect.style.maxWidth = "160px";
+  themeSelect.title = "Color theme for this character sheet";
+  SHEET_THEMES.forEach((theme) => {
+    const option = document.createElement("option");
+    option.value = theme.id;
+    option.textContent = theme.name;
+    themeSelect.append(option);
+  });
+  const effectiveTheme = () => character.themeId || (character.sheetMode === "print" ? "light" : "default");
+  themeSelect.value = effectiveTheme();
+  applySheetTheme(themeSelect.value);
+  themeSelect.addEventListener("change", () => {
+    character.themeId = themeSelect.value;
+    applySheetTheme(themeSelect.value);
+    saveWithStatus("themeId", character.themeId);
+  });
+  toolbar.append(themeSelect);
+
+  const modeSelect = document.createElement("select");
+  modeSelect.className = "input-group__control";
+  modeSelect.style.maxWidth = "150px";
+  modeSelect.title = "How you'll mainly use this sheet — changeable anytime here";
+  [["screen", "Use on screen"], ["print", "Print out"]].forEach(([value, label]) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    modeSelect.append(option);
+  });
+  modeSelect.value = character.sheetMode || "screen";
+  modeSelect.addEventListener("change", () => {
+    character.sheetMode = modeSelect.value;
+    // Print reads best on the light theme — switch there on the way
+    // in (still overridable afterward via the theme picker).
+    if (character.sheetMode === "print" && !character.themeId) {
+      character.themeId = "light";
+      themeSelect.value = "light";
+      applySheetTheme("light");
+      saveWithStatus("themeId", character.themeId);
+    }
+    saveWithStatus("sheetMode", character.sheetMode);
+  });
+  toolbar.append(modeSelect);
+
+  const printBtn = document.createElement("button");
+  printBtn.type = "button";
+  printBtn.className = "btn";
+  printBtn.textContent = "Print";
+  printBtn.title = "Print this character sheet (or save it as PDF)";
+  printBtn.addEventListener("click", () => window.print());
+  toolbar.append(printBtn);
 
   // Everything else the character-selection page shows on a card
   // (Race, Class, Level, whatever) is NOT intrinsic — name is the
@@ -790,11 +855,21 @@ export function renderCustomSheet(root, character, store) {
   tabsBar.className = "sheet-tabs";
   root.append(tabsBar);
 
+  // The Stat Blocks palette belongs to the Customize editor, not
+  // play mode — entering customize shows it, leaving hides it again.
+  // The ☰ toggle itself only exists while customizing.
+  function syncSidebarVisibility() {
+    blockFrame.classList.toggle("is-collapsed", !editMode || sidebarCollapsed);
+    sidebarToggleBtn.style.display = editMode ? "" : "none";
+  }
+
   modeBtn.addEventListener("click", () => {
     editMode = !editMode;
     modeBtn.textContent = editMode ? "Done Editing" : "Customize Sheet";
     addBlockBtn.style.display = editMode ? "" : "none";
     pageGrid.classList.toggle("is-edit-mode", editMode);
+    if (editMode) sidebarCollapsed = false;
+    syncSidebarVisibility();
     renderAll();
   });
 
@@ -815,6 +890,7 @@ export function renderCustomSheet(root, character, store) {
   const blockFrame = document.createElement("aside");
   blockFrame.className = "sheet-block-frame" + (sidebarCollapsed ? " is-collapsed" : "");
   workbench.append(blockFrame);
+  syncSidebarVisibility();
 
   const scrollWrapper = document.createElement("div");
   scrollWrapper.className = "page-grid-scroll";
@@ -1629,6 +1705,76 @@ export function renderCustomSheet(root, character, store) {
     applySharedStatModifiers(modifiers, valueMap, checkboxGrants, tagGrants, level);
   }
 
+  // --- Multiclassing -------------------------------------------------------
+  // Secondary classes live in character.rules.multiclass as
+  // [{ name, levels, subclass }]; the primary class's levels stay
+  // derived (total minus secondary) so single-class sheets behave
+  // exactly as before. Class/subclass bundle minLevel gates resolve
+  // per class via bundleLevelFor, threaded through the pure appliers
+  // as an optional levelFor (omitted = uniform level = old behavior).
+  const SUBCLASS_CLASS_BY_NAME = new Map(
+    SUBCLASS_SUPPLEMENT.map((s) => [(s.name || "").toLowerCase().replace(/[^a-z0-9]/g, ""), s.className])
+  );
+
+  function multiclassEntries() {
+    return Array.isArray(character.rules?.multiclass) ? character.rules.multiclass : [];
+  }
+
+  /** Primary class = whatever the Class dropdown shows (the wizard's
+   *  rules.className as fallback). */
+  function primaryClassName() {
+    const field = findStarterField("class", "Class");
+    const selected = (field?.choices || []).find((c) => c.id === field.selected);
+    return selected?.text || character.rules?.className || "";
+  }
+
+  function primaryClassLevel() {
+    const total = currentCharacterLevel() ?? character.rules?.level ?? 1;
+    const used = multiclassEntries().reduce((n, e) => n + (Number(e.levels) || 0), 0);
+    return Math.max(1, total - used);
+  }
+
+  function classLevelOf(className) {
+    if (!className) return null;
+    if (className === primaryClassName()) return primaryClassLevel();
+    const entry = multiclassEntries().find((e) => e.name === className);
+    return entry ? entry.levels : null;
+  }
+
+  /** Class level gating a dropdown bundle's minLevel'd grants: Class
+   *  field → that class's levels, Subclass field → the owning class's
+   *  levels, everything else → null (uniform total level). */
+  function bundleLevelFor(field, choice) {
+    if (!multiclassEntries().length) return null;
+    const label = (field?.label || "").toLowerCase();
+    if (label === "class") return classLevelOf(choice?.text);
+    if (label === "subclass" || field?.id === "subclass") {
+      const cls = SUBCLASS_CLASS_BY_NAME.get(((choice?.text) || "").toLowerCase().replace(/[^a-z0-9]/g, ""));
+      if (!cls) return null;
+      return classLevelOf(cls);
+    }
+    return null;
+  }
+
+  /** Secondary class + subclass bundles with their class levels,
+   *  ready for the appliers' extraBundles param. Class bundles are
+   *  stripped per PHB multiclassing (no save proficiencies, no
+   *  armor/weapon fixed grants — skills/tools stay pickable, and the
+   *  Equipment Proficiencies tab covers the rest by hand). */
+  function extraSecondaryBundles() {
+    const out = [];
+    for (const entry of multiclassEntries()) {
+      const lvl = entry.levels;
+      const classBundle = stripSecondaryClassBundle(bundleFor("Class", entry.name, currentRulesetId()));
+      if (classBundle) out.push({ bundle: classBundle, level: lvl, source: entry.name });
+      if (entry.subclass) {
+        const subBundle = bundleFor("Subclass", entry.subclass, currentRulesetId());
+        if (subBundle) out.push({ bundle: subBundle, level: lvl, source: entry.subclass });
+      }
+    }
+    return out;
+  }
+
   function activeRuleChoiceGroups(fields, valueMap) {
     // Dropdown bundles' groups plus taken feats' own groups (Resilient's
     // ability pick, Skilled's skill picks, …) — feat groups are keyed
@@ -1637,7 +1783,7 @@ export function renderCustomSheet(root, character, store) {
     // Equipment-proficiency pickers ride along too so their picks keep
     // applying after setup; Common stays locked everywhere.
     return lockCommonInLanguageGroups([
-      ...activeChoiceGroupsFor(fields, currentLevel(valueMap)),
+      ...activeChoiceGroupsFor(fields, currentLevel(valueMap), bundleLevelFor, extraSecondaryBundles()),
       ...featChoiceGroupsFor(selectedFeatBundles()),
       ...equipmentProficiencyGroups(),
     ]);
@@ -1667,7 +1813,9 @@ export function renderCustomSheet(root, character, store) {
       currentLevel(valueMap),
       selectedRuleOptions(fields, valueMap),
       selectedFeatBundles(),
-      (modifiers, vm, cb, tags, level) => applyStatModifiers(modifiers, vm, cb, tags, level)
+      (modifiers, vm, cb, tags, level) => applyStatModifiers(modifiers, vm, cb, tags, level),
+      bundleLevelFor,
+      extraSecondaryBundles()
     );
   }
 
@@ -1676,7 +1824,9 @@ export function renderCustomSheet(root, character, store) {
       fields,
       currentLevel(valueMap),
       selectedRuleOptions(fields, valueMap),
-      selectedFeatBundles()
+      selectedFeatBundles(),
+      bundleLevelFor,
+      extraSecondaryBundles()
     );
   }
 
@@ -1687,7 +1837,9 @@ export function renderCustomSheet(root, character, store) {
       valueMap,
       selectedRuleOptions(fields, valueMap),
       selectedFeatBundles(),
-      (formula, vm) => evaluateFormulaNode(formula, vm)
+      (formula, vm) => evaluateFormulaNode(formula, vm),
+      bundleLevelFor,
+      extraSecondaryBundles()
     );
   }
 
@@ -1702,7 +1854,7 @@ export function renderCustomSheet(root, character, store) {
    *  (e.g. Tiefling Darkness at character level 5). */
   function syncGrantedListItems(level) {
     const fields = flattenGlobalFields();
-    const grants = collectListItemGrantsIn(fields, level, selectedRuleOptions(fields, formulaValues), selectedFeatBundles());
+    const grants = collectListItemGrantsIn(fields, level, selectedRuleOptions(fields, formulaValues), selectedFeatBundles(), bundleLevelFor, extraSecondaryBundles());
     grants.forEach(({ fieldId, items }) => {
       let target = findStarterField(fieldId, null);
       if (!target && fieldId === "spellsKnown") target = ensureSpellListField();
@@ -1749,6 +1901,32 @@ export function renderCustomSheet(root, character, store) {
    *  ensureStandardSpellSlotFields and the wizard's own summary text
    *  already trust. */
   function computeSpellSlotCounts(fields, valueMap) {
+    // Multiclassed casters share the PHB multiclass spellcaster table
+    // (Warlock pact slots merge in separately, taking the higher count
+    // per tracker since the sheet has one radio row per slot level).
+    // Single-class sheets take the untouched per-class plan path below.
+    const secondaries = multiclassEntries();
+    if (secondaries.length) {
+      const rulesetId = character.rules?.rulesetId || character.rulesetId;
+      const slices = [{ name: primaryClassName(), levels: primaryClassLevel(), subclass: selectedChoiceName("subclass", "Subclass") }];
+      for (const e of secondaries) slices.push({ name: e.name, levels: e.levels, subclass: e.subclass });
+      const withCasters = slices.map((s) => ({
+        ...s,
+        caster: getRulesetClass(rulesetId, s.name)?.caster || null,
+      }));
+      const merged = new Map();
+      for (const change of multiclassSlotsFor(withCasters)) {
+        merged.set(change.fieldId, Math.max(merged.get(change.fieldId) || 0, change.options));
+      }
+      for (const s of withCasters) {
+        if (s.caster !== "pact" || s.levels < 1) continue;
+        const pact = getLevelUpPlan(rulesetId, s.name, s.levels)?.slotChanges || [];
+        for (const change of pact) {
+          merged.set(change.fieldId, Math.max(merged.get(change.fieldId) || 0, change.options));
+        }
+      }
+      return Object.fromEntries(merged);
+    }
     // Sourced from the sheet's actual Class dropdown selection (not
     // character.rules.className, which only updates when the
     // Creation/Leveling wizard is actually used) and the same
@@ -1982,14 +2160,15 @@ export function renderCustomSheet(root, character, store) {
   function renderPageGrid() {
     // A full render tears down and rebuilds every node in pageGrid, and
     // clearing it out momentarily (before the new content is appended
-    // back in) can leave the browser thinking the scroll container is
-    // empty and clamp its scroll position to the top. That's what made
-    // clicking a row, changing a dropdown, or editing a number field
-    // feel like the whole page "refreshed" out from under you — so the
-    // position is saved here and explicitly restored once the rebuild
-    // is done (see both exit points below).
+    // back in) can leave the browser thinking the page is empty and
+    // clamp its scroll position to the top. That's what made clicking
+    // a row, changing a dropdown, or editing a number field feel like
+    // the whole page "refreshed" out from under you — so the position
+    // is saved here and explicitly restored once the rebuild is done
+    // (see both exit points below). The sheet scrolls with the page
+    // itself (no inner scroll box), so this is window scroll now.
     if (ensureStableCombatIds()) persist();
-    const preservedScrollTop = scrollWrapper.scrollTop;
+    const preservedScrollTop = window.scrollY || 0;
     pageGrid.innerHTML = "";
     pageGrid.classList.toggle("is-edit-mode", editMode);
     pendingLabelOverflowChecks = [];
@@ -2013,8 +2192,10 @@ export function renderCustomSheet(root, character, store) {
     radioOptionCounts = renderState.radioCounts;
     spellSlotCounts = renderState.slotCounts;
     if (renderState.needsNormalizedPersist) persist();
-    const availableHeight = availableViewportHeight();
-    scrollWrapper.style.height = `${availableHeight}px`;
+    // Edit mode keeps a viewport-tall canvas floor (room to drag
+    // things into open space); play mode sizes exactly to content —
+    // the page itself provides the scroll either way.
+    const availableHeight = editMode ? availableViewportHeight() : 0;
 
     if (activeTab().kind === "leveling" || activeTab().kind === "rules") {
       pageGrid.classList.add("page-grid--leveling");
@@ -2024,7 +2205,7 @@ export function renderCustomSheet(root, character, store) {
       pageGrid.style.backgroundPosition = "";
       if (activeTab().kind === "rules") renderRulesTab();
       else renderLevelingTab();
-      scrollWrapper.scrollTop = preservedScrollTop;
+      window.scrollTo(0, preservedScrollTop);
       return;
     }
     pageGrid.classList.remove("page-grid--leveling");
@@ -2045,7 +2226,7 @@ export function renderCustomSheet(root, character, store) {
       toolbarEls: [groupToolbar, groupBorderOverlay],
       isEdit: editMode,
     });
-    scrollWrapper.scrollTop = preservedScrollTop;
+    window.scrollTo(0, preservedScrollTop);
   }
 
   // --- Leveling tab --------------------------------------------------
@@ -2407,6 +2588,9 @@ export function renderCustomSheet(root, character, store) {
     const fixedBundles = fields
       .filter((field) => field.fieldType === "dropdown")
       .map((field) => (field.choices || []).find((c) => c.id === field.selected)?.bundle);
+    for (const { bundle } of extraSecondaryBundles()) {
+      if (bundle) fixedBundles.push(bundle);
+    }
     return ownedSkillIdsFrom(fixedBundles, activeRuleChoiceGroups(fields, formulaValues), excludeGroupKey);
   }
 
@@ -3103,13 +3287,47 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function renderRulesetLevelGuide() {
-    const className = selectedChoiceName("class", "Class");
+    const primaryName = selectedChoiceName("class", "Class");
     const level = currentCharacterLevel();
-    const selectedSubclass = selectedChoiceName("subclass", "Subclass");
-    const plan = applyLiveSubclassOverride(
-      getLevelUpPlan(character.rules?.rulesetId || character.rulesetId, className, level, selectedSubclass),
-      { selectedSubclass, level, liveSubclasses: liveSubclassData(className) }
-    );
+    const entries = multiclassEntries();
+    const primaryLevel = (() => {
+      const used = entries.reduce((n, e) => n + (Number(e.levels) || 0), 0);
+      return Math.max(1, (level ?? 1) - used);
+    })();
+
+    // In-progress answers for this level — see levelingPendingState
+    // comment near its declaration for why this can't just be a local.
+    // pending.className is which class gains THIS level: the primary
+    // class, an existing secondary, or "__new" + pending.newClassName
+    // for a brand-new multiclass (level 2+ only).
+    const levelKey = String(level);
+    const pending = initPendingLevelState(levelingPendingState, levelKey, {
+      subclass: selectedChoiceName("subclass", "Subclass"),
+      choices: {},
+      className: primaryName,
+      newClassName: "",
+    });
+    const validClassNames = [primaryName, ...entries.map((e) => e.name), "__new"].filter(Boolean);
+    if (!validClassNames.includes(pending.className)) {
+      pending.className = primaryName;
+      pending.newClassName = "";
+    }
+    const takingNewClass = pending.className === "__new";
+    const levelClass = takingNewClass ? (pending.newClassName || "") : (pending.className || primaryName);
+    const isSecondary = Boolean(levelClass) && levelClass !== primaryName;
+    const entryForLevelClass = entries.find((e) => e.name === levelClass);
+    const newClassLevel = levelClass === primaryName || !levelClass
+      ? (level ?? 1)
+      : (entryForLevelClass ? entryForLevelClass.levels + 1 : 1);
+    const selectedSubclass = levelClass === primaryName
+      ? selectedChoiceName("subclass", "Subclass")
+      : (entryForLevelClass?.subclass || "");
+    const plan = levelClass
+      ? applyLiveSubclassOverride(
+        getLevelUpPlan(character.rules?.rulesetId || character.rulesetId, levelClass, newClassLevel, selectedSubclass),
+        { selectedSubclass, level: newClassLevel, liveSubclasses: liveSubclassData(levelClass) }
+      )
+      : null;
     const contentGroups = level == null ? [] : activeRuleChoiceGroups(flattenGlobalFields(), formulaValues)
       // Equipment-proficiency pickers live on their own creation-tab
       // page (and stay editable afterward right on the sheet's
@@ -3117,35 +3335,115 @@ export function renderCustomSheet(root, character, store) {
       // Choices step leaves them out. Their picks still apply via
       // activeRuleChoiceGroups at compute time.
       .filter((group) => group.minLevel <= level && !group.key.startsWith("equipprof:"));
-    const newFeatures = level == null || !className ? [] : classFeatureGrantsAtLevel(className, level);
-    const needsAsi = level != null && className ? classGrantsAsiAtLevel(className, level) : false;
+    const newFeatures = level == null || !levelClass ? [] : classFeatureGrantsAtLevel(levelClass, newClassLevel);
+    const needsAsi = level != null && levelClass ? classGrantsAsiAtLevel(levelClass, newClassLevel) : false;
     if (!plan && contentGroups.length === 0) return null;
 
     const priorLevelUp = character.levelUps?.[String(level)] || {};
     if (plan && priorLevelUp.appliedRulesetId === plan.ruleset.id) {
-      return alreadyAppliedPanel(className, level, plan.ruleset.name);
+      return alreadyAppliedPanel(levelClass || primaryName, level, plan.ruleset.name);
     }
 
-    // In-progress answers for this level — see levelingPendingState
-    // comment near its declaration for why this can't just be a local.
-    const levelKey = String(level);
-    const pending = initPendingLevelState(levelingPendingState, levelKey, {
-      subclass: selectedSubclass,
-      choices: Object.fromEntries(contentGroups.map((group) => [group.key, character.rules?.choices?.[group.key] || []])),
-    });
     syncPendingChoices(pending, contentGroups, character.rules?.choices || {});
 
-    const slots = slotsSummary(plan);
+    // Slot trackers show the COMBINED table once multiclassed (or a
+    // new class is being taken) — single-class sheets keep the exact
+    // per-class plan path from before. Levels here are POST-apply
+    // (the level being taken counts): the primary only grows when it
+    // is the class being taken, since the Level field already holds
+    // the new total.
+    const guideSlotChanges = (() => {
+      const takingPrimary = !levelClass || levelClass === primaryName;
+      const postPrimary = takingPrimary ? primaryLevel : primaryLevel - 1;
+      const pendingNew = takingNewClass && pending.newClassName ? [{ name: pending.newClassName, levels: 1 }] : [];
+      const slices = [{ name: primaryName, levels: postPrimary }, ...entries.map((e) => ({
+        name: e.name,
+        levels: e.levels + (!takingNewClass && e.name === levelClass ? 1 : 0),
+      })), ...pendingNew]
+        .filter((s) => s.name && s.levels > 0)
+        .map((s) => {
+          const cls = getRulesetClass(character.rules?.rulesetId || character.rulesetId, s.name);
+          const sub = s.name === primaryName ? selectedChoiceName("subclass", "Subclass")
+            : (entries.find((e) => e.name === s.name)?.subclass || (s.name === pending.newClassName ? pending.subclass : ""));
+          return { name: s.name, levels: s.levels, caster: cls?.caster || null, subclass: sub };
+        });
+      if (!slices.some((s) => s.caster === "full" || s.caster === "half" || s.caster === "pact") && !pendingNew.length) {
+        return plan?.slotChanges || [];
+      }
+      const merged = new Map();
+      for (const change of multiclassSlotsFor(slices)) {
+        merged.set(change.fieldId, Math.max(merged.get(change.fieldId) || 0, change.options));
+      }
+      const warlocks = slices.filter((s) => s.caster === "pact");
+      for (const s of warlocks) {
+        const pact = getLevelUpPlan(character.rules?.rulesetId || character.rulesetId, s.name, Math.max(1, s.levels))?.slotChanges || [];
+        for (const change of pact) {
+          merged.set(change.fieldId, Math.max(merged.get(change.fieldId) || 0, change.options));
+        }
+      }
+      return [...merged.entries()].map(([fieldId, options]) => ({ fieldId, options }));
+    })();
+    const slots = slotsSummary({ slotChanges: guideSlotChanges });
     const feedback = document.createElement("p");
     feedback.className = "level-guide__feedback";
 
     const steps = [];
 
+    // Multiclassing starts at total level 2: which class gains this
+    // level — the primary, an existing secondary, or a brand-new one
+    // (prereq-gated). Level 1 is always the primary class alone.
+    // Effective scores (base + fixed racial adds) are what the PHB
+    // measures prerequisites against.
+    const raceChoiceForScores = (findStarterField("race", "Race")?.choices || [])
+      .find((c) => c.id === (findStarterField("race", "Race") || {}).selected);
+    const effectiveScores = effectiveScoresFor(
+      character.rules?.abilityScores,
+      raceChoiceForScores?.bundle
+    );
+    const multiclassPrereqFor = (toClass) => {
+      const reason = multiclassPrereqReason(effectiveScores, primaryName, toClass);
+      return reason ? { ok: false, reason } : { ok: true, reason: "" };
+    };
+    const subclassForLevelClass = (name) => {
+      if (!name || name === "__new") return "";
+      if (name === primaryName) return selectedChoiceName("subclass", "Subclass");
+      return entries.find((e) => e.name === name)?.subclass || "";
+    };
+    if ((level ?? 1) >= 2 && primaryName) {
+      steps.push({
+        id: "levelclass",
+        title: "Class",
+        description: "Which class gains this level? Taking a level in a new class starts multiclassing — it needs 13+ in the right abilities (checked below) and can't start before level 2.",
+        isComplete: () => Boolean(levelClass) && (!takingNewClass || Boolean(pending.newClassName)),
+        render(container) {
+          renderGuideLevelClassStepInto(container, pending, {
+            primaryName,
+            primaryLevel,
+            entries,
+            level,
+            allClassNames: (getRuleset(currentRulesetId())?.classes || []).map((c) => c.name),
+            eligibilityFn: (name) => multiclassPrereqFor(name),
+            subclassForFn: (name) => subclassForLevelClass(name),
+            removeFn: (name) => {
+              character.rules.multiclass = (character.rules.multiclass || []).filter((e) => e.name !== name);
+              character.rules = normalizeRulesState(character.rules);
+              store.saveCharacterFields(character.id, { rules: character.rules }).catch((err) => {
+                console.error("Failed to save multiclass removal:", err);
+              });
+              renderPageGrid();
+            },
+            confirmFn: (msg) => window.confirm(msg),
+            onChangeFn: () => renderPageGrid(),
+          });
+        },
+      });
+    }
+
     if (plan?.needsSubclass) {
       steps.push({
         id: "subclass",
         title: "Subclass",
-        description: `${className} chooses a subclass at this level. Pick one below — this can't easily be undone once you apply this level's changes, so make sure it's the one you want.`,
+        description: `${levelClass} chooses a subclass at this level. Pick one below — this can't easily be undone once you apply this level's changes, so make sure it's the one you want.`,
         isComplete: () => Boolean(pending.subclass),
         render(container) {
           renderGuideSubclassStepInto(container, pending, plan.subclassChoices);
@@ -3157,7 +3455,7 @@ export function renderCustomSheet(root, character, store) {
       steps.push({
         id: "asi",
         title: "Ability Score Improvement",
-        description: `${className} gets an Ability Score Improvement at this level. Increase one ability score by 2, two ability scores by 1 each, or take a feat instead.`,
+        description: `${levelClass} gets an Ability Score Improvement at this level. Increase one ability score by 2, two ability scores by 1 each, or take a feat instead.`,
         isComplete: () => {
           if (pending.asiMode === "feat") return Boolean((pending.featChoice || "").trim());
           if (pending.asiMode === "single") return Boolean(pending.asiAbility1);
@@ -3181,7 +3479,7 @@ export function renderCustomSheet(root, character, store) {
       steps.push({
         id: "features",
         title: "New Features",
-        description: `${className} gains new features at this level — just informational, nothing to fill in here. Read them over, then move on to the next step.`,
+        description: `${levelClass} gains new features at this level — just informational, nothing to fill in here. Read them over, then move on to the next step.`,
         render(container) {
           renderGuideFeaturesStepInto(container, newFeatures);
         },
@@ -3205,13 +3503,15 @@ export function renderCustomSheet(root, character, store) {
         id: "spells",
         title: "Spells",
         description: "Your spellcasting improves at this level. Check off any new spells you've picked up — this writes straight to the Spells Known list on the main sheet.",
-        isComplete: () => spellPicksComplete(className, level),
+        // Multiclass spell picks span classes in ways the single-class
+        // cap check can't express — unenforced there (documented).
+        isComplete: () => (multiclassEntries().length || takingNewClass ? true : spellPicksComplete(levelClass, newClassLevel)),
         render(container) {
           const note = document.createElement("p");
           note.className = "level-guide__summary";
           note.textContent = `This ruleset sets your spell slots to ${slots} at this level.`;
           container.append(note);
-          renderSpellPicker(container, { rulesetId: character.rules?.rulesetId || character.rulesetId, className, level });
+          renderSpellPicker(container, { rulesetId: character.rules?.rulesetId || character.rulesetId, className: levelClass, level: newClassLevel });
         },
       });
     }
@@ -3227,7 +3527,7 @@ export function renderCustomSheet(root, character, store) {
       render(container) {
         renderGuideHpStepInto(container, pending, {
           conScore: character.rules?.abilityScores?.con,
-          dieSize: character.rules?.hitDieSize || 8,
+          dieSize: hitDieFor(levelClass),
           method: character.rules?.hpMethod || "average",
         });
       },
@@ -3257,6 +3557,7 @@ export function renderCustomSheet(root, character, store) {
           featChoice: pending.featChoice,
           asiAbilities: [pending.asiAbility1, pending.asiAbility2],
           slots,
+          classLabel: entries.length || takingNewClass ? `${levelClass} ${newClassLevel}` : null,
         });
         container.append(summary);
         container.append(feedback);
@@ -3280,16 +3581,31 @@ export function renderCustomSheet(root, character, store) {
             feedback.classList.add("level-guide__feedback--error");
             return;
           }
+          // Brand-new multiclass levels must pass ability prerequisites
+          // (checked live in the picker too — scores can change after).
+          if (takingNewClass && pending.newClassName) {
+            const reason = multiclassPrereqReason(effectiveScores, primaryName, pending.newClassName);
+            if (reason) {
+              feedback.textContent = `Can't multiclass into ${pending.newClassName} yet: ${reason} (racial bonuses count).`;
+              feedback.classList.add("level-guide__feedback--error");
+              return;
+            }
+          }
           const subclassField = findStarterField("subclass", "Subclass");
-          const selectedSubclassName = pending.subclass || selectedSubclass;
+          const selectedSubclassName = pending.subclass
+            || (isSecondary ? entryForLevelClass?.subclass : selectedSubclass)
+            || "";
           const subclassChoice = selectedSubclassName && (subclassField?.choices || []).find((choice) => choice.text === selectedSubclassName);
-          const slotChanges = plan?.slotChanges || [];
+          const slotChanges = guideSlotChanges;
           ensureStandardSpellSlotFields(slotChanges);
           const missingSlots = slotChanges.filter((change) => !findStarterField(change.fieldId, change.label));
+          // Secondary-class subclasses live in rules.multiclass, not
+          // on the sheet dropdown — bypass the sheet-subclass check
+          // for them (the picker's own gating already required a pick).
           const prereqError = checkLevelPrereqs({
             needsSubclass: plan?.needsSubclass,
-            hasSubclassField: !!subclassField,
-            hasSubclassChoice: !!subclassChoice,
+            hasSubclassField: isSecondary || !!subclassField,
+            hasSubclassChoice: isSecondary ? Boolean(pending.subclass) : !!subclassChoice,
             missingSlots,
           });
           if (prereqError) {
@@ -3299,15 +3615,31 @@ export function renderCustomSheet(root, character, store) {
           }
 
           const before = clone({ layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps, rules: character.rules });
+          // Record the multiclass take before anything level-gated runs
+          // below (syncGrantedListItems resolves per-class levels live).
+          if (isSecondary && levelClass) {
+            const mc = [...(character.rules.multiclass || [])];
+            const existing = mc.find((e) => e.name === levelClass);
+            if (existing) {
+              existing.levels += 1;
+              if (pending.subclass) existing.subclass = pending.subclass;
+            } else {
+              mc.push({ name: levelClass, levels: 1, subclass: pending.subclass || "" });
+            }
+            character.rules.multiclass = mc;
+          }
           const hpMax = findStarterField(null, "HP Max");
           const hpCurrent = findStarterField(null, "HP Current");
           const features = findStarterField(null, "Features & Traits");
           const notes = (pending.notes || "").trim();
-          const featureEntry = notes ? `${className} level ${level}: ${notes}` : `${className} level ${level}`;
+          const featureEntry = notes ? `${levelClass} level ${newClassLevel}: ${notes}` : `${levelClass} level ${newClassLevel}`;
+          character.rules.hitDieSize = hitDieFor(levelClass);
           applyBtn.disabled = true;
           feedback.textContent = "Applying changes…";
           feedback.classList.remove("level-guide__feedback--error");
-          if (subclassChoice) subclassField.selected = subclassChoice.id;
+          // Primary-class subclasses live on the sheet dropdown;
+          // secondary ones were already stored on the multiclass entry.
+          if (subclassChoice && !isSecondary) subclassField.selected = subclassChoice.id;
           character.rules = normalizeRulesState(character.rules);
           contentGroups.forEach((group) => {
             character.rules.choices[group.key] = [...(pending.choices[group.key] || [])];
@@ -3341,6 +3673,7 @@ export function renderCustomSheet(root, character, store) {
           character.levelUps[String(level)] = buildLevelUpEntry({
             level,
             hpGain,
+            className: levelClass,
             subclassName: selectedSubclassName,
             slots,
             featureEntry,
@@ -3376,8 +3709,11 @@ export function renderCustomSheet(root, character, store) {
       },
     });
 
+    const singleClass = !entries.length && !takingNewClass;
     return renderStepWizard(steps, levelingWizardState, {
-      title: `${className || "Character"} Level ${level}`,
+      title: singleClass
+        ? `${primaryName || "Character"} Level ${level}`
+        : `${levelClass || "Class"} ${newClassLevel} · character level ${level}`,
       intro: "Step through whatever applies at this level — anything that doesn't apply is skipped automatically.",
     });
   }
@@ -3410,18 +3746,25 @@ export function renderCustomSheet(root, character, store) {
     });
   }
 
-  /** Slot-radio ids that are Warlock pact slots at the character's
-   *  current level (empty for every other class). Read off the same
-   *  level-up plan that sized the slot trackers, so this can't drift
+  /** Slot-radio ids that are Warlock pact slots at each Warlock
+   *  class level (primary or multiclassed). Read off the same
+   *  level-up plans that size the slot trackers, so this can't drift
    *  from what the sheet actually shows. */
   function pactSlotFieldIds() {
-    if ((character.rules?.className || "").toLowerCase() !== "warlock") return [];
-    const plan = getLevelUpPlan(
-      character.rules?.rulesetId ?? character.rulesetId,
-      "Warlock",
-      currentCharacterLevel()
-    );
-    return (plan?.slotChanges || []).map((c) => c.fieldId).filter(Boolean);
+    const ids = [];
+    const levels = classLevelsFor(character.rules);
+    for (const entry of levels) {
+      if ((entry.name || "").toLowerCase() !== "warlock" || entry.levels < 1) continue;
+      const plan = getLevelUpPlan(
+        character.rules?.rulesetId ?? character.rulesetId,
+        "Warlock",
+        Math.max(1, entry.levels)
+      );
+      for (const change of (plan?.slotChanges || [])) {
+        if (change.fieldId && !ids.includes(change.fieldId)) ids.push(change.fieldId);
+      }
+    }
+    return ids;
   }
 
   function renderResourceTrackers() {
@@ -3716,6 +4059,10 @@ export function renderCustomSheet(root, character, store) {
       return buildFeatureListValue(field);
     }
 
+    if (field.fieldType === "characterlink") {
+      return buildCharacterLinkValue(field);
+    }
+
     const effectiveOptions = effectiveOptionCount(field, radioOptionCounts, spellSlotCounts);
     return buildOptionsValueInto(field, effectiveOptions, {
       commitFn: (fn, opts) => commitMutation(fn, opts),
@@ -3735,6 +4082,17 @@ export function renderCustomSheet(root, character, store) {
 
   function buildTagListValue(field) {
     return buildTagListValueInto(field, grantedTags.get(field.id) || new Set(), {
+      commitFn: (fn, opts) => commitMutation(fn, opts),
+    });
+  }
+
+  function buildCharacterLinkValue(field) {
+    return buildCharacterLinkValueInto(field, {
+      openFn: openCharacterById,
+      listFn: async () => {
+        if (typeof store.listMyCharacters !== "function") return [];
+        return (await store.listMyCharacters()).filter((c) => c.id !== character.id);
+      },
       commitFn: (fn, opts) => commitMutation(fn, opts),
     });
   }
@@ -3895,6 +4253,9 @@ export function renderCustomSheet(root, character, store) {
       choicesEditorFn: (f, el) => openDropdownChoicesEditor(f, el),
       catalogConfigFn: (f, el) => openCatalogFieldConfig(f, el),
       formulaEditorFn: (target, resolve, onSave, opts) => openFormulaEditor(target, resolve, onSave, opts),
+      tooltipEditorFn: (f) => openFieldTooltipEditorInto(f, {
+        commitFn: (fn, opts) => commitMutation(fn, opts),
+      }),
       resolveFn: resolveFieldById,
       commitFn: (fn, opts) => commitMutation(fn, opts),
       gridFn: () => renderPageGrid(),
@@ -4296,9 +4657,12 @@ export function renderCustomSheet(root, character, store) {
   // and beforeunload listeners above would just keep piling up, one
   // more per character opened in the same session, each holding onto
   // a whole stale render closure.
-  function destroy() {
+  function   destroy() {
     window.removeEventListener("resize", onResize);
     window.removeEventListener("beforeunload", onBeforeUnload);
+    // Leave the document theme clean for whatever renders next
+    // (character list, another character with its own theme).
+    applySheetTheme("default");
   }
 
   return { hasUnsavedChanges, destroy };

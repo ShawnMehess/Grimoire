@@ -110,7 +110,7 @@ function newId() {
   return crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export const FIELD_TYPES = ["text", "label", "textarea", "textlist", "taglist", "dropdown", "picture", "catalog", "radio", "checkbox", "featureList"];
+export const FIELD_TYPES = ["text", "label", "textarea", "textlist", "taglist", "dropdown", "picture", "catalog", "radio", "checkbox", "featureList", "characterlink"];
 export const LABEL_POSITIONS = ["top", "right", "bottom", "left"];
 
 // A block's declared `h` (in blockModel.js) includes ONE reserved row
@@ -217,6 +217,12 @@ export function createField({ fieldType = "text", label = "Stat", x = 0, y = 0, 
     // bundles (Class/Race/Background/etc. dropdown choices) are active
     // and unlocked at the character's current level. See
     // collectGrantedFeatures/buildFeatureListValue in customSheet.js.
+  } else if (fieldType === "characterlink") {
+    // A link to another character sheet (mounts, companions,
+    // familiars — those ARE full characters, linked here). Stores the
+    // target id plus a name snapshot for display when offline.
+    field.linkedCharacterId = null;
+    field.linkedCharacterName = "";
   }
   return field;
 }
@@ -271,6 +277,7 @@ function field(opts, id) {
   if (opts.value !== undefined) f.value = opts.value;
   if (opts.labelPosition) f.labelPosition = opts.labelPosition;
   if (opts.choices) f.choices = opts.choices;
+  if (opts.tooltip) f.tooltip = opts.tooltip;
   return f;
 }
 
@@ -284,6 +291,7 @@ function toggleField(opts, id) {
   f.checked = [false];
   syncOptionWidth(f);
   if (opts.labelPosition) f.labelPosition = opts.labelPosition;
+  if (opts.tooltip) f.tooltip = opts.tooltip;
   if (id) f.id = id;
   return f;
 }
@@ -311,6 +319,7 @@ function tagListField(opts, tagOptions, id) {
 function radioField(opts, options, id) {
   const f = createField({ ...opts, fieldType: "radio" });
   f.options = options;
+  if (opts.tooltip) f.tooltip = opts.tooltip;
   syncOptionWidth(f);
   if (id) f.id = id;
   return f;
@@ -364,13 +373,14 @@ export function createStarterLayout() {
     // is pinned: bundle dropdownAccess rules and formulas target it.
     field({ fieldType: "dropdown", label: "Class", x: 0, y: 1, w: 2, h: 1, choices: makeChoices(STARTER_CLASSES, CLASS_BUNDLE_ENTRIES) }),
     field({ fieldType: "dropdown", label: "Subclass", x: 2, y: 1, w: 2, h: 1, choices: makeSubclassChoices() }, "subclass"),
-    field({ fieldType: "text", label: "Level", x: 0, y: 2, w: 1, h: 1, value: "1" }, "level"),
+    field({ fieldType: "text", label: "Level", x: 0, y: 2, w: 1, h: 1, value: "1", tooltip: "Total character level across all classes." }, "level"),
     field({
       fieldType: "text", label: "Prof. Bonus", x: 1, y: 2, w: 2, h: 1,
       formula: { type: "expr", text: "roundup({{level}}/4)+1" },
+      tooltip: "Added to everything you're proficient in — attacks, saves, skills, spell DCs. Grows with total level.",
     }, "profBonus"),
-    field({ fieldType: "text", label: "Hit Dice", x: 3, y: 2, w: 1, h: 1, value: "" }),
-    toggleField({ label: "", x: 0, y: 3, w: 1, h: 1 }, "inspiration"),
+    field({ fieldType: "text", label: "Hit Dice", x: 3, y: 2, w: 1, h: 1, value: "", tooltip: "Your class's hit die type (d6–d12). Spend these to heal on short rests." }),
+    toggleField({ label: "", x: 0, y: 3, w: 1, h: 1, tooltip: "Awarded by the DM for good roleplay. Spend it for advantage on one roll." }, "inspiration"),
     nameLabel("Inspiration", 1, 3, 3),
   ];
 
@@ -396,7 +406,7 @@ export function createStarterLayout() {
     // radio itself, and the 1/2/3 legend as its own caption with
     // proper width, in the two cells this row already had going
     // unused (x4-6, in the original layout).
-    field({ fieldType: "radio", label: "Ability", x: 0, y: 0, w: 1, h: 1 }, "spellAbility"),
+    field({ fieldType: "radio", label: "Ability", x: 0, y: 0, w: 1, h: 1, tooltip: "Which ability powers your spells: 1 = Intelligence, 2 = Wisdom, 3 = Charisma. Set it once." }, "spellAbility"),
     nameLabel("1=INT 2=WIS 3=CHA", 1, 0, 2),
     field({
       fieldType: "text", label: "Mod", x: 3, y: 0, w: 1, h: 1,
@@ -417,10 +427,12 @@ export function createStarterLayout() {
     field({
       fieldType: "text", label: "Save DC", x: 4, y: 0, w: 1, h: 1,
       formula: { type: "expr", text: "8 + {{profBonus}} + {{spellAbilityMod}}" },
+      tooltip: "Enemies must beat this number to resist your spells.",
     }, "spellSaveDC"),
     field({
       fieldType: "text", label: "Attack", x: 5, y: 0, w: 1, h: 1,
       formula: { type: "expr", text: "{{profBonus}} + {{spellAbilityMod}}" },
+      tooltip: "Added to your attack rolls when you cast spells at a target.",
     }, "spellAttackBonus"),
     // Slot trackers: click the Nth button to mark N slots used (same
     // convention as everywhere else radios are used as resource
@@ -428,15 +440,15 @@ export function createStarterLayout() {
     // (most level-1 characters need only a couple of 1st-level slots,
     // none higher) — bump each one's option count as the character
     // levels, the same way you'd resize any other radio field.
-    radioField({ label: "1st", x: 0, y: 1, w: 1, h: 1 }, 4, "slots1"),
-    radioField({ label: "2nd", x: 1, y: 1, w: 1, h: 1 }, 3, "slots2"),
-    radioField({ label: "3rd", x: 2, y: 1, w: 1, h: 1 }, 3, "slots3"),
-    radioField({ label: "4th", x: 3, y: 1, w: 1, h: 1 }, 2, "slots4"),
-    radioField({ label: "5th", x: 4, y: 1, w: 1, h: 1 }, 1, "slots5"),
-    radioField({ label: "6th", x: 0, y: 2, w: 1, h: 1 }, 0, "slots6"),
-    radioField({ label: "7th", x: 1, y: 2, w: 1, h: 1 }, 0, "slots7"),
-    radioField({ label: "8th", x: 2, y: 2, w: 1, h: 1 }, 0, "slots8"),
-    radioField({ label: "9th", x: 3, y: 2, w: 1, h: 1 }, 0, "slots9"),
+    radioField({ label: "1st", x: 0, y: 1, w: 1, h: 1, tooltip: "Mark one per spell slot you've spent. Long rests restore them all." }, 4, "slots1"),
+    radioField({ label: "2nd", x: 1, y: 1, w: 1, h: 1, tooltip: "Mark one per spell slot you've spent. Long rests restore them all." }, 3, "slots2"),
+    radioField({ label: "3rd", x: 2, y: 1, w: 1, h: 1, tooltip: "Mark one per spell slot you've spent. Long rests restore them all." }, 3, "slots3"),
+    radioField({ label: "4th", x: 3, y: 1, w: 1, h: 1, tooltip: "Mark one per spell slot you've spent. Long rests restore them all." }, 2, "slots4"),
+    radioField({ label: "5th", x: 4, y: 1, w: 1, h: 1, tooltip: "Mark one per spell slot you've spent. Long rests restore them all." }, 1, "slots5"),
+    radioField({ label: "6th", x: 0, y: 2, w: 1, h: 1, tooltip: "Mark one per spell slot you've spent. Long rests restore them all." }, 0, "slots6"),
+    radioField({ label: "7th", x: 1, y: 2, w: 1, h: 1, tooltip: "Mark one per spell slot you've spent. Long rests restore them all." }, 0, "slots7"),
+    radioField({ label: "8th", x: 2, y: 2, w: 1, h: 1, tooltip: "Mark one per spell slot you've spent. Long rests restore them all." }, 0, "slots8"),
+    radioField({ label: "9th", x: 3, y: 2, w: 1, h: 1, tooltip: "Mark one per spell slot you've spent. Long rests restore them all." }, 0, "slots9"),
   ];
 
   // Saves and Skills are stacked (not side by side, as an earlier pass
@@ -486,13 +498,14 @@ export function createStarterLayout() {
     field({ fieldType: "text", label: "Speed", x: 0, y: 1, w: 2, h: 1, value: "30" }, "speed"),
     field({ fieldType: "text", label: "HP Max", x: 2, y: 1, w: 2, h: 1 }, "hpMax"),
     field({ fieldType: "text", label: "HP Current", x: 0, y: 2, w: 2, h: 1 }),
-    field({ fieldType: "text", label: "Temp HP", x: 2, y: 2, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "Temp HP", x: 2, y: 2, w: 2, h: 1, tooltip: "Extra hit points that absorb damage first. They don't stack, and fade on a long rest." }),
     field({
       fieldType: "text", label: "Passive Perception", x: 0, y: 3, w: 4, h: 1,
       formula: { type: "expr", text: "10 + {{perceptionMod}}" },
+      tooltip: "What you notice without actively looking. Your DM checks this against sneaking enemies and hidden things.",
     }, "passivePerception"),
-    field({ fieldType: "checkbox", label: "Death ✓", x: 0, y: 4, w: 1, h: 1 }, "deathSuccesses"),
-    field({ fieldType: "checkbox", label: "Death ✗", x: 1, y: 4, w: 1, h: 1 }, "deathFailures"),
+    field({ fieldType: "checkbox", label: "Death ✓", x: 0, y: 4, w: 1, h: 1, tooltip: "Death saving throw successes. Three successes stabilizes you." }, "deathSuccesses"),
+    field({ fieldType: "checkbox", label: "Death ✗", x: 1, y: 4, w: 1, h: 1, tooltip: "Death saving throw failures. Three failures kills your character." }, "deathFailures"),
   ];
 
   const attacks = createBlock({ name: "Attacks", x: 10, y: 4, w: 6, h: 5 });
@@ -519,7 +532,7 @@ export function createStarterLayout() {
     // Level field. A saved character from before this field type
     // existed keeps its old plain "Features & Traits" textlist as-is;
     // this only applies to brand-new characters going forward.
-    field({ fieldType: "featureList", label: "Features & Traits", x: 0, y: 0, w: 4, h: 6 }),
+    field({ fieldType: "featureList", label: "Features & Traits", x: 0, y: 0, w: 4, h: 6, tooltip: "Everything your race, class, and background grant, unlocked automatically as you level." }),
   ];
 
   const details = createBlock({ name: "Character Details", x: 4, y: 12, w: 6, h: 8 });

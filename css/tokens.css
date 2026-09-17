@@ -75,3 +75,89 @@
   /* --- Layout --- */
   --content-max-width: 1600px;
 }
+
+/* --- Alternate color themes (see js/data/themes.js). Only color
+   tokens are overridden — spacing, type, and radius stay identical
+   so every theme fits every layout. */
+
+:root[data-theme="light"] {
+  --color-bg:            #f2ecdf;
+  --color-bg-raised:     #fffdf6;
+  --color-bg-inset:      #e7ddc9;
+  --color-border:        #c9bfa8;
+  --color-border-strong: #a89a7c;
+  --color-text:          #2a241c;
+  --color-text-muted:    #6b5f4c;
+  --color-text-faint:    #9a8d76;
+  --color-accent:        #9c3a22;
+  --color-accent-hover:  #b3492b;
+  --color-accent-muted:  #d8bd9c;
+  --color-arcane:        #2f5d7c;
+  --color-positive:      #4a7a3f;
+  --color-negative:      #a3413a;
+  --shadow-sm: 0 1px 2px rgba(60,45,20,0.18);
+  --shadow-md: 0 4px 12px rgba(60,45,20,0.2);
+  --shadow-lg: 0 12px 32px rgba(60,45,20,0.25);
+  --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 4px 16px -2px rgba(156,58,34,0.35);
+  --shadow-inset: inset 0 1px 2px rgba(60,45,20,0.18);
+  --gradient-accent: linear-gradient(155deg, #c25a37, var(--color-accent) 55%, #7c2e1a);
+  --gradient-surface: linear-gradient(160deg, #fffdf6, var(--color-bg-raised) 60%);
+}
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(ellipse 1200px 800px at 50% -10%, #fffdf6 0%, transparent 60%),
+    radial-gradient(ellipse 900px 600px at 100% 100%, #e7ddc9 0%, transparent 55%),
+    var(--color-bg);
+}
+
+:root[data-theme="forest"] {
+  --color-bg:            #12170f;
+  --color-bg-raised:     #1a2317;
+  --color-bg-inset:      #0b0e09;
+  --color-border:        #33402c;
+  --color-border-strong: #4a5a3f;
+  --color-text:          #e3e8d5;
+  --color-text-muted:    #a3ad8f;
+  --color-text-faint:    #6a7358;
+  --color-accent:        #5c8a3c;
+  --color-accent-hover:  #74a84e;
+  --color-accent-muted:  #3f5c2a80;
+  --color-arcane:        #5b7f9e;
+  --color-positive:      #7aa45c;
+  --color-negative:      #a3413a;
+  --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 4px 16px -2px rgba(92,138,60,0.35);
+  --gradient-accent: linear-gradient(155deg, #74a84e, var(--color-accent) 55%, #3f5c2a);
+  --gradient-surface: linear-gradient(160deg, #1e2818, var(--color-bg-raised) 60%);
+}
+:root[data-theme="forest"] body {
+  background:
+    radial-gradient(ellipse 1200px 800px at 50% -10%, #232d1c 0%, transparent 60%),
+    radial-gradient(ellipse 900px 600px at 100% 100%, #161c11 0%, transparent 55%),
+    var(--color-bg);
+}
+
+:root[data-theme="arcane"] {
+  --color-bg:            #0e1220;
+  --color-bg-raised:     #161c30;
+  --color-bg-inset:      #090c16;
+  --color-border:        #2c3550;
+  --color-border-strong: #46547c;
+  --color-text:          #dfe4f2;
+  --color-text-muted:    #93a0c0;
+  --color-text-faint:    #5d6884;
+  --color-accent:        #4a6fd4;
+  --color-accent-hover:  #5f86e8;
+  --color-accent-muted:  #33437c80;
+  --color-arcane:        #7fb2dd;
+  --color-positive:      #6a8f5c;
+  --color-negative:      #a3413a;
+  --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 4px 16px -2px rgba(74,111,212,0.4);
+  --gradient-accent: linear-gradient(155deg, #5f86e8, var(--color-accent) 55%, #2c3f7c);
+  --gradient-surface: linear-gradient(160deg, #1a2138, var(--color-bg-raised) 60%);
+}
+:root[data-theme="arcane"] body {
+  background:
+    radial-gradient(ellipse 1200px 800px at 50% -10%, #1c2440 0%, transparent 60%),
+    radial-gradient(ellipse 900px 600px at 100% 100%, #11162a 0%, transparent 55%),
+    var(--color-bg);
+}

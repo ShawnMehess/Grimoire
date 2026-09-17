@@ -147,6 +147,8 @@ export function spellsForLevelIn(catalog, levelNum, className) {
       name: e.name,
       description: e.description || "",
       classes: (e.fieldValues?.classes || "").trim(),
+      tags: Array.isArray(e.fieldValues?.tags) ? [...e.fieldValues.tags] : [],
+      school: (e.fieldValues?.school || "").trim(),
       mechanics: spellMechanicsLine(e),
     }))
     .filter((e) => e.name);
@@ -462,6 +464,26 @@ export function ensureSpellListFieldIn(layout, findFn, createFn, syncFn) {
   return field;
 }
 
+/** Per-picker filter/sort memory, keyed by Spells Known field id so
+ *  choices survive the full re-renders that toggles trigger. */
+const spellPickerUiStates = new Map();
+export function spellPickerUiStateFor(fieldId) {
+  const key = fieldId || "spells";
+  if (!spellPickerUiStates.has(key)) spellPickerUiStates.set(key, { tag: "all", sort: "name" });
+  return spellPickerUiStates.get(key);
+}
+
+/** Sort + tag-filter one level's spell rows for the picker. Pure. */
+export function filterSortSpells(spells, { tag = "all", sort = "name" } = {}) {
+  const filtered = tag === "all" ? [...spells] : spells.filter((s) => (s.tags || []).includes(tag));
+  if (sort === "school") {
+    filtered.sort((a, b) => (a.school || "").localeCompare(b.school || "") || a.name.localeCompare(b.name));
+  } else {
+    filtered.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return filtered;
+}
+
 export function renderSpellPickerInto(container, { rulesetId, className, level }, deps) {
   const {
     spellcastingInfoFn,
@@ -517,48 +539,109 @@ export function renderSpellPickerInto(container, { rulesetId, className, level }
     tipTimer = setTimeout(() => { tip.hidden = true; tip.remove(); }, 2800);
   };
 
-  let anySpellsListed = false;
-  availableLevels.forEach((levelNum) => {
-    const spells = spellsForLevelFn(levelNum, className);
-    if (!spells.length) return;
-    anySpellsListed = true;
-    const heading = document.createElement("p");
-    heading.className = "wizard__section-label";
-    heading.textContent = levelNum === 0 ? "Cantrips" : `${ordinal(levelNum)}-Level Spells`;
-    container.append(heading);
-    multiRowsFn(container, spells.map((s) => s.name), {
-      selectedSet: known,
-      getInfo: (name) => spells.find((s) => s.name === name),
-      onToggle: (name) => {
-        if (!Array.isArray(field.items)) field.items = [];
-        if (known.has(name)) {
-          field.items = field.items.filter((item) => item !== name);
-          known.delete(name);
-        } else {
-          const { cantrips, spells: spellCount } = spellCountByLevel(known, levelByNameFn);
-          if (!canLearnMore(levelNum, limit, cantrips, spellCount)) {
-            const anchor = container.querySelector(`[data-name="${name.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]`);
-            showCapTip(anchor, `${capMessage(levelNum, limit)}`);
-            return;
-          }
-          appendUniqueFn(field, name);
-          known.add(name);
-        }
-        if (tipTimer) { clearTimeout(tipTimer); tipTimer = null; }
-        tip.hidden = true;
-        tip.remove();
-        saveFn();
-        gridFn();
-      },
-    });
-  });
-  updateLimitNote();
+  const ui = spellPickerUiStateFor(field.id);
+  const byLevel = availableLevels.map((levelNum) => ({
+    levelNum,
+    spells: spellsForLevelFn(levelNum, className),
+  }));
+  const anySpellsListed = byLevel.some(({ spells }) => spells.length);
   if (!anySpellsListed) {
+    updateLimitNote();
     const note = document.createElement("p");
     note.className = "leveling-tab__intro";
     note.textContent = "No spells found in an imported Spell List catalog yet — import one from the Catalog Libraries manager, or just track spells directly on the sheet's Spells Known list.";
     container.append(note);
+    return;
   }
+  // Filter + sort controls: tag dropdown covers the tags actually
+  // present in the listed spells, so it never offers dead options.
+  const controls = document.createElement("div");
+  controls.className = "spell-picker-controls";
+  const tagLabel = document.createElement("label");
+  tagLabel.className = "spell-picker-controls__label";
+  tagLabel.textContent = "Filter:";
+  const tagSelect = document.createElement("select");
+  tagSelect.className = "input-group__control spell-picker-controls__select";
+  const presentTags = [...new Set(byLevel.flatMap(({ spells }) => spells.flatMap((s) => s.tags || [])))].sort();
+  const tagOption = (value, text) => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    tagSelect.append(o);
+  };
+  tagOption("all", "All tags");
+  presentTags.forEach((t) => tagOption(t, t));
+  if (!presentTags.includes(ui.tag)) ui.tag = "all";
+  tagSelect.value = ui.tag;
+  const sortLabel = document.createElement("label");
+  sortLabel.className = "spell-picker-controls__label";
+  sortLabel.textContent = "Sort:";
+  const sortSelect = document.createElement("select");
+  sortSelect.className = "input-group__control spell-picker-controls__select";
+  [["name", "Name A–Z"], ["school", "School"]].forEach(([value, text]) => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    sortSelect.append(o);
+  });
+  sortSelect.value = ui.sort;
+  tagLabel.append(tagSelect);
+  sortLabel.append(sortSelect);
+  controls.append(tagLabel, sortLabel);
+  container.append(controls);
+
+  const listWrap = document.createElement("div");
+  listWrap.className = "spell-picker-list";
+  container.append(listWrap);
+
+  const renderLists = () => {
+    listWrap.innerHTML = "";
+    let shown = 0;
+    byLevel.forEach(({ levelNum, spells }) => {
+      const visible = filterSortSpells(spells, ui);
+      if (!visible.length) return;
+      shown += visible.length;
+      const heading = document.createElement("p");
+      heading.className = "wizard__section-label";
+      heading.textContent = levelNum === 0 ? "Cantrips" : `${ordinal(levelNum)}-Level Spells`;
+      listWrap.append(heading);
+      multiRowsFn(listWrap, visible.map((s) => s.name), {
+        selectedSet: known,
+        getInfo: (name) => visible.find((s) => s.name === name),
+        onToggle: (name) => {
+          if (!Array.isArray(field.items)) field.items = [];
+          if (known.has(name)) {
+            field.items = field.items.filter((item) => item !== name);
+            known.delete(name);
+          } else {
+            const { cantrips, spells: spellCount } = spellCountByLevel(known, levelByNameFn);
+            if (!canLearnMore(levelNum, limit, cantrips, spellCount)) {
+              const anchor = listWrap.querySelector(`[data-name="${name.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]`);
+              showCapTip(anchor, `${capMessage(levelNum, limit)}`);
+              return;
+            }
+            appendUniqueFn(field, name);
+            known.add(name);
+          }
+          if (tipTimer) { clearTimeout(tipTimer); tipTimer = null; }
+          tip.hidden = true;
+          tip.remove();
+          saveFn();
+          gridFn();
+        },
+      });
+    });
+    if (!shown) {
+      const note = document.createElement("p");
+      note.className = "leveling-tab__intro";
+      note.textContent = "No spells match this filter — pick another tag.";
+      listWrap.append(note);
+    }
+  };
+  tagSelect.addEventListener("change", () => { ui.tag = tagSelect.value; renderLists(); });
+  sortSelect.addEventListener("change", () => { ui.sort = sortSelect.value; renderLists(); });
+  renderLists();
+  updateLimitNote();
 }
 
 // --- Catalog flavor + bundle lookup ---------------------------------------------------
@@ -774,6 +857,17 @@ export function renderMultiSelectableRowsInto(container, names, { selectedSet, o
         effect.textContent = info.mechanics.effect;
         body.append(effect);
       }
+    }
+    if (Array.isArray(info?.tags) && info.tags.length) {
+      const tags = document.createElement("div");
+      tags.className = "choice-row__tags";
+      info.tags.forEach((tag) => {
+        const chip = document.createElement("span");
+        chip.className = "choice-row__tag";
+        chip.textContent = tag;
+        tags.append(chip);
+      });
+      body.append(tags);
     }
     row.append(body);
     list.append(row);

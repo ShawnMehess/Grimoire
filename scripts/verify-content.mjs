@@ -25,6 +25,7 @@ import {
   activeChoiceGroupsFor,
   selectedRuleOptionsIn,
   applyStatModifiers,
+  applyBundleModifiersIn,
   featChoiceGroupsFor,
   selectedFeatBundlesIn,
   collectGrantedFeaturesIn,
@@ -510,6 +511,94 @@ function featListWith(namesAndLevels) {
   const unflavored = [...classes, ...FIXED_RACE_ENTRIES.map((e) => e.name), ...bgs].filter((n) => !flavorFor(n));
   if (unflavored.length) fail(`missing flavor blurbs: ${unflavored.join(", ")}`);
   console.log("equipment: 12 class packages + gold, 9 background packages, flavor blurbs complete");
+}
+
+// --- 6e. Meta tags -----------------------------------------------------------
+{
+  const { TAG_VOCABULARY, SPELL_CATALOG, WEAPONS_ARMOR_CATALOG, GEAR_CATALOG } = await import("../js/data/contentCatalogs.js");
+  const vocab = new Set(TAG_VOCABULARY);
+  if (!Array.isArray(TAG_VOCABULARY) || !vocab.size) fail("TAG_VOCABULARY missing/empty");
+  let thin = 0, stray = 0;
+  const check = (entries) => {
+    for (const e of entries) {
+      const tags = (e.fieldValues || {}).tags || [];
+      if (!tags.length) { thin++; continue; }
+      for (const t of tags) if (!vocab.has(t)) stray++;
+    }
+  };
+  for (const t of SPELL_CATALOG.tabs) check(t.entries);
+  for (const t of [...WEAPONS_ARMOR_CATALOG.tabs, ...GEAR_CATALOG.tabs]) check(t.entries);
+  if (thin) fail(`${thin} catalog entries without tags`);
+  if (stray) fail(`${stray} tags outside TAG_VOCABULARY`);
+  const need = ["damage", "heal", "protect", "buff", "social", "concentration", "rare", "magical", "attunement", "mount", "evocation"];
+  for (const t of need) if (!vocab.has(t)) fail(`vocabulary missing expected tag: ${t}`);
+  console.log(`tags: vocabulary ${vocab.size}, every entry tagged, no strays`);
+}
+
+// --- 6g. Multiclass simulation ------------------------------------------------
+// Fighter 4 / Paladin 2 (Devotion): per-class gating must hold Paladin
+// L3+ content back while keeping Fighter L4+ content, Paladin saves
+// must NOT leak in (stripped), and Lay on Hands (Pal 1) must apply.
+{
+  const { FIXED_CLASS_ENTRIES } = await import("../js/data/contentFixups.js");
+  const { stripSecondaryClassBundle } = await import("../js/data/contentFixups.js");
+  const { SUBCLASS_SUPPLEMENT } = await import("../js/data/subclassContent.js");
+  const { multiclassSlotsFor } = await import("../js/data/dnd5e.js");
+  const fields = freshFields();
+  selectByText(fields, "Class", "Fighter");
+  selectByText(fields, "Race", "Human");
+  selectByText(fields, "Background", "Sailor");
+  selectByText(fields, "Subclass", "Champion");
+  const paladinBundle = stripSecondaryClassBundle(
+    FIXED_CLASS_ENTRIES.find((e) => e.name === "Paladin")?.bundle
+  );
+  const devotion = SUBCLASS_SUPPLEMENT.find((s) => s.name === "Oath of Devotion");
+  const extra = [
+    { bundle: paladinBundle, level: 2, source: "Paladin" },
+    { bundle: devotion.bundle, level: 2, source: "Oath of Devotion" },
+  ];
+  // Primary Fighter 4 of total 6; Paladin secondary at 2.
+  const levelFor = (field, choice) => {
+    const label = (field?.label || "").toLowerCase();
+    if (label === "class") return choice?.text === "Fighter" ? 4 : null;
+    if (label === "subclass" || field?.id === "subclass") {
+      return choice?.text === "Champion" ? 4 : null;
+    }
+    return null;
+  };
+  const vm = {};
+  const cb = new Set();
+  const tags = new Map();
+  applyStatModifiersForTest(fields, vm, cb, tags, levelFor, extra);
+  const granted = [...cb];
+  for (const want of ["strSaveProf::0", "conSaveProf::0"]) {
+    if (!granted.includes(want)) fail(`multiclass: missing primary save ${want}`);
+  }
+  for (const banned of ["wisSaveProf::0", "chaSaveProf::0"]) {
+    if (granted.includes(banned)) fail(`multiclass: secondary save leaked in (${banned})`);
+  }
+  const features = collectGrantedFeaturesIn(fields, 6, [], [], levelFor, extra);
+  const names = features.map((f) => f.name);
+  for (const want of ["Action Surge", "Lay on Hands", "Divine Sense", "Improved Critical"]) {
+    if (!names.includes(want)) fail(`multiclass: missing ${want}`);
+  }
+  // Per-class gating proofs (total level is 6 — a total-level gate
+  // would wrongly include all of these):
+  for (const banned of ["Extra Attack", "Sacred Weapon", "Aura of Protection", "Indomitable"]) {
+    if (names.includes(banned)) fail(`multiclass: level-gated feature leaked in (${banned})`);
+  }
+  // Combined slots: Paladin 2 alone on the caster table = L1 row.
+  const slots = multiclassSlotsFor([
+    { caster: null, levels: 4 },
+    { caster: "half", levels: 2 },
+  ]);
+  const s1 = slots.find((s) => s.fieldId === "slots1");
+  if (!s1 || s1.options !== 2) fail(`multiclass: expected 2 L1 slots, got ${JSON.stringify(slots)}`);
+  console.log(`multiclass: Fighter 4/Paladin 2 gates, strips, slots, and features all correct (${names.length} features)`);
+}
+
+function applyStatModifiersForTest(fields, vm, cb, tags, levelFor, extra) {
+  return applyBundleModifiersIn(fields, vm, cb, tags, 6, [], [], applyStatModifiers, levelFor, extra);
 }
 
 // --- 7. Catalogs ------------------------------------------------------------

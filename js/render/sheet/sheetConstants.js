@@ -24,12 +24,13 @@ export const DEFAULT_FIELD_SIZE = {
   catalog: { w: 2, h: 1 },
   radio: { w: 1, h: 1 },
   checkbox: { w: 1, h: 1 },
+  characterlink: { w: 3, h: 1 },
 };
 
 // Radio/checkbox auto-size via syncOptionWidth (their w/h are derived
 // from option count, not user-resizable); every other field type can
 // be freely resized.
-export const RESIZABLE_FIELD_TYPES = new Set(["text", "label", "textarea", "textlist", "taglist", "dropdown", "picture", "catalog", "featureList"]);
+export const RESIZABLE_FIELD_TYPES = new Set(["text", "label", "textarea", "textlist", "taglist", "dropdown", "picture", "catalog", "featureList", "characterlink"]);
 
 // Field types with no separate label/value split — just one element
 // filling the whole field (see renderFieldInner).

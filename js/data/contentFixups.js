@@ -407,6 +407,24 @@ export function patchedSubclassBundle(name, bundle) {
 
 export const normSubclassKey = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
+// PHB multiclassing grants no saving-throw proficiencies and only a
+// limited slice of the new class's armor/weapon proficiencies.
+// Rather than encoding the full per-class multiclass-proficiency
+// table, secondary class bundles drop save grants and armor/weapon
+// fixed tags; skill/tool choice groups stay pickable as usual, and
+// the Equipment Proficiencies tab covers anything else by hand.
+// Subclass bundles are never stripped (their features are the point).
+// Returns a fresh object per call — never persisted, only computed.
+export function stripSecondaryClassBundle(bundle) {
+  if (!bundle) return null;
+  return {
+    ...bundle,
+    statModifiers: (bundle.statModifiers || []).filter((m) =>
+      !(m.op === "grant" && /SaveProf$/.test(m.targetFieldId || ""))
+      && !(m.op === "grantTag" && (m.targetFieldId === "armorProf" || m.targetFieldId === "weaponProf"))),
+  };
+}
+
 // Patched subclass bundles keyed by normalized subclass name — the
 // single source blockModel (starter choices) and bundleMaps
 // (save/load canonicals) both read from.

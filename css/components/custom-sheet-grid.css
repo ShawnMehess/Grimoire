@@ -148,6 +148,17 @@
   padding: var(--space-2);
 }
 
+/* The palette only exists while customizing, and then it sticks
+   around as its own column while the sheet scrolls past — no
+   losing it halfway down a tall character. */
+@media (min-width: 861px) {
+  .sheet-block-frame:not(.is-collapsed) {
+    position: sticky;
+    top: 16px;
+    max-height: calc(100vh - 32px);
+  }
+}
+
 .sheet-block-frame.is-collapsed {
   display: none;
 }
@@ -254,10 +265,11 @@
 /* Breaks out of .app-main's centered max-width column to span the full
    viewport width, regardless of how wide .app-main itself is capped —
    the standard CSS "full-bleed" trick (works because it's positioned
-   relative to the viewport, not to its own parent's box). Height is
-   set explicitly in JS to fill the remaining viewport below the
-   toolbar, growing (and scrolling, both axes) only if actual content
-   needs more room than that. */
+   relative to the viewport, not to its own parent's box). No fixed
+   height and no vertical scroll box: the sheet is part of the page
+   and scrolls with it, toolbar and all. Horizontal overflow stays
+   contained so narrow screens still scroll sideways instead of
+   crushing cells below their usable floor. */
 .page-grid-scroll {
   position: relative;
   left: 50%;
@@ -265,7 +277,8 @@
   margin-left: -50vw;
   margin-right: -50vw;
   width: 100vw;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .sheet-workbench .page-grid-scroll {
@@ -1179,6 +1192,44 @@
   height: 16px;
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+.field-type-preview-characterlink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+/* Character Link field (mounts, companions): open + change buttons
+   share one row inside the value box. */
+.field-value--characterlink {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 2px 4px;
+}
+.characterlink-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.characterlink-change,
+.characterlink-pick {
+  flex: 0 0 auto;
+}
+.characterlink-pick {
+  width: 100%;
+  justify-content: flex-start;
+  margin-bottom: var(--space-1);
 }
 
 /* --- Formula / equation editor --- */

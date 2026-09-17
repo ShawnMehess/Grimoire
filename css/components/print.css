@@ -1,0 +1,113 @@
+/* ==========================================================================
+   print.css
+   Print output + small-screen reformatting. Imported last so these
+   rules win the cascade. Philosophy: the sheet is a fixed grid
+   canvas, so "responsive" here means stacking everything around it
+   and letting the canvas scroll, never re-flowing the canvas itself
+   (which would invalidate saved x/y coordinates).
+   ========================================================================== */
+
+/* --- Small screens: phones (iPhone, Samsung) and narrow tablets --- */
+@media (max-width: 600px) {
+  /* Wizard form drops to one column; dots and toolbar already wrap. */
+  .level-guide__form {
+    grid-template-columns: 1fr;
+  }
+  /* Picker rows stack portrait over text instead of squeezing. */
+  .choice-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .choice-row__portrait {
+    width: 36px;
+    height: 36px;
+  }
+  /* Feature-use rows wrap instead of crushing the number input. */
+  .rule-resources__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: var(--space-1);
+  }
+  /* Character list cards go single-file. */
+  .character-card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Tablets (iPad, iPad mini, landscape phones): two-up cards,
+   comfortable toolbar, sidebar already overlays below 860px. --- */
+@media (min-width: 601px) and (max-width: 1024px) {
+  .character-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* --- Print: US Letter (8.5" x 11") portrait --- */
+@page {
+  size: 8.5in 11in;
+  margin: 0.5in;
+}
+
+@media print {
+  /* Ink-friendly light palette regardless of the on-screen theme. */
+  :root {
+    --color-bg: #ffffff;
+    --color-bg-raised: #f5f2ea;
+    --color-bg-inset: #ffffff;
+    --color-border: #b9ad93;
+    --color-border-strong: #8a7c5f;
+    --color-text: #1a1510;
+    --color-text-muted: #5c5344;
+    --color-text-faint: #8a7d66;
+    --color-accent: #8f3a20;
+    --color-accent-hover: #8f3a20;
+    --color-accent-muted: #e8d9bd;
+    --color-arcane: #2f5d7c;
+    --color-positive: #4a7a3f;
+    --color-negative: #8f3a20;
+    --gradient-surface: none;
+    --gradient-accent: none;
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: none;
+    --shadow-glow-accent: none;
+    --shadow-inset: none;
+  }
+  body {
+    background: #fff;
+  }
+
+  /* Chrome that only makes sense on screen stays home. */
+  .app-header #auth-area,
+  .sheet-toolbar,
+  .sheet-block-frame,
+  .sheet-tabs,
+  .node-toolbar,
+  .drag-handle,
+  .resize-handle,
+  .wizard__nav,
+  .wizard__dots,
+  .sheet-toast,
+  .modal-overlay,
+  .choice-row-list__collapse-controls,
+  .choice-row__expander,
+  .spell-picker-tip,
+  .textlist-add,
+  .textlist-item__handle,
+  .textlist-item__remove,
+  button {
+    display: none !important;
+  }
+  /* Collapsed mechanics print expanded — paper can't toggle. */
+  .choice-row__details[hidden] {
+    display: block;
+  }
+  /* Canvas prints at natural size; the browser's fit-to-page handles
+     wider sheets from there. */
+  .page-grid-scroll {
+    overflow: visible;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+}

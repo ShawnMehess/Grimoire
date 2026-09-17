@@ -20,18 +20,32 @@ export function normalizeChoiceGroup(group, index, keyPrefix) {
   };
 }
 
-export function activeChoiceGroupsFor(fields, level) {
+export function activeChoiceGroupsFor(fields, level, levelFor = null, extraBundles = []) {
   const groups = [];
   fields.forEach((field) => {
     if (field.fieldType !== "dropdown") return;
     const choice = (field.choices || []).find((candidate) => candidate.id === field.selected);
     const bundle = choice?.bundle;
+    const lvl = effectiveLevel(levelFor, level, field, choice, bundle);
     (bundle?.choiceGroups || []).forEach((group, index) => {
-      if (group.minLevel && level < group.minLevel) return;
+      if (group.minLevel && lvl < group.minLevel) return;
       if (!Array.isArray(group.options) || group.options.length === 0) return;
       groups.push({
         ...normalizeChoiceGroup(group, index, `${field.id}:${choice.id}`),
         source: choice.text || field.label,
+      });
+    });
+  });
+  // Multiclass secondary bundles surface their pickers under stable
+  // `multiclass:<Class>:<group>` keys so picks persist across renders.
+  (extraBundles || []).forEach(({ bundle, level: extraLevel, source }) => {
+    const lvl = Number.isFinite(extraLevel) ? extraLevel : level;
+    (bundle?.choiceGroups || []).forEach((group, index) => {
+      if (group.minLevel && lvl < group.minLevel) return;
+      if (!Array.isArray(group.options) || group.options.length === 0) return;
+      groups.push({
+        ...normalizeChoiceGroup(group, index, `multiclass:${source || "class"}`),
+        source: source || "Multiclass",
       });
     });
   });
@@ -159,7 +173,8 @@ export function normalizeRadioSelectionsIn(fields, formulaCounts, slotCounts) {
   return changed;
 }
 
-export const LEVEL_UP_FIELDS = [  { key: "hp", label: "HP Gained", placeholder: "e.g. +7, or rolled 1d8+2" },
+export const LEVEL_UP_FIELDS = [  { key: "className", label: "Class Taken", placeholder: "e.g. Fighter" },
+  { key: "hp", label: "HP Gained", placeholder: "e.g. +7, or rolled 1d8+2" },
   { key: "asiFeat", label: "Ability Score Improvement / Feat", placeholder: "e.g. +2 STR, or the Alert feat" },
   { key: "subclass", label: "Subclass", placeholder: "e.g. Champion" },
   { key: "skillProfs", label: "Skill Proficiencies Gained", placeholder: "e.g. Persuasion, Insight" },
@@ -262,22 +277,54 @@ export function dropdownBundleEntries(fields) {
   return entries;
 }
 
-export function applyBundleModifiersIn(fields, valueMap, grantedCheckboxes, grantedTags, level, ruleOptions, featBundles, applyStatFn) {
-  dropdownBundleEntries(fields).forEach(({ bundle }) => {
-    applyStatFn(bundle.statModifiers, valueMap, grantedCheckboxes, grantedTags, level);
+// Optional per-bundle level override for multiclassed characters:
+// levelFor(field, choice, bundle) returns the class level that gates
+// minLevel'd grants, or null/undefined for the uniform `level`.
+// Dropdown bundles (race/class/subclass) resolve per class; feat
+// bundles and feat-group picks always use the uniform level. Omitted
+// (or returning null) reproduces the old single-class behavior
+// exactly, so every existing caller passes nothing.
+function effectiveLevel(levelFor, level, field, choice, bundle) {
+  if (typeof levelFor !== "function") return level;
+  const override = levelFor(field, choice, bundle);
+  return Number.isFinite(override) ? override : level;
+}
+
+/** Finds the selected dropdown entry owning a choice-group key
+ *  (`<fieldId>:<choiceId>[:<groupId>]`, or `feat:…` for feat groups
+ *  which have no owning field). Returns null for feat groups. */
+export function dropdownEntryForGroupKey(fields, key) {
+  const fieldId = String(key || "").split(":")[0];
+  const field = (fields || []).find((f) => f.id === fieldId && f.fieldType === "dropdown");
+  if (!field) return null;
+  const choice = (field.choices || []).find((c) => c.id === field.selected) || null;
+  return { field, choice, bundle: (choice && choice.bundle) || null };
+}
+
+export function applyBundleModifiersIn(fields, valueMap, grantedCheckboxes, grantedTags, level, ruleOptions, featBundles, applyStatFn, levelFor = null, extraBundles = []) {
+  dropdownBundleEntries(fields).forEach(({ field, choice, bundle }) => {
+    applyStatFn(bundle.statModifiers, valueMap, grantedCheckboxes, grantedTags, effectiveLevel(levelFor, level, field, choice, bundle));
   });
-  ruleOptions.forEach(({ option }) => {
-    applyStatFn(option.statModifiers, valueMap, grantedCheckboxes, grantedTags, level);
+  ruleOptions.forEach(({ option, group }) => {
+    const entry = group ? dropdownEntryForGroupKey(fields, group.key) : null;
+    const lvl = entry ? effectiveLevel(levelFor, level, entry.field, entry.choice, entry.bundle) : level;
+    applyStatFn(option.statModifiers, valueMap, grantedCheckboxes, grantedTags, lvl);
   });
   featBundles.forEach(({ bundle }) => {
     applyStatFn(bundle.statModifiers, valueMap, grantedCheckboxes, grantedTags, level);
   });
+  // Multiclass secondary class/subclass bundles (not on any dropdown)
+  // arrive pre-resolved with their own class level.
+  (extraBundles || []).forEach(({ bundle, level: extraLevel }) => {
+    applyStatFn(bundle?.statModifiers, valueMap, grantedCheckboxes, grantedTags, Number.isFinite(extraLevel) ? extraLevel : level);
+  });
 }
 
-export function collectGrantedFeaturesIn(fields, level, ruleOptions, featBundles) {  const features = [];
-  dropdownBundleEntries(fields).forEach(({ field, bundle }) => {
+export function collectGrantedFeaturesIn(fields, level, ruleOptions, featBundles, levelFor = null, extraBundles = []) {  const features = [];
+  dropdownBundleEntries(fields).forEach(({ field, choice, bundle }) => {
+    const lvl = effectiveLevel(levelFor, level, field, choice, bundle);
     (bundle.featureGrants || []).forEach((grant) => {
-      if (grant.minLevel && level < grant.minLevel) return; // not unlocked yet
+      if (grant.minLevel && lvl < grant.minLevel) return; // not unlocked yet
       features.push({
         name: grant.name,
         description: grant.description || "",
@@ -303,6 +350,18 @@ export function collectGrantedFeaturesIn(fields, level, ruleOptions, featBundles
         description: grant.description || "",
         level: Number.isFinite(grant.minLevel) ? grant.minLevel : 0,
         source: name,
+      });
+    });
+  });
+  (extraBundles || []).forEach(({ bundle, level: extraLevel, source }) => {
+    const lvl = Number.isFinite(extraLevel) ? extraLevel : level;
+    (bundle?.featureGrants || []).forEach((grant) => {
+      if (grant.minLevel && lvl < grant.minLevel) return;
+      features.push({
+        name: grant.name,
+        description: grant.description || "",
+        level: Number.isFinite(grant.minLevel) ? grant.minLevel : 0,
+        source: source || "Multiclass",
       });
     });
   });
@@ -419,26 +478,35 @@ export function dedupResourceTiers(candidates) {
   return [...byKey.values()];
 }
 
-export function collectResourceGrantsIn(fields, level, valueMap, ruleOptions, featBundles, evaluateFn) {  const candidates = [];
-  const add = (grant, keyBase, source) => {
-    if (grant.minLevel && level < grant.minLevel) return;
+export function collectResourceGrantsIn(fields, level, valueMap, ruleOptions, featBundles, evaluateFn, levelFor = null) {  const candidates = [];
+  const add = (grant, keyBase, source, lvl) => {
+    if (grant.minLevel && lvl < grant.minLevel) return;
     const maximum = resolveResourceMaximum(grant, valueMap, evaluateFn);
     if (!grant.name || maximum < 1) return;
     candidates.push({ key: `${keyBase}:${grant.name}`, name: grant.name, maximum, minLevel: grant.minLevel || 0, reset: grant.reset || "rest", source });
   };
   dropdownBundleEntries(fields).forEach(({ field, choice, bundle }) => {
+    const lvl = effectiveLevel(levelFor, level, field, choice, bundle);
     (bundle?.resourceGrants || []).forEach((grant) => {
-      add(grant, `${field.id}:${choice.id}:resource`, choice.text || field.label);
+      add(grant, `${field.id}:${choice.id}:resource`, choice.text || field.label, lvl);
     });
   });
   ruleOptions.forEach(({ option, group }) => {
+    const entry = group ? dropdownEntryForGroupKey(fields, group.key) : null;
+    const lvl = entry ? effectiveLevel(levelFor, level, entry.field, entry.choice, entry.bundle) : level;
     (option.resourceGrants || []).forEach((grant) => {
-      add(grant, `${group.key}:${option.id}:resource`, option.name || group.label || group.source);
+      add(grant, `${group.key}:${option.id}:resource`, option.name || group.label || group.source, lvl);
     });
   });
   featBundles.forEach(({ name, bundle }) => {
     (bundle.resourceGrants || []).forEach((grant) => {
-      add(grant, `feat:${name}:resource`, name);
+      add(grant, `feat:${name}:resource`, name, level);
+    });
+  });
+  (extraBundles || []).forEach(({ bundle, level: extraLevel, source }) => {
+    const lvl = Number.isFinite(extraLevel) ? extraLevel : level;
+    (bundle?.resourceGrants || []).forEach((grant) => {
+      add(grant, `multiclass:${source || "?"}:resource`, source || "Multiclass", lvl);
     });
   });
   return dedupResourceTiers(candidates);
@@ -457,12 +525,12 @@ export function collectResourceGrantsIn(fields, level, valueMap, ruleOptions, fe
 // appends whatever's missing at selection-commit time (dropdown pick,
 // setup finish, level-up apply), which keeps granted spells
 // user-editable afterward instead of re-asserted on every render.
-export function collectListItemGrantsIn(fields, level, ruleOptions, featBundles) {
+export function collectListItemGrantsIn(fields, level, ruleOptions, featBundles, levelFor = null, extraBundles = []) {
   const grants = new Map(); // fieldId -> string[] (deduped, first-seen order)
-  const add = (mods) => {
+  const add = (mods, lvl) => {
     (mods || []).forEach((mod) => {
       if (!mod || mod.op !== "addItem" || !mod.targetFieldId) return;
-      if (mod.minLevel && level < mod.minLevel) return;
+      if (mod.minLevel && lvl < mod.minLevel) return;
       const value = String(mod.value ?? "").trim();
       if (!value) return;
       if (!grants.has(mod.targetFieldId)) grants.set(mod.targetFieldId, []);
@@ -470,9 +538,17 @@ export function collectListItemGrantsIn(fields, level, ruleOptions, featBundles)
       if (!list.includes(value)) list.push(value);
     });
   };
-  dropdownBundleEntries(fields).forEach(({ bundle }) => add(bundle && bundle.statModifiers));
-  (ruleOptions || []).forEach(({ option }) => add(option && option.statModifiers));
-  (featBundles || []).forEach(({ bundle }) => add(bundle && bundle.statModifiers));
+  dropdownBundleEntries(fields).forEach(({ field, choice, bundle }) => {
+    add(bundle && bundle.statModifiers, effectiveLevel(levelFor, level, field, choice, bundle));
+  });
+  (ruleOptions || []).forEach(({ option, group }) => {
+    const entry = group ? dropdownEntryForGroupKey(fields, group.key) : null;
+    add(option && option.statModifiers, entry ? effectiveLevel(levelFor, level, entry.field, entry.choice, entry.bundle) : level);
+  });
+  (featBundles || []).forEach(({ bundle }) => add(bundle && bundle.statModifiers, level));
+  (extraBundles || []).forEach(({ bundle, level: extraLevel }) => {
+    add(bundle && bundle.statModifiers, Number.isFinite(extraLevel) ? extraLevel : level);
+  });
   return [...grants.entries()].map(([fieldId, items]) => ({ fieldId, items }));
 }
 
