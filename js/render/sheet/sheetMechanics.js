@@ -133,3 +133,94 @@ export function spellLevelByName(name, spellCatalog = []) {
   const found = spellCatalog.find((s) => norm(s.name) === needle);
   return found?.level ?? null;
 }
+
+const TAG_FIELD_LABELS = {
+  languages: "Languages",
+  armorProf: "Armor",
+  weaponProf: "Weapons",
+  toolProf: "Tools",
+  vehicleProf: "Vehicles",
+  otherProf: "Other",
+};
+
+/** First sentence of a longer text, capped — keeps picker bullets brief. */
+export function briefDescription(text, max = 140) {
+  const flat = String(text || "").replace(/\s+/g, " ").trim();
+  if (!flat) return "";
+  const m = flat.match(new RegExp(`(.{1,${max}}?[.!?])(\\s|$)`));
+  if (m) return m[1].trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > 0 ? cut.slice(0, space) : cut).trim()}…`;
+}
+
+function abilityIdFor(mod, abilityIds = []) {
+  return abilityIds.find((id) => mod.targetFieldId === `${id}Score`) || null;
+}
+
+function isProfGrant(mod) {
+  return mod.op === "grant" && /Prof$/.test(mod.targetFieldId || "") && !/Score$/.test(mod.targetFieldId || "");
+}
+
+/** Categorized, bulleted mechanics for a picker row — the structured
+ *  replacement for the one-line mechanicsPreviewFor on Race/Class/
+ *  Background/Subclass rows. Fixed category order (Statistical
+ *  traits → Ability score increases → Proficiencies → Innate
+ *  abilities); a category with nothing in it is omitted outright.
+ *  Returns [{ title, items: [string] }]. `level` annotates (not
+ *  filters) grants that unlock later: "(level N)". */
+export function mechanicsBulletsFor(bundle, level, deps = {}) {
+  if (!bundle) return [];
+  const { abilityIds = [], abilities = [], skills = [], resolveLabel = null } = deps;
+  const summarize = (m) => statModifierSummary(m, { abilityIds, abilities, skills, resolveLabel });
+  const tagLabel = (fieldId) => TAG_FIELD_LABELS[fieldId]
+    || (typeof resolveLabel === "function" && resolveLabel(fieldId))
+    || fieldId;
+  const levelTag = (minLevel) => (Number.isFinite(minLevel) && minLevel > 1 ? ` (level ${minLevel})` : "");
+
+  const traits = [];
+  const scores = [];
+  const profs = [];
+  const innate = [];
+
+  const tagsByField = new Map();
+  for (const mod of (bundle.statModifiers || [])) {
+    if (mod.op === "grantTag") {
+      if (!tagsByField.has(mod.targetFieldId)) tagsByField.set(mod.targetFieldId, []);
+      if (mod.value) tagsByField.get(mod.targetFieldId).push(mod.value);
+    } else if (abilityIdFor(mod, abilityIds)) {
+      scores.push(summarize(mod));
+    } else if (isProfGrant(mod)) {
+      profs.push(summarize(mod));
+    } else if (mod.op === "addItem") {
+      innate.push(`Learn the ${mod.value} spell${levelTag(mod.minLevel)}`);
+    } else if (["add", "subtract", "multiply", "set"].includes(mod.op)) {
+      traits.push(`${summarize(mod)}${levelTag(mod.minLevel)}`);
+    }
+  }
+  for (const [fieldId, values] of tagsByField) {
+    const unique = [...new Set(values)];
+    if (unique.length) traits.push(`${tagLabel(fieldId)}: ${unique.join(", ")}`);
+  }
+  for (const grant of (bundle.featureGrants || [])) {
+    const name = (grant.name || "").trim();
+    if (!name) continue;
+    if (/^speed$/i.test(name)) {
+      traits.push(`${featureBit(grant)}${levelTag(grant.minLevel)}`);
+    } else if (/darkvision/i.test(name)) {
+      const why = briefDescription(grant.description, 110);
+      traits.push(`${featureBit(grant)}${why ? ` — ${why}` : ""}${levelTag(grant.minLevel)}`);
+    } else {
+      const why = briefDescription(grant.description, 120);
+      innate.push(`${name}${why ? ` — ${why}` : ""}${levelTag(grant.minLevel)}`);
+    }
+  }
+
+  const out = [];
+  if (traits.length) out.push({ title: "Statistical traits", items: traits });
+  if (scores.length) out.push({ title: "Ability score increases", items: scores });
+  if (profs.length) out.push({ title: "Proficiencies", items: [profs.join(", ")] });
+  if (innate.length) out.push({ title: "Innate abilities", items: innate });
+  return out;
+}

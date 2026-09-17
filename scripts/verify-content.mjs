@@ -457,6 +457,61 @@ function featListWith(namesAndLevels) {
   console.log("fixups: fighting styles, expertise, metamagic, invocations, prey, racial ASIs, subraces, feat spell picks all present; stubs replaced");
 }
 
+// --- 6c. Starter sheet shape -------------------------------------------------
+{
+  const layout = createStarterLayout();
+  const fields = flatten(layout);
+  const byLabel = (label) => fields.find((f) => f.label === label);
+  // Alphabetical dropdowns.
+  for (const label of ["Race", "Class", "Background"]) {
+    const names = ((byLabel(label)?.choices) || []).map((c) => c.text);
+    const sorted = [...names].sort((a, b) => a.localeCompare(b));
+    if (JSON.stringify(names) !== JSON.stringify(sorted)) fail(`starter ${label} dropdown is not alphabetical`);
+  }
+  // Subclass sits beside Class in the same block (Identity).
+  const blockOf = (label) => layout.find((b) => (b.children || []).some((f) => f.label === label));
+  if (!blockOf("Class") || blockOf("Class") !== blockOf("Subclass")) {
+    fail("Subclass field is not in the same block as Class");
+  }
+  const cls = blockOf("Class").children.find((f) => f.label === "Class");
+  const sub = blockOf("Class").children.find((f) => f.label === "Subclass");
+  if (!cls || !sub || cls.y !== sub.y) fail("Subclass is not beside Class (same row)");
+  // Even column bottoms: every top-level column ends on the same row.
+  const bottoms = new Map();
+  for (const b of layout) {
+    const key = `${b.x}/${b.w}`;
+    bottoms.set(key, Math.max(bottoms.get(key) ?? 0, b.y + b.h));
+  }
+  const ends = [...bottoms.values()];
+  if (new Set(ends).size !== 1) fail(`jagged sheet columns (bottoms: ${[...bottoms.entries()].map(([k, v]) => `${k}→${v}`).join(", ")})`);
+  // Vehicle proficiency field exists for the Equipment Proficiencies tab.
+  if (!byLabel("Vehicle Prof.")) fail("starter sheet has no Vehicle Prof. field");
+  console.log(`sheet: dropdowns alphabetical, subclass beside class, columns even (${ends[0]}), vehicle field present`);
+}
+
+// --- 6d. Starting equipment data ---------------------------------------------
+{
+  const { CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT } = await import("../js/data/startingEquipment.js");
+  const classes = DEFAULT_CONTENT.classEntries.map((e) => e.name);
+  const missing = classes.filter((c) => !CLASS_STARTING_EQUIPMENT[c]);
+  if (missing.length) fail(`classes without starting packages: ${missing.join(", ")}`);
+  for (const [name, entry] of Object.entries(CLASS_STARTING_EQUIPMENT)) {
+    if (!entry.options?.length) fail(`${name}: no package options`);
+    if (!Number.isFinite(entry.gold?.gp) || entry.gold.gp <= 0) fail(`${name}: no gold fallback`);
+    for (const opt of (entry.options || [])) {
+      if (!opt.id || !opt.label || !(opt.items || []).length) fail(`${name}: malformed package option`);
+    }
+  }
+  const bgs = DEFAULT_CONTENT.bgEntries.map((e) => e.name);
+  const missingBg = bgs.filter((b) => !BG_STARTING_EQUIPMENT[b]);
+  if (missingBg.length) fail(`backgrounds without starting packages: ${missingBg.join(", ")}`);
+  const { flavorFor } = await import("../js/data/pickerFlavor.js");
+  const { FIXED_RACE_ENTRIES } = await import("../js/data/contentFixups.js");
+  const unflavored = [...classes, ...FIXED_RACE_ENTRIES.map((e) => e.name), ...bgs].filter((n) => !flavorFor(n));
+  if (unflavored.length) fail(`missing flavor blurbs: ${unflavored.join(", ")}`);
+  console.log("equipment: 12 class packages + gold, 9 background packages, flavor blurbs complete");
+}
+
 // --- 7. Catalogs ------------------------------------------------------------
 {
   const tabIds = SPELL_CATALOG.tabs.map((t) => t.id);

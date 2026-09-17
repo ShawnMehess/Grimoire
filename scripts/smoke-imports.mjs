@@ -510,6 +510,85 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   assert(Array.isArray(plan?.slotChanges) && plan.slotChanges.length > 0, "Warlock plan has slot fields");
 }
 
+// Categorized bulleted mechanics for picker rows.
+{
+  const mechanics = await import("../js/render/sheet/sheetMechanics.js");
+  const sections = mechanics.mechanicsBulletsFor({
+    statModifiers: [
+      { targetFieldId: "dexScore", op: "add", value: 2 },
+      { targetFieldId: "languages", op: "grantTag", value: "Common" },
+      { targetFieldId: "languages", op: "grantTag", value: "Elvish" },
+      { targetFieldId: "perceptionProf", op: "grant" },
+      { targetFieldId: "spellsKnown", op: "addItem", value: "Misty Step", minLevel: null },
+    ],
+    featureGrants: [
+      { name: "Speed", description: "30 ft. walking", minLevel: 1 },
+      { name: "Darkvision", description: "You can see in dim light within 60 feet as if it were bright light.", minLevel: 1 },
+      { name: "Trance", description: "Meditate 4 hours instead of sleeping.", minLevel: 1 },
+    ],
+  }, 1, { abilityIds: ["dex"] });
+  const titles = sections.map((s) => s.title);
+  assert(JSON.stringify(titles) === JSON.stringify(["Statistical traits", "Ability score increases", "Proficiencies", "Innate abilities"]), "mechanicsBullets order");
+  assert(sections[0].items.some((i) => i.startsWith("Languages: Common, Elvish")), "mechanicsBullets tags grouped");
+  assert(sections[1].items[0] === "+2 DEX", "mechanicsBullets score");
+  assert(sections[2].items[0] === "perceptionProf", "mechanicsBullets prof fallback without vocab");
+  assert(sections[3].items.some((i) => i.startsWith("Trance")), "mechanicsBullets innate");
+  assert(mechanics.mechanicsBulletsFor(null, 1).length === 0, "mechanicsBullets null-safe");
+  assert(mechanics.briefDescription("First. Second.", 200) === "First.", "briefDescription");
+}
+
+// Flavor blurbs resolve case-insensitively.
+{
+  const { flavorFor } = await import("../js/data/pickerFlavor.js");
+  assert(typeof flavorFor("half-elf") === "string" && flavorFor("Half-Elf") === flavorFor("half-elf"), "flavorFor");
+  assert(flavorFor("Nope") === null, "flavorFor miss");
+}
+
+// Spell mechanics lines + choice review lines + gating helpers.
+{
+  const wizard = await import("../js/render/sheet/sheetWizard.js");
+  const line = wizard.spellMechanicsLine({ fieldValues: { level: "Level 3", school: "Evocation", castingTime: "1 action", range: "150 feet", duration: "Instantaneous", concentration: "No", effect: "A bright streak flashes. Each creature must make a Dexterity saving throw." } });
+  assert(line.meta.includes("Level 3") && line.meta.includes("150 feet"), "spellMechanicsLine meta");
+  assert(line.effect.startsWith("A bright streak"), "spellMechanicsLine effect");
+  const lines = wizard.reviewChoiceLinesFor(
+    [{ key: "g1", label: "Skills", options: [{ id: "a", name: "Arcana" }], categories: [{ options: [{ id: "b", name: "History" }] }] }],
+    { g1: ["a", "b"] }
+  );
+  assert(lines.length === 1 && lines[0] === "Skills: Arcana, History", "reviewChoiceLinesFor");
+  assert(wizard.reviewChoiceLinesFor([{ key: "g", options: [] }], {}).length === 0, "reviewChoiceLinesFor skips empty");
+  const owned = new Set(["s", "tag:languages:Common"]);
+  assert(wizard.optionIsOwned({ statModifiers: [{ op: "grant", targetFieldId: "s" }] }, owned) === true, "optionIsOwned grant");
+  assert(wizard.optionIsOwned({ statModifiers: [{ op: "grantTag", targetFieldId: "languages", value: "Common" }] }, owned) === true, "optionIsOwned tag");
+  assert(wizard.optionIsOwned({ statModifiers: [{ op: "grant", targetFieldId: "x" }] }, owned) === false, "optionIsOwned miss");
+  assert(wizard.groupPicksSatisfied({ minSelections: 2, options: [] }, [], new Set()) === false, "groupPicksSatisfied empty");
+  assert(wizard.groupPicksSatisfied({ minSelections: 1, lockedOptionIds: ["c"], options: [{ id: "c" }] }, ["c"], new Set()) === false, "groupPicksSatisfied locked does not consume budget");
+  assert(wizard.groupPicksSatisfied({ minSelections: 1, lockedOptionIds: ["c"], options: [{ id: "c" }, { id: "x" }] }, ["c", "x"], new Set()) === true, "groupPicksSatisfied one real pick satisfies");
+  assert(wizard.groupPicksSatisfied({ minSelections: 1, options: [{ id: "a", statModifiers: [{ op: "grant", targetFieldId: "s" }] }] }, [], owned) === true, "groupPicksSatisfied owned freebie");
+  assert(wizard.stepIsComplete({}) === true && wizard.stepIsComplete({ isComplete: () => false }) === false, "stepIsComplete");
+  {
+    const groups = [{
+      key: "g", label: "Acolyte Languages (choose 2)", minSelections: 2, maxSelections: 2,
+      options: [{ id: "c", name: "Common" }, { id: "e", name: "Elvish" }],
+    }];
+    wizard.lockCommonInLanguageGroups(groups, (g) => "languages");
+    assert(JSON.stringify(groups[0].lockedOptionIds) === '["c"]', "lockCommon finds Common");
+    const other = [{ key: "h", label: "Skills", options: [{ id: "x", name: "Arcana" }] }];
+    wizard.lockCommonInLanguageGroups(other, () => "proficiencies");
+    assert(other[0].lockedOptionIds === undefined, "lockCommon ignores non-language groups");
+  }
+  {
+    const { resolveStartingEquipmentPick, goldOptionIdFor, CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT } = await import("../js/data/startingEquipment.js");
+    const fighter = resolveStartingEquipmentPick("Fighter", "Sailor", "fighter-a");
+    assert(fighter.items.includes("Chain mail") && fighter.gp === 10, "starting package + bg gold");
+    const gold = resolveStartingEquipmentPick("Fighter", "Sailor", goldOptionIdFor("Fighter"));
+    assert(gold.items.length === BG_STARTING_EQUIPMENT.Sailor.items.length && gold.gp === CLASS_STARTING_EQUIPMENT.Fighter.gold.gp + 10, "gold instead");
+    const empty = resolveStartingEquipmentPick("", "", null);
+    assert(empty.items.length === 0 && empty.gp === 0, "starting equipment empty-safe");
+  }
+  assert(wizard.firstIncompleteStep([{ isComplete: () => true }, { isComplete: () => false }]) === 1, "firstIncompleteStep");
+  assert(wizard.firstIncompleteStep([{ isComplete: () => { throw new Error("x"); } }]) === -1, "firstIncompleteStep never throws");
+}
+
 // Spell + equipment catalogs import with the expected tabs.
 {
   const { SPELL_CATALOG, WEAPONS_ARMOR_CATALOG, GEAR_CATALOG } = await import("../js/data/contentCatalogs.js");

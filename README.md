@@ -331,6 +331,38 @@ Light Cleric, Devotion Paladin), a 12-class sweep, and all 18 starter
 races — every statModifier target, dropdownAccess id, and granted
 spell name must resolve or it fails.
 
+## Character creation wizard
+
+Step order: Ruleset → Identity → Class → Ability Scores → Background →
+Preferences → Innate Abilities → Spells & Abilities → Languages →
+Starting Equipment → Feats → Ability Proficiencies → Equipment
+Proficiencies → Review.
+
+Starting Equipment offers each class's 2014 packages (packs expanded
+into contents) or the fixed-average gold, plus the background's fixed
+package — applied once at Finish Setup. Equipment Proficiencies is a
+separate picker over the full weapon/armor/tool/vehicle vocabularies
+with already-granted tags locked; sheet taglists stay editable after
+setup, and a category with nothing to choose shows who-you-are and
+says so instead of an empty picker.
+
+- **Gated pages.** Next (and forward dot-jumps) stay disabled until the
+  current page's decisions are made — picks, subclass where choosable
+  now, spell caps, HP. Dots and Back always work backward.
+- **Sensible defaults.** A single ruleset selects itself; fresh ability
+  scores start on Point Buy; HP defaults to Fixed Average.
+- **Picker rows** show a personality/playstyle blurb plus categorized,
+  bulleted mechanics (Statistical traits → Ability increases →
+  Proficiencies → Innate abilities), collapsible per row with
+  Expand All / Collapse All.
+- **Common is locked** wherever a language picker offers it, and never
+  counts against the pick budget. Spell rows show a mechanical line
+  (level · school · casting · range · duration + effect); hitting a
+  spell cap shows a tooltip on the row instead of an error banner.
+- **Starting Equipment** offers each class's packages or the gold,
+  plus the background's fixed package; applied once at Finish Setup
+  (items to Inventory, gold to GP). Review lists every choice made.
+
 ## Sharing with friends / offline mode
 
 - **Shared (default):** the Firebase project is already configured in

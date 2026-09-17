@@ -514,3 +514,76 @@
   font-size: var(--text-sm);
   font-family: inherit;
 }
+
+/* Gated wizard navigation: dots past the first undecided page lock,
+   Next disables until the current page is decided. */
+.wizard__dot--locked {
+  color: var(--color-text-faint);
+  border-style: dotted;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Collapsible picker rows (Race/Class/Background tables): per-row
+   expander plus Expand All / Collapse All above the list. Details
+   start collapsed so long mechanics lists don't bury the names. */
+.choice-row-list__collapse-controls {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.choice-row__expander {
+  margin-top: var(--space-1);
+  padding: 1px var(--space-2);
+  font-size: var(--text-xs);
+}
+.choice-row__details {
+  margin-top: var(--space-1);
+}
+.choice-row__mechanics-title {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin: var(--space-2) 0 2px;
+}
+.choice-row__mechanics-list {
+  margin: 0 0 var(--space-1);
+  padding-left: 1.25em;
+  font-size: var(--text-sm);
+}
+.choice-row__mechanics-list li {
+  margin-bottom: 2px;
+}
+.choice-row__mechanics-meta {
+  font-size: var(--text-xs);
+  color: var(--color-accent-hover);
+  margin-top: 2px;
+}
+.choice-row__mechanics-effect {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+/* Spell-cap tooltip: transient, anchored right under the clicked row,
+   replacing the old top-of-table error. */
+.spell-picker-tip {
+  margin: var(--space-1) 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-muted);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+/* Locked-by-default picks (e.g. Common): same dim + accent treatment
+   as already-granted options, since they read the same way. */
+.level-guide__choice-option--locked {
+  opacity: 0.85;
+}
+.level-guide__choice-option--locked input:disabled {
+  accent-color: var(--color-accent);
+  cursor: default;
+}

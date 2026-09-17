@@ -39,6 +39,8 @@ export const WEAPON_PROFICIENCIES = [
   "Maul", "Morningstar", "Pike", "Rapier", "Scimitar", "Shortsword", "Trident", "War Pick",
   "Warhammer", "Whip", "Blowgun", "Hand Crossbow", "Heavy Crossbow", "Longbow", "Net",
 ];
+export const VEHICLE_PROFICIENCIES = ["Vehicles (land)", "Vehicles (water)"];
+
 export const TOOL_PROFICIENCIES = [
   "Alchemist's Supplies", "Brewer's Supplies", "Calligrapher's Supplies", "Carpenter's Tools",
   "Cartographer's Tools", "Cobbler's Tools", "Cook's Utensils", "Glassblower's Tools",
@@ -59,9 +61,12 @@ export const TOOL_PROFICIENCIES = [
 // immediately with no import step. The Bundle Library/Catalog import
 // UI still exists in the code but is hidden from the toolbar for now
 // (see customSheet.js) — homebrew-via-import is a later project.
-const STARTER_RACES = FIXED_RACE_ENTRIES.map((r) => r.name);
-const STARTER_CLASSES = FIXED_CLASS_ENTRIES.map((c) => c.name);
-const STARTER_BACKGROUNDS = DEFAULT_CONTENT.bgEntries.map((b) => b.name);
+const byName = (a, b) => a.localeCompare(b);
+// Starter dropdowns read alphabetically — the wizard falls back to
+// these same orders, so pickers are alphabetical everywhere.
+const STARTER_RACES = FIXED_RACE_ENTRIES.map((r) => r.name).sort(byName);
+const STARTER_CLASSES = FIXED_CLASS_ENTRIES.map((c) => c.name).sort(byName);
+const STARTER_BACKGROUNDS = DEFAULT_CONTENT.bgEntries.map((b) => b.name).sort(byName);
 
 const RACE_BUNDLE_ENTRIES = FIXED_RACE_ENTRIES;
 const CLASS_BUNDLE_ENTRIES = FIXED_CLASS_ENTRIES;
@@ -355,13 +360,16 @@ export function createStarterLayout() {
   const identity = createBlock({ name: "Identity", x: 0, y: 0, w: 4, h: 5 });
   identity.children = [
     field({ fieldType: "text", label: "Name", x: 0, y: 0, w: 4, h: 1 }),
+    // Class and Subclass sit side by side — the subclass id ("subclass")
+    // is pinned: bundle dropdownAccess rules and formulas target it.
     field({ fieldType: "dropdown", label: "Class", x: 0, y: 1, w: 2, h: 1, choices: makeChoices(STARTER_CLASSES, CLASS_BUNDLE_ENTRIES) }),
-    field({ fieldType: "text", label: "Level", x: 2, y: 1, w: 2, h: 1, value: "1" }, "level"),
+    field({ fieldType: "dropdown", label: "Subclass", x: 2, y: 1, w: 2, h: 1, choices: makeSubclassChoices() }, "subclass"),
+    field({ fieldType: "text", label: "Level", x: 0, y: 2, w: 1, h: 1, value: "1" }, "level"),
     field({
-      fieldType: "text", label: "Prof. Bonus", x: 0, y: 2, w: 2, h: 1,
+      fieldType: "text", label: "Prof. Bonus", x: 1, y: 2, w: 2, h: 1,
       formula: { type: "expr", text: "roundup({{level}}/4)+1" },
     }, "profBonus"),
-    field({ fieldType: "text", label: "Hit Dice", x: 2, y: 2, w: 2, h: 1, value: "" }),
+    field({ fieldType: "text", label: "Hit Dice", x: 3, y: 2, w: 1, h: 1, value: "" }),
     toggleField({ label: "", x: 0, y: 3, w: 1, h: 1 }, "inspiration"),
     nameLabel("Inspiration", 1, 3, 3),
   ];
@@ -439,7 +447,10 @@ export function createStarterLayout() {
   // same clipping one column over. Stacked, both keep the same width
   // as Identity above them (x0, w4) and the sheet stays a clean single
   // left-hand column instead of a cramped double one.
-  const saves = createBlock({ name: "Saving Throws", x: 0, y: 5, w: 4, h: 1 + ABILITIES.length });
+  // Left column (x0 w4): Identity, Saves, Combat, Features — ends y28.
+  // Single-row gaps between blocks keep some air without changing any
+  // child layout.
+  const saves = createBlock({ name: "Saving Throws", x: 0, y: 6, w: 4, h: 1 + ABILITIES.length });
   saves.children = ABILITIES.flatMap((ability, i) => {
     const scoreId = `${ability.id}Score`;
     const profId = `${ability.id}SaveProf`;
@@ -450,18 +461,20 @@ export function createStarterLayout() {
     ];
   });
 
-  const skills = createBlock({ name: "Skills", x: 0, y: saves.y + saves.h, w: 4, h: 1 + SKILLS.length });
+  // Skills takes the whole width of its column (w6): proficiency box,
+  // a roomy name caption, and the modifier — no clipping.
+  const skills = createBlock({ name: "Skills", x: 10, y: 9, w: 6, h: 1 + SKILLS.length });
   skills.children = SKILLS.flatMap((skill, i) => {
     const scoreId = `${skill.ability}Score`;
     const profId = `${skill.id}Prof`;
     return [
       toggleField({ label: "Prof.", x: 0, y: i, w: 1, h: 1 }, profId),
-      nameLabel(skill.label, 1, i, 2),
-      field({ fieldType: "text", label: "", x: 3, y: i, w: 1, h: 1, formula: proficientModFormula(scoreId, profId) }, `${skill.id}Mod`),
+      nameLabel(skill.label, 1, i, 4),
+      field({ fieldType: "text", label: "", x: 5, y: i, w: 1, h: 1, formula: proficientModFormula(scoreId, profId) }, `${skill.id}Mod`),
     ];
   });
 
-  const combat = createBlock({ name: "Combat", x: 4, y: 3, w: 6, h: 4 });
+  const combat = createBlock({ name: "Combat", x: 0, y: 14, w: 4, h: 6 });
   combat.children = [
     // Stable ids ("armorClass", "initiative", "speed", "hpMax",
     // "passivePerception") are what bundle statModifiers target — e.g.
@@ -470,24 +483,25 @@ export function createStarterLayout() {
     // reference these ids, not labels.
     field({ fieldType: "text", label: "Armor Class", x: 0, y: 0, w: 2, h: 1 }, "armorClass"),
     field({ fieldType: "text", label: "Initiative", x: 2, y: 0, w: 2, h: 1, formula: { type: "expr", text: "{{dexMod}}" } }, "initiative"),
-    field({ fieldType: "text", label: "Speed", x: 4, y: 0, w: 2, h: 1, value: "30" }, "speed"),
-    field({ fieldType: "text", label: "HP Max", x: 0, y: 1, w: 2, h: 1 }, "hpMax"),
-    field({ fieldType: "text", label: "HP Current", x: 2, y: 1, w: 2, h: 1 }),
-    field({ fieldType: "text", label: "Temp HP", x: 4, y: 1, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "Speed", x: 0, y: 1, w: 2, h: 1, value: "30" }, "speed"),
+    field({ fieldType: "text", label: "HP Max", x: 2, y: 1, w: 2, h: 1 }, "hpMax"),
+    field({ fieldType: "text", label: "HP Current", x: 0, y: 2, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "Temp HP", x: 2, y: 2, w: 2, h: 1 }),
     field({
-      fieldType: "text", label: "Passive Perception", x: 0, y: 2, w: 3, h: 1,
+      fieldType: "text", label: "Passive Perception", x: 0, y: 3, w: 4, h: 1,
       formula: { type: "expr", text: "10 + {{perceptionMod}}" },
     }, "passivePerception"),
-    field({ fieldType: "checkbox", label: "Death ✓", x: 3, y: 2, w: 1, h: 1 }, "deathSuccesses"),
-    field({ fieldType: "checkbox", label: "Death ✗", x: 4, y: 2, w: 1, h: 1 }, "deathFailures"),
+    field({ fieldType: "checkbox", label: "Death ✓", x: 0, y: 4, w: 1, h: 1 }, "deathSuccesses"),
+    field({ fieldType: "checkbox", label: "Death ✗", x: 1, y: 4, w: 1, h: 1 }, "deathFailures"),
   ];
 
-  const attacks = createBlock({ name: "Attacks", x: 10, y: 3, w: 6, h: 5 });
+  const attacks = createBlock({ name: "Attacks", x: 10, y: 4, w: 6, h: 5 });
   attacks.children = [
     field({ fieldType: "textlist", label: "Name — to hit — damage/type", x: 0, y: 0, w: 6, h: 4 }),
   ];
 
-  const inventory = createBlock({ name: "Inventory", x: 4, y: 7, w: 6, h: 7 });
+  // Middle column (x4 w6): Abilities, Inventory, Details, Personality — ends y28.
+  const inventory = createBlock({ name: "Inventory", x: 4, y: 4, w: 6, h: 7 });
   inventory.children = [
     field({ fieldType: "text", label: "CP", x: 0, y: 0, w: 1, h: 1, value: "0" }),
     field({ fieldType: "text", label: "SP", x: 1, y: 0, w: 1, h: 1, value: "0" }),
@@ -497,7 +511,7 @@ export function createStarterLayout() {
     field({ fieldType: "textlist", label: "Items", x: 0, y: 1, w: 6, h: 5 }),
   ];
 
-  const features = createBlock({ name: "Features & Traits", x: 10, y: 8, w: 6, h: 6 });
+  const features = createBlock({ name: "Features & Traits", x: 0, y: 21, w: 4, h: 7 });
   features.children = [
     // Computed, not manually typed — see collectGrantedFeatures in
     // customSheet.js. Shows whatever the character's Class/Race/
@@ -505,10 +519,10 @@ export function createStarterLayout() {
     // Level field. A saved character from before this field type
     // existed keeps its old plain "Features & Traits" textlist as-is;
     // this only applies to brand-new characters going forward.
-    field({ fieldType: "featureList", label: "Features & Traits", x: 0, y: 0, w: 6, h: 5 }),
+    field({ fieldType: "featureList", label: "Features & Traits", x: 0, y: 0, w: 4, h: 6 }),
   ];
 
-  const details = createBlock({ name: "Character Details", x: 4, y: 14, w: 6, h: 7 });
+  const details = createBlock({ name: "Character Details", x: 4, y: 12, w: 6, h: 8 });
   details.children = [
     field({ fieldType: "dropdown", label: "Race", x: 0, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_RACES, RACE_BUNDLE_ENTRIES) }),
     field({ fieldType: "dropdown", label: "Background", x: 2, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_BACKGROUNDS, DEFAULT_CONTENT.bgEntries) }),
@@ -517,16 +531,10 @@ export function createStarterLayout() {
     tagListField({ label: "Weapon Prof.", x: 2, y: 1, w: 2, h: 2 }, WEAPON_PROFICIENCIES, "weaponProf"),
     tagListField({ label: "Tool Prof.", x: 4, y: 1, w: 2, h: 2 }, TOOL_PROFICIENCIES, "toolProf"),
     tagListField({ label: "Languages", x: 0, y: 3, w: 6, h: 2 }, LANGUAGES, "languages"),
-    // Every core-class subclass in one flat list — which of them show
-    // up here at all depends entirely on a Class-bundle dropdownAccess
-    // rule (see default-bundles/classes.json) filtering by whichever
-    // Class is currently selected; nothing here does that filtering
-    // itself. Unfiltered (no Class bundle applied yet, or Class blank),
-    // every subclass from every class is offered.
-    field({ fieldType: "dropdown", label: "Subclass", x: 0, y: 5, w: 6, h: 1, choices: makeSubclassChoices() }, "subclass"),
+    tagListField({ label: "Vehicle Prof.", x: 0, y: 5, w: 6, h: 2 }, VEHICLE_PROFICIENCIES, "vehicleProf"),
   ];
 
-  const personality = createBlock({ name: "Personality", x: 10, y: 14, w: 6, h: 7 });
+  const personality = createBlock({ name: "Personality", x: 4, y: 21, w: 6, h: 7 });
   personality.children = [
     field({ fieldType: "textarea", label: "Personality Traits", x: 0, y: 0, w: 3, h: 2 }),
     field({ fieldType: "textarea", label: "Ideals", x: 3, y: 0, w: 3, h: 2 }),

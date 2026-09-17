@@ -67,7 +67,7 @@ export function renderRulesetStepInto(container, state, deps) {
 }
 
 export function renderIdentityStepInto(container, state, deps) {
-  const { characterName, nameInputSetFn, saveNameFn, updateFn, fieldFn, optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, selectableRowsFn, debounceFn } = deps;
+  const { characterName, nameInputSetFn, saveNameFn, updateFn, fieldFn, optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn, selectableRowsFn, debounceFn } = deps;
   const nameField = document.createElement("input");
   nameField.type = "text";
   nameField.className = "input-group__control";
@@ -94,13 +94,10 @@ export function renderIdentityStepInto(container, state, deps) {
 
   const liveNames = optionNamesFn(state.rulesetId, "Race");
   if (liveNames.length) {
-    // Traits identical across every race (none today, but cheap to
-    // check) are omitted so rows show what sets each race apart.
-    const common = commonPreviewBits(liveNames.map((name) => bundleFn("Race", name)), state.level, { summarize: summarizeFn });
     selectableRowsFn(container, liveNames, {
       selectedName: state.species,
       getInfo: (name) => catalogInfoFn(["race", "species"], name),
-      getMechanics: (name) => mechanicsPreviewFor(bundleFn("Race", name), state.level, { summarize: summarizeFn, exclude: common }),
+      getMechanicsList: (name) => (mechanicsListFn ? mechanicsListFn("Race", name) : null),
       onSelect: (name) => updateFn("species", name),
     });
   } else {
@@ -114,36 +111,29 @@ export function renderIdentityStepInto(container, state, deps) {
 }
 
 export function renderClassStepInto(container, state, deps) {
-  const { optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, subclassDataFn, updateFn, selectableRowsFn } = deps;
+  const { optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn, subclassDataFn, updateFn, selectableRowsFn } = deps;
   const liveNames = optionNamesFn(state.rulesetId, "Class");
-  const common = commonPreviewBits(liveNames.map((name) => bundleFn("Class", name)), state.level, { summarize: summarizeFn });
   selectableRowsFn(container, liveNames, {
     selectedName: state.className,
     getInfo: (name) => catalogInfoFn(["class"], name),
-    getMechanics: (name) => mechanicsPreviewFor(bundleFn("Class", name), state.level, { summarize: summarizeFn, exclude: common }),
+    getMechanicsList: (name) => (mechanicsListFn ? mechanicsListFn("Class", name) : null),
     onSelect: (name) => updateFn("className", name),
     afterRow: (name, rowEl) => {
       if (name !== state.className) return;
       const subs = subclassDataFn(name);
-      if (!(subs.subclasses.length && state.level >= subs.subclassLevel)) {
-        const note = document.createElement("p");
-        note.className = "leveling-tab__intro wizard__subclass-note";
-        note.textContent = `${name} doesn't choose a subclass until level ${subs.subclassLevel === Infinity ? "?" : subs.subclassLevel} — the Leveling tab will ask when you get there.`;
-        rowEl.after(note);
-        return;
-      }
+      // No note when there's nothing to choose yet — the nested
+      // picker appears here exactly when a subclass is choosable now,
+      // and the Leveling tab covers later levels.
+      if (!(subs.subclasses.length && state.level >= subs.subclassLevel)) return;
       // Built against a detached holder so the nested list's
       // own container.append() call doesn't land it at the end of
       // the whole class list — it belongs right under this
       // one selected class's row instead.
       const holder = document.createElement("div");
-      // Same common-trait omission for the nested subclass rows, so
-      // e.g. a Hit Die every subclass shares doesn't repeat per row.
-      const subCommon = commonPreviewBits(subs.subclasses.map((n) => bundleFn("Subclass", n)), state.level, { summarize: summarizeFn });
       selectableRowsFn(holder, subs.subclasses, {
         selectedName: state.subclass,
         getInfo: (n) => catalogInfoFn(["subclass"], n),
-        getMechanics: (n) => mechanicsPreviewFor(bundleFn("Subclass", n), state.level, { summarize: summarizeFn, exclude: subCommon }),
+        getMechanicsList: (n) => (mechanicsListFn ? mechanicsListFn("Subclass", n) : null),
         onSelect: (n) => updateFn("subclass", n),
         nested: true,
       });
@@ -162,17 +152,14 @@ export function renderRowListStepInto(container, state, deps) {
   const {
     optionNamesFn, fallbackNames, keywords, category, selectedKey,
     inputLabel, inputPlaceholder, updateKey, updateFn, fieldFn,
-    selectableRowsFn, catalogInfoFn, bundleFn, summarizeFn,
+    selectableRowsFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn,
   } = deps;
   const liveNames = optionNamesFn(state.rulesetId, category, fallbackNames);
   if (liveNames.length) {
-    // Omit traits identical across every option (e.g. every
-    // background's "Starting Equipment") so rows show differences.
-    const common = commonPreviewBits(liveNames.map((name) => bundleFn(category, name)), state.level, { summarize: summarizeFn });
     selectableRowsFn(container, liveNames, {
       selectedName: state[selectedKey],
       getInfo: (name) => catalogInfoFn(keywords, name),
-      getMechanics: (name) => mechanicsPreviewFor(bundleFn(category, name), state.level, { summarize: summarizeFn, exclude: common }),
+      getMechanicsList: (name) => (mechanicsListFn ? mechanicsListFn(category, name) : null),
       onSelect: (name) => updateFn(updateKey, name),
     });
   } else {
@@ -204,6 +191,42 @@ export function renderChoicePageStepInto(container, groups, saveRules, renderCho
   renderChoiceGroupsFn(container, groups, saveRules);
 }
 
+/** Read-only reference list of everything the chosen Race/Class/
+ *  Subclass/Background grant automatically (fixed feature grants, one
+ *  section per source). `sections` is [{ source, features: [{ name,
+ *  description }] }]; empty sections are skipped, and a fully empty
+ *  list explains itself instead of rendering blank. */
+export function renderInnateAbilitiesStepInto(container, sections) {
+  const shown = (sections || []).filter((s) => (s.features || []).length);
+  if (!shown.length) {
+    const note = document.createElement("p");
+    note.className = "leveling-tab__intro";
+    note.textContent = "No innate abilities from your current Race/Class/Background selections yet — pick those first, then come back.";
+    container.append(note);
+    return;
+  }
+  shown.forEach((section) => {
+    const heading = document.createElement("p");
+    heading.className = "wizard__section-label";
+    heading.textContent = section.source;
+    container.append(heading);
+    section.features.forEach((feature) => {
+      const block = document.createElement("div");
+      block.className = "level-guide__choices";
+      const name = document.createElement("strong");
+      name.textContent = feature.name || "Unnamed ability";
+      block.append(name);
+      if (feature.description) {
+        const desc = document.createElement("p");
+        desc.className = "level-guide__choice-description";
+        desc.textContent = feature.description;
+        block.append(desc);
+      }
+      container.append(block);
+    });
+  });
+}
+
 export function renderSpellsStepInto(container, state, deps) {  const { groups, saveRules, choiceGroupsFn, casterInfoFn, spellPickerFn } = deps;
   choiceGroupsFn(container, groups, saveRules);
   if (casterInfoFn(state.rulesetId, state.className)) {
@@ -220,7 +243,7 @@ export function renderSpellsStepInto(container, state, deps) {  const { groups, 
 // Migration of the renderRulesTab "review" step: summary rows plus the
 // Finish Setup button that syncs wizard answers onto the sheet.
 
-export function reviewLinesFor({ characterName, rulesetName, species, className, subclass, background, level, spellLimit, resources = [] }) {
+export function reviewLinesFor({ characterName, rulesetName, species, className, subclass, background, level, spellLimit, resources = [], abilityScores = null, abilityMethod = null, hpMethod = null, choiceLines = [], spellsPicked = [], equipmentLine = null, featNames = [] }) {
   const noteLines = [
     characterName && `Name: ${characterName}`,
     rulesetName || null,
@@ -229,6 +252,14 @@ export function reviewLinesFor({ characterName, rulesetName, species, className,
     background && `Background: ${background}`,
     `Level ${level}`,
   ].filter(Boolean);
+  if (abilityScores) {
+    const scores = Object.entries(abilityScores)
+      .map(([id, value]) => `${String(id).toUpperCase()} ${value}`)
+      .join(", ");
+    noteLines.push(`Ability scores${abilityMethod ? ` (${abilityMethod})` : ""}: ${scores}`);
+  }
+  if (hpMethod) noteLines.push(`HP method: ${hpMethod}`);
+  for (const line of choiceLines) noteLines.push(line);
   if (spellLimit) {
     const { style, cantrips, spells } = spellLimit;
     const bits = [];
@@ -236,11 +267,14 @@ export function reviewLinesFor({ characterName, rulesetName, species, className,
     bits.push(`${spells} spell${spells === 1 ? "" : "s"} ${style === "known" ? "known" : "prepared"}`);
     noteLines.push(`Spells: ${bits.join(", ")}`);
   }
+  if (spellsPicked.length) noteLines.push(`Spells known: ${spellsPicked.join(", ")}`);
+  if (equipmentLine) noteLines.push(equipmentLine);
+  if (featNames.length) noteLines.push(`Feats: ${featNames.join(", ")}`);
   resources.forEach((resource) => noteLines.push(`${resource.name}: ${resource.maximum}`));
   return noteLines;
 }
 
-export function renderReviewStepInto(container, state, deps) {  const { characterName, rulesetName, spellLimit, resources, syncFn } = deps;
+export function renderReviewStepInto(container, state, deps) {  const { characterName, rulesetName, spellLimit, resources, abilityScores, abilityMethod, hpMethod, choiceLines, spellsPicked, equipmentLine, featNames, syncFn } = deps;
   const rows = document.createElement("div");
   rows.className = "wizard__review-rows";
   const noteLines = reviewLinesFor({
@@ -253,6 +287,13 @@ export function renderReviewStepInto(container, state, deps) {  const { characte
     level: state.level,
     spellLimit,
     resources,
+    abilityScores: abilityScores || null,
+    abilityMethod: abilityMethod || null,
+    hpMethod: hpMethod || null,
+    choiceLines: choiceLines || [],
+    spellsPicked: spellsPicked || [],
+    equipmentLine: equipmentLine || null,
+    featNames: featNames || [],
   });
   if (noteLines.length === 0) {
     const empty = document.createElement("p");
@@ -667,6 +708,10 @@ export function renderGuideHpStepInto(container, pending, { conScore, dieSize, m
   hpInput.type = "number"; hpInput.min = "1"; hpInput.step = "1"; hpInput.required = true;
   hpInput.placeholder = "Rolled or average"; hpInput.className = "input-group__control";
   hpInput.value = pending.hp || "";
+  // Update on every keystroke (not just blur) so page gating sees the
+  // value while it's being typed; Apply-time validation still guards
+  // the actual number.
+  hpInput.addEventListener("input", () => { pending.hp = hpInput.value; });
   hpInput.addEventListener("change", () => { pending.hp = hpInput.value; });
   hpGroup.append(hpInput);
   container.append(hpGroup);

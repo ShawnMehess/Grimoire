@@ -3,6 +3,8 @@
 // Pure block/style geometry helpers extracted from customSheet.js.
 // customSheet.js owns DOM + character mutation; it delegates math here.
 
+import { buildLabelValueInto } from "./sheetFields.js";
+
 export function resolveSourceBlock(block, globalLayout = []) {
   if (!block?.sourceBlockId) return block;
   return globalLayout.find((candidate) => candidate.id === block.sourceBlockId) || block;
@@ -302,25 +304,27 @@ export function renderBlockNodeInto(block, cw, deps) {
   el.style.width = `${parseFloat(el.style.width) + blockBorderCompensationPx}px`;
   el.style.height = `${parseFloat(el.style.height) + blockBorderCompensationPx}px`;
 
+  // Block headers render through the same Label-element builder as
+  // label-type fields (same look, editing, and ghost behavior) —
+  // the text still lives on block.name, so every name lookup keeps
+  // working unchanged.
   const nameEl = document.createElement("div");
   nameEl.className = "block-name";
   nameEl.style.height = `${headerPx}px`;
-  nameEl.contentEditable = "true";
-  nameEl.textContent = viewBlock.name;
+  const nameField = { value: viewBlock.name || "" };
+  const nameLabelEl = buildLabelValueInto(nameField, {
+    commitFn: (fn, opts) => {
+      fn();
+      commitFn(() => {
+        sourceOf(block).name = nameField.value;
+      }, opts);
+      nameEl.title = nameField.value;
+      frameFn();
+    },
+    ghostFn: (labelEl, _defaultText, commit) => ghostFn(labelEl, "New Block", commit),
+  });
   nameEl.title = viewBlock.name;
-  nameEl.addEventListener("input", () => {
-    commitFn(() => {
-      sourceOf(block).name = nameEl.textContent;
-    }, { render: false });
-    nameEl.title = nameEl.textContent;
-    frameFn();
-  });
-  ghostFn(nameEl, "New Block", (text) => {
-    commitFn(() => {
-      sourceOf(block).name = text;
-    }, { render: false });
-    frameFn();
-  });
+  nameEl.append(nameLabelEl);
   el.append(nameEl);
 
   const body = document.createElement("div");

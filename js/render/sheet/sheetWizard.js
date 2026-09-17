@@ -4,6 +4,8 @@
 // DOM rendering stays in customSheet.js for now; all list math,
 // step navigation, and spell-catalog lookups live here testably.
 
+import { briefDescription } from "./sheetMechanics.js";
+
 export function isStepApplicable(step) {
   return !step.isApplicable || step.isApplicable();
 }
@@ -54,22 +56,72 @@ export function creationFixedBundlesFor(state, bundleLookup) {
 
 export function ownedSkillIdsFromBundles(fixedBundles = [], otherGroups = [], excludeGroupKey, choicesByKey = {}) {
   const owned = new Set();
-  fixedBundles.forEach((bundle) => {
-    (bundle?.statModifiers || []).forEach((mod) => {
+  const collect = (mods) => {
+    (mods || []).forEach((mod) => {
       if (mod.op === "grant") owned.add(mod.targetFieldId);
+      // Tag grants (languages, armor/weapons/tools) join the same set
+      // under a namespaced token so pickers can lock already-granted
+      // tags exactly like already-granted skills.
+      if (mod.op === "grantTag" && mod.value) owned.add(`tag:${mod.targetFieldId}:${mod.value}`);
     });
-  });
+  };
+  fixedBundles.forEach((bundle) => collect(bundle?.statModifiers));
+  const groupOptions = (group) => [
+    ...(group.options || []),
+    ...((group.categories || []).flatMap((c) => c.options || [])),
+  ];
   otherGroups.forEach((group) => {
     if (group.key === excludeGroupKey) return;
     const picks = choicesByKey[group.key] || [];
-    group.options.forEach((option) => {
+    groupOptions(group).forEach((option) => {
       if (!picks.includes(option.id)) return;
-      (option.statModifiers || []).forEach((mod) => {
-        if (mod.op === "grant") owned.add(mod.targetFieldId);
-      });
+      collect(option.statModifiers);
     });
   });
   return owned;
+}
+
+/** Whether one choice option is redundant given an owned set from
+ *  ownedSkillIdsFromBundles (a `grant` whose skill id is owned, or a
+ *  `grantTag` whose namespaced token is owned). */
+export function optionIsOwned(option, owned) {
+  return (option?.statModifiers || []).some((mod) =>
+    (mod.op === "grant" && owned.has(mod.targetFieldId))
+    || (mod.op === "grantTag" && mod.value && owned.has(`tag:${mod.targetFieldId}:${mod.value}`)));
+}
+
+/** Common is known by default and can't be changed: wherever a
+ *  language picker offers it, pre-select it, lock it, and keep it out
+ *  of the pick budget (so "choose 2" still means two more). Operates
+ *  on fresh group copies only — never bundle data. `categorizeFn`
+ *  maps a group to its wizard page key ("languages" matters here). */
+export function lockCommonInLanguageGroups(groups, categorizeFn) {
+  (groups || []).forEach((group) => {
+    if (!group || categorizeFn(group) !== "languages") return;
+    const common = (group.options || []).find((o) => (o.name || "").trim().toLowerCase() === "common");
+    if (!common) return;
+    const locked = new Set(group.lockedOptionIds || []);
+    if (!locked.has(common.id)) {
+      locked.add(common.id);
+      group.lockedOptionIds = [...locked];
+    }
+  });
+  return groups;
+}
+
+/** Whether a choice group is satisfied: non-locked picks cover
+ *  minSelections minus options that would grant something already
+ *  owned (those don't need picking). Flat and cross-category shapes. */
+export function groupPicksSatisfied(group, selectedIds = [], owned = new Set()) {
+  if (!group) return true;
+  const locked = new Set(group.lockedOptionIds || []);
+  const allOptions = [
+    ...(group.options || []),
+    ...((group.categories || []).flatMap((c) => c.options || [])),
+  ];
+  const freebies = allOptions.filter((o) => !locked.has(o.id) && optionIsOwned(o, owned)).length;
+  const counted = (selectedIds || []).filter((id) => !locked.has(id)).length;
+  return counted >= Math.max(0, (group.minSelections || 0) - freebies);
 }
 
 export function canPickMore({ selectedCount, maxSelections, isRadio }) {
@@ -91,11 +143,56 @@ export function spellsForLevelIn(catalog, levelNum, className) {
   const tab = (catalog.tabs || []).find((t) => t.id === tabId)
     || (catalog.tabs || []).find((t) => (levelNum === 0 ? /cantrip/i : new RegExp(`^${levelNum}`)).test(t.name || ""));
   const entries = (tab?.entries || [])
-    .map((e) => ({ name: e.name, description: e.description || "", classes: (e.fieldValues?.classes || "").trim() }))
+    .map((e) => ({
+      name: e.name,
+      description: e.description || "",
+      classes: (e.fieldValues?.classes || "").trim(),
+      mechanics: spellMechanicsLine(e),
+    }))
     .filter((e) => e.name);
   if (!className) return entries;
   const norm = (s) => (s || "").toLowerCase();
   return entries.filter((e) => !e.classes || norm(e.classes).includes(norm(className)));
+}
+
+/** One spell's mechanical summary for picker rows: level/school/
+ *  casting/range/duration meta plus the effect's first sentence
+ *  (damage, type, status effects live there). Returns
+ *  { meta, effect } — either may be "". */
+export function spellMechanicsLine(entry) {
+  const fv = entry?.fieldValues || {};
+  const bits = [];
+  const lvl = String(fv.level || "").trim();
+  const school = String(fv.school || "").trim();
+  if (lvl && school) bits.push(`${lvl} · ${school}`);
+  else if (lvl || school) bits.push(lvl || school);
+  if (fv.castingTime) bits.push(String(fv.castingTime).trim());
+  if (fv.range) bits.push(String(fv.range).trim());
+  let dur = String(fv.duration || "").trim();
+  if (dur && /concentr/i.test(String(fv.concentration || "")) && !/concentr/i.test(dur)) {
+    dur += " (concentration)";
+  }
+  if (dur) bits.push(dur);
+  return { meta: bits.join(" · "), effect: briefDescription(fv.effect, 160) };
+}
+
+/** Review-tab lines for choice groups with picks: "Label: A, B".
+ *  Groups with no picks are skipped; works for flat and
+ *  cross-category option shapes. */
+export function reviewChoiceLinesFor(groups = [], choicesStore = {}) {
+  const lines = [];
+  for (const group of groups) {
+    const picks = choicesStore[group.key] || [];
+    if (!picks.length) continue;
+    const allOptions = [
+      ...((group.options || [])),
+      ...((group.categories || []).flatMap((c) => c.options || [])),
+    ];
+    const names = picks.map((id) => allOptions.find((o) => o.id === id)?.name || id).filter(Boolean);
+    if (!names.length) continue;
+    lines.push(`${group.label || group.source || "Choice"}: ${names.join(", ")}`);
+  }
+  return lines;
 }
 
 export function spellLevelByNameIn(catalog, name) {
@@ -140,6 +237,27 @@ export function clampStepIndex(count, index) {
   return index;
 }
 
+export function stepIsComplete(step) {
+  if (typeof step?.isComplete !== "function") return true;
+  try {
+    return step.isComplete() !== false;
+  } catch {
+    return true;
+  }
+}
+
+/** First applicable-step index whose page still needs decisions, or
+ *  -1 when everything is decided. Dots past it stay clickable only
+ *  backward — forward jumps past undecided pages are blocked, same as
+ *  Next. Never throws (a broken checker must not trap the wizard). */
+export function firstIncompleteStep(steps) {
+  const applicable = applicableStepsOf(steps);
+  for (let i = 0; i < applicable.length; i++) {
+    if (!stepIsComplete(applicable[i])) return i;
+  }
+  return -1;
+}
+
 export function renderStepWizardInto(steps, stepState, { title, intro } = {}, gridFn) {
   const applicableSteps = applicableStepsOf(steps);
   if (applicableSteps.length === 0) return null;
@@ -159,13 +277,15 @@ export function renderStepWizardInto(steps, stepState, { title, intro } = {}, gr
     wrap.append(introEl);
   }
 
+  const firstIncomplete = firstIncompleteStep(steps);
   const dots = document.createElement("div");
   dots.className = "wizard__dots";
   // Every step gets a dot, even ones that don't currently apply —
   // those render disabled with a tooltip explaining why, rather than
   // disappearing outright, so the wizard's shape doesn't shift around
-  // as earlier answers change. Next/Back still only walk
-  // applicableSteps, so an inapplicable step is skipped automatically.
+  // as earlier answers change. Dots can always go back, but jumping
+  // forward past a page that still needs decisions is blocked, just
+  // like Next.
   steps.forEach((step) => {
     const dot = document.createElement("button");
     dot.type = "button";
@@ -178,9 +298,17 @@ export function renderStepWizardInto(steps, stepState, { title, intro } = {}, gr
       return;
     }
     const i = applicableSteps.indexOf(step);
+    const pastGate = firstIncomplete !== -1 && i > firstIncomplete;
     dot.className = "wizard__dot"
       + (i === stepState.index ? " wizard__dot--active" : "")
-      + (i < stepState.index ? " wizard__dot--done" : "");
+      + (i < stepState.index ? " wizard__dot--done" : "")
+      + (pastGate ? " wizard__dot--locked" : "");
+    if (pastGate) {
+      dot.disabled = true;
+      dot.title = "Finish the current page first — it still needs decisions.";
+      dots.append(dot);
+      return;
+    }
     dot.addEventListener("click", () => { stepState.index = i; gridFn(); });
     dots.append(dot);
   });
@@ -220,8 +348,12 @@ export function renderStepWizardInto(steps, stepState, { title, intro } = {}, gr
     if (stepState.index < applicableSteps.length - 1) {
       const forward = document.createElement("button");
       forward.type = "button";
-      forward.className = "btn btn--primary";
+      forward.className = "btn btn--primary wizard__next";
       forward.textContent = "Next →";
+      if (!stepIsComplete(currentStep)) {
+        forward.disabled = true;
+        forward.title = "Make your selections on this page to continue.";
+      }
       forward.addEventListener("click", () => { stepState.index += 1; gridFn(); });
       nav.append(forward);
     }
@@ -236,6 +368,32 @@ export function renderStepWizardInto(steps, stepState, { title, intro } = {}, gr
   currentStep.render(body);
 
   wrap.append(buildNav());
+
+  // Lightweight nav refresh for mutations that don't trigger a full
+  // re-render (choice-group toggles save without rebuilding the page).
+  // Re-evaluates gating in place so Next unlocks the moment the last
+  // required pick lands.
+  wrap.refreshWizardNav = () => {
+    const applicable = applicableStepsOf(steps);
+    const cur = applicable[clampStepIndex(applicable.length, stepState.index)];
+    const blocked = !stepIsComplete(cur);
+    wrap.querySelectorAll(".wizard__nav .wizard__next").forEach((btn) => {
+      btn.disabled = blocked;
+      btn.title = blocked ? "Make your selections on this page to continue." : "";
+    });
+  };
+  // Picks auto-seeded while the body renders (locked defaults) can
+  // satisfy the page after the navs above were already built.
+  wrap.refreshWizardNav();
+  // Any in-page edit (selects, checkboxes, typed input) re-evaluates
+  // gating without needing each renderer to opt in. Both events:
+  // 'change' covers commits, 'input' covers live typing (e.g. the
+  // character-name field, whose save is debounced).
+  const refreshOnEdit = () => {
+    if (typeof wrap.refreshWizardNav === "function") wrap.refreshWizardNav();
+  };
+  wrap.addEventListener("change", refreshOnEdit);
+  wrap.addEventListener("input", refreshOnEdit);
   return wrap;
 }
 
@@ -344,6 +502,20 @@ export function renderSpellPickerInto(container, { rulesetId, className, level }
     const { cantrips, spells } = spellCountByLevel(known, levelByNameFn);
     limitNote.textContent = limitNoteText(cantrips, spells, limit);
   };
+  // Transient cap tooltip anchored to the clicked row — replaces the
+  // old top-of-table error. One shared node, re-anchored per denial.
+  const tip = document.createElement("div");
+  tip.className = "spell-picker-tip";
+  tip.hidden = true;
+  let tipTimer = null;
+  const showCapTip = (anchorRow, message) => {
+    if (tipTimer) clearTimeout(tipTimer);
+    tip.textContent = message;
+    tip.hidden = false;
+    if (anchorRow && anchorRow.isConnected) anchorRow.after(tip);
+    else container.append(tip);
+    tipTimer = setTimeout(() => { tip.hidden = true; tip.remove(); }, 2800);
+  };
 
   let anySpellsListed = false;
   availableLevels.forEach((levelNum) => {
@@ -365,14 +537,16 @@ export function renderSpellPickerInto(container, { rulesetId, className, level }
         } else {
           const { cantrips, spells: spellCount } = spellCountByLevel(known, levelByNameFn);
           if (!canLearnMore(levelNum, limit, cantrips, spellCount)) {
-            limitNote.textContent = capMessage(levelNum, limit);
-            limitNote.classList.add("level-guide__feedback--error");
+            const anchor = container.querySelector(`[data-name="${name.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]`);
+            showCapTip(anchor, `${capMessage(levelNum, limit)}`);
             return;
           }
           appendUniqueFn(field, name);
           known.add(name);
         }
-        limitNote.classList.remove("level-guide__feedback--error");
+        if (tipTimer) { clearTimeout(tipTimer); tipTimer = null; }
+        tip.hidden = true;
+        tip.remove();
         saveFn();
         gridFn();
       },
@@ -436,9 +610,31 @@ export function bundleForIn(category, name, rulesetId, libraryCache = [], starte
 // from customSheet.js. All behavior arrives via params (no sheet
 // closure); bodies are verbatim.
 
-export function renderSelectableRowsInto(container, names, { selectedName, onSelect, getInfo, getMechanics, afterRow, nested = false } = {}) {
+export function renderSelectableRowsInto(container, names, { selectedName, onSelect, getInfo, getMechanics, getMechanicsList, afterRow, nested = false, collapsible = false } = {}) {
   const list = document.createElement("div");
   list.className = "choice-row-list" + (nested ? " choice-row-list--nested" : "");
+  if (collapsible && names.length) {
+    const controls = document.createElement("div");
+    controls.className = "choice-row-list__collapse-controls";
+    const expandAll = document.createElement("button");
+    expandAll.type = "button";
+    expandAll.className = "btn";
+    expandAll.textContent = "Expand All";
+    const collapseAll = document.createElement("button");
+    collapseAll.type = "button";
+    collapseAll.className = "btn";
+    collapseAll.textContent = "Collapse All";
+    expandAll.addEventListener("click", () => {
+      list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = false; });
+      list.querySelectorAll(".choice-row__expander").forEach((b) => { b.textContent = "▾ Details"; b.setAttribute("aria-expanded", "true"); });
+    });
+    collapseAll.addEventListener("click", () => {
+      list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = true; });
+      list.querySelectorAll(".choice-row__expander").forEach((b) => { b.textContent = "▸ Details"; b.setAttribute("aria-expanded", "false"); });
+    });
+    controls.append(expandAll, collapseAll);
+    container.append(controls);
+  }
   names.forEach((name) => {
     const info = getInfo ? getInfo(name) : null;
     const selected = name === selectedName;
@@ -472,11 +668,52 @@ export function renderSelectableRowsInto(container, names, { selectedName, onSel
     desc.className = "choice-row__description";
     desc.textContent = info?.description || "No description available yet.";
     body.append(desc);
-    if (getMechanics) {
+    const details = document.createElement("div");
+    details.className = "choice-row__details";
+    let hasDetails = false;
+    if (getMechanicsList) {
+      const sections = getMechanicsList(name) || [];
+      for (const section of sections) {
+        if (!section?.items?.length) continue;
+        hasDetails = true;
+        const heading = document.createElement("div");
+        heading.className = "choice-row__mechanics-title";
+        heading.textContent = section.title;
+        details.append(heading);
+        const ul = document.createElement("ul");
+        ul.className = "choice-row__mechanics-list";
+        for (const item of section.items) {
+          const li = document.createElement("li");
+          li.textContent = item;
+          ul.append(li);
+        }
+        details.append(ul);
+      }
+    } else if (getMechanics) {
       const mechanics = document.createElement("div");
       mechanics.className = "choice-row__mechanics";
       mechanics.textContent = getMechanics(name) || "No mechanical data linked yet.";
-      body.append(mechanics);
+      details.append(mechanics);
+      hasDetails = true;
+    }
+    if (hasDetails) {
+      if (collapsible) {
+        details.hidden = true;
+        const expander = document.createElement("button");
+        expander.type = "button";
+        expander.className = "btn choice-row__expander";
+        expander.textContent = "▸ Details";
+        expander.setAttribute("aria-expanded", "false");
+        expander.addEventListener("click", (e) => {
+          e.stopPropagation();
+          details.hidden = !details.hidden;
+          expander.textContent = details.hidden ? "▸ Details" : "▾ Details";
+          expander.setAttribute("aria-expanded", String(!details.hidden));
+        });
+        expander.addEventListener("keydown", (e) => e.stopPropagation());
+        body.append(expander);
+      }
+      body.append(details);
     }
     row.append(body);
     list.append(row);
@@ -489,7 +726,11 @@ export function renderSelectableRowsInto(container, names, { selectedName, onSel
 /** Multi-select sibling of renderSelectableRows — same row/portrait/
  *  description look (shares its CSS classes), but toggles membership
  *  in a Set instead of picking one name, for pickers like "which
- *  spells do you know" where more than one can be checked at once. */
+ *  spells do you know" where more than one can be checked at once.
+ *  Rows carry data-name so callers (spell-cap tooltip) can anchor
+ *  feedback to the clicked row; getInfo may additionally return
+ *  `mechanics` ({ meta, effect }) rendered as mechanical lines under
+ *  the flavor description. */
 export function renderMultiSelectableRowsInto(container, names, { selectedSet, onToggle, getInfo } = {}) {
   const list = document.createElement("div");
   list.className = "choice-row-list";
@@ -498,6 +739,7 @@ export function renderMultiSelectableRowsInto(container, names, { selectedSet, o
     const selected = selectedSet.has(name);
     const row = document.createElement("div");
     row.className = "choice-row" + (selected ? " choice-row--selected" : "");
+    row.dataset.name = name;
     row.tabIndex = 0;
     row.setAttribute("role", "checkbox");
     row.setAttribute("aria-checked", String(selected));
@@ -519,6 +761,20 @@ export function renderMultiSelectableRowsInto(container, names, { selectedSet, o
     desc.className = "choice-row__description";
     desc.textContent = info?.description || "No description available yet.";
     body.append(desc);
+    if (info?.mechanics && (info.mechanics.meta || info.mechanics.effect)) {
+      if (info.mechanics.meta) {
+        const meta = document.createElement("div");
+        meta.className = "choice-row__mechanics-meta";
+        meta.textContent = info.mechanics.meta;
+        body.append(meta);
+      }
+      if (info.mechanics.effect) {
+        const effect = document.createElement("div");
+        effect.className = "choice-row__mechanics-effect";
+        effect.textContent = info.mechanics.effect;
+        body.append(effect);
+      }
+    }
     row.append(body);
     list.append(row);
   });
@@ -528,7 +784,10 @@ export function renderMultiSelectableRowsInto(container, names, { selectedSet, o
 
 /** Shared renderer for a choiceGroups list's checkboxes/radios.
  *  Enforces maxSelections and shows already-owned proficiencies as
- *  picked-and-locked. Re-renders itself after every change. */
+ *  picked-and-locked. A group may also name `lockedOptionIds`: those
+ *  options are auto-selected, shown locked, and exempt from the pick
+ *  budget (used for e.g. a mandatory default language). Re-renders
+ *  itself after every change. */
 export function renderChoiceGroupsInto(container, groups, choicesStore, namePrefix, onChange, ownedResolver) {
   container.innerHTML = "";
   if (!groups.length) {
@@ -541,7 +800,15 @@ export function renderChoiceGroupsInto(container, groups, choicesStore, namePref
   const rerender = () => renderChoiceGroupsInto(container, groups, choicesStore, namePrefix, onChange, ownedResolver);
   groups.forEach((group) => {
     if (!choicesStore[group.key]) choicesStore[group.key] = [];
+    const locked = new Set(group.lockedOptionIds || []);
     const selected = choicesStore[group.key];
+    // Locked defaults persist even if some older save lacks them.
+    const missingLocked = [...locked].filter((id) => !selected.includes(id));
+    if (missingLocked.length) {
+      choicesStore[group.key] = [...selected, ...missingLocked];
+      if (onChange) onChange();
+    }
+    const counted = choicesStore[group.key].filter((id) => !locked.has(id));
     const owned = ownedResolver ? ownedResolver(group.key) : new Set();
     const choiceGroup = document.createElement("fieldset");
     choiceGroup.className = "level-guide__choices";
@@ -549,7 +816,7 @@ export function renderChoiceGroupsInto(container, groups, choicesStore, namePref
     const count = group.minSelections === group.maxSelections
       ? `Choose ${group.maxSelections}`
       : `Choose up to ${group.maxSelections}`;
-    legend.textContent = `${group.label || "Choose an option"} (${count} — ${selected.length}/${group.maxSelections} picked)`;
+    legend.textContent = `${group.label || "Choose an option"} (${count} — ${counted.length}/${group.maxSelections} picked)`;
     choiceGroup.append(legend);
     const source = document.createElement("p");
     source.className = "level-guide__choice-source";
@@ -604,18 +871,25 @@ export function renderCrossCategoryChoiceInto(container, group, choicesStore, re
 }
 
 export function renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange) {
-  const atMax = selected.length >= group.maxSelections;
+  const locked = new Set(group.lockedOptionIds || []);
+  const counted = selected.filter((id) => !locked.has(id));
+  const atMax = counted.length >= group.maxSelections;
   group.options.forEach((option) => {
     const optionLabel = document.createElement("label");
     optionLabel.className = "level-guide__choice-option";
-    const alreadyOwned = (option.statModifiers || []).some((mod) => mod.op === "grant" && owned.has(mod.targetFieldId));
+    const alreadyOwned = optionIsOwned(option, owned);
+    const isLocked = locked.has(option.id);
     const input = document.createElement("input");
     input.type = group.maxSelections === 1 ? "radio" : "checkbox";
     input.name = `${namePrefix}-${group.key}`;
     input.value = option.id;
     const isChecked = selected.includes(option.id);
-    input.checked = isChecked || alreadyOwned;
-    if (alreadyOwned) {
+    input.checked = isChecked || alreadyOwned || isLocked;
+    if (isLocked) {
+      input.disabled = true;
+      optionLabel.classList.add("level-guide__choice-option--locked");
+      optionLabel.title = option.lockTitle || "Selected by default — this one can't be changed";
+    } else if (alreadyOwned) {
       input.disabled = true;
       optionLabel.classList.add("level-guide__choice-option--granted");
       optionLabel.title = "Already have this from another selection — pick something else instead";
@@ -624,11 +898,14 @@ export function renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned,
     }
     input.addEventListener("change", () => {
       if (input.type === "radio") {
-        choicesStore[group.key] = input.checked ? [option.id] : [];
+        // Locked defaults ride along — a radio pick must not drop them.
+        choicesStore[group.key] = input.checked ? [option.id, ...locked].filter((id, i, arr) => arr.indexOf(id) === i) : [...locked];
       } else if (input.checked) {
         // Guards a full group even if disabling the input above
         // hasn't taken effect yet (e.g. two change events racing).
-        if (selected.length >= group.maxSelections) { input.checked = false; return; }
+        // Locked defaults never consume budget.
+        const countedNow = selected.filter((id) => !locked.has(id));
+        if (countedNow.length >= group.maxSelections) { input.checked = false; return; }
         if (!selected.includes(option.id)) selected.push(option.id);
       } else {
         choicesStore[group.key] = selected.filter((id) => id !== option.id);

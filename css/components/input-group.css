@@ -43,6 +43,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Single-line text/number inputs center their content (including the
+   caret in an empty field — single-line inputs center vertically on
+   their own). Multi-line textareas keep native top-left alignment. */
+.input-group__control:is(input[type="text"], input[type="number"]) {
+  text-align: center;
+}
+
 .input-group--textarea .input-group__control {
   resize: vertical;
   min-height: 4.5rem;

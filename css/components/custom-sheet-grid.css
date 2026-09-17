@@ -453,6 +453,24 @@
     grid more than the block itself does */
   white-space: normal; /* let it wrap while actively editing a long name */
 }
+/* Block headers render through the shared Label-element builder, so
+   they read exactly like label fields: centered label typography at
+   the header's own size. :focus-within (not :focus) because the
+   contenteditable element is now the inner label, not the wrapper. */
+.block-name .field-value--label {
+  width: 100%;
+  height: 100%;
+  font-size: var(--text-sm);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.block-name:focus-within {
+  background: rgba(15, 13, 11, 0.55);
+}
+.block-name:focus-within .field-value--label {
+  white-space: normal;
+}
 
 .block-body {
   position: absolute;
