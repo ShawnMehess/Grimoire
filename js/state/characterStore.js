@@ -7,7 +7,7 @@
 // code testable without a live backend.
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js";
-import { DEFAULT_CONTENT } from "../data/defaultContent.js";
+import { bundleDedupeKey as sharedBundleDedupeKey } from "./bundleMaps.js";
 import {
   getFirestore,
   doc,
@@ -140,92 +140,10 @@ export async function isCurrentUserAdmin() {
 
 // --- Character CRUD ---------------------------------------------------------
 
-// --- Default-content bundle deduplication ----------------------------------
-//
-// A Class/Race/Background dropdown's `choices` carry their full bundle
-// (proficiencies, features, choice groups) directly on each choice —
-// that's what lets a brand-new character work immediately with no
-// import step (see blockModel.js/defaultContent.js). But that means
-// EVERY character document embeds a full copy of all 12 classes' +
-// 13 races' + 9 backgrounds' bundles on its Class/Race/Background
-// dropdowns, not just whichever one is actually selected — about
-// 330KB of pure duplication per character, baseline, before a single
-// portrait or note is added. Firestore documents cap out at 1MB, and
-// the app already warns about that limit for portraits — no reason to
-// also be silently eating a third of the budget on data that's
-// identical across every character and already sitting in
-// defaultContent.js.
-//
-// Fix: strip a choice's bundle down to `null` right before writing,
-// whenever it's an exact match for the canonical default (so a
-// player's own customized bundle, attached by hand via a dropdown's
-// Modifiers editor, is left alone — it won't match and survives).
-// Re-attach the canonical bundle right after reading, so none of the
-// rendering code (which reads `choice.bundle` directly in a dozen
-// places) needs to know or care that this happened.
-function normBundleName(s) { return (s || "").trim().toLowerCase(); }
-
-const DEFAULT_BUNDLE_MAPS = {
-  class: new Map(DEFAULT_CONTENT.classEntries.map((e) => [normBundleName(e.name), e.bundle])),
-  race: new Map(DEFAULT_CONTENT.raceEntries.map((e) => [normBundleName(e.name), e.bundle])),
-  background: new Map(DEFAULT_CONTENT.bgEntries.map((e) => [normBundleName(e.name), e.bundle])),
-};
-
-function walkBundleChoices(layout, visit) {
-  (layout || []).forEach((block) => {
-    (block.children || []).forEach((field) => {
-      const map = DEFAULT_BUNDLE_MAPS[normBundleName(field.label)];
-      if (!map || !Array.isArray(field.choices)) return;
-      field.choices.forEach((choice) => visit(choice, map));
-    });
-  });
-}
-
-function stripDefaultBundlesFromLayout(layout) {
-  walkBundleChoices(layout, (choice, map) => {
-    const canonical = map.get(normBundleName(choice.text));
-    if (canonical && choice.bundle && JSON.stringify(choice.bundle) === JSON.stringify(canonical)) {
-      choice.bundle = null;
-    }
-  });
-  return layout;
-}
-
-function hydrateDefaultBundlesInLayout(layout) {
-  walkBundleChoices(layout, (choice, map) => {
-    if (choice.bundle) return; // already has something — a custom bundle, or already hydrated
-    const canonical = map.get(normBundleName(choice.text));
-    if (canonical) choice.bundle = canonical;
-  });
-  return layout;
-}
-
-/** Strips default bundles from a clone of whichever of `layout` /
- *  `sheetTabs` are present on a save patch, leaving anything else in
- *  the patch untouched. Safe to call on any patch object — a no-op
- *  for patches that don't touch either field. */
-function stripBundlesFromPatch(patch) {
-  if (!patch || (!("layout" in patch) && !("sheetTabs" in patch))) return patch;
-  const out = { ...patch };
-  if (out.layout) out.layout = stripDefaultBundlesFromLayout(JSON.parse(JSON.stringify(out.layout)));
-  if (Array.isArray(out.sheetTabs)) {
-    out.sheetTabs = JSON.parse(JSON.stringify(out.sheetTabs));
-    out.sheetTabs.forEach((tab) => { if (tab && tab.layout) stripDefaultBundlesFromLayout(tab.layout); });
-  }
-  return out;
-}
-
-/** Re-attaches default bundles onto a character object fresh out of
- *  Firestore (mutates and returns it — nothing else holds a
- *  reference to it yet at that point, so this is safe). */
-function hydrateCharacter(data) {
-  if (!data) return data;
-  if (data.layout) hydrateDefaultBundlesInLayout(data.layout);
-  if (Array.isArray(data.sheetTabs)) {
-    data.sheetTabs.forEach((tab) => { if (tab && tab.layout) hydrateDefaultBundlesInLayout(tab.layout); });
-  }
-  return data;
-}
+// Default-content bundle strip/hydrate lives in ./bundleMaps.js (shared
+// with localStore.js so both backends stay byte-identical) — see that
+// file for the why. Imported here for the CRUD functions below.
+import { stripBundlesFromPatch, hydrateCharacter } from "./bundleMaps.js";
 
 export async function loadCharacter(characterId) {
   const snap = await getDoc(doc(db, CHARACTERS_COLLECTION, characterId));
@@ -441,20 +359,12 @@ export async function deleteBundleLibrary(scope, id) {
   await deleteDoc(ref);
 }
 
-/** Two bundles are "the same" for dedupe purposes if they share a scope
- *  (personal bundles and global bundles are separate namespaces —
- *  having both a personal and a global "Fighter" isn't a duplicate,
- *  it's an override) plus a case/whitespace-insensitive name and
- *  category. Exported so both the upload-time duplicate check in
- *  bundleLibraryEditor.js and dedupeBundleLibraries below use the
- *  exact same notion of "duplicate". */
+/** Two bundles are "the same" for dedupe purposes — shared definition
+ *  in ./bundleMaps.js (also used by localStore.js); re-exported here
+ *  so the upload-time duplicate check in bundleLibraryEditor.js keeps
+ *  working unchanged. */
 export function bundleDedupeKey(entry) {
-  return [
-    entry.scope || "",
-    (entry.rulesetId || "").trim().toLowerCase(),
-    (entry.category || "").trim().toLowerCase(),
-    (entry.name || "").trim().toLowerCase(),
-  ].join("::");
+  return sharedBundleDedupeKey(entry);
 }
 
 /** One-off cleanup pass: lists every bundle library (personal + global,

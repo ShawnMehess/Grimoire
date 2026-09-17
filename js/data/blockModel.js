@@ -19,6 +19,7 @@
 
 import { ABILITIES, SKILLS } from "./schema.js";
 import { DEFAULT_CONTENT } from "./defaultContent.js";
+import { FIXED_CLASS_ENTRIES, FIXED_RACE_ENTRIES, SUBCLASS_BUNDLE_MAP, normSubclassKey } from "./contentFixups.js";
 
 // Standard 5e vocabularies for the four "pick from a dropdown, it
 // gets added to your list" fields below (Languages, Armor/Weapon/Tool
@@ -58,9 +59,12 @@ export const TOOL_PROFICIENCIES = [
 // immediately with no import step. The Bundle Library/Catalog import
 // UI still exists in the code but is hidden from the toolbar for now
 // (see customSheet.js) — homebrew-via-import is a later project.
-const STARTER_RACES = DEFAULT_CONTENT.raceEntries.map((r) => r.name);
-const STARTER_CLASSES = DEFAULT_CONTENT.classEntries.map((c) => c.name);
+const STARTER_RACES = FIXED_RACE_ENTRIES.map((r) => r.name);
+const STARTER_CLASSES = FIXED_CLASS_ENTRIES.map((c) => c.name);
 const STARTER_BACKGROUNDS = DEFAULT_CONTENT.bgEntries.map((b) => b.name);
+
+const RACE_BUNDLE_ENTRIES = FIXED_RACE_ENTRIES;
+const CLASS_BUNDLE_ENTRIES = FIXED_CLASS_ENTRIES;
 
 function bundleForName(entries, name) {
   return entries.find((e) => e.name === name)?.bundle || null;
@@ -70,13 +74,31 @@ function makeChoices(names, entries) {
   return names.map((text) => ({ id: newId(), text, bundle: entries ? bundleForName(entries, text) : null }));
 }
 
+export function raceBundleEntries() {
+  return RACE_BUNDLE_ENTRIES;
+}
+
+export function classBundleEntries() {
+  return CLASS_BUNDLE_ENTRIES;
+}
+
+export function subclassBundleFor(choiceText) {
+  return SUBCLASS_BUNDLE_MAP.get(normSubclassKey(choiceText)) || null;
+}
+
 function makeSubclassChoices() {
-  // Pre-built flat list (id/text/bundle:null) straight from the
-  // compiled content — ids match exactly what each class's
+  // Pre-built flat list (id/text) straight from the compiled content
+  // — ids match exactly what each class's
   // dropdownAccess.allowedChoiceIds references, so per-class
   // filtering (see liveSubclassData in customSheet.js) works without
-  // any extra wiring here.
-  return DEFAULT_CONTENT.subclassChoices.map((c) => ({ ...c }));
+  // any extra wiring here. The mechanics bundle (level grants,
+  // auto-prepared spells, Hunter's Prey / Champion style picks) is
+  // attached from the patched supplement by normalized name; choices
+  // with no supplement match keep bundle null exactly as before.
+  return DEFAULT_CONTENT.subclassChoices.map((c) => ({
+    ...c,
+    bundle: SUBCLASS_BUNDLE_MAP.get(normSubclassKey(c.text)) || null,
+  }));
 }
 
 function newId() {
@@ -333,7 +355,7 @@ export function createStarterLayout() {
   const identity = createBlock({ name: "Identity", x: 0, y: 0, w: 4, h: 5 });
   identity.children = [
     field({ fieldType: "text", label: "Name", x: 0, y: 0, w: 4, h: 1 }),
-    field({ fieldType: "dropdown", label: "Class", x: 0, y: 1, w: 2, h: 1, choices: makeChoices(STARTER_CLASSES, DEFAULT_CONTENT.classEntries) }),
+    field({ fieldType: "dropdown", label: "Class", x: 0, y: 1, w: 2, h: 1, choices: makeChoices(STARTER_CLASSES, CLASS_BUNDLE_ENTRIES) }),
     field({ fieldType: "text", label: "Level", x: 2, y: 1, w: 2, h: 1, value: "1" }, "level"),
     field({
       fieldType: "text", label: "Prof. Bonus", x: 0, y: 2, w: 2, h: 1,
@@ -441,10 +463,15 @@ export function createStarterLayout() {
 
   const combat = createBlock({ name: "Combat", x: 4, y: 3, w: 6, h: 4 });
   combat.children = [
-    field({ fieldType: "text", label: "Armor Class", x: 0, y: 0, w: 2, h: 1 }),
+    // Stable ids ("armorClass", "initiative", "speed", "hpMax",
+    // "passivePerception") are what bundle statModifiers target — e.g.
+    // the Mobile feat's +10 speed or Alert's +5 initiative (see
+    // js/data/featBundles.js). Keep them pinned: formulas and bundles
+    // reference these ids, not labels.
+    field({ fieldType: "text", label: "Armor Class", x: 0, y: 0, w: 2, h: 1 }, "armorClass"),
     field({ fieldType: "text", label: "Initiative", x: 2, y: 0, w: 2, h: 1, formula: { type: "expr", text: "{{dexMod}}" } }, "initiative"),
-    field({ fieldType: "text", label: "Speed", x: 4, y: 0, w: 2, h: 1, value: "30" }),
-    field({ fieldType: "text", label: "HP Max", x: 0, y: 1, w: 2, h: 1 }),
+    field({ fieldType: "text", label: "Speed", x: 4, y: 0, w: 2, h: 1, value: "30" }, "speed"),
+    field({ fieldType: "text", label: "HP Max", x: 0, y: 1, w: 2, h: 1 }, "hpMax"),
     field({ fieldType: "text", label: "HP Current", x: 2, y: 1, w: 2, h: 1 }),
     field({ fieldType: "text", label: "Temp HP", x: 4, y: 1, w: 2, h: 1 }),
     field({
@@ -483,7 +510,7 @@ export function createStarterLayout() {
 
   const details = createBlock({ name: "Character Details", x: 4, y: 14, w: 6, h: 7 });
   details.children = [
-    field({ fieldType: "dropdown", label: "Race", x: 0, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_RACES, DEFAULT_CONTENT.raceEntries) }),
+    field({ fieldType: "dropdown", label: "Race", x: 0, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_RACES, RACE_BUNDLE_ENTRIES) }),
     field({ fieldType: "dropdown", label: "Background", x: 2, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_BACKGROUNDS, DEFAULT_CONTENT.bgEntries) }),
     field({ fieldType: "text", label: "Alignment", x: 4, y: 0, w: 2, h: 1 }),
     tagListField({ label: "Armor Prof.", x: 0, y: 1, w: 2, h: 2 }, ARMOR_PROFICIENCIES, "armorProf"),

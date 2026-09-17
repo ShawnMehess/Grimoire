@@ -5,6 +5,8 @@
 // sheet closure); the tab shell keeps `state`/`update`/`field` and
 // passes them in.
 
+import { commonPreviewBits, mechanicsPreviewFor } from "./sheetMechanics.js";
+
 export const ABILITY_DESCRIPTIONS = {
   str: "Physical power — melee attacks, carrying capacity, and Athletics checks.",
   dex: "Agility and reflexes — Armor Class, ranged attacks, initiative, and Acrobatics/Stealth checks.",
@@ -65,7 +67,7 @@ export function renderRulesetStepInto(container, state, deps) {
 }
 
 export function renderIdentityStepInto(container, state, deps) {
-  const { characterName, nameInputSetFn, saveNameFn, updateFn, fieldFn, optionNamesFn, catalogInfoFn, mechanicsFn, selectableRowsFn, debounceFn } = deps;
+  const { characterName, nameInputSetFn, saveNameFn, updateFn, fieldFn, optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, selectableRowsFn, debounceFn } = deps;
   const nameField = document.createElement("input");
   nameField.type = "text";
   nameField.className = "input-group__control";
@@ -92,10 +94,13 @@ export function renderIdentityStepInto(container, state, deps) {
 
   const liveNames = optionNamesFn(state.rulesetId, "Race");
   if (liveNames.length) {
+    // Traits identical across every race (none today, but cheap to
+    // check) are omitted so rows show what sets each race apart.
+    const common = commonPreviewBits(liveNames.map((name) => bundleFn("Race", name)), state.level, { summarize: summarizeFn });
     selectableRowsFn(container, liveNames, {
       selectedName: state.species,
       getInfo: (name) => catalogInfoFn(["race", "species"], name),
-      getMechanics: (name) => mechanicsFn("Race", name, state.rulesetId, state.level),
+      getMechanics: (name) => mechanicsPreviewFor(bundleFn("Race", name), state.level, { summarize: summarizeFn, exclude: common }),
       onSelect: (name) => updateFn("species", name),
     });
   } else {
@@ -108,12 +113,14 @@ export function renderIdentityStepInto(container, state, deps) {
   }
 }
 
-export function renderClassStepInto(container, state, deps) {  const { optionNamesFn, catalogInfoFn, mechanicsFn, subclassDataFn, updateFn, selectableRowsFn } = deps;
+export function renderClassStepInto(container, state, deps) {
+  const { optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, subclassDataFn, updateFn, selectableRowsFn } = deps;
   const liveNames = optionNamesFn(state.rulesetId, "Class");
+  const common = commonPreviewBits(liveNames.map((name) => bundleFn("Class", name)), state.level, { summarize: summarizeFn });
   selectableRowsFn(container, liveNames, {
     selectedName: state.className,
     getInfo: (name) => catalogInfoFn(["class"], name),
-    getMechanics: (name) => mechanicsFn("Class", name, state.rulesetId, state.level),
+    getMechanics: (name) => mechanicsPreviewFor(bundleFn("Class", name), state.level, { summarize: summarizeFn, exclude: common }),
     onSelect: (name) => updateFn("className", name),
     afterRow: (name, rowEl) => {
       if (name !== state.className) return;
@@ -130,10 +137,13 @@ export function renderClassStepInto(container, state, deps) {  const { optionNam
       // the whole class list — it belongs right under this
       // one selected class's row instead.
       const holder = document.createElement("div");
+      // Same common-trait omission for the nested subclass rows, so
+      // e.g. a Hit Die every subclass shares doesn't repeat per row.
+      const subCommon = commonPreviewBits(subs.subclasses.map((n) => bundleFn("Subclass", n)), state.level, { summarize: summarizeFn });
       selectableRowsFn(holder, subs.subclasses, {
         selectedName: state.subclass,
         getInfo: (n) => catalogInfoFn(["subclass"], n),
-        getMechanics: (n) => mechanicsFn("Subclass", n, state.rulesetId, state.level),
+        getMechanics: (n) => mechanicsPreviewFor(bundleFn("Subclass", n), state.level, { summarize: summarizeFn, exclude: subCommon }),
         onSelect: (n) => updateFn("subclass", n),
         nested: true,
       });
@@ -152,14 +162,17 @@ export function renderRowListStepInto(container, state, deps) {
   const {
     optionNamesFn, fallbackNames, keywords, category, selectedKey,
     inputLabel, inputPlaceholder, updateKey, updateFn, fieldFn,
-    selectableRowsFn, catalogInfoFn, mechanicsFn,
+    selectableRowsFn, catalogInfoFn, bundleFn, summarizeFn,
   } = deps;
   const liveNames = optionNamesFn(state.rulesetId, category, fallbackNames);
   if (liveNames.length) {
+    // Omit traits identical across every option (e.g. every
+    // background's "Starting Equipment") so rows show differences.
+    const common = commonPreviewBits(liveNames.map((name) => bundleFn(category, name)), state.level, { summarize: summarizeFn });
     selectableRowsFn(container, liveNames, {
       selectedName: state[selectedKey],
       getInfo: (name) => catalogInfoFn(keywords, name),
-      getMechanics: (name) => mechanicsFn(category, name, state.rulesetId, state.level),
+      getMechanics: (name) => mechanicsPreviewFor(bundleFn(category, name), state.level, { summarize: summarizeFn, exclude: common }),
       onSelect: (name) => updateFn(updateKey, name),
     });
   } else {

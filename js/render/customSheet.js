@@ -65,6 +65,9 @@ import { openCatalogBrowser } from "./catalogBrowser.js";
 import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets } from "../data/dnd5e.js";
 import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor } from "../data/rulesEngine.js";
 import { DEFAULT_CONTENT } from "../data/defaultContent.js";
+import { FEAT_BUNDLES, FEAT_CATALOG, FEAT_NAMES } from "../data/featBundles.js";
+import { SPELL_CATALOG, WEAPONS_ARMOR_CATALOG, GEAR_CATALOG } from "../data/contentCatalogs.js";
+import { RACE_EXTRA_CATALOG_ENTRIES } from "../data/extraRaces.js";
 import { ABILITIES, SKILLS } from "../data/schema.js";
 import {
   PAGE_COLS,
@@ -82,7 +85,6 @@ import {
   categorizeChoiceGroup as sharedCategorizeChoiceGroup,
   statModifierLabel as sharedStatModifierLabel,
   statModifierSummary as sharedStatModifierSummary,
-  mechanicsPreviewFor as sharedMechanicsPreviewFor,
 } from "./sheet/sheetMechanics.js";
 import {
   cellsDelta,
@@ -180,9 +182,11 @@ import {
   normalizeDropdownSelectionsIn,
   selectedRuleOptionsIn,
   selectedFeatBundlesIn,
+  featChoiceGroupsFor,
   applyBundleModifiersIn,
   collectGrantedFeaturesIn,
   collectResourceGrantsIn,
+  collectListItemGrantsIn,
   clampResourceSaved,
   ensureLevelData,
   renderResourceTrackersInto,
@@ -485,7 +489,33 @@ export function renderCustomSheet(root, character, store) {
   }
   // Same idea, for Catalog fields' "which catalog" picker (see
   // openCatalogFieldConfig below).
+  // Baked-in reference catalogs (Classes/Races/Backgrounds from
+  // DEFAULT_CONTENT) plus the Feats catalog compiled from
+  // New Info/5e-feats.txt (see js/data/featBundles.js) — the ASI step's
+  // feat picker shows each feat's prerequisite + full effect text from here.
   let catalogCache = DEFAULT_CONTENT.catalogs.map((cat, i) => ({ id: `default-${i}`, scope: "default", ...cat }));
+  // Descriptions for the five hand-added core races (Human/Elf/
+  // Half-Elf/Half-Orc/Tiefling — see js/data/extraRaces.js) so the
+  // setup wizard's Race picker shows flavor text for them too.
+  // Appended once here rather than baked into defaultContent.js (which
+  // is auto-generated and must stay regenerable as-is).
+  const racesCatalog = catalogCache.find((c) => (c.name || "").toLowerCase() === "races");
+  if (racesCatalog && !((racesCatalog.tabs?.[0]?.entries) || []).some((e) => e.name === "Human")) {
+    racesCatalog.tabs[0].entries = [...racesCatalog.tabs[0].entries, ...RACE_EXTRA_CATALOG_ENTRIES];
+  }
+  if (!catalogCache.some((c) => (c.name || "").toLowerCase() === "feats")) {
+    catalogCache = [...catalogCache, { id: "default-feats", scope: "default", ...FEAT_CATALOG }];
+  }
+  // Spell + equipment reference catalogs compiled from
+  // New Info/5e-spells.txt and 5e-items.txt (see
+  // js/data/contentCatalogs.js). The setup/leveling spell picker keys
+  // off the catalog whose name mentions "spell"; the equipment
+  // catalogs are reference rows for the catalog browser.
+  for (const [id, catalog] of [["default-spells", SPELL_CATALOG], ["default-weapons-armor", WEAPONS_ARMOR_CATALOG], ["default-gear", GEAR_CATALOG]]) {
+    if (!catalogCache.some((c) => (c.name || "") === catalog.name)) {
+      catalogCache = [...catalogCache, { id, scope: "default", ...catalog }];
+    }
+  }
   async function refreshCatalogCache() {
     if (!store.listCatalogs) return;
     try {
@@ -556,13 +586,30 @@ export function renderCustomSheet(root, character, store) {
 
   // Rulesets are data packs. The generic level-up guide and subclass
   // dropdown use this saved selection instead of hardcoded class logic.
-  const rulesetSelect = buildRulesetSelect(listRulesets(), character.rulesetId || "");
-  rulesetSelect.addEventListener("change", () => {
-    character.rulesetId = rulesetSelect.value || null;
+  // Single source of truth is character.rules.rulesetId; the top-level
+  // character.rulesetId mirror exists for older saves and is kept in
+  // sync on every write (plus backfilled in normalizeTabs), so either
+  // read path agrees.
+  function currentRulesetId() {
+    return character.rules?.rulesetId || character.rulesetId || null;
+  }
+  function setRulesetId(next) {
+    character.rulesetId = next;
     character.rules = normalizeRulesState(character.rules);
-    character.rules.rulesetId = character.rulesetId;
+    character.rules.rulesetId = next;
+    // Save BOTH copies: "rules" alone would leave the top-level mirror
+    // stale on reload (which is exactly how the toolbar used to come
+    // back unset while everything else worked).
     saveWithStatus("rules", character.rules);
-    const syncMessage = syncRulesetBundles(character.rulesetId);
+    saveWithStatus("rulesetId", character.rulesetId);
+  }
+  function refreshRulesetSelect() {
+    rulesetSelect.value = currentRulesetId() || "";
+  }
+  const rulesetSelect = buildRulesetSelect(listRulesets(), currentRulesetId() || "");
+  rulesetSelect.addEventListener("change", () => {
+    setRulesetId(rulesetSelect.value || null);
+    const syncMessage = syncRulesetBundles(currentRulesetId());
     renderAll();
     if (syncMessage) statusEl.textContent = syncMessage;
   });
@@ -577,7 +624,7 @@ export function renderCustomSheet(root, character, store) {
   rulesetSyncBtn.textContent = "↻";
   rulesetSyncBtn.title = "Re-apply this ruleset's bundles (after importing more, for example)";
   rulesetSyncBtn.addEventListener("click", () => {
-    const syncMessage = syncRulesetBundles(character.rulesetId);
+    const syncMessage = syncRulesetBundles(currentRulesetId());
     renderAll();
     if (syncMessage) statusEl.textContent = syncMessage;
   });
@@ -1438,10 +1485,20 @@ export function renderCustomSheet(root, character, store) {
       : null;
     if (!detected) detected = detectMoneyFieldByName();
     if (!detected) return;
+    // field.moneyFieldId rides along with the layout save below, but
+    // the character-wide default is top-level state — commitMutation's
+    // persist() only writes layout/sheetTabs, so it needs its own
+    // save or a reload silently drops it (same drift class as the old
+    // ruleset-mirror bug).
+    let assignedDefault = false;
     commitMutation(() => {
       field.moneyFieldId = detected.id;
-      if (!character.moneyFieldId) character.moneyFieldId = detected.id;
+      if (!character.moneyFieldId) {
+        character.moneyFieldId = detected.id;
+        assignedDefault = true;
+      }
     }, { render: false });
+    if (assignedDefault) saveWithStatus("moneyFieldId", character.moneyFieldId);
   }
 
   /** A field's current numeric value regardless of which tab it lives
@@ -1563,7 +1620,14 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function activeRuleChoiceGroups(fields, valueMap) {
-    return activeChoiceGroupsFor(fields, currentLevel(valueMap));
+    // Dropdown bundles' groups plus taken feats' own groups (Resilient's
+    // ability pick, Skilled's skill picks, …) — feat groups are keyed
+    // `feat:<name>:<groupId>` (see featChoiceGroupsFor) so their picks
+    // live in character.rules.choices like every other choice group.
+    return [
+      ...activeChoiceGroupsFor(fields, currentLevel(valueMap)),
+      ...featChoiceGroupsFor(selectedFeatBundles()),
+    ];
   }
 
   function selectedRuleOptions(fields, valueMap) {
@@ -1612,6 +1676,26 @@ export function renderCustomSheet(root, character, store) {
       selectedFeatBundles(),
       (formula, vm) => evaluateFormulaNode(formula, vm)
     );
+  }
+
+  /** Applies `addItem` bundle grants (oath/domain/circle spells,
+   *  feat-granted spells, racial spells) into their target textlist
+   *  fields — normally the auto-created "Spells Known" list. Runs at
+   *  selection-commit time (dropdown pick, setup finish, level-up
+   *  apply), not every render, so granted entries are ordinary stored
+   *  items afterward: the player can rename or remove them freely and
+   *  they won't be re-asserted. Missing items are appended uniquely;
+   *  nothing is ever removed here. `level` gates minLevel'd grants
+   *  (e.g. Tiefling Darkness at character level 5). */
+  function syncGrantedListItems(level) {
+    const fields = flattenGlobalFields();
+    const grants = collectListItemGrantsIn(fields, level, selectedRuleOptions(fields, formulaValues), selectedFeatBundles());
+    grants.forEach(({ fieldId, items }) => {
+      let target = findStarterField(fieldId, null);
+      if (!target && fieldId === "spellsKnown") target = ensureSpellListField();
+      if (!target || target.fieldType !== "textlist") return;
+      items.forEach((item) => appendUniqueTextListItem(target, item));
+    });
   }
 
   function computeSheetValues(fields) {
@@ -1856,6 +1940,32 @@ export function renderCustomSheet(root, character, store) {
     applyCssToEl(el, styleToCss(style || {}));
   }
 
+  // Sheets created before the Combat fields got stable ids (see
+  // blockModel.js: "armorClass", "speed", "hpMax") carry random ids on
+  // the same-labeled fields — pin them so feat bundles (Mobile's +10
+  // speed, …) and formulas can target those fields by id. Skips a field
+  // when anything still references its old id (a user-authored formula
+  // dragging it in by id), rather than silently breaking that
+  // reference — such sheets simply keep working as before, without the
+  // new feat automation on that one field.
+  function ensureStableCombatIds() {
+    const pairs = [["armorClass", "Armor Class"], ["speed", "Speed"], ["hpMax", "HP Max"]];
+    const all = flattenFieldsAcrossTabs(character.sheetTabs);
+    const used = new Set(all.map((f) => f.id));
+    const serialized = JSON.stringify(character.sheetTabs);
+    let changed = false;
+    pairs.forEach(([id, label]) => {
+      if (used.has(id)) return;
+      const match = all.find((f) => (f.label || "") === label && f.fieldType === "text");
+      if (!match || match.id === id) return;
+      if (serialized.includes(`{{${match.id}}}`) || serialized.includes(`{{${match.id}::`)) return;
+      match.id = id;
+      used.add(id);
+      changed = true;
+    });
+    return changed;
+  }
+
   function renderPageGrid() {
     // A full render tears down and rebuilds every node in pageGrid, and
     // clearing it out momentarily (before the new content is appended
@@ -1865,6 +1975,7 @@ export function renderCustomSheet(root, character, store) {
     // feel like the whole page "refreshed" out from under you — so the
     // position is saved here and explicitly restored once the rebuild
     // is done (see both exit points below).
+    if (ensureStableCombatIds()) persist();
     const preservedScrollTop = scrollWrapper.scrollTop;
     pageGrid.innerHTML = "";
     pageGrid.classList.toggle("is-edit-mode", editMode);
@@ -2012,6 +2123,12 @@ export function renderCustomSheet(root, character, store) {
   }
 
   function rulesetOptionNames(rulesetId, category, fallback = []) {
+    // Feats are baked in (js/data/featBundles.js, compiled from
+    // New Info/5e-feats.txt), not per-ruleset library entries — so the
+    // ASI step's feat picker falls back to the full feat list. A
+    // same-named library Feat still wins when one is imported (see
+    // rulesetOptionNamesIn: library matches take precedence over fallback).
+    if ((category || "").toLowerCase() === "feat" && fallback.length === 0) fallback = FEAT_NAMES;
     return rulesetOptionNamesIn(bundleLibraryCache, rulesetId, category, fallback);
   }
 
@@ -2078,21 +2195,6 @@ export function renderCustomSheet(root, character, store) {
     });
   }
 
-  /** The "what does this actually do" preview shown alongside a Race/
-   *  Class/Subclass/Background row (see renderSelectableRows' options.
-   *  getMechanics) — a short line naming the bundle's statModifiers
-   *  and featureGrants, filtered to whatever's actually active at
-   *  `level` (an 11th-level feature isn't relevant while picking a
-   *  class at 1st), with anything gated to a later level folded into
-   *  a trailing count instead of listed out. Returns null for "no
-   *  bundle at all" vs. a distinct message for "a bundle exists but
-   *  it genuinely has no stat/feature effects" (a background can
-   *  legitimately be flavor-only) — renderSelectableRows tells those
-   *  two apart in what it displays. */
-  function mechanicsPreviewFor(bundle, level) {
-    return sharedMechanicsPreviewFor(bundle, level, { summarize: (m) => statModifierSummary(m) });
-  }
-
   // Which free-text choiceGroup.label a group's checkboxes/radios land
   // under in the creation wizard — best-effort keyword match since
   // groups aren't tagged with a category anywhere upstream (see the
@@ -2108,6 +2210,19 @@ export function renderCustomSheet(root, character, store) {
   const CATEGORY_FIELD = SHARED_CATEGORY_FIELD;
 
   function bundleFor(category, name, rulesetId) {
+    // Feats are baked in (js/data/featBundles.js) rather than living on
+    // a starter dropdown choice or per-ruleset library entry — match by
+    // name here first. Library entries still win when explicitly
+    // imported: bundleForIn is checked first for non-feat categories,
+    // and for feats a same-named library entry takes precedence.
+    if ((category || "").toLowerCase() === "feat" && name) {
+      const norm = (s) => (s || "").trim().toLowerCase();
+      const fromLibrary = (bundleLibraryCache || []).find((entry) =>
+        entry.rulesetId === rulesetId
+        && norm(entry.category) === "feat" && norm(entry.name) === norm(name));
+      if (fromLibrary) return fromLibrary;
+      return FEAT_BUNDLES.find((entry) => norm(entry.name) === norm(name)) || null;
+    }
     return bundleForIn(category, name, rulesetId, bundleLibraryCache, (cat) =>
       CATEGORY_FIELD[cat] ? findStarterField(...CATEGORY_FIELD[cat]) : null
     );
@@ -2392,6 +2507,9 @@ export function renderCustomSheet(root, character, store) {
     ).forEach(({ choice, lib }) => {
       applyBundleLibraryToChoice(lib, choice, flattenGlobalFields());
     });
+    // Granted spells from the chosen race/subclass (e.g. Tiefling
+    // Thaumaturgy, Light Domain bonus spells) land in Spells Known now.
+    syncGrantedListItems(character.rules.level);
     mirrorFirstTabLayout();
     // This is what actually finishes character creation: once synced,
     // there's nothing left for the Character-setup tab to do, so it's
@@ -2402,9 +2520,17 @@ export function renderCustomSheet(root, character, store) {
     normalizeTabs();
     const levelingTab = character.sheetTabs.find((tab) => tab.kind === "leveling");
     if (levelingTab) activeTabId = levelingTab.id;
+    // Keep the top-level mirror in sync with the canonical rules copy.
+    character.rulesetId = character.rules.rulesetId;
     await store.saveCharacterFields(character.id, { rules: character.rules, rulesetId: character.rules.rulesetId, layout: character.layout, sheetTabs: character.sheetTabs, setupComplete: true });
     statusEl.textContent = "Saved";
     renderAll();
+    // The toolbar inputs were built once at open (possibly before any
+    // name/ruleset was picked) and renderAll doesn't rebuild them —
+    // refresh here so they reflect the just-finished wizard choices
+    // immediately instead of looking unset until a reload.
+    nameInput.value = character.name || "";
+    refreshRulesetSelect();
   }
 
   function renderRulesTab() {
@@ -2474,7 +2600,7 @@ export function renderCustomSheet(root, character, store) {
         render(container) {
           renderRulesetStepInto(container, state, {
             listRulesetsFn: () => listRulesets(),
-            currentRulesetId: character.rulesetId,
+            currentRulesetId: character.rules?.rulesetId || character.rulesetId,
             hasDownstreamChoices: !!(character.rules.species || character.rules.className || character.rules.subclass || character.rules.background),
             confirmFn: (msg) => window.confirm(msg),
             updateFn: (key, value, opts) => {
@@ -2509,7 +2635,8 @@ export function renderCustomSheet(root, character, store) {
             fieldFn: (c, label, control) => field(c, label, control),
             optionNamesFn: (rulesetId, category) => rulesetOptionNames(rulesetId, category, wizardFieldOptionNames("race", "Race")),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
-            mechanicsFn: (category, name, rulesetId, level) => mechanicsPreviewFor(bundleFor(category, name, rulesetId), level),
+            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? state.rulesetId),
+            summarizeFn: (m) => statModifierSummary(m),
             selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, opts),
             debounceFn: (fn, ms) => debounce(fn, ms),
           });
@@ -2528,7 +2655,8 @@ export function renderCustomSheet(root, character, store) {
               classFallback.length ? classFallback : (resolved.ruleset?.classes || []).map((c) => c.name)
             ),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
-            mechanicsFn: (category, name, rulesetId, level) => mechanicsPreviewFor(bundleFor(category, name, rulesetId), level),
+            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? state.rulesetId),
+            summarizeFn: (m) => statModifierSummary(m),
             subclassDataFn: (name) => liveSubclassData(name),
             updateFn: (key, value) => update(key, value),
             selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, opts),
@@ -2586,7 +2714,8 @@ export function renderCustomSheet(root, character, store) {
             fieldFn: (c, label, control) => field(c, label, control),
             selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, opts),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
-            mechanicsFn: (cat, name, rulesetId, level) => mechanicsPreviewFor(bundleFor(cat, name, rulesetId), level),
+            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? state.rulesetId),
+            summarizeFn: (m) => statModifierSummary(m),
           });
         },
       },
@@ -2904,6 +3033,10 @@ export function renderCustomSheet(root, character, store) {
             appliedRulesetId: plan?.ruleset?.id || "content",
             prev: character.levelUps[String(level)] || {},
           });
+          // New subclass/feat picks at this level can carry addItem
+          // grants (circle spells, feat spells, …) — gated on the
+          // level being applied, not the (still previous) sheet level.
+          syncGrantedListItems(level);
           mirrorFirstTabLayout();
           unsavedChanges = true;
           try {
@@ -2934,6 +3067,48 @@ export function renderCustomSheet(root, character, store) {
     });
   }
 
+  /** Short/Long Rest: restores feature uses by reset type. A long rest
+   *  also clears used spell slots and heals to full HP; a short rest
+   *  clears Warlock pact slots too (single-class Warlocks — identified
+   *  from the level-up plan's own slot fields, so no guessing which
+   *  radio is which). One undoable commit so a mis-tap is recoverable. */
+  function takeRest(kind) {
+    commitMutation(() => {
+      const fields = flattenGlobalFields();
+      collectResourceGrants(fields, formulaValues).forEach((r) => {
+        if (kind === "long" || /short/i.test(r.reset || "")) {
+          character.rules.resourceUses[r.key] = r.maximum;
+        }
+      });
+      character.rules = normalizeRulesState(character.rules);
+      const pactIds = new Set(pactSlotFieldIds());
+      fields.forEach((f) => {
+        if (f.fieldType !== "radio" || !/^slots[1-9]$/.test(f.id || "")) return;
+        if (kind === "long" || pactIds.has(f.id)) f.selected = null;
+      });
+      if (kind === "long") {
+        const hpMax = findStarterField("hpMax", "HP Max");
+        const hpCurrent = findStarterField(null, "HP Current");
+        const max = numericFieldValue(hpMax);
+        if (hpCurrent && max > 0) hpCurrent.value = String(max);
+      }
+    });
+  }
+
+  /** Slot-radio ids that are Warlock pact slots at the character's
+   *  current level (empty for every other class). Read off the same
+   *  level-up plan that sized the slot trackers, so this can't drift
+   *  from what the sheet actually shows. */
+  function pactSlotFieldIds() {
+    if ((character.rules?.className || "").toLowerCase() !== "warlock") return [];
+    const plan = getLevelUpPlan(
+      character.rules?.rulesetId ?? character.rulesetId,
+      "Warlock",
+      currentCharacterLevel()
+    );
+    return (plan?.slotChanges || []).map((c) => c.fieldId).filter(Boolean);
+  }
+
   function renderResourceTrackers() {
     return renderResourceTrackersInto(
       collectResourceGrants(flattenGlobalFields(), formulaValues),
@@ -2941,6 +3116,7 @@ export function renderCustomSheet(root, character, store) {
       {
         normalizeFn: () => { character.rules = normalizeRulesState(character.rules); },
         saveFn: (rules) => saveWithStatus("rules", rules),
+        restFn: (kind) => takeRest(kind),
       }
     );
   }
@@ -3251,6 +3427,9 @@ export function renderCustomSheet(root, character, store) {
       // normal full render to actually show up.
       commitMutation(() => {
         field.selected = select.value || null;
+        // A new pick can carry addItem grants (e.g. swapping to Oath
+        // of Devotion adds its oath spells to Spells Known).
+        syncGrantedListItems(currentCharacterLevel());
       });
     });
     return select;

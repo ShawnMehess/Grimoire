@@ -228,6 +228,28 @@ export function selectedFeatBundlesIn(feats = [], rulesetId, bundleLookup) {
     .filter(Boolean);
 }
 
+/** Choice groups carried by taken feats (e.g. Resilient's "pick the
+ *  ability", Skilled's "pick three skills", Linguist's "pick three
+ *  languages" — see js/data/featBundles.js). Surfaced through the
+ *  same active-choice-groups path as dropdown bundles, so the Leveling
+ *  guide's Choices step renders them and selectedRuleOptionsIn picks
+ *  their statModifiers up. Keys are namespaced per feat
+ *  (`feat:<name>:<groupId>`) so two feats with same-shaped groups
+ *  never share picks. */
+export function featChoiceGroupsFor(featBundles = []) {
+  const groups = [];
+  featBundles.forEach(({ name, bundle }) => {
+    (bundle?.choiceGroups || []).forEach((group, index) => {
+      if (!Array.isArray(group.options) || group.options.length === 0) return;
+      groups.push({
+        ...normalizeChoiceGroup(group, index, `feat:${name}`),
+        source: name,
+      });
+    });
+  });
+  return groups;
+}
+
 export function dropdownBundleEntries(fields) {
   const entries = [];
   fields.forEach((field) => {
@@ -422,6 +444,38 @@ export function collectResourceGrantsIn(fields, level, valueMap, ruleOptions, fe
   return dedupResourceTiers(candidates);
 }
 
+// --- Granted list items (addItem applier) -------------------------------------------
+//
+// Migration target for the `addItem` statModifier op, which no renderer
+// handled until now: subclass oath/domain/circle spells, feat-granted
+// spells (Fey Touched, …), and racial spells (Tiefling Infernal Legacy)
+// all declare `{ op: "addItem", targetFieldId: "spellsKnown", value:
+// "<Spell Name>" }`. Unlike numeric/grant ops (applied every render
+// into valueMap/checkbox/tag sets), list items are stored user data on
+// a textlist field — so this only COLLECTS what's owed (deduped,
+// minLevel-gated, in bundle order). customSheet.syncGrantedListItems
+// appends whatever's missing at selection-commit time (dropdown pick,
+// setup finish, level-up apply), which keeps granted spells
+// user-editable afterward instead of re-asserted on every render.
+export function collectListItemGrantsIn(fields, level, ruleOptions, featBundles) {
+  const grants = new Map(); // fieldId -> string[] (deduped, first-seen order)
+  const add = (mods) => {
+    (mods || []).forEach((mod) => {
+      if (!mod || mod.op !== "addItem" || !mod.targetFieldId) return;
+      if (mod.minLevel && level < mod.minLevel) return;
+      const value = String(mod.value ?? "").trim();
+      if (!value) return;
+      if (!grants.has(mod.targetFieldId)) grants.set(mod.targetFieldId, []);
+      const list = grants.get(mod.targetFieldId);
+      if (!list.includes(value)) list.push(value);
+    });
+  };
+  dropdownBundleEntries(fields).forEach(({ bundle }) => add(bundle && bundle.statModifiers));
+  (ruleOptions || []).forEach(({ option }) => add(option && option.statModifiers));
+  (featBundles || []).forEach(({ bundle }) => add(bundle && bundle.statModifiers));
+  return [...grants.entries()].map(([fieldId, items]) => ({ fieldId, items }));
+}
+
 // --- Leveling tab DOM -----------------------------------------------------------------
 //
 // Migration of renderResourceTrackers / renderLevelUpRow /
@@ -450,8 +504,18 @@ export function filledLevelFieldCount(data, fieldDefs) {
   return fieldDefs.filter((f) => (data[f.key] || "").trim() !== "").length;
 }
 
+/** Whether a resource with the given reset text restores on a rest of
+ *  `kind` ("short" or "long"). Short rests restore short-rest
+ *  resources (including "short or long rest"); long rests restore
+ *  everything, including bare "rest" entries (grants that name no
+ *  specific rest type). Pure — unit-tested in smoke-imports. */
+export function restoresOnRest(reset, kind) {
+  if (kind === "long") return true;
+  return /short/i.test(reset || "");
+}
+
 export function renderResourceTrackersInto(resources, rules, deps) {
-  const { normalizeFn, saveFn } = deps;
+  const { normalizeFn, saveFn, restFn } = deps;
   if (resources.length === 0) return null;
   normalizeFn();
   const section = document.createElement("section");
@@ -459,6 +523,24 @@ export function renderResourceTrackersInto(resources, rules, deps) {
   const title = document.createElement("h2");
   title.textContent = "Feature Uses";
   section.append(title);
+  if (typeof restFn === "function") {
+    const restRow = document.createElement("div");
+    restRow.className = "rule-resources__row rule-resources__row--rest";
+    const shortBtn = document.createElement("button");
+    shortBtn.type = "button";
+    shortBtn.className = "btn formula-toolbar__btn";
+    shortBtn.textContent = "Short Rest";
+    shortBtn.title = "Restore short-rest feature uses (and Warlock pact slots). Other spell slots reset on a long rest.";
+    shortBtn.addEventListener("click", () => restFn("short"));
+    const longBtn = document.createElement("button");
+    longBtn.type = "button";
+    longBtn.className = "btn formula-toolbar__btn";
+    longBtn.textContent = "Long Rest";
+    longBtn.title = "Restore all feature uses and spell slots, and heal to full HP.";
+    longBtn.addEventListener("click", () => restFn("long"));
+    restRow.append(shortBtn, longBtn);
+    section.append(restRow);
+  }
   resources.forEach((resource) => {
     const row = document.createElement("div");
     row.className = "rule-resources__row";

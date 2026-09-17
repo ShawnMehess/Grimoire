@@ -1,0 +1,23 @@
+export const RACE_NAME_MAP = {
+  "aarakocra": "Aarakocra",
+  "aasimar": "Aasimar",
+  "airgenasi": "Air Genasi",
+  "changeling": "Changeling",
+  "customlineage": "Custom Lineage",
+  "dragonborn": "Dragonborn",
+  "dwarf": "Dwarf",
+  "earthgenasi": "Earth Genasi",
+  "elf": "Elf",
+  "fairy": "Fairy",
+  "firegenasi": "Fire Genasi",
+  "gnome": "Gnome",
+  "halfelf": "Half-Elf",
+  "halforc": "Half-Orc",
+  "halfling": "Halfling",
+  "human": "Human",
+  "shifter": "Shifter",
+  "tabaxi": "Tabaxi",
+  "tiefling": "Tiefling",
+  "watergenasi": "Water Genasi",
+  "yuanti": "Yuan-ti"
+};

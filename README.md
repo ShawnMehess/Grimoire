@@ -78,9 +78,14 @@ size whether you're looking at the page or inside a block. See
   warning on upload, but no compression/resizing, and no Firebase
   Storage integration (which would be the real fix, and is a good
   next step if this becomes a real pain point).
-- **Equations are a stub** — see `equationStub.js`. Every field,
-  including ones that conceptually want to be computed, is a plain
-  manually-typed value for now.
+- **Formulas work; `equationStub.js` is dead code.** The live path
+  is `js/data/formula.js` (expression engine) +
+  `js/render/formulaEditor.js` (editor UI), and the starter sheet
+  ships with real formulas: all six ability modifiers, save/skill
+  modifiers (proficiency-gated), proficiency bonus from level, spell
+  save DC / attack bonus, initiative, and passive Perception. The old
+  `equationStub.js` (modal that computes nothing) is no longer
+  imported anywhere and can be deleted.
 - **No migration from old characters' fixed-schema data.** A character
   saved under the old system just gets a fresh starter layout the
   first time it's opened under the new one — old field values
@@ -180,6 +185,9 @@ the browser console instead of saving anywhere.
 
 Once you've set up Firebase (below), **http://localhost:8080/**
 (`index.html`) is the real app — sign-in, character list, persistence.
+In a hurry (or offline)? Open **http://localhost:8080/?offline=1**
+instead — same app, characters persist in that browser's localStorage
+with no Firebase setup at all.
 
 ## Setup
 
@@ -274,11 +282,74 @@ covered.
   pattern as `characterSheet.js` — build list items from data, one
   `.card` component, no page-specific CSS.
 
-## Deliberately left out of this starter
+## Content pipeline (compiled Foundry data + hand-written core)
 
-- Race/background JSON is just a stub for classes — flesh out
-  `data/races.json` and `data/backgrounds.json` the same way.
-- No spell slot table or class-specific mechanics yet — those belong
-  in `rules.js` as you add them.
-- No inventory/spellbook UI wired up yet — `schema.js` has the data
-  shape (`character.inventory`, `character.spells`) ready for it.
+In addition to the SRD fetch above, `New Info/5e-*.txt` (Foundry VTT
+exports) compile into the site's bundle/catalog shapes:
+
+```
+node scripts/compile-foundry-feats.mjs       # 83 feats -> js/data/featBundles.js
+node scripts/compile-foundry-catalogs.mjs    # 537 spells + 831 items -> js/data/contentCatalogs.js
+node scripts/compile-foundry-subclasses.mjs  # 112 subclasses -> js/data/subclassContent.js
+node scripts/compile-foundry-races-bg.mjs    # thin race/bg placeholders (NOT wired — see note in the output files)
+```
+
+Plus `js/data/extraRaces.js` — hand-written bundles for the five core
+races the mechanics JSON omits (Human, Elf, Half-Elf, Half-Orc,
+Tiefling), in the same shape as `defaultContent.js` entries.
+
+Plus `js/data/contentFixups.js` — hand-written pickers for choices
+the sources left as reference-key stubs, applied at runtime over the
+compiled bundles (so the generated files stay regenerable): Fighting
+Styles (Fighter/Paladin/Ranger + Champion), Expertise (Rogue/Bard),
+Metamagic, Eldritch Invocations + Pact Boon, Hunter's Prey, Elf
+subraces (High/Wood/Drow), and free-form racial ASIs. Feat spell
+*choices* (Magic Initiate, Fey/Shadow Touched, Aberrant Dragonmark,
+Artificer Initiate, Wood Elf Magic) are compiled pickers in
+`featBundles.js` too. Bard Magical Secrets and Warlock Mystic Arcanum
+stay guided notes — a free pick from every class's list needs a
+picker UI that doesn't exist yet.
+
+Wiring: subclass bundles attach to the starter Subclass dropdown by
+normalized name (`blockModel.js`); the Spell List + equipment catalogs
+join `catalogCache` (`customSheet.js`); granted spells (`addItem`
+op — oath/domain/circle spells, feat spells, Tiefling legacy) land in
+the auto-created Spells Known list at selection time
+(`syncGrantedListItems`). Save/load strips + rehydrates all default
+bundles (class/race/background/subclass) so characters stay lean —
+see `js/state/bundleMaps.js`, shared by both backends.
+
+Checks (run both after touching content, sheet/, or compilers):
+
+```
+node scripts/smoke-imports.mjs   # module graph + pure-logic unit checks
+node scripts/verify-content.mjs  # bundle<->choice wiring, target ids, creation-to-20 simulation
+```
+
+`verify-content.mjs` simulates three full 1–20 builds (Fighter,
+Light Cleric, Devotion Paladin), a 12-class sweep, and all 18 starter
+races — every statModifier target, dropdownAccess id, and granted
+spell name must resolve or it fails.
+
+## Sharing with friends / offline mode
+
+- **Shared (default):** the Firebase project is already configured in
+  `js/state/characterStore.js`. Enable Google Auth + Firestore in the
+  Firebase console, deploy `firestore.rules`, and friends sign in —
+  characters sync across devices.
+- **Offline (`?offline=1`):** append `?offline=1` to the URL (or open
+  with no connection) and the app uses `js/state/localStore.js`
+  instead — same features, data in this browser's localStorage only.
+  A banner on the character list says which mode you're in.
+
+## Deliberately left out / known limits
+
+- Elf subraces (High/Wood/Drow) are a "track by hand" note on the Elf
+  bundle — no subrace picker yet.
+- A few `SKILL_EXPERTISE` / `FEATURE_SELECT` / `SPELL_SELECT` class
+  choices carry only a reference key in the source data, so they show
+  as text notes instead of pickers (see RESCUE-NOTES.md).
+- Short Rests restore short-rest feature uses plus Warlock pact slots
+  (read off the level-up plan, single-class Warlocks). Long Rests
+  restore all feature uses, clear used spell slots, and heal to full
+  HP — all in one undoable commit (see `takeRest` in `customSheet.js`).

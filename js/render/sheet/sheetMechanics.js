@@ -39,6 +39,7 @@ export function statModifierSummary(mod, deps = {}) {
   const amount = Number.isFinite(mod.value) ? mod.value : 0;
   switch (mod.op) {
     case "grant": return label;
+    case "grantTag": return label;
     case "add": return `${amount >= 0 ? "+" : ""}${amount} ${label}`;
     case "subtract": return `-${Math.abs(amount)} ${label}`;
     case "set": return `${label} = ${amount}`;
@@ -47,22 +48,83 @@ export function statModifierSummary(mod, deps = {}) {
   }
 }
 
-/** See mechanicsPreviewFor in customSheet.js for the full contract:
- *  null = no bundle, message = flavor-only, otherwise "A · B · +N more". */
-export function mechanicsPreviewFor(bundle, level, { summarize = (m) => statModifierSummary(m) } = {}) {
-  if (!bundle) return null;
+/** Collapse exact-duplicate bits into counts, preserving
+ *  first-appearance order: ["Weapon Prof.", "Weapon Prof."] becomes
+ *  ["2 Weapon Prof."]. Singletons pass through untouched. */
+export function collapseBits(bits) {
+  const counts = new Map();
+  bits.forEach((bit) => counts.set(bit, (counts.get(bit) || 0) + 1));
+  return [...counts.entries()].map(([bit, count]) => (count > 1 ? `${count} ${bit}` : bit));
+}
+
+/** A feature grant's display bit. Speed carries its measurement from
+ *  the description ("25 ft. walking…") so options can be told apart
+ *  ("Speed 25 ft" vs "Speed 30 ft"); anything else shows its plain
+ *  name. */
+export function featureBit(grant) {
+  const name = grant.name || "";
+  if (/^speed$/i.test(name.trim())) {
+    const match = /(\d+\s*ft\.?)/i.exec(grant.description || "");
+    if (match) return `Speed ${match[1].replace(/\.$/, "")}`;
+  }
+  return name;
+}
+
+function activeAtLevel(items, level) {
+  return items.filter((item) => !item.minLevel || item.minLevel <= level);
+}
+
+/** The preview's content bits for one bundle (collapsed, optionally
+ *  minus page-common traits) — without the "+N more at higher
+ *  levels" tail. */
+export function previewBitsFor(bundle, level, { summarize = (m) => statModifierSummary(m), exclude = null } = {}) {
+  if (!bundle) return [];
+  let bits = [
+    ...activeAtLevel(bundle.statModifiers || [], level).map((m) => summarize(m)),
+    ...activeAtLevel(bundle.featureGrants || [], level).map((g) => featureBit(g)).filter(Boolean),
+  ];
+  if (exclude && exclude.size > 0) bits = bits.filter((bit) => !exclude.has(bit));
+  return collapseBits(bits);
+}
+
+export function laterCountFor(bundle, level) {
+  if (!bundle) return 0;
   const mods = bundle.statModifiers || [];
   const features = bundle.featureGrants || [];
-  const activeMods = mods.filter((m) => !m.minLevel || m.minLevel <= level);
-  const activeFeatures = features.filter((g) => !g.minLevel || g.minLevel <= level);
-  const laterCount = (mods.length - activeMods.length) + (features.length - activeFeatures.length);
-  const bits = [
-    ...activeMods.map((m) => summarize(m)),
-    ...activeFeatures.map((g) => g.name).filter(Boolean),
-  ];
+  return (mods.length - activeAtLevel(mods, level).length)
+    + (features.length - activeAtLevel(features, level).length);
+}
+
+/** Full one-line preview: content bits (with duplicate counts, minus
+ *  page-common traits) plus the higher-level tail.
+ *  `exclude` is the set of bits identical across every option on the
+ *  current picker page — those carry no differentiating information.
+ *  Contract: null = no bundle; flavor message = bundle genuinely
+ *  empty; "Shared by every option here." = bundle has content but it
+ *  was all filtered as page-common. */
+export function mechanicsPreviewFor(bundle, level, { summarize = (m) => statModifierSummary(m), exclude = null } = {}) {
+  if (!bundle) return null;
+  const hasContent = (bundle.statModifiers || []).length > 0 || (bundle.featureGrants || []).length > 0;
+  const bits = previewBitsFor(bundle, level, { summarize, exclude });
+  const laterCount = laterCountFor(bundle, level);
   if (laterCount > 0) bits.push(`+${laterCount} more at higher levels`);
-  if (!bits.length) return "No stat bonuses or features on file — flavor only.";
+  if (!bits.length) {
+    return hasContent
+      ? "Shared by every option here."
+      : "No stat bonuses or features on file — flavor only.";
+  }
   return bits.join(" · ");
+}
+
+/** Bits identical across every bundle in the list (computed with the
+ *  same summarize + level as the displayed previews) — the caller
+ *  passes these as `exclude` so each row only shows what sets it
+ *  apart. Returns an empty set for fewer than two bundles, so a
+ *  single-option page never filters itself blank. */
+export function commonPreviewBits(bundles, level, { summarize = (m) => statModifierSummary(m) } = {}) {
+  if (!bundles || bundles.length < 2) return new Set();
+  const lists = bundles.map((b) => previewBitsFor(b, level, { summarize }));
+  return new Set(lists[0].filter((bit) => lists.every((other) => other.includes(bit))));
 }
 
 export function spellLevelByName(name, spellCatalog = []) {

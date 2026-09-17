@@ -1,7 +1,11 @@
 // main.js — app entry point
 
-import * as characterStore from "./state/characterStore.js";
-import { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, createCharacter, deleteCharacter, currentUserId, listSheetTemplates } from "./state/characterStore.js";
+import { loadStore } from "./state/store.js";
+// Firebase when reachable (shared between friends), localStorage when
+// not (?offline=1, no connection, or CDN failure) — same exports
+// either way, so everything below is backend-agnostic.
+const characterStore = await loadStore();
+const { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, createCharacter, deleteCharacter, currentUserId, listSheetTemplates } = characterStore;
 import { createBlankCharacter } from "./data/schema.js";
 import { renderCustomSheet } from "./render/customSheet.js";
 import { computeAllFormulas } from "./data/formula.js";
@@ -58,7 +62,7 @@ onAuthChange(async (user) => {
   if (!user) {
     const signInBtn = document.createElement("button");
     signInBtn.className = "btn btn--primary";
-    signInBtn.textContent = "Sign in with Google";
+    signInBtn.textContent = characterStore.authSignInLabel?.() ?? "Sign in with Google";
     signInBtn.addEventListener("click", signIn);
     authArea.append(signInBtn);
     appRoot.innerHTML = "<p>Sign in to view your characters.</p>";
@@ -176,6 +180,13 @@ async function renderCharacterList() {
   newBtn.addEventListener("click", openNewCharacterDialog);
   heading.append(title, newBtn);
   appRoot.append(heading);
+
+  if (characterStore.isLocal) {
+    const banner = document.createElement("p");
+    banner.className = "leveling-tab__intro";
+    banner.textContent = "Offline mode — characters save in this browser only. Drop ?offline=1 (with a connection) to use the shared backend.";
+    appRoot.append(banner);
+  }
 
   const characters = await listMyCharacters();
 

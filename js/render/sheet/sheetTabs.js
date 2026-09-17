@@ -194,6 +194,16 @@ export function normalizeTabsIn(character, deps) {
     character.levelUps = {};
   }
   character.rules = normalizeRulesFn(character.rules);
+  // Heal the ruleset mirror: the toolbar historically saved only one of
+  // character.rulesetId / character.rules.rulesetId, so older saves can
+  // disagree (toolbar unset while everything else worked). The rules
+  // copy is canonical — prefer it, but accept the top-level one when
+  // it's the only copy present.
+  if (character.rules && !character.rules.rulesetId && character.rulesetId) {
+    character.rules.rulesetId = character.rulesetId;
+  } else if (character.rules?.rulesetId && !character.rulesetId) {
+    character.rulesetId = character.rules.rulesetId;
+  }
   mirrorFn(character);
   return character;
 }

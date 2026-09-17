@@ -1,0 +1,167 @@
+#!/usr/bin/env node
+// scripts/compile-foundry-races-bg.mjs
+// Compiles New Info/5e-races.txt and New Info/5e-backgrounds.txt into runtime bundles.
+// All logic is inline in the async main() to avoid await-in-function parse issues.
+
+import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(__dirname, "..");
+const RACES_INPUT = path.join(ROOT, "New Info", "5e-races.txt");
+const BG_INPUT = path.join(ROOT, "New Info", "5e-backgrounds.txt");
+
+// Output paths
+const RACE_SUPP_PATH = path.join(ROOT, "js", "data", "raceContent.js");
+const RACE_NAMES_PATH = path.join(ROOT, "js", "data", "raceContent-names.js");
+const BG_SUPP_PATH = path.join(ROOT, "js", "data", "bgContent.js");
+const BG_NAMES_PATH = path.join(ROOT, "js", "data", "bgContent-names.js");
+
+const log = [];
+
+function norm(s) { return (s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+function titleCaseId(s) { return String(s || "").split("-").map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(" "); }
+function getSystem(d) { return d.system || d.data || {}; }
+function textValue(desc) { return (desc || {}).value || ""; }
+function htmlToText(raw) {
+  if (!raw) return "";
+  let t = String(raw);
+  t = t.replace(/<[^>]+>/g, "");
+  t = t.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">")
+    .replace(/"/g, '"').replace(/'|&apos;/g, "'");
+  const lines = t.split("\n").map((ln) => ln.replace(/[ \t]+/g, " ").trim()).filter((ln) => ln !== "");
+  return lines.join("\n");
+}
+function parseAbilityMods(modStr) {
+  const mods = [];
+  if (!modStr) return mods;
+  for (const part of modStr.split(/\s*,\s*/)) {
+    const m = part.match(/^([a-z]+)([+-]\d+)$/i);
+    if (m) mods.push({ id: m[1].toLowerCase(), mod: Number(m[2]) });
+  }
+  return mods;
+}
+function extractFeatureSummaries(rawHtml) {
+  if (!rawHtml) return [];
+  const txt = htmlToText(rawHtml);
+  const out = [];
+  for (const m of txt.matchAll(/(\d+)(?:st|nd|rd|th)\s*:\s*(.+?)(?=\s+\d+)(?:\s|$)/g)) {
+    const level = Number(m[1]);
+    const desc = m[2].trim().slice(0, 200);
+    if (desc) out.push({ level, description: desc });
+  }
+  return out;
+}
+
+async function main() {
+  // ---------- RACES ----------
+  console.log("=== Compiling races ===");
+  const racesText = await readFile(RACES_INPUT, "utf8");
+  const raw = [];
+  for (const line of racesText.split("\n")) {
+    const t = line.trim(); if (!t) continue;
+    try { raw.push(JSON.parse(t)); } catch {}
+  }
+  const KNOWN_RACES = new Set(["human","elf","dwarf","halfling","half-orc","half-elf","tiefling","goblin","dragonborn"]);
+  const supplement = [];
+  for (const e of raw) {
+    const sys = getSystem(e);
+    const key = norm(e.name);
+    const baseName = titleCaseId(e.name);
+    const abilityMods = parseAbilityMods(sys.abilityMods || "");
+    const size = (sys.size || "Medium").toLowerCase() || "medium";
+    const speed = (sys.speed || { walk: 30 }).walk || 30;
+    const languages = (sys.languages || []).map((l) => l.trim()).filter(Boolean);
+    const features = extractFeatureSummaries(textValue(sys.description));
+    let equipment = [];
+    const eqField = sys.equipment || sys.startingEquipment;
+    if (eqField) {
+      if (typeof eqField === "string") equipment = [eqField];
+      else if (Array.isArray(eqField)) equipment = eqField;
+    } else {
+      log.push(`no starter eq for race ${e.name}; default content will supply`);
+    }
+    const skillPicks = (sys.skillBonuses || []).map((s) => s.trim()).filter(Boolean) || [];
+    const toolPicks = (sys.toolBonuses || []).map((t) => t.trim()).filter(Boolean) || [];
+    const choiceGroups = [];
+    const descText = htmlToText(textValue(sys.description)).toLowerCase();
+    if (/forest|swamp|mountain|desert|underground/i.test(descText)) {
+      choiceGroups.push({
+        id: `${key}-favored-env`,
+        label: "Favored Environment",
+        minSelections: 1,
+        maxSelections: 1,
+        options: [
+          { id: `${key}-favored-env-forest`, name: "Forest", description: "Bonus in forest terrain." },
+          { id: `${key}-favored-env-swamp`, name: "Swamp", description: "Bonus in swamp terrain." },
+          { id: `${key}-favored-env-mountain`, name: "Mountain", description: "Bonus in mountain terrain." },
+          { id: `${key}-favored-env-desert`, name: "Desert", description: "Bonus in desert terrain." },
+        ],
+      });
+    }
+    supplement.push({ key, name: e.name, baseName, abilityMods, size, speed, languages, equipment, skillPicks, toolPicks, features, choiceGroups });
+    if (!KNOWN_RACES.has(key)) log.push(`unregistered race key: ${e.name} -> key ${key}`);
+  }
+  supplement.sort((a, b) => a.name.localeCompare(b.name));
+  const emit = (obj) => JSON.stringify(obj, null, 2);
+  console.log(`Races: ${supplement.length} entries, ${log.length} warnings`);
+  await writeFile(RACE_SUPP_PATH, "// Auto-generated by scripts/compile-foundry-races-bg.mjs from New Info/5e-races.txt.\n// Do not hand-edit — re-run `node scripts/compile-foundry-races-bg.mjs`.\n// NOTE: entries are thin (the Foundry race export carries almost no\n// structured mechanics) — the site's real race mechanics live in\n// js/data/defaultContent.js (+ js/data/extraRaces.js). Do not wire\n// this file into the sheet without enriching it first.\n\nexport const RACE_SUPPLEMENT = " + emit(supplement) + ";\n", "utf8");
+  await writeFile(RACE_NAMES_PATH, `export const RACE_NAME_MAP = ${emit(supplement.reduce((a, e) => { a[e.key] = e.name; return a; }, {}))};\n`, "utf8");
+  for (const l of log) console.log(`  ${l}`);
+
+  // ---------- BACKGROUNDS ----------
+  console.log("=== Compiling backgrounds ===");
+  const bgText = await readFile(BG_INPUT, "utf8");
+  const bgRaw = [];
+  for (const line of bgText.split("\n")) {
+    const t = line.trim(); if (!t) continue;
+    try { bgRaw.push(JSON.parse(t)); } catch {}
+  }
+  const KNOWN_BGS = new Set(["criminal","ermine","folkhero","gladiator","hermit","noble","outlander","sage","soldier"]);
+  const bgSupplement = [];
+  for (const e of bgRaw) {
+    const sys = getSystem(e);
+    const key = norm(e.name);
+    const baseName = titleCaseId(e.name);
+    const abilityMods = parseAbilityMods(sys.abilityMods || "");
+    const features = extractFeatureSummaries(textValue(sys.description));
+    let equipment = [];
+    const eqField = sys.startingEquipment || sys.equipment;
+    if (eqField) {
+      if (typeof eqField === "string") equipment = [eqField];
+      else if (Array.isArray(eqField)) equipment = eqField;
+    }
+    const skillPicks = [];
+    const skillMatch = textValue(sys.description).match(/choose two skills from ([A-Za-z\s]+)/i);
+    if (skillMatch) skillPicks.push(skillMatch[1].trim());
+    const toolPicks = [];
+    const toolMatch = textValue(sys.description).match(/choose([^\n]{0,40}tools?)/i);
+    if (toolMatch) toolPicks.push(toolMatch[1].trim());
+    const choiceGroups = [];
+    const choiceMatch = textValue(sys.description).match(/select a (specialty|language|tool)/i);
+    if (choiceMatch) {
+      choiceGroups.push({
+        id: `${key}-specialty`,
+        label: "Background Specialty",
+        minSelections: 1,
+        maxSelections: 1,
+        options: [
+          { id: `${key}-specialty-academic`, name: "Academic", description: "Choose academic focus." },
+          { id: `${key}-specialty-practical`, name: "Practical", description: "Choose practical focus." },
+        ],
+      });
+    }
+    bgSupplement.push({ key, name: e.name, baseName, abilityMods, equipment, skillPicks, toolPicks, features, choiceGroups });
+    if (!KNOWN_BGS.has(key)) log.push(`unregistered background key: ${e.name} -> key ${key}`);
+  }
+  bgSupplement.sort((a, b) => a.name.localeCompare(b.name));
+  console.log(`Backgrounds: ${bgSupplement.length} entries`);
+  await writeFile(BG_SUPP_PATH, "// Auto-generated by scripts/compile-foundry-races-bg.mjs from New Info/5e-backgrounds.txt.\n// Do not hand-edit — re-run `node scripts/compile-foundry-races-bg.mjs`.\n// NOTE: entries are thin (the Foundry background export carries almost\n// no structured mechanics) — the site's real background mechanics live\n// in js/data/defaultContent.js. Do not wire this file into the sheet\n// without enriching it first.\n\nexport const BG_SUPPLEMENT = " + emit(bgSupplement) + ";\n", "utf8");
+  await writeFile(BG_NAMES_PATH, `export const BG_NAME_MAP = ${emit(bgSupplement.reduce((a, e) => { a[e.key] = e.name; return a; }, {}))};\n`, "utf8");
+  for (const l of log) console.log(`  ${l}`);
+
+  console.log("Done.");
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });
