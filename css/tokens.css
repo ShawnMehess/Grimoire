@@ -424,38 +424,38 @@
 /* DOS Terminal — green phosphor on black, all monospace, sharp
    corners, faint scanlines. Light mode is printer paper. */
 :root[data-theme="dos"] {
-  --color-bg:            #070907;
-  --color-bg-raised:     #0c0f0c;
-  --color-bg-inset:      #030403;
-  --color-border:        #1e4d1e;
-  --color-border-strong: #33cc33;
-  --color-text:          #4dff4d;
-  --color-text-muted:    #2eb82e;
-  --color-text-faint:    #1a6b1a;
-  --color-accent:        #33ff33;
-  --color-accent-hover:  #80ff80;
-  --color-accent-muted:  #33ff3333;
+  --color-bg:            #000000;
+  --color-bg-raised:     #000000;
+  --color-bg-inset:      #000000;
+  --color-border:        #008800;
+  --color-border-strong: #00ff00;
+  --color-text:          #00ff00;
+  --color-text-muted:    #00c000;
+  --color-text-faint:    #007700;
+  --color-accent:        #00ff00;
+  --color-accent-hover:  #66ff66;
+  --color-accent-muted:  #003300;
   --color-arcane:        #ffb000;
-  --color-positive:      #33ff33;
-  --color-negative:      #ff4444;
-  --font-display: "JetBrains Mono", monospace;
-  --font-body: "JetBrains Mono", monospace;
-  --font-mono: "JetBrains Mono", monospace;
+  --color-positive:      #00ff00;
+  --color-negative:      #ff3333;
+  --font-display: "Courier New", Courier, monospace;
+  --font-body: "Courier New", Courier, monospace;
+  --font-mono: "Courier New", Courier, monospace;
+  --radius-sm: 0;
   --radius-md: 0;
   --radius-lg: 0;
   --shadow-sm: none;
   --shadow-md: none;
   --shadow-lg: none;
-  --shadow-glow-accent: 0 0 8px rgba(51,255,51,0.5);
+  --shadow-glow-accent: none;
   --shadow-inset: none;
-  --gradient-accent: linear-gradient(180deg, #2bd92b, #1a8a1a);
-  --gradient-surface: linear-gradient(180deg, #0c0f0c, var(--color-bg-raised) 60%);
+  --gradient-accent: #00ff00;
+  --gradient-surface: #000000;
 }
 :root[data-theme="dos"] body {
   background:
-    repeating-linear-gradient(0deg, rgba(0,0,0,0.25) 0 1px, transparent 1px 3px),
-    radial-gradient(ellipse 1200px 800px at 50% -10%, #0e140e 0%, transparent 60%),
-    var(--color-bg);
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.28) 0 1px, transparent 1px 3px),
+    #000;
 }
 :root[data-theme="dos"] .grid-node { border-radius: 0; border-width: 1px; border-style: solid; box-shadow: none; }
 :root[data-theme="dos"] .grid-node--block { border-radius: 0; border-width: 2px; }
@@ -482,4 +482,113 @@
   background:
     repeating-linear-gradient(0deg, rgba(0,0,0,0.05) 0 1px, transparent 1px 3px),
     var(--color-bg);
+}
+
+/* --- DOS hard-overrides: flat, square, ASCII-only -------------------
+   Kills every rounded corner, shadow, glow, and off-palette tint the
+   component CSS bakes in (brown block gradients, red block headers,
+   white-on-accent text), brackets every button, inverse-video text
+   selection, and puts a C:\ prompt with a blinking block cursor in
+   the header. Light mode gets the same treatment in ink-on-paper. */
+
+:root[data-theme="dos"] *,
+:root[data-theme="dos"] *::before,
+:root[data-theme="dos"] *::after {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+:root[data-theme="dos"] .grid-node--block,
+:root[data-theme="dos"] .block-name,
+:root[data-theme="dos"] .field-value {
+  background: #000;
+}
+:root[data-theme="dos"] .block-name {
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border-strong);
+}
+:root[data-theme="dos"] .choice-row--nested.choice-row--selected {
+  background: #002200;
+}
+:root[data-theme="dos"] .modal-overlay {
+  background: rgba(0, 0, 0, 0.85);
+}
+:root[data-theme="dos"] .picture-avatar-btn,
+:root[data-theme="dos"] .character-card__delete,
+:root[data-theme="dos"] .character-card__duplicate {
+  background: #000;
+}
+
+:root[data-theme="dos"] .btn--primary,
+:root[data-theme="dos"] .picture-avatar-btn.active,
+:root[data-theme="dos"] .drag-handle,
+:root[data-theme="dos"] .equation-hint,
+:root[data-theme="dos"] .formula-ghost::selection,
+:root[data-theme="dos"] .catalog-archetype__radio-btn.active,
+:root[data-theme="dos"] .character-card__delete:hover,
+:root[data-theme="dos"] .character-card__duplicate:hover,
+:root[data-theme="dos"] .style-popover__toggles button.active,
+:root[data-theme="dos"] input[type="checkbox"]:checked::after {
+  color: #000;
+}
+
+:root[data-theme="dos"] .btn::before {
+  content: "[ ";
+}
+:root[data-theme="dos"] .btn::after {
+  content: " ]";
+}
+
+:root[data-theme="dos"] ::selection {
+  background: #00ff00;
+  color: #000;
+}
+
+:root[data-theme="dos"] .app-header h1::before {
+  content: "C:\\GRIMOIRE> ";
+  color: var(--color-accent);
+}
+:root[data-theme="dos"] .app-header h1::after {
+  content: "█";
+  color: #fff;
+  margin-left: 8px;
+  animation: dos-blink 1.06s steps(1) infinite;
+}
+@keyframes dos-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+:root[data-theme="dos"][data-mode="light"] .grid-node--block,
+:root[data-theme="dos"][data-mode="light"] .block-name,
+:root[data-theme="dos"][data-mode="light"] .field-value {
+  background: var(--color-bg);
+}
+:root[data-theme="dos"][data-mode="light"] .modal-overlay {
+  background: rgba(233, 230, 214, 0.9);
+}
+:root[data-theme="dos"][data-mode="light"] .picture-avatar-btn,
+:root[data-theme="dos"][data-mode="light"] .character-card__delete,
+:root[data-theme="dos"][data-mode="light"] .character-card__duplicate {
+  background: var(--color-bg);
+}
+:root[data-theme="dos"][data-mode="light"] .btn--primary,
+:root[data-theme="dos"][data-mode="light"] .picture-avatar-btn.active,
+:root[data-theme="dos"][data-mode="light"] .drag-handle,
+:root[data-theme="dos"][data-mode="light"] .equation-hint,
+:root[data-theme="dos"][data-mode="light"] .formula-ghost::selection,
+:root[data-theme="dos"][data-mode="light"] .catalog-archetype__radio-btn.active,
+:root[data-theme="dos"][data-mode="light"] .character-card__delete:hover,
+:root[data-theme="dos"][data-mode="light"] .character-card__duplicate:hover,
+:root[data-theme="dos"][data-mode="light"] .style-popover__toggles button.active,
+:root[data-theme="dos"][data-mode="light"] input[type="checkbox"]:checked::after {
+  color: #fff;
+}
+:root[data-theme="dos"][data-mode="light"] ::selection {
+  background: #0d6b0d;
+  color: #fff;
+}
+:root[data-theme="dos"][data-mode="light"] .app-header h1::after {
+  color: #000;
 }
