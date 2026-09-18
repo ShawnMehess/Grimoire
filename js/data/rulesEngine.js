@@ -119,6 +119,11 @@ export function classLevelsFor(state) {
 export function createRulesState() {
   return {
     rulesetId: null,
+    // Every source included for option lists (race/class/etc. names,
+    // bundles). rulesetId above stays the PRIMARY source — the one
+    // level-up math and spellcasting info resolve against. Migration
+    // in normalizeRulesState keeps the two in sync.
+    rulesetIds: [],
     species: "",
     background: "",
     className: "",
@@ -145,6 +150,15 @@ export function createRulesState() {
 export function normalizeRulesState(value) {
   const defaults = createRulesState();
   const state = { ...defaults, ...(value || {}) };
+  // Included sources: migrate legacy single-ruleset saves, keep the
+  // primary inside the set, drop blanks/duplicates. Never overrides
+  // an explicit primary — an empty set simply means "nothing picked
+  // yet" and leaves rulesetId as-is.
+  const rawIds = Array.isArray(value?.rulesetIds) ? value.rulesetIds : (state.rulesetId ? [state.rulesetId] : []);
+  state.rulesetIds = [...new Set(rawIds.filter((id) => typeof id === "string" && id))];
+  if (state.rulesetIds.length > 0 && !state.rulesetIds.includes(state.rulesetId)) {
+    state.rulesetId = state.rulesetIds[0];
+  }
   state.abilityScores = { ...defaults.abilityScores, ...(value?.abilityScores || {}) };
   state.choices = { ...(value?.choices || {}) };
   state.resourceUses = { ...(value?.resourceUses || {}) };
@@ -164,8 +178,22 @@ export function normalizeRulesState(value) {
   return state;
 }
 
-export function resolveRulesState(value) {
-  const state = normalizeRulesState(value);
+/** Every source included for option lists, oldest saves included:
+ *  the stored set when present, else the legacy single primary. Pure. */
+export function includedRulesetIds(state) {
+  if (Array.isArray(state?.rulesetIds) && state.rulesetIds.length > 0) {
+    return [...new Set(state.rulesetIds.filter((id) => typeof id === "string" && id))];
+  }
+  return state?.rulesetId ? [state.rulesetId] : [];
+}
+
+/** The primary source — the one level-up math and spellcasting info
+ *  resolve against. Pure. */
+export function primaryRulesetId(state) {
+  return state?.rulesetId || includedRulesetIds(state)[0] || null;
+}
+
+export function resolveRulesState(value) {  const state = normalizeRulesState(value);
   const ruleset = getRuleset(state.rulesetId);
   const classEntry = getRulesetClass(state.rulesetId, state.className);
   const plan = getLevelUpPlan(state.rulesetId, state.className, state.level, state.subclass);

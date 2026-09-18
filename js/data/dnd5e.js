@@ -23,12 +23,82 @@ const CLASSES = DEFAULT_CONTENT.classEntries.map((entry) => {
   };
 });
 
-export const RULESETS = [
-  { id: "homebrew", name: "Homebrew", classes: CLASSES },
+// Player-facing subclasses from Xanathar's Guide to Everything, as
+// factual metadata only (class, subclass name, unlock level). The
+// name strings deliberately match the starter Subclass choices
+// (compiled from Shawn's own Foundry exports) so picking one reuses
+// the same bundles and mechanics already on file — no book prose is
+// reproduced here. Monster, campaign, trap, and downtime material
+// from the book is intentionally out of scope.
+const XANATHAR_CLASSES = [
+  { name: "Barbarian", subclassLevel: 3, caster: null, subclasses: ["Path of the Ancestral Guardian", "Path of the Storm Herald", "Path of the Zealot Herald"] },
+  { name: "Bard", subclassLevel: 3, caster: "full", subclasses: ["College of Glamour", "College of Swords", "College of Whispers"] },
+  { name: "Cleric", subclassLevel: 1, caster: "full", subclasses: ["Forge Domain", "Grave Domain"] },
+  { name: "Druid", subclassLevel: 2, caster: "full", subclasses: ["Circle of Dreams", "Circle of the Shephard"] },
+  { name: "Fighter", subclassLevel: 3, caster: null, subclasses: ["Arcane Archer", "Cavalier", "Samurai"] },
+  { name: "Monk", subclassLevel: 3, caster: null, subclasses: ["Way of the Drunken Master", "Way of the Kensei", "Way of the Sun Soul"] },
+  { name: "Paladin", subclassLevel: 3, caster: "half", subclasses: ["Oath of Conquest", "Oath of Redemption"] },
+  { name: "Ranger", subclassLevel: 3, caster: "half", subclasses: ["Gloom Stalker Conclave", "Horizon Walker Conclave", "Monster Slayer Conclave"] },
+  { name: "Rogue", subclassLevel: 3, caster: null, subclasses: ["Inquisitive", "Mastermind", "Scout", "Swashbuckler"] },
+  { name: "Sorcerer", subclassLevel: 1, caster: "full", subclasses: ["Divine Soul", "Shadow Magic", "Storm Sorcery"] },
+  { name: "Warlock", subclassLevel: 1, caster: "pact", subclasses: ["The Celestial", "The Hexblade"] },
+  { name: "Wizard", subclassLevel: 2, caster: "full", subclasses: ["War Magic"] },
 ];
 
+export const RULESETS = [
+  {
+    id: "homebrew",
+    name: "Homebrew",
+    description: "Your own table's content: homebrew classes, options, and anything added through the Bundle and Catalog libraries.",
+    classes: CLASSES,
+  },
+  {
+    id: "xanathar",
+    name: "Xanathar's Guide to Everything",
+    description: "Player options from Xanathar's Guide (all twelve classes gain subclasses). Subclass names are built in; tag fuller mechanics to this source in the Bundle Libraries.",
+    classes: XANATHAR_CLASSES,
+  },
+];
+
+/** Class names across every included ruleset, deduplicated in first-seen order. Pure. */
+export function classNamesIn(rulesetIds = []) {
+  const ids = (Array.isArray(rulesetIds) ? rulesetIds : [rulesetIds]).filter(Boolean);
+  const seen = new Set();
+  const out = [];
+  ids.forEach((id) => {
+    (getRuleset(id)?.classes || []).forEach((entry) => {
+      if (!seen.has(entry.name)) {
+        seen.add(entry.name);
+        out.push(entry.name);
+      }
+    });
+  });
+  return out;
+}
+
+/** Merged subclass list for one class across every included ruleset:
+ *  { subclasses (deduped), subclassLevel (lowest known) }. Pure. */
+export function subclassesAcrossRulesets(className, rulesetIds = []) {
+  const ids = (Array.isArray(rulesetIds) ? rulesetIds : [rulesetIds]).filter(Boolean);
+  const seen = new Set();
+  const subclasses = [];
+  let subclassLevel = Infinity;
+  ids.forEach((id) => {
+    const entry = getRulesetClass(id, className);
+    if (!entry) return;
+    (entry.subclasses || []).forEach((name) => {
+      if (!seen.has(name)) {
+        seen.add(name);
+        subclasses.push(name);
+      }
+    });
+    if (Number.isFinite(entry.subclassLevel)) subclassLevel = Math.min(subclassLevel, entry.subclassLevel);
+  });
+  return { subclasses, subclassLevel };
+}
+
 export function listRulesets() {
-  return RULESETS.map(({ id, name }) => ({ id, name }));
+  return RULESETS.map(({ id, name, description }) => ({ id, name, description: description || "" }));
 }
 
 export function getRuleset(id) {

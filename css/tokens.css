@@ -78,7 +78,9 @@
 
 /* --- Alternate color themes (see js/data/themes.js). Only color
    tokens are overridden — spacing, type, and radius stay identical
-   so every theme fits every layout. */
+   so every theme fits every layout. Legacy ids (light/forest/arcane)
+   are kept as aliases so saved characters using them keep rendering;
+   the six current themes use [data-theme] + [data-mode="light"]. */
 
 :root[data-theme="light"] {
   --color-bg:            #f2ecdf;
@@ -161,3 +163,256 @@
     radial-gradient(ellipse 900px 600px at 100% 100%, #11162a 0%, transparent 55%),
     var(--color-bg);
 }
+
+/* === Current six themes (dark defaults; light via [data-mode]) === */
+
+/* Standard — neutral slate, blue accent, clean sans. */
+:root[data-theme="standard"] {
+  --color-bg:            #17181c;
+  --color-bg-raised:     #202227;
+  --color-bg-inset:      #101215;
+  --color-border:        #363a42;
+  --color-border-strong: #4d545f80;
+  --color-text:          #ececf1;
+  --color-text-muted:    #a7adb8;
+  --color-text-faint:    #6e7480;
+  --color-accent:        #3b6fd4;
+  --color-accent-hover:  #5b8aee;
+  --color-accent-muted:  #2c4a8a80;
+  --color-arcane:        #6a86c9;
+  --color-positive:      #5d9b62;
+  --color-negative:      #b0514b;
+  --font-display: "Inter", system-ui, sans-serif;
+  --font-body:    "Inter", system-ui, sans-serif;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 4px 16px -2px rgba(59,111,212,0.35);
+  --gradient-accent: linear-gradient(155deg, #5b8aee, var(--color-accent) 55%, #27437e);
+  --gradient-surface: linear-gradient(160deg, #23252b, var(--color-bg-raised) 60%);
+}
+:root[data-theme="standard"][data-mode="light"] {
+  --color-bg:            #f3f4f6;
+  --color-bg-raised:     #ffffff;
+  --color-bg-inset:      #e6e8ec;
+  --color-border:        #c6cbd3;
+  --color-border-strong: #9aa2ae;
+  --color-text:          #1c2026;
+  --color-text-muted:    #5b6470;
+  --color-text-faint:    #8b93a0;
+  --color-accent:        #2456b8;
+  --color-accent-hover:  #3b6fd4;
+  --color-accent-muted:  #b9cdf3;
+  --shadow-sm: 0 1px 2px rgba(30,40,60,0.14);
+  --shadow-md: 0 4px 12px rgba(30,40,60,0.16);
+  --shadow-lg: 0 12px 32px rgba(30,40,60,0.2);
+  --gradient-surface: linear-gradient(160deg, #ffffff, var(--color-bg-raised) 60%);
+}
+:root[data-theme="standard"] .grid-node { border-radius: var(--radius-md); border-width: 1px; border-style: solid; }
+:root[data-theme="standard"] .grid-node--block { border-radius: var(--radius-lg); }
+
+/* Fancy Medieval Fantasy — ornate gold/red, Cinzel display, double borders. */
+:root[data-theme="fancy-medieval"] {
+  --color-bg:            #14110f;
+  --color-bg-raised:     #1d1a16;
+  --color-bg-inset:      #0f0d0b;
+  --color-border:        #6b5836;
+  --color-border-strong: #a8894acc;
+  --color-text:          #f0e6cf;
+  --color-text-muted:    #c0a97a;
+  --color-text-faint:    #7d6c4e;
+  --color-accent:        #b3492b;
+  --color-accent-hover:  #d4602f;
+  --color-accent-muted:  #7a3a2680;
+  --color-arcane:        #8fa8c9;
+  --font-display: "Cinzel", "Georgia", serif;
+  --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 0 18px -2px rgba(212,175,55,0.35);
+  --gradient-accent: linear-gradient(155deg, #d4af37, var(--color-accent) 60%, #6e2a16);
+  --gradient-surface: linear-gradient(160deg, #241d14, var(--color-bg-raised) 60%);
+}
+:root[data-theme="fancy-medieval"][data-mode="light"] {
+  --color-bg:            #f4ead3;
+  --color-bg-raised:     #fff9e9;
+  --color-bg-inset:      #e8d9b8;
+  --color-border:        #b49b62;
+  --color-border-strong: #8a713d;
+  --color-text:          #33270f;
+  --color-text-muted:    #6f5c36;
+  --color-text-faint:    #9a8a64;
+  --color-accent:        #9c3a22;
+  --color-accent-hover:  #b3492b;
+  --color-accent-muted:  #dcbf85;
+  --gradient-surface: linear-gradient(160deg, #fff9e9, var(--color-bg-raised) 60%);
+}
+:root[data-theme="fancy-medieval"] .grid-node { border-width: 2px; border-style: double; border-radius: 10px; }
+:root[data-theme="fancy-medieval"] .grid-node--block {
+  border-radius: 14px;
+  box-shadow: var(--shadow-md), inset 0 0 0 1px rgba(212,175,55,0.25);
+}
+:root[data-theme="fancy-medieval"] .block-name { letter-spacing: 0.08em; }
+
+/* Simple Medieval Fantasy — earthy, muted, plain square borders. */
+:root[data-theme="simple-medieval"] {
+  --color-bg:            #1a1611;
+  --color-bg-raised:     #221d15;
+  --color-bg-inset:      #12100c;
+  --color-border:        #4a4132;
+  --color-border-strong: #6b5f45;
+  --color-text:          #e9dfc8;
+  --color-text-muted:    #b0a184;
+  --color-text-faint:    #77694f;
+  --color-accent:        #8a6d3b;
+  --color-accent-hover:  #a8874e;
+  --color-accent-muted:  #5c4a2680;
+  --color-arcane:        #7d8aa0;
+  --font-display: "Georgia", serif;
+  --font-body: "Georgia", serif;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --gradient-accent: linear-gradient(155deg, #a8874e, var(--color-accent) 55%, #54431f);
+  --gradient-surface: linear-gradient(160deg, #262017, var(--color-bg-raised) 60%);
+}
+:root[data-theme="simple-medieval"][data-mode="light"] {
+  --color-bg:            #efe8d6;
+  --color-bg-raised:     #faf5e6;
+  --color-bg-inset:      #ddd2b6;
+  --color-border:        #b3a480;
+  --color-border-strong: #86744f;
+  --color-text:          #2e2718;
+  --color-text-muted:    #6a5e43;
+  --color-text-faint:    #97876a;
+  --color-accent:        #6f5627;
+  --color-accent-hover:  #8a6d3b;
+  --color-accent-muted:  #cfc09c;
+}
+:root[data-theme="simple-medieval"] .grid-node { border-radius: 3px; border-width: 1px; border-style: solid; }
+:root[data-theme="simple-medieval"] .grid-node--block { border-radius: 4px; box-shadow: var(--shadow-sm); }
+
+/* Modern Day — flat slate + cyan, sharp minimal corners. */
+:root[data-theme="modern"] {
+  --color-bg:            #0f1419;
+  --color-bg-raised:     #161d24;
+  --color-bg-inset:      #090d11;
+  --color-border:        #2b3540;
+  --color-border-strong: #3f4c5c;
+  --color-text:          #e8eef4;
+  --color-text-muted:    #93a3b3;
+  --color-text-faint:    #5d6b7a;
+  --color-accent:        #0ea5e9;
+  --color-accent-hover:  #38bdf8;
+  --color-accent-muted:  #0c4a6e80;
+  --color-arcane:        #38bdf8;
+  --font-display: "Inter", system-ui, sans-serif;
+  --radius-md: 2px;
+  --radius-lg: 4px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.5);
+  --gradient-accent: linear-gradient(155deg, #38bdf8, var(--color-accent) 55%, #0c4a6e);
+  --gradient-surface: linear-gradient(160deg, #161d24, var(--color-bg-raised) 60%);
+}
+:root[data-theme="modern"][data-mode="light"] {
+  --color-bg:            #eef2f6;
+  --color-bg-raised:     #ffffff;
+  --color-bg-inset:      #dde5ec;
+  --color-border:        #b9c5d1;
+  --color-border-strong: #8296a9;
+  --color-text:          #16202a;
+  --color-text-muted:    #4d5f72;
+  --color-text-faint:    #8296a9;
+  --color-accent:        #0284c7;
+  --color-accent-hover:  #0ea5e9;
+  --color-accent-muted:  #bae6fd;
+  --gradient-surface: linear-gradient(160deg, #ffffff, var(--color-bg-raised) 60%);
+}
+:root[data-theme="modern"] .grid-node { border-radius: 2px; border-width: 1px; border-style: solid; box-shadow: none; }
+:root[data-theme="modern"] .grid-node--block { border-radius: 4px; }
+:root[data-theme="modern"] .field-value { box-shadow: none; }
+
+/* Cyberpunk — black + neon pink/cyan, notched corners, heavy glow. */
+:root[data-theme="cyberpunk"] {
+  --color-bg:            #0a0a12;
+  --color-bg-raised:     #12121f;
+  --color-bg-inset:      #06060c;
+  --color-border:        #ff2ea6;
+  --color-border-strong: #00e5ff;
+  --color-text:          #f2f0ff;
+  --color-text-muted:    #9d97c9;
+  --color-text-faint:    #5b567e;
+  --color-accent:        #ff2ea6;
+  --color-accent-hover:  #ff6ec4;
+  --color-accent-muted:  #ff2ea633;
+  --color-arcane:        #00e5ff;
+  --color-positive:      #00ffa3;
+  --color-negative:      #ff3b3b;
+  --font-display: "JetBrains Mono", monospace;
+  --font-body: "JetBrains Mono", monospace;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --shadow-glow-accent: 0 0 8px rgba(255,46,166,0.6), 0 0 20px rgba(0,229,255,0.25);
+  --gradient-accent: linear-gradient(135deg, #ff2ea6, #7b2eff 55%, #00e5ff);
+  --gradient-surface: linear-gradient(160deg, #141428, var(--color-bg-raised) 60%);
+}
+:root[data-theme="cyberpunk"][data-mode="light"] {
+  --color-bg:            #f4f0ff;
+  --color-bg-raised:     #ffffff;
+  --color-bg-inset:      #e2dcf7;
+  --color-border:        #c81e7e;
+  --color-border-strong: #0e7490;
+  --color-text:          #160f2e;
+  --color-text-muted:    #4d4480;
+  --color-text-faint:    #847cae;
+  --color-accent:        #c81e7e;
+  --color-accent-hover:  #ff2ea6;
+  --color-accent-muted:  #f5c2e2;
+  --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 4px 16px -2px rgba(200,30,126,0.4);
+}
+:root[data-theme="cyberpunk"] .grid-node {
+  border-radius: 0;
+  border-width: 1px;
+  border-style: solid;
+  box-shadow: 0 0 8px rgba(255,46,166,0.35), inset 0 0 12px rgba(0,229,255,0.08);
+}
+:root[data-theme="cyberpunk"] .grid-node--block { border-width: 2px; }
+:root[data-theme="cyberpunk"] .grid-node.is-selected,
+:root[data-theme="cyberpunk"] .grid-node:focus-within { box-shadow: var(--shadow-glow-accent); }
+
+/* Space Sci-Fi — deep navy + ice blue, wide pill borders, soft glow. */
+:root[data-theme="space"] {
+  --color-bg:            #060b18;
+  --color-bg-raised:     #0c1428;
+  --color-bg-inset:      #03060f;
+  --color-border:        #274060;
+  --color-border-strong: #4cc9f0;
+  --color-text:          #dcecff;
+  --color-text-muted:    #8ba7cc;
+  --color-text-faint:    #54678a;
+  --color-accent:        #4cc9f0;
+  --color-accent-hover:  #90e0ff;
+  --color-accent-muted:  #1d4e6b80;
+  --color-arcane:        #7b9ff5;
+  --font-display: "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 0 24px -4px rgba(76,201,240,0.45);
+  --gradient-accent: linear-gradient(155deg, #90e0ff, var(--color-accent) 55%, #1d4e9b);
+  --gradient-surface: linear-gradient(160deg, #0e1830, var(--color-bg-raised) 60%);
+}
+:root[data-theme="space"][data-mode="light"] {
+  --color-bg:            #e8f1fb;
+  --color-bg-raised:     #ffffff;
+  --color-bg-inset:      #d3e2f4;
+  --color-border:        #9db9d9;
+  --color-border-strong: #3d7cae;
+  --color-text:          #0d1f36;
+  --color-text-muted:    #3d5a80;
+  --color-text-faint:    #7d9bbd;
+  --color-accent:        #1573b8;
+  --color-accent-hover:  #4cc9f0;
+  --color-accent-muted:  #b9d9f2;
+}
+:root[data-theme="space"] .grid-node { border-radius: 12px; border-width: 1px; border-style: solid; }
+:root[data-theme="space"] .grid-node--block { border-radius: 18px; box-shadow: var(--shadow-md), var(--shadow-glow-accent); }
+:root[data-theme="space"] .field-value { border-radius: 999px; }
+:root[data-theme="space"] .field-value--textarea,
+:root[data-theme="space"] .field-value--textlist,
+:root[data-theme="space"] .field-value--taglist { border-radius: 12px; }

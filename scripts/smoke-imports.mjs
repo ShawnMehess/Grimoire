@@ -680,7 +680,37 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   assert(dnd.hitDieFor("Barbarian") === 12 && dnd.hitDieFor("Wizard") === 6 && dnd.hitDieFor("Nope") === 8, "hitDieFor");
   assert(dnd.casterWeight("full") === 1 && dnd.casterWeight("half") === 0.5 && dnd.casterWeight(null) === 0, "casterWeight basic");
   assert(dnd.casterWeight(null, "Eldritch Knight") === 1 / 3, "casterWeight EK third");
-  const w3 = dnd.multiclassSlotsFor([{ caster: "full", levels: 3 }]);
+  {
+    // Two registered sources: Homebrew + Xanathar's Guide.
+    const sources = dnd.listRulesets();
+    assert(sources.length === 2 && sources[1].id === "xanathar", "two rulesets registered");
+    assert(typeof sources[1].description === "string" && sources[1].description.length > 0, "ruleset description");
+    assert(dnd.getRuleset("xanathar")?.classes.length === 12, "xanathar covers twelve classes");
+    assert(dnd.getRulesetClass("xanathar", "Wizard")?.subclasses.join() === "War Magic", "xanathar wizard subclasses");
+    assert(dnd.getRulesetClass("nope", "Wizard") === null, "unknown ruleset miss");
+    // Union helpers across included sources.
+    assert(dnd.classNamesIn(["homebrew", "xanathar"]).includes("Fighter"), "classNamesIn union");
+    assert(dnd.classNamesIn("homebrew").length === dnd.classNamesIn(["homebrew", "homebrew"]).length, "classNamesIn dedupes");
+    const subs = dnd.subclassesAcrossRulesets("Rogue", ["homebrew", "xanathar"]);
+    assert(subs.subclasses.includes("Swashbuckler") && Number.isFinite(subs.subclassLevel), "subclassesAcrossRulesets union");
+    assert(dnd.subclassesAcrossRulesets("Nope", ["homebrew"]).subclasses.length === 0, "subclassesAcrossRulesets miss");
+    // Multi-include state: legacy single-ruleset saves migrate.
+    assert(JSON.stringify(rules.includedRulesetIds({ rulesetId: "homebrew" })) === '["homebrew"]', "includedRulesetIds legacy");
+    assert(rules.primaryRulesetId({ rulesetId: "homebrew", rulesetIds: ["xanathar", "homebrew"] }) === "homebrew", "primaryRulesetId keeps explicit primary");
+    const migrated = rules.normalizeRulesState({ rulesetId: "homebrew" });
+    assert(JSON.stringify(migrated.rulesetIds) === '["homebrew"]' && migrated.rulesetId === "homebrew", "normalizeRulesState migrates legacy");
+    const multi = rules.normalizeRulesState({ rulesetId: "xanathar", rulesetIds: ["homebrew", "xanathar"] });
+    assert(multi.rulesetId === "xanathar" && multi.rulesetIds.length === 2, "normalizeRulesState keeps multi");
+    const repaired = rules.normalizeRulesState({ rulesetId: "xanathar", rulesetIds: ["homebrew"] });
+    assert(repaired.rulesetId === "homebrew", "normalizeRulesState reseats stranded primary");
+    // Library option names union across sources.
+    const lib = [
+      { rulesetId: "homebrew", category: "Race", name: "Human" },
+      { rulesetId: "xanathar", category: "Race", name: "Tabaxi" },
+    ];
+    assert(wizardMod.rulesetOptionNamesIn(lib, ["homebrew", "xanathar"], "Race", []).join() === "Human,Tabaxi", "rulesetOptionNamesIn union");
+    assert(wizardMod.rulesetOptionNamesIn(lib, "homebrew", "Race", ["Fallback"]).join() === "Human", "rulesetOptionNamesIn single still works");
+  }  const w3 = dnd.multiclassSlotsFor([{ caster: "full", levels: 3 }]);
   assert(w3[0].fieldId === "slots1" && w3[0].options === 4 && w3[1].options === 2, "multiclassSlotsFor full-3");
   assert(dnd.multiclassSlotsFor([{ caster: null, levels: 5 }]).length === 0, "multiclassSlotsFor martial none");
   assert(dnd.multiclassSlotsFor([{ caster: "pact", levels: 3 }]).length === 0, "multiclassSlotsFor pact separate");

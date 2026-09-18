@@ -16,8 +16,12 @@ export function styleToCss(style = {}) {
     textDecoration: style.underline ? "underline" : "",
     color: style.color || "",
     borderHidden: style.showBorder === false,
+    borderColor: style.borderColor || "",
+    borderShape: style.borderShape || "",
   };
 }
+
+export const BORDER_SHAPE_CLASS_PREFIX = "border-shape--";
 
 export function applyCssToEl(el, css) {
   el.style.background = css.background;
@@ -31,6 +35,14 @@ export function applyCssToEl(el, css) {
   el.style.textDecoration = css.textDecoration;
   el.style.color = css.color;
   el.classList.toggle("border-hidden", css.borderHidden);
+  el.style.borderColor = css.borderColor || "";
+  // Exactly one border-shape class at a time (or none for theme
+  // default) — strip any previous one before applying the new one so
+  // re-styling never stacks two shapes.
+  [...el.classList].forEach((cls) => {
+    if (cls.startsWith(BORDER_SHAPE_CLASS_PREFIX)) el.classList.remove(cls);
+  });
+  if (css.borderShape) el.classList.add(`${BORDER_SHAPE_CLASS_PREFIX}${css.borderShape}`);
 }
 
 export function nextLabelPosition(current, positions = ["top", "right", "bottom", "left"]) {
@@ -128,6 +140,8 @@ export function applyStyleChangeInto(wrapperEl, node, { cssProp, cssValue, style
 
 // --- Style popover DOM ------------------------------------------------------
 
+import { THEME_BORDER_SHAPES } from "../../data/themes.js";
+
 export const FONT_OPTIONS = [
   ["", "Theme default"],
   ["var(--font-body)", "Body"],
@@ -196,7 +210,7 @@ export function buildStylePopoverInto(node, wrapperEl, deps) {
   // Background image
   const imgRow = document.createElement("div");
   imgRow.className = "style-popover__row";
-  const imgLabel = buildStyleLabel("Bg image", "bgImage");
+  const imgLabel = buildStyleLabel("BG Image", "bgImage");
   const imgInput = document.createElement("input");
   imgInput.type = "file";
   imgInput.accept = "image/*";
@@ -253,7 +267,7 @@ export function buildStylePopoverInto(node, wrapperEl, deps) {
   // Text color
   const colorRow = document.createElement("div");
   colorRow.className = "style-popover__row";
-  const colorLabel = buildStyleLabel("Text color", "color");
+  const colorLabel = buildStyleLabel("Text Color", "color");
   const colorInput = document.createElement("input");
   colorInput.type = "color";
   colorInput.value = editableStyle.color || "#e8e0d0";
@@ -301,6 +315,59 @@ export function buildStylePopoverInto(node, wrapperEl, deps) {
   });
   togglesRow.append(toggles);
   pop.append(togglesRow);
+
+  // Border shape — one per theme plus theme default. Stored on the
+  // node and applied as a border-shape--* class (see applyCssToEl);
+  // a direct commit like Background (no text-selection cascade —
+  // borders aren't text).
+  const shapeRow = document.createElement("div");
+  shapeRow.className = "style-popover__row";
+  const shapeLabel = buildStyleLabel("Border Shape", "borderShape");
+  const shapeSelect = document.createElement("select");
+  THEME_BORDER_SHAPES.forEach(({ id, name }) => {
+    const opt = document.createElement("option");
+    opt.value = id; opt.textContent = name;
+    if ((editableStyle.borderShape || "") === id) opt.selected = true;
+    shapeSelect.append(opt);
+  });
+  shapeSelect.addEventListener("change", () => {
+    commit(() => {
+      setValue(node, "borderShape", shapeSelect.value || null);
+    }, { render: false });
+    applyStyle(wrapperEl, forEditing(node));
+  });
+  shapeRow.append(shapeLabel, shapeSelect);
+  pop.append(shapeRow);
+
+  // Border color — same direct-commit pattern as Border Shape.
+  const borderRow = document.createElement("div");
+  borderRow.className = "style-popover__row";
+  const borderLabel = buildStyleLabel("Border Color", "borderColor");
+  const borderControls = document.createElement("div");
+  borderControls.className = "style-popover__toggles";
+  const borderInput = document.createElement("input");
+  borderInput.type = "color";
+  borderInput.value = editableStyle.borderColor || "#554838";
+  borderInput.title = "Border color";
+  borderInput.addEventListener("input", () => {
+    commit(() => {
+      setValue(node, "borderColor", borderInput.value);
+    }, { render: false });
+    applyStyle(wrapperEl, forEditing(node));
+  });
+  const borderReset = document.createElement("button");
+  borderReset.type = "button";
+  borderReset.textContent = "Auto";
+  borderReset.title = "Back to the theme default border color";
+  borderReset.addEventListener("click", () => {
+    commit(() => {
+      setValue(node, "borderColor", null);
+    }, { render: false });
+    applyStyle(wrapperEl, forEditing(node));
+  });
+  borderControls.append(borderInput, borderReset);
+  borderRow.append(borderLabel, borderControls);
+  pop.append(borderRow);
 
   return pop;
 }

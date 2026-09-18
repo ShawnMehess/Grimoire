@@ -62,8 +62,8 @@ import { openFormulaEditor } from "./formulaEditor.js";
 import { openBundleLibraryManager } from "./bundleLibraryEditor.js";
 import { openCatalogLibraryManager } from "./catalogLibraryEditor.js";
 import { openCatalogBrowser } from "./catalogBrowser.js";
-import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets, hitDieFor, multiclassSlotsFor } from "../data/dnd5e.js";
-import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor, classLevelsFor, meetsMulticlassPrereq, effectiveScoresFor, multiclassPrereqReason } from "../data/rulesEngine.js";
+import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets, hitDieFor, multiclassSlotsFor, classNamesIn, subclassesAcrossRulesets } from "../data/dnd5e.js";
+import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor, classLevelsFor, meetsMulticlassPrereq, effectiveScoresFor, multiclassPrereqReason, includedRulesetIds, primaryRulesetId } from "../data/rulesEngine.js";
 import { SUBCLASS_SUPPLEMENT } from "../data/subclassContent.js";
 import { stripSecondaryClassBundle } from "../data/contentFixups.js";
 import { DEFAULT_CONTENT } from "../data/defaultContent.js";
@@ -71,7 +71,7 @@ import { FEAT_BUNDLES, FEAT_CATALOG, FEAT_NAMES } from "../data/featBundles.js";
 import { SPELL_CATALOG, WEAPONS_ARMOR_CATALOG, GEAR_CATALOG } from "../data/contentCatalogs.js";
 import { RACE_EXTRA_CATALOG_ENTRIES } from "../data/extraRaces.js";
 import { flavorFor } from "../data/pickerFlavor.js";
-import { SHEET_THEMES, applySheetTheme } from "../data/themes.js";
+import { SHEET_THEMES, applySheetTheme, normalizeThemeId, normalizeThemeMode } from "../data/themes.js";
 import { CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT, goldOptionIdFor, slugId, resolveStartingEquipmentPick } from "../data/startingEquipment.js";
 import { ABILITIES, SKILLS } from "../data/schema.js";
 import {
@@ -311,6 +311,12 @@ import {
   appendFieldGroup,
 } from "./sheet/sheetWizardSteps.js";
 import { gridCanvasSize, renderMainGridInto } from "./sheet/sheetRender.js";
+import {
+  ROLL_SIDES,
+  rollCheck,
+  openRollResultDialog,
+  isRollRelevant,
+} from "./sheet/sheetRolls.js";
 import {
   selectionBoxFor,
   paintSelectionInto,
@@ -606,20 +612,42 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
   // Rulesets are data packs. The generic level-up guide and subclass
   // dropdown use this saved selection instead of hardcoded class logic.
-  // Single source of truth is character.rules.rulesetId; the top-level
-  // character.rulesetId mirror exists for older saves and is kept in
-  // sync on every write (plus backfilled in normalizeTabs), so either
-  // read path agrees.
+  // Single source of truth is character.rules (rulesetId = PRIMARY
+  // source for level-up math, rulesetIds = every included source for
+  // option lists); the top-level character.rulesetId mirror exists for
+  // older saves and is kept in sync on every write (plus backfilled in
+  // normalizeTabs), so either read path agrees.
   function currentRulesetId() {
-    return character.rules?.rulesetId || character.rulesetId || null;
+    return primaryRulesetId(character.rules) || character.rulesetId || null;
+  }
+  function includedRulesetIdsFor() {
+    const ids = includedRulesetIds(character.rules);
+    if (ids.length > 0) return ids;
+    const legacy = character.rulesetId;
+    return legacy ? [legacy] : [];
   }
   function setRulesetId(next) {
     character.rulesetId = next;
     character.rules = normalizeRulesState(character.rules);
     character.rules.rulesetId = next;
+    if (next && !includedRulesetIds(character.rules).includes(next)) {
+      character.rules.rulesetIds = [next, ...includedRulesetIds(character.rules)];
+    }
     // Save BOTH copies: "rules" alone would leave the top-level mirror
     // stale on reload (which is exactly how the toolbar used to come
     // back unset while everything else worked).
+    saveWithStatus("rules", character.rules);
+    saveWithStatus("rulesetId", character.rulesetId);
+  }
+  /** Sets the full included set (wizard page 1). Primary stays put
+   *  when still included, else falls to the first included source. */
+  function setIncludedRulesetIds(nextIds) {
+    const ids = [...new Set((nextIds || []).filter(Boolean))];
+    const prevPrimary = currentRulesetId();
+    character.rules = normalizeRulesState(character.rules);
+    character.rules.rulesetIds = ids;
+    character.rules.rulesetId = ids.includes(prevPrimary) ? prevPrimary : (ids[0] || null);
+    character.rulesetId = character.rules.rulesetId;
     saveWithStatus("rules", character.rules);
     saveWithStatus("rulesetId", character.rulesetId);
   }
@@ -627,9 +655,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     rulesetSelect.value = currentRulesetId() || "";
   }
   const rulesetSelect = buildRulesetSelect(listRulesets(), currentRulesetId() || "");
+  rulesetSelect.title = "Primary ruleset for guided leveling (page 1 of Character Setup picks which sources are included)";
   rulesetSelect.addEventListener("change", () => {
     setRulesetId(rulesetSelect.value || null);
-    const syncMessage = syncRulesetBundles(currentRulesetId());
+    const syncMessage = syncRulesetBundles(includedRulesetIdsFor());
     renderAll();
     if (syncMessage) statusEl.textContent = syncMessage;
   });
@@ -644,33 +673,48 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   rulesetSyncBtn.textContent = "↻";
   rulesetSyncBtn.title = "Re-apply this ruleset's bundles (after importing more, for example)";
   rulesetSyncBtn.addEventListener("click", () => {
-    const syncMessage = syncRulesetBundles(currentRulesetId());
+    const syncMessage = syncRulesetBundles(includedRulesetIdsFor());
     renderAll();
     if (syncMessage) statusEl.textContent = syncMessage;
   });
   toolbar.append(rulesetSyncBtn);
 
-  // Display prefs, changeable anytime: color theme + screen/print
-  // mode + a print button. Theme and mode persist on the character.
+  // Display prefs, changeable anytime: color theme + light/dark
+  // variant + screen/print mode + a print button. Theme, variant, and
+  // mode persist on the character.
   const themeSelect = document.createElement("select");
   themeSelect.className = "input-group__control";
-  themeSelect.style.maxWidth = "160px";
-  themeSelect.title = "Color theme for this character sheet";
+  themeSelect.style.maxWidth = "200px";
+  themeSelect.title = "Visual theme for this character sheet";
   SHEET_THEMES.forEach((theme) => {
     const option = document.createElement("option");
     option.value = theme.id;
     option.textContent = theme.name;
     themeSelect.append(option);
   });
-  const effectiveTheme = () => character.themeId || (character.sheetMode === "print" ? "light" : "default");
-  themeSelect.value = effectiveTheme();
-  applySheetTheme(themeSelect.value);
-  themeSelect.addEventListener("change", () => {
+  const effectiveThemeId = () => normalizeThemeId(character.themeId);
+  const effectiveThemeMode = () => character.themeMode
+    ? normalizeThemeMode(character.themeMode, character.themeId)
+    : (character.themeId === "light" || character.sheetMode === "print" ? "light" : "dark");
+  themeSelect.value = effectiveThemeId();
+  const lightModeLabel = document.createElement("label");
+  lightModeLabel.className = "theme-mode-toggle";
+  lightModeLabel.title = "Light mode version of this theme";
+  const lightModeCheckbox = document.createElement("input");
+  lightModeCheckbox.type = "checkbox";
+  lightModeCheckbox.checked = effectiveThemeMode() === "light";
+  lightModeLabel.append(lightModeCheckbox, document.createTextNode(" Light"));
+  const applyAndPersistTheme = () => {
     character.themeId = themeSelect.value;
-    applySheetTheme(themeSelect.value);
+    character.themeMode = lightModeCheckbox.checked ? "light" : "dark";
+    applySheetTheme(character.themeId, character.themeMode);
     saveWithStatus("themeId", character.themeId);
-  });
-  toolbar.append(themeSelect);
+    saveWithStatus("themeMode", character.themeMode);
+  };
+  applySheetTheme(effectiveThemeId(), effectiveThemeMode());
+  themeSelect.addEventListener("change", applyAndPersistTheme);
+  lightModeCheckbox.addEventListener("change", applyAndPersistTheme);
+  toolbar.append(themeSelect, lightModeLabel);
 
   const modeSelect = document.createElement("select");
   modeSelect.className = "input-group__control";
@@ -685,13 +729,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   modeSelect.value = character.sheetMode || "screen";
   modeSelect.addEventListener("change", () => {
     character.sheetMode = modeSelect.value;
-    // Print reads best on the light theme — switch there on the way
-    // in (still overridable afterward via the theme picker).
-    if (character.sheetMode === "print" && !character.themeId) {
-      character.themeId = "light";
-      themeSelect.value = "light";
-      applySheetTheme("light");
-      saveWithStatus("themeId", character.themeId);
+    // Print reads best on a light background — switch there on the
+    // way in (still overridable afterward via the Light checkbox).
+    if (character.sheetMode === "print" && effectiveThemeMode() !== "light") {
+      lightModeCheckbox.checked = true;
+      applyAndPersistTheme();
     }
     saveWithStatus("sheetMode", character.sheetMode);
   });
@@ -2285,11 +2327,16 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const subclassField = findStarterField("subclass", "Subclass");
     const classChoice = classField?.choices?.find((c) => c.text === className);
     const fromBundle = subclassNamesFromBundleRule(classChoice, subclassField);
-    if (fromBundle) return fromBundle;
-    const classEntry = getRulesetClass(character.rules?.rulesetId || character.rulesetId, className);
-    return classEntry
-      ? { subclasses: classEntry.subclasses, subclassLevel: classEntry.subclassLevel }
-      : { subclasses: [], subclassLevel: Infinity };
+    // Union across every included source: an imported bundle rule
+    // plus each included ruleset's own list (Homebrew, Xanathar's,
+    // ...), deduplicated. Level is the lowest known unlock.
+    const across = subclassesAcrossRulesets(className, includedRulesetIdsFor());
+    const seen = new Set();
+    const subclasses = [...(fromBundle?.subclasses || []), ...across.subclasses]
+      .filter((name) => (seen.has(name) ? false : (seen.add(name), true)));
+    const levels = [fromBundle?.subclassLevel, across.subclassLevel].filter(Number.isFinite);
+    if (!subclasses.length) return { subclasses: [], subclassLevel: Infinity };
+    return { subclasses, subclassLevel: levels.length ? Math.min(...levels) : Infinity };
   }
 
   /** Minimal step-wizard shell shared by character creation and
@@ -2333,7 +2380,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     // same-named library Feat still wins when one is imported (see
     // rulesetOptionNamesIn: library matches take precedence over fallback).
     if ((category || "").toLowerCase() === "feat" && fallback.length === 0) fallback = FEAT_NAMES;
-    return rulesetOptionNamesIn(bundleLibraryCache, rulesetId, category, fallback);
+    // Union across every included source (passed id first), so
+    // checking an extra source adds its options everywhere rather
+    // than swapping one list for another.
+    const ids = [rulesetId, ...includedRulesetIdsFor()].filter(Boolean);
+    return rulesetOptionNamesIn(bundleLibraryCache, [...new Set(ids)], category, fallback);
   }
 
   /** Best-effort flavor lookup for the character-creation wizard's
@@ -2359,7 +2410,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
    *  Background picker row (replaces the one-line preview): fixed
    *  order, empty categories omitted. */
   function mechanicsListFor(category, name, level) {
-    return sharedMechanicsBulletsFor(bundleFor(category, name, character.rules?.rulesetId), level, {
+    return sharedMechanicsBulletsFor(bundleFor(category, name, includedRulesetIdsFor()), level, {
       abilityIds: ABILITY_IDS,
       abilities: ABILITIES,
       skills: SKILLS,
@@ -2430,27 +2481,44 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
   const CATEGORY_FIELD = SHARED_CATEGORY_FIELD;
 
-  function bundleFor(category, name, rulesetId) {
-    // Feats are baked in (js/data/featBundles.js) rather than living on
-    // a starter dropdown choice or per-ruleset library entry — match by
-    // name here first. Library entries still win when explicitly
-    // imported: bundleForIn is checked first for non-feat categories,
-    // and for feats a same-named library entry takes precedence.
+  function bundleFor(category, name, rulesetIdOrIds) {
+    // Search every included source in order (primary first), so a pick
+    // from any checked ruleset resolves its mechanics. The starter
+    // fallback inside bundleForIn is source-agnostic, so it only needs
+    // to run once, after the per-source library search comes up empty.
+    const ids = (Array.isArray(rulesetIdOrIds) ? rulesetIdOrIds : [rulesetIdOrIds]).filter(Boolean);
+    const lookupIds = ids.length > 0 ? ids : includedRulesetIdsFor();
+    const norm = (s) => (s || "").trim().toLowerCase();
+    const starterLookup = (cat) =>
+      CATEGORY_FIELD[cat] ? findStarterField(...CATEGORY_FIELD[cat]) : null;
     if ((category || "").toLowerCase() === "feat" && name) {
-      const norm = (s) => (s || "").trim().toLowerCase();
-      const fromLibrary = (bundleLibraryCache || []).find((entry) =>
-        entry.rulesetId === rulesetId
-        && norm(entry.category) === "feat" && norm(entry.name) === norm(name));
-      if (fromLibrary) return fromLibrary;
+      // Feats are baked in (js/data/featBundles.js) rather than living
+      // on a starter dropdown choice or per-ruleset library entry —
+      // match by name here first. A same-named library entry still
+      // wins when explicitly imported.
+      for (const id of lookupIds) {
+        const fromLibrary = (bundleLibraryCache || []).find((entry) =>
+          entry.rulesetId === id
+          && norm(entry.category) === "feat" && norm(entry.name) === norm(name));
+        if (fromLibrary) return fromLibrary;
+      }
       return FEAT_BUNDLES.find((entry) => norm(entry.name) === norm(name)) || null;
     }
-    return bundleForIn(category, name, rulesetId, bundleLibraryCache, (cat) =>
-      CATEGORY_FIELD[cat] ? findStarterField(...CATEGORY_FIELD[cat]) : null
-    );
+    for (const id of lookupIds) {
+      const fromLibrary = (bundleLibraryCache || []).find((entry) =>
+        entry.rulesetId === id
+        && norm(entry.category) === norm(category) && norm(entry.name) === norm(name));
+      if (fromLibrary) return fromLibrary;
+    }
+    return bundleForIn(category, name, lookupIds[0] || null, bundleLibraryCache, starterLookup);
   }
 
   function creationChoiceGroupsFor(state) {
-    return lockCommonInLanguageGroups(creationChoiceGroupsForState(state, bundleFor));
+    // Choice groups resolve against EVERY included source, not just
+    // the primary — a Xanathar-tagged bundle's picks surface whenever
+    // that source is checked, even with Homebrew primary.
+    const lookup = (category, name) => bundleFor(category, name, includedRulesetIds(state));
+    return lockCommonInLanguageGroups(creationChoiceGroupsForState(state, lookup));
   }
 
   /** Common is known by default and can't be changed — applied
@@ -2780,10 +2848,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
    *  choice that's already had a given library bundle applied is
    *  skipped, not re-stacked. Returns a short status string for the
    *  caller to show. */
-  function syncRulesetBundles(rulesetId) {
-    if (!rulesetId) return null;
+  function syncRulesetBundles(rulesetIdOrIds) {
+    const ids = (Array.isArray(rulesetIdOrIds) ? rulesetIdOrIds : [rulesetIdOrIds]).filter(Boolean);
+    if (ids.length === 0) return null;
     const allFields = flattenGlobalFields();
-    const rulesetBundles = bundleLibraryCache.filter((entry) => entry.rulesetId === rulesetId);
+    const rulesetBundles = bundleLibraryCache.filter((entry) => ids.includes(entry.rulesetId));
     let applied = 0;
     rulesetBundleMatches(allFields, rulesetBundles).forEach(({ choice, lib }) => {
       if (applyBundleLibraryToChoice(lib, choice, allFields)) applied++;
@@ -3025,35 +3094,52 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const steps = [
       {
         id: "ruleset",
-        title: "Ruleset",
-        description: "Start by picking which rulebook you're building this character for. Everything else in this wizard — available classes, races, and backgrounds — depends on this choice, and it can't be changed later without redoing those steps.",
-        isComplete: () => Boolean(state.rulesetId),
+        title: "Rulesets",
+        description: "Check every source your table uses — Homebrew, Xanathar's Guide, or both. Checked sources combine on later pages; the first checked is primary for level-up math.",
+        isComplete: () => includedRulesetIds(state).length > 0,
         render(container) {
           renderRulesetStepInto(container, state, {
             listRulesetsFn: () => listRulesets(),
-            currentRulesetId: character.rules?.rulesetId || character.rulesetId,
-            hasDownstreamChoices: !!(character.rules.species || character.rules.className || character.rules.subclass || character.rules.background),
+            includedIds: includedRulesetIds(state),
+            primaryId: primaryRulesetId(state),
+            hasDownstreamChoices: !!(state.species || state.className || state.subclass || state.background),
             confirmFn: (msg) => window.confirm(msg),
-            updateFn: (key, value, opts) => {
-              if (opts?.clearDownstream) {
-                character.rulesetId = value;
-                character.rules.species = "";
-                character.rules.className = "";
-                character.rules.subclass = "";
-                character.rules.background = "";
+            updateIdsFn: (nextIds, opts) => {
+              const prevIds = includedRulesetIds(state);
+              const prevPrimary = primaryRulesetId(state);
+              const removed = prevIds.filter((id) => !nextIds.includes(id));
+              const primaryChanged = (nextIds.includes(prevPrimary) ? prevPrimary : (nextIds[0] || null)) !== prevPrimary;
+              // Adding a source never disturbs existing picks — only
+              // removing one (or switching primary) can strand them,
+              // so only then confirm + clear downstream choices.
+              if ((removed.length > 0 || primaryChanged) && (state.species || state.className || state.subclass || state.background)) {
+                if (!window.confirm("Changing sources clears your Race, Class, Subclass, and Background choices below, since those come from a specific source. Continue?")) {
+                  renderPageGrid();
+                  return;
+                }
+                state.species = "";
+                state.className = "";
+                state.subclass = "";
+                state.background = "";
+                character.rulesetId = nextIds.includes(prevPrimary) ? prevPrimary : (nextIds[0] || null);
               }
-              update(key, value);
+              setIncludedRulesetIds(nextIds);
+              saveRules();
+              // Skipped when persisting mid-render (single-source
+              // auto-select): the in-progress render paints it, and
+              // bundle sync waits for a real user action.
+              if (opts?.rerender === false) return;
+              const syncMessage = syncRulesetBundles(nextIds);
+              renderPageGrid();
+              if (syncMessage) statusEl.textContent = syncMessage;
             },
-            syncFn: (id) => syncRulesetBundles(id),
-            statusFn: (msg) => { statusEl.textContent = msg; },
-            fieldFn: (c, label, control) => field(c, label, control),
           });
         },
       },
       {
         id: "identity",
         title: "Identity",
-        description: "Give your character a name, set the level you're starting at (almost always level 1 for a new character), and choose a race or species. Race/species determines ability score bonuses, speed, and racial traits.",
+        description: "Name your character, set starting level (usually 1), and pick a species. Species grants ability bonuses, speed, and traits you'll use all game.",
         isComplete: () => Boolean((character.name || "").trim()) && Boolean(state.species),
         render(container) {
           renderIdentityStepInto(container, state, {
@@ -3068,7 +3154,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             fieldFn: (c, label, control) => field(c, label, control),
             optionNamesFn: (rulesetId, category) => rulesetOptionNames(rulesetId, category, wizardFieldOptionNames("race", "Race")),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
-            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? state.rulesetId),
+            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
             mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
             selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { ...opts, collapsible: true }),
@@ -3079,7 +3165,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       {
         id: "class",
         title: "Class",
-        description: "Choose your class. If it picks a subclass right away at your starting level, its row expands below to let you choose one — otherwise the Leveling tab will ask when you reach the level that unlocks it.",
+        description: "Pick what your character does best — class sets hit points, attacks, and features. If a subclass is available at your level, pick it under your class.",
         isComplete: () => {
           if (!state.className) return false;
           const subs = liveSubclassData(state.className);
@@ -3095,7 +3181,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
               classFallback.length ? classFallback : (resolved.ruleset?.classes || []).map((c) => c.name)
             ),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
-            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? state.rulesetId),
+            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
             mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
             subclassDataFn: (name) => liveSubclassData(name),
@@ -3108,12 +3194,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         id: "abilities",
         title: "Ability Scores",
         descriptionItems: [
-          "Each ability has two boxes: the first is the ability score itself, and the second is its modifier — the number actually added to your rolls.",
-          "The modifier is derived from the score, not set separately: every 2 points of score above 10 raises the modifier by 1 (and every 2 points below 10 lowers it by 1), so it updates on its own as you adjust the score.",
-          "The modifier is what actually gets added to attack rolls, spell save DCs and spell attacks, and skill or ability checks tied to that ability — it's the game's shorthand for how strong, smart, perceptive, etc. your character is at the table.",
-          "Point Buy spends a fixed budget of points across all six scores.",
-          "Random Roll rolls 4d6 (dropping the lowest die) for each score.",
-          "Manual Entry lets you type in scores from a physical roll or another source.",
+          "Each ability has a score (raw talent) and a modifier beside it — the modifier is the number you actually add to attack rolls, saves, and checks at the table.",
+          "Modifiers come from scores automatically (10–11 is +0, 12–13 is +1, 8–9 is −1, and so on) — you never set them by hand.",
+          "Point Buy spends 27 points across all six (fair, no luck). Random Roll rolls dice for each. Manual Entry types in rolls from the table.",
         ],
         render(container) {
           renderAbilitiesStepInto(container, {
@@ -3140,7 +3223,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       {
         id: "background",
         title: "Background",
-        description: "Choose your character's background. This grants skill/tool/language proficiencies and a starting equipment package.",
+        description: "Pick where your character comes from. It grants skill and tool proficiencies (bonuses on those rolls) plus starting gear.",
         isComplete: () => Boolean(state.background),
         render(container) {
           renderRowListStepInto(container, state, {
@@ -3156,7 +3239,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             fieldFn: (c, label, control) => field(c, label, control),
             selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { ...opts, collapsible: true }),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
-            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? state.rulesetId),
+            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
             mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
           });
@@ -3165,7 +3248,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       {
         id: "preferences",
         title: "Preferences",
-        description: "How you want HP handled by default whenever you level up — can be changed anytime later once a Settings tab exists.",
+        description: "How hit points are set when you level up: fixed average (predictable), roll here, or roll at the table. Any single level can still be edited by hand.",
         render(container) {
           renderPreferencesStepInto(container, state, {
             hpOptions: HP_METHOD_OPTIONS,
@@ -3178,7 +3261,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       {
         id: "innate",
         title: "Innate Abilities",
-        description: "Everything your race, class, subclass, and background grant you automatically — no choices needed here. Read them over so you know what your character can do, then move on.",
+        description: "What your race, class, subclass, and background grant automatically — no picks here. These already apply on your sheet; skim them so you know what you can do.",
         render(container) {
           renderInnateAbilitiesStepInto(container, innateAbilitySections(state));
         },
@@ -3186,7 +3269,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       {
         id: "spells",
         title: "Spells & Abilities",
-        description: "Spells or special abilities granted by your race, class, subclass, or background that need a choice made right now — plus, if your class casts spells, which ones you start out knowing.",
+        description: "Make any spell or ability picks your race/class offers, then choose starting spells if your class casts. Limits match your class and level.",
         isApplicable: () => creationGroupsByCategory.spells.length > 0 || Boolean(getRulesetClass(state.rulesetId, state.className)?.caster),
         unavailableMessage: wizardUnavailableMessage,
         isComplete: () => creationGroupsByCategory.spells.every((g) => creationGroupSatisfied(g, state))
@@ -3204,7 +3287,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       {
         id: "languages",
         title: "Languages",
-        description: "Languages you get to choose from your race, class, subclass, or background. Common is known by default and can't be changed — it never counts against your picks.",
+        description: "Choose extra languages from your race, class, and background. Common is free and never uses picks — languages matter for talking to creatures in play.",
         isApplicable: () => creationGroupsByCategory.languages.length > 0,
         unavailableMessage: wizardUnavailableMessage,
         isComplete: () => creationGroupsByCategory.languages.every((g) => creationGroupSatisfied(g, state)),
@@ -3213,7 +3296,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       {
         id: "equipment",
         title: "Starting Equipment",
-        description: "Choose your class's starting equipment package — or take the gold instead and buy what you want. Your background's package is fixed and comes along automatically.",
+        description: "Take your class's gear package or gold to shop instead. Background gear is fixed and included automatically — gear is what you actually use in play.",
         isComplete: () => {
           if (!state.className || !CLASS_STARTING_EQUIPMENT[state.className]) return true;
           return Boolean(character.rules.startingEquipment?.classOptionId);
@@ -3223,7 +3306,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       {
         id: "feats",
         title: "Feats",
-        description: "Feats granted at character creation by your race or background.",
+        description: "Pick feats granted by your race or background. Feats are permanent talents that bend the rules in your favor.",
         isApplicable: () => creationGroupsByCategory.feats.length > 0,
         unavailableMessage: wizardUnavailableMessage,
         isComplete: () => creationGroupsByCategory.feats.every((g) => creationGroupSatisfied(g, state)),
@@ -3232,7 +3315,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       {
         id: "proficiencies",
         title: "Ability Proficiencies",
-        description: "Skill, tool, and saving throw proficiencies granted by your race, class, subclass, or background.",
+        description: "Choose skill, tool, and save proficiencies from your race, class, and background. Proficiency adds your bonus to those rolls.",
         isApplicable: () => creationGroupsByCategory.proficiencies.length > 0,
         unavailableMessage: wizardUnavailableMessage,
         isComplete: () => creationGroupsByCategory.proficiencies.every((g) => creationGroupSatisfied(g, state)),
@@ -3241,13 +3324,13 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       {
         id: "equipprof",
         title: "Equipment Proficiencies",
-        description: "Weapon, armor, tool, and vehicle proficiencies. Anything your race, class, or background already grants shows locked — add whatever else you train with during downtime.",
+        description: "Extra weapon, armor, and tool training beyond what you already get. Granted ones show locked — add downtime training here.",
         render(container) { renderEquipmentProficienciesStepInto(container, state, saveRules); },
       },
       {
         id: "review",
         title: "Review",
-        description: "Here's everything you've chosen. If it looks right, hit Finish Setup to apply it to your sheet — this also wires up your class/race/background bundles and switches you over to the Leveling tab for next time.",
+        description: "Check everything, then Finish Setup to write it to your sheet and unlock the Leveling tab for next time.",
         render(container) {
           const allGroups = [...creationChoiceGroupsFor(state), ...equipmentProficiencyGroups()];
           const spellsField = findStarterField("spellsKnown", "Spells Known");
@@ -3262,7 +3345,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
           }
           renderReviewStepInto(container, state, {
             characterName: character.name,
-            rulesetName: state.rulesetId ? getRuleset(state.rulesetId)?.name : null,
+            rulesetName: includedRulesetIds(state).map((id) => getRuleset(id)?.name || id).join(" + ") || null,
             spellLimit: resolved.derived.spellLimit,
             resources: resolved.derived.resources,
             abilityScores: character.rules.abilityScores,
@@ -3421,7 +3504,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             primaryLevel,
             entries,
             level,
-            allClassNames: (getRuleset(currentRulesetId())?.classes || []).map((c) => c.name),
+            allClassNames: classNamesIn(includedRulesetIdsFor()),
             eligibilityFn: (name) => multiclassPrereqFor(name),
             subclassForFn: (name) => subclassForLevelClass(name),
             removeFn: (name) => {
@@ -4014,12 +4097,78 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     wireGhostDefaultInto(el, defaultText, commit);
   }
 
+  /** Current numeric modifier for a text field: the live computed
+   *  formula value when there is one, else whatever number is typed
+   *  in it (non-numeric prose counts as +0). */
+  function rollModifierFor(field) {
+    if (Number.isFinite(formulaValues[field.id])) return formulaValues[field.id];
+    const parsed = floatFromRichText(field.value || "");
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function openFieldRollDialog(field, mode) {
+    openRollResultDialog({
+      fieldLabel: field.label || "Field",
+      modifier: rollModifierFor(field),
+      initialMode: mode,
+      sides: ROLL_SIDES,
+      rollFn: (m) => rollCheck({ mode: m, sides: ROLL_SIDES }),
+    });
+  }
+
+  function buildRollTrigger(field) {
+    const trigger = document.createElement("div");
+    trigger.className = "field-roll";
+    const dieBtn = document.createElement("button");
+    dieBtn.type = "button";
+    dieBtn.className = "field-roll__die";
+    dieBtn.title = `Roll d${ROLL_SIDES} + ${field.label || "field"}`;
+    dieBtn.textContent = "🎲";
+    dieBtn.setAttribute("aria-label", `Roll d${ROLL_SIDES}`);
+    const advBtn = document.createElement("button");
+    advBtn.type = "button";
+    advBtn.className = "field-roll__mode";
+    advBtn.title = `Roll d${ROLL_SIDES} with advantage (higher of two)`;
+    advBtn.innerHTML = `<span class="field-roll__full">Advantage</span><span class="field-roll__short">Adv.</span>`;
+    const disBtn = document.createElement("button");
+    disBtn.type = "button";
+    disBtn.className = "field-roll__mode";
+    disBtn.title = `Roll d${ROLL_SIDES} with disadvantage (lower of two)`;
+    disBtn.innerHTML = `<span class="field-roll__full">Disadvantage</span><span class="field-roll__short">Disadv.</span>`;
+    // The field sits inside a draggable grid node — a click on these
+    // buttons is a roll, never the start of a drag or a text edit.
+    trigger.addEventListener("pointerdown", (e) => e.stopPropagation());
+    dieBtn.addEventListener("click", (e) => { e.stopPropagation(); openFieldRollDialog(field, "normal"); });
+    advBtn.addEventListener("click", (e) => { e.stopPropagation(); openFieldRollDialog(field, "advantage"); });
+    disBtn.addEventListener("click", (e) => { e.stopPropagation(); openFieldRollDialog(field, "disadvantage"); });
+    trigger.append(dieBtn, advBtn, disBtn);
+    return trigger;
+  }
+
+  /** Wraps a text field's value element with hover-only d20 controls
+   *  (always visible on touch devices) — plain numeric fields only;
+   *  prose fields get no trigger. */
+  function maybeWrapWithRollControls(valueEl, field) {
+    const relevant = isRollRelevant({
+      fieldType: field.fieldType,
+      value: field.value,
+      formulaValue: formulaValues[field.id],
+      parseFn: (html) => floatFromRichText(html || ""),
+    });
+    if (!relevant) return valueEl;
+    const wrap = document.createElement("div");
+    wrap.className = "field-roll-wrap";
+    wrap.append(valueEl, buildRollTrigger(field));
+    return wrap;
+  }
+
   function buildFieldValue(field, onValueChange) {
     if (field.fieldType === "text") {
-      return buildTextValueInto(field, onValueChange, {
+      const valueEl = buildTextValueInto(field, onValueChange, {
         commitFn: (fn, opts) => commitMutation(fn, opts),
         formattedValue: formatComputedValue(formulaValues[field.id]),
       });
+      return maybeWrapWithRollControls(valueEl, field);
     }
 
     if (field.fieldType === "label") {
@@ -4662,7 +4811,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     window.removeEventListener("beforeunload", onBeforeUnload);
     // Leave the document theme clean for whatever renders next
     // (character list, another character with its own theme).
-    applySheetTheme("default");
+    applySheetTheme("standard", "dark");
   }
 
   return { hasUnsavedChanges, destroy };

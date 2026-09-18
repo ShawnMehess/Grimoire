@@ -97,6 +97,7 @@ export function createBlankCharacter(ownerId) {
     // layout is presentation, while this keeps rule choices stable.
     rules: {
       rulesetId: null,
+      rulesetIds: [],
       species: "",
       background: "",
       className: "",

@@ -94,6 +94,7 @@
   .textlist-add,
   .textlist-item__handle,
   .textlist-item__remove,
+  .field-roll,
   button {
     display: none !important;
   }

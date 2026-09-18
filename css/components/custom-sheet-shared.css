@@ -151,6 +151,23 @@
   box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 
+/* Border Color row: swatch + Auto button share the value column. */
+.style-popover__toggles input[type="color"] {
+  flex: 1 1 auto;
+  height: 100%;
+  min-width: 0;
+  padding: 2px;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-inset);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.style-popover__toggles button {
+  flex: 0 0 auto;
+  padding: 0 var(--space-2);
+}
+
 /* --- Equation stub modal --- */
 
 .modal-overlay {
@@ -258,3 +275,28 @@
   flex-direction: column;
   gap: var(--space-3);
 }
+
+/* --- d20 roll result dialog --- */
+.modal-box.roll-dialog {
+  width: min(420px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.roll-dialog__title { margin: 0; }
+.roll-dialog__dice,
+.roll-dialog__math {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.roll-dialog__total {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--color-text);
+}
+.roll-dialog__nat { margin: 0; font-size: var(--text-sm); font-weight: 600; }
+.roll-dialog__nat--crit { color: var(--color-positive); }
+.roll-dialog__nat--fumble { color: var(--color-negative); }
+.roll-dialog__actions { justify-content: flex-start; }

@@ -379,6 +379,43 @@
   border-color: var(--color-accent);
 }
 
+/* Per-node border shapes (style popover → Border Shape). One option
+   per theme, usable on any theme — an explicit override of whatever
+   the active theme's own .grid-node treatment is. */
+.grid-node.border-shape--standard { border-radius: 6px; border-width: 1px; border-style: solid; }
+.grid-node.border-shape--fancy-medieval {
+  border-radius: 10px;
+  border-width: 2px;
+  border-style: double;
+  box-shadow: var(--shadow-md), inset 0 0 0 1px rgba(212,175,55,0.2);
+}
+.grid-node.border-shape--simple-medieval { border-radius: 3px; border-width: 1px; border-style: solid; box-shadow: var(--shadow-sm); }
+.grid-node.border-shape--modern { border-radius: 2px; border-width: 1px; border-style: solid; box-shadow: none; }
+.grid-node.border-shape--cyberpunk {
+  border-radius: 0;
+  border-width: 1px;
+  border-style: solid;
+  box-shadow: 0 0 8px rgba(255,46,166,0.35), inset 0 0 12px rgba(0,229,255,0.08);
+}
+.grid-node.border-shape--space {
+  border-radius: 12px;
+  border-width: 1px;
+  border-style: solid;
+  box-shadow: var(--shadow-md), 0 0 18px -4px rgba(76,201,240,0.4);
+}
+
+/* Theme picker + Light-mode checkbox sit side by side in the toolbar. */
+.theme-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.theme-mode-toggle input { accent-color: var(--color-accent); }
+
 .grid-node--block {
   padding: var(--space-1);
   border-radius: var(--radius-lg);
@@ -1430,4 +1467,61 @@
 .formula-branch {
   padding-left: var(--space-3);
   border-left: var(--border-width) solid var(--color-border);
+}
+
+/* --- d20 roll controls (numeric text fields) -------------------------
+   Hidden until the field is hovered (play and edit mode alike); touch
+   devices with no hover get them always-on with abbreviated labels. */
+.field-roll-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.field-roll-wrap > .field-value {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.field-roll {
+  display: none;
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  align-items: center;
+  gap: 2px;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: 999px;
+  padding: 1px 4px;
+  z-index: 5;
+  box-shadow: var(--shadow-sm);
+}
+.grid-node--field:hover .field-roll,
+.field-roll:focus-within {
+  display: flex;
+}
+.field-roll button {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 3px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.field-roll button:hover {
+  color: var(--color-text);
+  background: var(--color-bg-raised);
+}
+.field-roll__die {
+  font-size: 13px;
+}
+.field-roll__short { display: none; }
+@media (hover: none) {
+  .field-roll { display: flex; }
+  .field-roll__full { display: none; }
+  .field-roll__short { display: inline; }
 }

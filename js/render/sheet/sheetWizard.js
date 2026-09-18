@@ -399,13 +399,25 @@ export function renderStepWizardInto(steps, stepState, { title, intro } = {}, gr
   return wrap;
 }
 
-/** Bundle-library class/race/background names tagged to a ruleset —
- *  falls back to the hardcoded list (Class only) when nothing is
- *  imported yet. */
-export function rulesetOptionNamesIn(libraryCache, rulesetId, category, fallback = []) {
-  const fromBundles = libraryCache
-    .filter((entry) => entry.rulesetId === rulesetId && entry.category === category)
-    .map((entry) => entry.name);
+/** Bundle-library class/race/background names tagged to one or more
+ *  rulesets — unions across every included id (first-seen order),
+ *  falling back to the hardcoded list (Class only) when nothing is
+ *  imported yet. Accepts a single id or an array. */
+export function rulesetOptionNamesIn(libraryCache, rulesetIdOrIds, category, fallback = []) {
+  const ids = (Array.isArray(rulesetIdOrIds) ? rulesetIdOrIds : [rulesetIdOrIds]).filter(Boolean);
+  const seen = new Set();
+  const fromBundles = [];
+  ids.forEach((rulesetId) => {
+    libraryCache
+      .filter((entry) => entry.rulesetId === rulesetId && entry.category === category)
+      .map((entry) => entry.name)
+      .forEach((name) => {
+        if (!seen.has(name)) {
+          seen.add(name);
+          fromBundles.push(name);
+        }
+      });
+  });
   return fromBundles.length ? fromBundles : fallback;
 }
 

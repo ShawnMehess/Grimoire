@@ -131,6 +131,8 @@ function defaultStyle() {
     italic: false,
     underline: false,
     color: null,          // CSS color string, or null = inherit
+    borderColor: null,    // CSS color string, or null = theme default
+    borderShape: null,    // one of THEME_BORDER_SHAPES ids, or null = theme default
   };
 }
 

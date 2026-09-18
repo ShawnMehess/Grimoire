@@ -41,29 +41,66 @@ export function bucketGroupsByCategory(groups, categories, categorizeFn) {
 }
 
 export function renderRulesetStepInto(container, state, deps) {
-  const { listRulesetsFn, currentRulesetId, hasDownstreamChoices, confirmFn, updateFn, syncFn, statusFn, fieldFn } = deps;
-  const ruleset = document.createElement("select");
-  ruleset.className = "input-group__control";
-  const blank = document.createElement("option"); blank.value = ""; blank.textContent = "Choose ruleset"; ruleset.append(blank);
-  listRulesetsFn().forEach((entry) => { const option = document.createElement("option"); option.value = entry.id; option.textContent = entry.name; ruleset.append(option); });
-  ruleset.value = state.rulesetId || "";
-  ruleset.addEventListener("change", () => {
-    const next = ruleset.value || null;
-    if (next === currentRulesetId) return;
-    // Race/Class/Subclass/Background are all ruleset-specific —
-    // carrying them over to a different ruleset would leave the
-    // wizard showing choices that don't belong to anything
-    // selectable anymore, so they're cleared here rather than left
-    // stale and confusing.
-    if (hasDownstreamChoices && !confirmFn("Changing rulesets clears your Race, Class, Subclass, and Background choices below, since those are specific to a ruleset. Continue?")) {
-      ruleset.value = currentRulesetId || "";
-      return;
+  const { listRulesetsFn, includedIds = [], primaryId = null, updateIdsFn } = deps;
+  const sources = listRulesetsFn();
+  if (sources.length === 0) {
+    const note = document.createElement("p");
+    note.className = "leveling-tab__intro";
+    note.textContent = "No rulesets found.";
+    container.append(note);
+    return;
+  }
+  // One checkbox per source — checking more combines their options
+  // on later pages rather than swapping lists. Auto-select the only
+  // source so a single-source table never faces an empty checklist.
+  // Persist-only here (no re-render): this runs mid-render, and the
+  // list below paints the checked box in this same pass.
+  let ids = [...new Set((includedIds || []).filter(Boolean))];
+  if (ids.length === 0 && sources.length === 1) {
+    ids = [sources[0].id];
+    updateIdsFn(ids, { rerender: false });
+  }
+  const list = document.createElement("div");
+  list.className = "choice-row-list ruleset-list";
+  sources.forEach((entry) => {
+    const checked = ids.includes(entry.id);
+    const row = document.createElement("label");
+    row.className = "choice-row" + (checked ? " choice-row--selected" : "");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = checked;
+    input.setAttribute("aria-label", entry.name);
+    input.addEventListener("change", () => {
+      const next = input.checked
+        ? [...ids, entry.id]
+        : ids.filter((id) => id !== entry.id);
+      // Keep list order (first checked = primary) regardless of the
+      // order boxes were ticked in.
+      const ordered = sources.map((s) => s.id).filter((id) => next.includes(id));
+      updateIdsFn(ordered);
+    });
+    const body = document.createElement("div");
+    body.className = "choice-row__body";
+    const label = document.createElement("div");
+    label.className = "choice-row__label";
+    label.textContent = entry.name;
+    body.append(label);
+    if (entry.description) {
+      const desc = document.createElement("div");
+      desc.className = "choice-row__description";
+      desc.textContent = entry.description;
+      body.append(desc);
     }
-    updateFn("rulesetId", next, { clearDownstream: true });
-    const syncMessage = syncFn(next);
-    if (syncMessage) statusFn(syncMessage);
+    if (entry.id === primaryId && ids.length > 1) {
+      const badge = document.createElement("div");
+      badge.className = "choice-row__mechanics-meta";
+      badge.textContent = "Primary — used for level-up math";
+      body.append(badge);
+    }
+    row.append(input, body);
+    list.append(row);
   });
-  fieldFn(container, "Ruleset", ruleset);
+  container.append(list);
 }
 
 export function renderIdentityStepInto(container, state, deps) {
