@@ -311,12 +311,20 @@ import {
   appendFieldGroup,
 } from "./sheet/sheetWizardSteps.js";
 import { gridCanvasSize, renderMainGridInto } from "./sheet/sheetRender.js";
+import { LAYOUT_PRESETS, applyLayoutPresetTo } from "./sheet/sheetLayouts.js";
 import {
   ROLL_SIDES,
   rollCheck,
   openRollResultDialog,
   isRollRelevant,
 } from "./sheet/sheetRolls.js";
+import {
+  WEAPON_STATS,
+  ATTACK_CANTRIPS,
+  normalizeWeaponName,
+  suggestAttackLines,
+  innateAttacksFromGrants,
+} from "./sheet/sheetAttacks.js";
 import {
   selectionBoxFor,
   paintSelectionInto,
@@ -610,6 +618,32 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   }, 400));
   toolbar.append(nameInput);
 
+  // Display prefs (theme, light/dark, screen/print, print button)
+  // live one click away in a "Display" dropdown instead of taking up
+  // permanent toolbar room — the everyday row stays: mode, undo/redo,
+  // blocks toggle, name, card-fields toggle, status.
+  const displayDetails = document.createElement("details");
+  displayDetails.className = "toolbar-display";
+  const displaySummary = document.createElement("summary");
+  displaySummary.className = "btn";
+  displaySummary.textContent = "Display";
+  displaySummary.title = "Visual theme, light/dark, screen/print, printing, layout presets";
+  const displayPanel = document.createElement("div");
+  displayPanel.className = "toolbar-display__panel";
+  displayDetails.append(displaySummary, displayPanel);
+  toolbar.append(displayDetails);
+
+  function displayRow(labelText, ...controls) {
+    const row = document.createElement("div");
+    row.className = "toolbar-display__row";
+    const lab = document.createElement("span");
+    lab.className = "toolbar-display__label";
+    lab.textContent = labelText;
+    row.append(lab, ...controls);
+    displayPanel.append(row);
+    return row;
+  }
+
   // Rulesets are data packs. The generic level-up guide and subclass
   // dropdown use this saved selection instead of hardcoded class logic.
   // Single source of truth is character.rules (rulesetId = PRIMARY
@@ -662,7 +696,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     renderAll();
     if (syncMessage) statusEl.textContent = syncMessage;
   });
-  toolbar.append(rulesetSelect);
+  displayRow("Primary ruleset", rulesetSelect);
 
   // Re-run the ruleset auto-sync on demand — e.g. after importing more
   // bundles for a ruleset that's already selected, since selecting the
@@ -670,14 +704,17 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   const rulesetSyncBtn = document.createElement("button");
   rulesetSyncBtn.type = "button";
   rulesetSyncBtn.className = "btn formula-toolbar__btn";
-  rulesetSyncBtn.textContent = "↻";
-  rulesetSyncBtn.title = "Re-apply this ruleset's bundles (after importing more, for example)";
+  rulesetSyncBtn.textContent = "↻ Re-apply";
+  rulesetSyncBtn.title = "Re-apply included sources' bundles (after importing more, for example)";
   rulesetSyncBtn.addEventListener("click", () => {
     const syncMessage = syncRulesetBundles(includedRulesetIdsFor());
     renderAll();
     if (syncMessage) statusEl.textContent = syncMessage;
   });
-  toolbar.append(rulesetSyncBtn);
+
+  // Display prefs (theme, light/dark, screen/print, print button,
+  // layout presets, primary ruleset) live one click away in the
+  // "Display" dropdown above — the everyday row stays short.
 
   // Display prefs, changeable anytime: color theme + light/dark
   // variant + screen/print mode + a print button. Theme, variant, and
@@ -714,7 +751,8 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   applySheetTheme(effectiveThemeId(), effectiveThemeMode());
   themeSelect.addEventListener("change", applyAndPersistTheme);
   lightModeCheckbox.addEventListener("change", applyAndPersistTheme);
-  toolbar.append(themeSelect, lightModeLabel);
+  displayRow("Theme", themeSelect);
+  displayRow("Brightness", lightModeLabel);
 
   const modeSelect = document.createElement("select");
   modeSelect.className = "input-group__control";
@@ -737,7 +775,37 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     }
     saveWithStatus("sheetMode", character.sheetMode);
   });
-  toolbar.append(modeSelect);
+  displayRow("Use", modeSelect);
+
+  // One-click block arrangements (Single Column, Two Column, Combat
+  // First). Rearranges every tab's blocks in one undoable step after
+  // confirming — children, styles, and content are untouched.
+  const layoutSelect = document.createElement("select");
+  layoutSelect.className = "input-group__control";
+  layoutSelect.title = "Rearrange every tab's blocks with a preset layout (undoable)";
+  const layoutPlaceholder = document.createElement("option");
+  layoutPlaceholder.value = "";
+  layoutPlaceholder.textContent = "Apply a layout…";
+  layoutSelect.append(layoutPlaceholder);
+  LAYOUT_PRESETS.forEach((preset) => {
+    const option = document.createElement("option");
+    option.value = preset.id;
+    option.textContent = preset.name;
+    layoutSelect.append(option);
+  });
+  layoutSelect.addEventListener("change", () => {
+    const preset = LAYOUT_PRESETS.find((p) => p.id === layoutSelect.value);
+    layoutSelect.value = "";
+    if (!preset) return;
+    if (!window.confirm(`Rearrange every tab with the ${preset.name} layout? (Undo restores it.)`)) return;
+    commitMutation(() => {
+      (character.sheetTabs || []).forEach((tab) => {
+        if (Array.isArray(tab.layout)) applyLayoutPresetTo(tab.layout, preset.id);
+      });
+      mirrorFirstTabLayout();
+    });
+  });
+  displayRow("Layout", layoutSelect);
 
   const printBtn = document.createElement("button");
   printBtn.type = "button";
@@ -745,7 +813,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   printBtn.textContent = "Print";
   printBtn.title = "Print this character sheet (or save it as PDF)";
   printBtn.addEventListener("click", () => window.print());
-  toolbar.append(printBtn);
+  const displayActions = document.createElement("div");
+  displayActions.className = "modal-actions";
+  displayActions.append(rulesetSyncBtn, printBtn);
+  displayPanel.append(displayActions);
 
   // Everything else the character-selection page shows on a card
   // (Race, Class, Level, whatever) is NOT intrinsic — name is the
@@ -753,6 +824,21 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // sidebar, same drag payload it already uses for the grid) to
   // designate it as one of the fields shown on that character's card;
   // its value there always reflects whatever's currently on the sheet.
+  // Both drop zones live behind a "Card fields" toggle so the everyday
+  // toolbar stays short — most days nobody needs them open.
+  const cardZonesWrap = document.createElement("div");
+  cardZonesWrap.className = "toolbar-card-zones";
+  cardZonesWrap.hidden = true;
+  const cardZonesToggle = document.createElement("button");
+  cardZonesToggle.type = "button";
+  cardZonesToggle.className = "btn";
+  cardZonesToggle.textContent = "Card fields";
+  cardZonesToggle.title = "Choose which fields show on the character list (and which one counts as Level)";
+  cardZonesToggle.addEventListener("click", () => {
+    cardZonesWrap.hidden = !cardZonesWrap.hidden;
+    cardZonesToggle.classList.toggle("active", !cardZonesWrap.hidden);
+  });
+  toolbar.append(cardZonesToggle);
   if (!character.cardFieldIds) character.cardFieldIds = [];
   const cardFieldsWrap = document.createElement("div");
   cardFieldsWrap.className = "identity-card-fields";
@@ -795,7 +881,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     });
   }
   renderCardFieldChips();
-  toolbar.append(cardFieldsWrap);
+  cardZonesWrap.append(cardFieldsWrap);
 
   // A separate single-field designation (not part of cardFieldIds
   // above, which is about what shows on the character-list card) —
@@ -841,7 +927,8 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     levelFieldWrap.append(chip);
   }
   renderLevelFieldChip();
-  toolbar.append(levelFieldWrap);
+  cardZonesWrap.append(levelFieldWrap);
+  toolbar.append(cardZonesWrap);
 
   // Visible save-state feedback — saves happen silently in the
   // background otherwise, which means a failed save (e.g. a
@@ -2199,6 +2286,118 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     return changed;
   }
 
+  /** Opts the starter sheet's check/save/attack numbers into dice
+   *  rolling (ability/save/skill modifiers, initiative, spell
+   *  attacks) — everything else (Level, Prof. Bonus, HP, money, …)
+   *  stays quiet. Anyone can flip any field with its toolbar dice
+   *  button; this only seeds the sensible defaults once. */
+  function ensureRollableFlags() {
+    const ids = new Set([
+      ...ABILITY_IDS.map((id) => `${id}Mod`),
+      ...ABILITY_IDS.map((id) => `${id}SaveMod`),
+      ...SKILLS.map((skill) => `${skill.id}Mod`),
+      "initiative",
+      "spellAttackBonus",
+    ]);
+    let changed = false;
+    flattenFieldsAcrossTabs(character.sheetTabs).forEach((f) => {
+      if (f.fieldType === "text" && ids.has(f.id) && f.rollable !== true) {
+        f.rollable = true;
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
+  /** One-time upgrade for sheets created before the Spellcasting
+   *  "Ability" radio became a real Intelligence/Wisdom/Charisma
+   *  dropdown: converts the field in place (keeping the pick) and
+   *  drops the now-redundant "1=INT 2=WIS 3=CHA" legend caption. */
+  function ensureSpellAbilityDropdown() {
+    let changed = false;
+    const tabs = character.sheetTabs || [];
+    tabs.forEach((tab) => {
+      (tab.layout || []).forEach((block) => {
+        const kids = block.children || [];
+        const radio = kids.find((f) => f.id === "spellAbility" && f.fieldType === "radio");
+        if (radio) {
+          radio.fieldType = "dropdown";
+          radio.label = "Spell Ability";
+          radio.choices = [
+            { id: "1", text: "Intelligence" },
+            { id: "2", text: "Wisdom" },
+            { id: "3", text: "Charisma" },
+          ];
+          radio.selected = radio.selected != null ? String(radio.selected) : null;
+          radio.autoAlphabetize = false;
+          radio.w = 3;
+          delete radio.options;
+          delete radio.checked;
+          delete radio.optionsFormula;
+          radio.tooltip = "Which ability powers your spells. Sets your Save DC and spell attacks — pick once.";
+          changed = true;
+        }
+        const legendIndex = kids.findIndex((f) => f.fieldType === "label" && (f.value || "") === "1=INT 2=WIS 3=CHA");
+        if (legendIndex !== -1) {
+          kids.splice(legendIndex, 1);
+          changed = true;
+        }
+      });
+    });
+    return changed;
+  }
+
+  /** One-time upgrade for sheets created before the Attacks list got
+   *  a stable id: pin it by its starter label so the toolbar Suggest
+   *  button can find it. Skipped when anything references the old id
+   *  in a formula, same caution as ensureStableCombatIds. */
+  function ensureAttacksId() {
+    const all = flattenFieldsAcrossTabs(character.sheetTabs);
+    if (all.some((f) => f.id === "attacks")) return false;
+    const match = all.find((f) => f.fieldType === "textlist" && (f.label || "") === "Name — to hit — damage/type");
+    if (!match) return false;
+    const serialized = JSON.stringify(character.sheetTabs);
+    if (serialized.includes(`{{${match.id}}}`) || serialized.includes(`{{${match.id}::`)) return false;
+    match.id = "attacks";
+    return true;
+  }
+
+  /** One-time spelling migration for saves created while the Circle
+   *  of the Shepherd was misspelled "Shephard": renames the pick
+   *  wherever a name (not an id) is stored, before selection
+   *  normalization could clear it as invalid. */
+  function ensureShepherdSpelling() {
+    const OLD_NAME = "Circle of the Shephard";
+    const NEW_NAME = "Circle of the Shepherd";
+    let changed = false;
+    flattenFieldsAcrossTabs(character.sheetTabs).forEach((f) => {
+      (f.choices || []).forEach((c) => {
+        if (c.text === OLD_NAME) {
+          c.text = NEW_NAME;
+          changed = true;
+        }
+      });
+    });
+    const rules = character.rules || {};
+    if (rules.subclass === OLD_NAME) {
+      rules.subclass = NEW_NAME;
+      changed = true;
+    }
+    (rules.multiclass || []).forEach((entry) => {
+      if (entry.subclass === OLD_NAME) {
+        entry.subclass = NEW_NAME;
+        changed = true;
+      }
+    });
+    Object.values(character.levelUps || {}).forEach((entry) => {
+      if (entry && entry.subclass === OLD_NAME) {
+        entry.subclass = NEW_NAME;
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
   function renderPageGrid() {
     // A full render tears down and rebuilds every node in pageGrid, and
     // clearing it out momentarily (before the new content is appended
@@ -2210,6 +2409,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     // (see both exit points below). The sheet scrolls with the page
     // itself (no inner scroll box), so this is window scroll now.
     if (ensureStableCombatIds()) persist();
+    if (ensureRollableFlags()) persist();
+    if (ensureSpellAbilityDropdown()) persist();
+    if (ensureAttacksId()) persist();
+    if (ensureShepherdSpelling()) persist();
     const preservedScrollTop = window.scrollY || 0;
     pageGrid.innerHTML = "";
     pageGrid.classList.toggle("is-edit-mode", editMode);
@@ -2436,6 +2639,58 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     return renderSelectableRowsInto(container, names, opts);
   }
 
+  /** Every language the character already knows at Setup time:
+   *  Common (always) plus fixed grants and picks so far. Shown above
+   *  the pickers even when there's nothing left to choose, so the page
+   *  never reads empty. */
+  function knownLanguagesFor(state) {
+    const seen = new Set();
+    const known = [];
+    const take = (name, locked) => {
+      const clean = String(name || "").trim();
+      const key = clean.toLowerCase();
+      if (!clean || seen.has(key)) return;
+      seen.add(key);
+      known.push({ name: clean, locked });
+    };
+    take("Common", true);
+    const isLanguageField = (id) => /language/i.test(id || "")
+      || /language/i.test(resolveFieldById(id)?.label || "");
+    creationFixedBundles(state).forEach((bundle) => {
+      (bundle?.statModifiers || []).forEach((mod) => {
+        if (mod.op === "grantTag" && mod.value && isLanguageField(mod.targetFieldId)) take(mod.value, true);
+      });
+    });
+    const groups = creationChoiceGroupsFor(state).filter((g) => categorizeChoiceGroup(g) === "languages");
+    const store = character.rules.choices || {};
+    groups.forEach((group) => {
+      const all = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+      (store[group.key] || []).forEach((id) => {
+        const opt = all.find((o) => o.id === id);
+        if (opt?.name) take(opt.name, false);
+      });
+    });
+    return known;
+  }
+
+  function renderKnownLanguagesInto(container, state) {
+    const head = document.createElement("p");
+    head.className = "wizard__section-label";
+    head.textContent = "Known Languages";
+    container.append(head);
+    const chips = document.createElement("div");
+    chips.className = "taglist-chips";
+    knownLanguagesFor(state).forEach(({ name, locked }) => {
+      const chip = document.createElement("span");
+      chip.className = "taglist-chip" + (locked ? " taglist-chip--granted" : "");
+      if (locked && name !== "Common") chip.title = "Granted by your race, class, or background";
+      if (name === "Common") chip.title = "Known by everyone — free, never uses picks";
+      chip.textContent = name;
+      chips.append(chip);
+    });
+    container.append(chips);
+  }
+
   /** Human-readable label for a statModifier's targetFieldId — special-
    *  cased for the ability-score fields (strScore/dexScore/...) since
    *  "STR" reads far better in a preview than whatever a sheet's field
@@ -2582,10 +2837,16 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const bundles = creationFixedBundles(state);
     const names = [state.species, state.className, state.subclass, state.background];
     const labels = ["Race", "Class", "Subclass", "Background"];
+    const level = Number.isFinite(state.level) ? state.level : Infinity;
     return labels
       .map((label, i) => ({
         source: names[i] ? `${label}: ${names[i]}` : label,
-        features: ((bundles[i] || {}).featureGrants || []).map((g) => ({ name: g.name, description: g.description })),
+        // Only grants at or below the chosen level — anything later
+        // belongs to the Leveling tab, not here. Grants without a
+        // level gate always show.
+        features: (((bundles[i] || {}).featureGrants || [])
+          .filter((g) => !g.minLevel || g.minLevel <= level)
+          .map((g) => ({ name: g.name, description: g.description }))),
       }))
       .filter((section) => section.features.length);
   }
@@ -2621,7 +2882,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
    *  everywhere else reads fixed grants from) don't have anything
    *  `.selected` yet at that point in the flow. */
   function creationFixedBundles(state) {
-    return creationFixedBundlesFor(state, bundleFor);
+    return creationFixedBundlesFor(state, (category, name) => bundleFor(category, name, includedRulesetIds(state)));
   }
 
   /** Core of "what skill proficiencies are already accounted for,
@@ -2752,6 +3013,13 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const groups = equipmentProficiencyGroups();
     const siblingGroups = () => [...creationChoiceGroupsFor(state), ...equipmentProficiencyGroups()];
     const who = [state.species, state.className, state.background].filter(Boolean).join(" ") || "your character";
+    // All pickable groups render in ONE choice-groups call: that
+    // renderer clears its container (and re-renders into it on every
+    // pick), so per-group calls would wipe each other and the notes.
+    const pickWrap = document.createElement("div");
+    pickWrap.className = "wizard__subsection";
+    container.append(pickWrap);
+    const pickableGroups = [];
     groups.forEach((group) => {
       const owned = ownedSkillIdsFrom(creationFixedBundles(state), siblingGroups(), group.key);
       const pickable = group.options.filter((o) => !optionIsOwned(o, owned));
@@ -2767,8 +3035,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         container.append(note);
         return;
       }
-      renderCreationChoiceGroups(container, [group], saveRules, state);
+      pickableGroups.push(group);
     });
+    if (pickableGroups.length) renderCreationChoiceGroups(pickWrap, pickableGroups, saveRules, state);
+    else pickWrap.remove();
   }
 
   /** Starting Equipment tab: class package variants (or the gold)
@@ -2785,7 +3055,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     } else {
       const current = character.rules.startingEquipment?.classOptionId || null;
       const allOptions = [
-        ...entry.options.map((opt) => ({ id: opt.id, label: opt.label, detail: opt.items.join(", ") })),
+        ...entry.options.map((opt) => ({ id: opt.id, label: opt.label, detail: opt.items.join(" · ") })),
         { id: goldOptionIdFor(state.className), label: `Take ${entry.gold.gp} gp instead`, detail: `Fixed average of your starting wealth roll (${entry.gold.formula}). Use this to buy gear yourself.` },
       ];
       allOptions.forEach((opt) => {
@@ -3007,6 +3277,53 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     // immediately instead of looking unset until a reload.
     nameInput.value = character.name || "";
     refreshRulesetSelect();
+    maybeShowSetupCoach();
+  }
+
+  /** One-time orientation shown right after Finish Setup (per browser,
+   *  via localStorage) — the three things a first-timer most needs:
+   *  Customize Sheet, the Leveling tab, and hover-to-roll. */
+  function maybeShowSetupCoach() {
+    const key = "grimoire.setupCoachSeen.v1";
+    try {
+      if (window.localStorage.getItem(key) === "1") return;
+    } catch {
+      return; // storage blocked — never nag in that case
+    }
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    const box = document.createElement("div");
+    box.className = "modal-box coach-note";
+    box.addEventListener("click", (e) => e.stopPropagation());
+    const heading = document.createElement("h3");
+    heading.textContent = "Character ready — three things to know";
+    const list = document.createElement("ul");
+    [
+      "Customize Sheet (toolbar) rearranges anything — drag, resize, restyle. This layout is just the starter.",
+      "The Leveling tab walks you through every level-up when the time comes.",
+      "Hover any number field to roll it, with Advantage/Disadvantage. Touch screens show the dice always.",
+    ].forEach((text) => {
+      const li = document.createElement("li");
+      li.textContent = text;
+      list.append(li);
+    });
+    const row = document.createElement("div");
+    row.className = "modal-actions";
+    const done = document.createElement("button");
+    done.type = "button";
+    done.className = "btn btn--primary";
+    done.textContent = "Got it";
+    const close = () => {
+      try { window.localStorage.setItem(key, "1"); } catch { /* private mode — show again next time */ }
+      overlay.remove();
+    };
+    done.addEventListener("click", close);
+    overlay.addEventListener("click", close);
+    row.append(done);
+    box.append(heading, list, row);
+    overlay.append(box);
+    document.body.append(overlay);
+    done.focus();
   }
 
   function renderRulesTab() {
@@ -3246,27 +3563,6 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         },
       },
       {
-        id: "preferences",
-        title: "Preferences",
-        description: "How hit points are set when you level up: fixed average (predictable), roll here, or roll at the table. Any single level can still be edited by hand.",
-        render(container) {
-          renderPreferencesStepInto(container, state, {
-            hpOptions: HP_METHOD_OPTIONS,
-            currentMethod: character.rules.hpMethod || "average",
-            updateFn: (key, value) => update(key, value),
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, opts),
-          });
-        },
-      },
-      {
-        id: "innate",
-        title: "Innate Abilities",
-        description: "What your race, class, subclass, and background grant automatically — no picks here. These already apply on your sheet; skim them so you know what you can do.",
-        render(container) {
-          renderInnateAbilitiesStepInto(container, innateAbilitySections(state));
-        },
-      },
-      {
         id: "spells",
         title: "Spells & Abilities",
         description: "Make any spell or ability picks your race/class offers, then choose starting spells if your class casts. Limits match your class and level.",
@@ -3291,7 +3587,17 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         isApplicable: () => creationGroupsByCategory.languages.length > 0,
         unavailableMessage: wizardUnavailableMessage,
         isComplete: () => creationGroupsByCategory.languages.every((g) => creationGroupSatisfied(g, state)),
-        render(container) { renderChoicePageStepInto(container, creationGroupsByCategory.languages, saveRules, (c, groups, save) => renderCreationChoiceGroups(c, groups, save, state)); },
+        render(container) {
+          renderKnownLanguagesInto(container, state);
+          const pickWrap = document.createElement("div");
+          pickWrap.className = "wizard__subsection";
+          container.append(pickWrap);
+          // Same renderer as every other choice page, but picks rebuild
+          // the page so the summary above stays truthful.
+          renderChoiceGroups(pickWrap, creationGroupsByCategory.languages, character.rules.choices, "creation-choice",
+            () => { saveRules(); renderPageGrid(); },
+            (excludeKey) => ownedSkillIdsFrom(creationFixedBundles(state), creationChoiceGroupsFor(state), excludeKey));
+        },
       },
       {
         id: "equipment",
@@ -3314,24 +3620,56 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       },
       {
         id: "proficiencies",
-        title: "Ability Proficiencies",
-        description: "Choose skill, tool, and save proficiencies from your race, class, and background. Proficiency adds your bonus to those rolls.",
-        isApplicable: () => creationGroupsByCategory.proficiencies.length > 0,
-        unavailableMessage: wizardUnavailableMessage,
+        title: "Proficiencies",
+        description: "Choose skill, tool, and save proficiencies from your race, class, and background — then any extra weapon, armor, and tool training. Already-granted ones show locked.",
         isComplete: () => creationGroupsByCategory.proficiencies.every((g) => creationGroupSatisfied(g, state)),
-        render(container) { renderChoicePageStepInto(container, creationGroupsByCategory.proficiencies, saveRules, (c, groups, save) => renderCreationChoiceGroups(c, groups, save, state)); },
-      },
-      {
-        id: "equipprof",
-        title: "Equipment Proficiencies",
-        description: "Extra weapon, armor, and tool training beyond what you already get. Granted ones show locked — add downtime training here.",
-        render(container) { renderEquipmentProficienciesStepInto(container, state, saveRules); },
+        render(container) {
+          if (creationGroupsByCategory.proficiencies.length > 0) {
+            const skillHead = document.createElement("p");
+            skillHead.className = "wizard__section-label";
+            skillHead.textContent = "Skills, Tools & Saving Throws";
+            container.append(skillHead);
+            const skillWrap = document.createElement("div");
+            skillWrap.className = "wizard__subsection";
+            container.append(skillWrap);
+            renderChoicePageStepInto(skillWrap, creationGroupsByCategory.proficiencies, saveRules, (c, groups, save) => renderCreationChoiceGroups(c, groups, save, state));
+          }
+          const equipHead = document.createElement("p");
+          equipHead.className = "wizard__section-label";
+          equipHead.textContent = "Weapons, Armor & Tools";
+          container.append(equipHead);
+          const equipWrap = document.createElement("div");
+          equipWrap.className = "wizard__subsection";
+          container.append(equipWrap);
+          renderEquipmentProficienciesStepInto(equipWrap, state, saveRules);
+        },
       },
       {
         id: "review",
         title: "Review",
-        description: "Check everything, then Finish Setup to write it to your sheet and unlock the Leveling tab for next time.",
+        description: "Set how hit points work on level-up, skim what you get automatically, and check every choice. Then Finish Setup to write it to your sheet.",
         render(container) {
+          const hpHead = document.createElement("p");
+          hpHead.className = "wizard__section-label";
+          hpHead.textContent = "Hit Points on Level-Up";
+          container.append(hpHead);
+          const hpWrap = document.createElement("div");
+          hpWrap.className = "wizard__subsection";
+          container.append(hpWrap);
+          renderPreferencesStepInto(hpWrap, state, {
+            hpOptions: HP_METHOD_OPTIONS,
+            currentMethod: character.rules.hpMethod || "average",
+            updateFn: (key, value) => update(key, value),
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, opts),
+          });
+          const innateHead = document.createElement("p");
+          innateHead.className = "wizard__section-label";
+          innateHead.textContent = "What You Get Automatically";
+          container.append(innateHead);
+          const innateWrap = document.createElement("div");
+          innateWrap.className = "wizard__subsection";
+          container.append(innateWrap);
+          renderInnateAbilitiesStepInto(innateWrap, innateAbilitySections(state));
           const allGroups = [...creationChoiceGroupsFor(state), ...equipmentProficiencyGroups()];
           const spellsField = findStarterField("spellsKnown", "Spells Known");
           const se = character.rules.startingEquipment;
@@ -3353,7 +3691,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             hpMethod: character.rules.hpMethod,
             choiceLines: reviewChoiceLinesFor(allGroups, character.rules.choices || {}),
             spellsPicked: [...(spellsField?.items || [])],
-            equipmentLine: equipBits.length ? `Starting equipment: ${equipBits.join(" · ")}` : null,
+            equipmentLine: equipBits.length ? `Starting Equipment: ${equipBits.join(" · ")}` : null,
             featNames: (character.rules.feats || []).map((f) => f.name).filter(Boolean),
             syncFn: () => syncRulesToSheet(resolved),
           });
@@ -3864,8 +4202,23 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
   function renderLevelingTab() {
     const currentLevel = currentCharacterLevel();
+    const guideEl = renderRulesetLevelGuide();
+    // The guided panel only exists when the sheet names a class (and
+    // level) the rules know — otherwise the tab reads as mysteriously
+    // empty, so say what's missing and what still works by hand.
+    let emptyGuideNote = null;
+    if (!guideEl) {
+      if (!selectedChoiceName("class", "Class")) {
+        emptyGuideNote = "Pick a Class on your sheet (or finish Character Setup) and a step-by-step level-up guide appears here. The per-level rows below always work by hand.";
+      } else if (currentLevel == null) {
+        emptyGuideNote = "Set your Level on the sheet and the guide appears here. Until then, the per-level rows below work by hand.";
+      } else {
+        emptyGuideNote = "No level-up data on file for this class and level — track it in the rows below by hand.";
+      }
+    }
     renderLevelingTabInto(pageGrid, {
-      guideEl: renderRulesetLevelGuide(),
+      guideEl,
+      emptyGuideNote,
       resourcesEl: renderResourceTrackers(),
       currentLevel,
       expandedSet: expandedLevelUpRows,
@@ -3994,7 +4347,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // --- Block rendering ----------------------------------------------------
 
   function renderBlockNode(block, cw) {
-    return renderBlockNodeInto(block, cw, {
+    const el = renderBlockNodeInto(block, cw, {
       viewOf: (b) => effectiveBlock(b),
       isEdit: editMode,
       gapPx: GAP_PX,
@@ -4015,6 +4368,8 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       renderAllFn: () => renderAll(),
       persistFn: () => persist(),
     });
+    el.classList.toggle("is-hidden-field", !!block.hidden);
+    return el;
   }
 
   function buildBlockToolbar(block, wrapperEl) {
@@ -4063,6 +4418,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         : 0;
       if (!(live > 0)) el.style.display = "none";
     }
+    el.classList.toggle("is-hidden-field", !!field.hidden);
     return el;
   }
 
@@ -4071,7 +4427,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
    *  for the label-position cycle button's FLIP animation. Returns
    *  the label element so the caller can animate it. */
   function renderFieldInner(fieldEl, field, parentBlock) {
-    return renderFieldInnerInto(fieldEl, field, parentBlock, {
+    const labelEl = renderFieldInnerInto(fieldEl, field, parentBlock, {
       captionlessTypes: CAPTIONLESS_FIELD_TYPES,
       buildValueFn: (f, onChange) => buildFieldValue(f, onChange),
       commitFn: (fn, opts) => commitMutation(fn, opts),
@@ -4083,6 +4439,14 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       toastFn: (msg, opts) => showToast(msg, opts),
       moneyFn: (f) => maybeAutoRegisterMoneyField(f),
     });
+    // The roll trigger escapes .field-inner (which clips overflow as
+    // its backstop) and hangs off the grid node itself — otherwise it
+    // gets cut off inside cramped fields. Stale copies from a previous
+    // inner build (label cycling rebuilds in place) go first.
+    fieldEl.querySelectorAll(":scope > .field-roll").forEach((t) => t.remove());
+    const trigger = fieldEl.querySelector(":scope > .field-inner > .field-roll-wrap > .field-roll");
+    if (trigger) fieldEl.append(trigger);
+    return labelEl;
   }
 
   function updateFieldLabelVisibility(field, labelEl) {
@@ -4153,6 +4517,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       fieldType: field.fieldType,
       value: field.value,
       formulaValue: formulaValues[field.id],
+      rollable: field.rollable,
       parseFn: (html) => floatFromRichText(html || ""),
     });
     if (!relevant) return valueEl;
@@ -4394,7 +4759,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   }
 
   function buildFieldToolbar(field, parentBlock, wrapperEl) {
-    return buildFieldToolbarInto(field, parentBlock, wrapperEl, {
+    const bar = buildFieldToolbarInto(field, parentBlock, wrapperEl, {
       styleBtnFn: (f, el) => buildStyleButton(f, el),
       borderBtnFn: (f, el) => buildBorderToggleButton(f, el),
       captionlessTypes: CAPTIONLESS_FIELD_TYPES,
@@ -4412,6 +4777,58 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       syncWidthFn: (f) => syncOptionWidth(f),
       hoverFn: (trigger, bar) => wireHoverToolbar(trigger, bar),
     });
+    // The Attacks list fills itself in from weapons, attack cantrips,
+    // and racial natural weapons — always as editable text, never
+    // auto-managed, so anything it suggests can be fixed by hand.
+    if (field.fieldType === "textlist" && field.id === "attacks") {
+      const suggestBtn = document.createElement("button");
+      suggestBtn.type = "button";
+      suggestBtn.title = "Suggest attack lines from your weapons, attack cantrips, and natural weapons (skips what's already listed)";
+      suggestBtn.textContent = "⚔";
+      suggestBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        suggestAttacksForField(field);
+      });
+      bar.append(suggestBtn);
+    }
+    return bar;
+  }
+
+  function suggestAttacksForField(field) {
+    const num = (id) => (Number.isFinite(formulaValues[id]) ? formulaValues[id] : 0);
+    const se = character.rules.startingEquipment;
+    let items = [];
+    try {
+      items = resolveStartingEquipmentPick(
+        character.rules.className, character.rules.background, se?.classOptionId
+      ).items || [];
+    } catch {
+      items = [];
+    }
+    const spellsField = findStarterField("spellsKnown", "Spells Known");
+    const raceField = findStarterField("race", "Race");
+    const raceChoice = raceField?.choices?.find((c) => c.id === raceField.selected);
+    const lines = suggestAttackLines({
+      items,
+      cantripsKnown: spellsField?.items || [],
+      innate: innateAttacksFromGrants(raceChoice?.bundle?.featureGrants),
+      existing: field.items || [],
+      prof: num("profBonus") || 2,
+      strMod: num("strMod"),
+      dexMod: num("dexMod"),
+      spellMod: num("spellAbilityMod"),
+    });
+    if (!lines.length) {
+      showToast("Nothing new to suggest — pick starting equipment and attack cantrips first, or everything is already listed.");
+      return;
+    }
+    commitMutation(() => {
+      if (!Array.isArray(field.items)) field.items = [];
+      lines.forEach((line) => {
+        if (!field.items.includes(line)) field.items.push(line);
+      });
+    });
+    showToast(`Added ${lines.length} attack${lines.length === 1 ? "" : "s"} — edit any line by hand.`);
   }
 
   function buildEquationHint(field) {

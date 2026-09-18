@@ -142,8 +142,32 @@ export function applyStyleChangeInto(wrapperEl, node, { cssProp, cssValue, style
 
 import { THEME_BORDER_SHAPES } from "../../data/themes.js";
 
+/** Eye toggle shared by block and field toolbars: hides a calc-only
+ *  node in play mode (always visible while editing, and in print).
+ *  Takes { commitFn } — re-render comes from the commit itself. */
+export function hideToggleBtnInto(node, { commitFn }) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.title = node.hidden
+    ? "Hidden in play mode (click to show)"
+    : "Hide in play mode (stays visible while editing and in print)";
+  btn.textContent = "👁";
+  if (node.hidden) btn.className = "active";
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    commitFn(() => {
+      node.hidden = !node.hidden;
+    });
+    btn.classList.toggle("active", !!node.hidden);
+    btn.title = node.hidden
+      ? "Hidden in play mode (click to show)"
+      : "Hide in play mode (stays visible while editing and in print)";
+  });
+  return btn;
+}
+
 export const FONT_OPTIONS = [
-  ["", "Theme default"],
+  ["", "Theme Default"],
   ["var(--font-body)", "Body"],
   ["var(--font-display)", "Display"],
   ["Georgia, serif", "Georgia"],

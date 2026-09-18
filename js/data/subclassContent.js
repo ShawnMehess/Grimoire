@@ -2989,8 +2989,8 @@ export const SUBCLASS_SUPPLEMENT = [
     }
   },
   {
-    "key": "circleoftheshephard",
-    "name": "Circle of the Shephard",
+    "key": "circleoftheshepherd",
+    "name": "Circle of the Shepherd",
     "className": "Druid",
     "classIdentifier": "druid",
     "choiceId": "subclass-circle-of-the-shephard",
@@ -3001,31 +3001,31 @@ export const SUBCLASS_SUPPLEMENT = [
         {
           "id": "circle-of-the-shephard-2-speech-of-the-woods",
           "name": "Speech of the Woods",
-          "description": "Circle of the Shephard — 2nd-level feature.",
+          "description": "Circle of the Shepherd — 2nd-level feature.",
           "minLevel": 2
         },
         {
           "id": "circle-of-the-shephard-2-spirit-totem",
           "name": "Spirit Totem",
-          "description": "Circle of the Shephard — 2nd-level feature.",
+          "description": "Circle of the Shepherd — 2nd-level feature.",
           "minLevel": 2
         },
         {
           "id": "circle-of-the-shephard-6-mighty-summoner",
           "name": "Mighty Summoner",
-          "description": "Circle of the Shephard — 6th-level feature.",
+          "description": "Circle of the Shepherd — 6th-level feature.",
           "minLevel": 6
         },
         {
           "id": "circle-of-the-shephard-10-guardian-spirit",
           "name": "Guardian Spirit",
-          "description": "Circle of the Shephard — 10th-level feature.",
+          "description": "Circle of the Shepherd — 10th-level feature.",
           "minLevel": 10
         },
         {
           "id": "circle-of-the-shephard-14-faithful-summons",
           "name": "Faithful Summons",
-          "description": "Circle of the Shephard — 14th-level feature.",
+          "description": "Circle of the Shepherd — 14th-level feature.",
           "minLevel": 14
         }
       ],
@@ -7311,7 +7311,7 @@ export const SUBCLASS_CHOICE_NAMES = [
   "Circle of Stars",
   "Circle of the Land",
   "Circle of the Moon",
-  "Circle of the Shephard",
+  "Circle of the Shepherd",
   "Circle of Wildfire",
   "Arcane Archer",
   "Banneret",

@@ -51,6 +51,21 @@ export const TOOL_PROFICIENCIES = [
   "Bagpipes", "Drum", "Dulcimer", "Flute", "Horn", "Lute", "Lyre", "Pan Flute", "Shawm", "Viol",
 ];
 
+/** Grouped view of the tool vocabulary for the sheet's taglist
+ *  dropdown (optgroups): artisan's tools, instruments, gaming sets,
+ *  and specialty kits. Same entries as TOOL_PROFICIENCIES, only
+ *  organized — the wizard's flat pickers keep using the flat list. */
+const TOOL_INSTRUMENTS = new Set(["Bagpipes", "Drum", "Dulcimer", "Flute", "Horn", "Lute", "Lyre", "Pan Flute", "Shawm", "Viol"]);
+const TOOL_GAMING_SETS = new Set(["Dice Set", "Dragonchess Set", "Playing Card Set", "Three-Dragon Ante Set"]);
+const TOOL_KITS = new Set(["Disguise Kit", "Forgery Kit", "Herbalism Kit", "Navigator's Tools", "Poisoner's Kit", "Thieves' Tools"]);
+
+export const TOOL_PROFICIENCY_GROUPS = [
+  { label: "Artisan's Tools", options: TOOL_PROFICIENCIES.filter((t) => !TOOL_INSTRUMENTS.has(t) && !TOOL_GAMING_SETS.has(t) && !TOOL_KITS.has(t)) },
+  { label: "Musical Instruments", options: TOOL_PROFICIENCIES.filter((t) => TOOL_INSTRUMENTS.has(t)) },
+  { label: "Gaming Sets", options: TOOL_PROFICIENCIES.filter((t) => TOOL_GAMING_SETS.has(t)) },
+  { label: "Kits & Specialty Tools", options: TOOL_PROFICIENCIES.filter((t) => TOOL_KITS.has(t)) },
+];
+
 // Starter choices for the Race/Class/Background/Subclass dropdowns
 // below. These come straight from DEFAULT_CONTENT (compiled from
 // Shawn's own classes/races/backgrounds JSON — see RESCUE-NOTES.md
@@ -152,6 +167,9 @@ function createNode(overrides) {
   return {
     id: newId(),
     kind: "block",
+    // Hidden in play mode (calc-only fields for online play) — always
+    // visible while editing (ghosted) and in print.
+    hidden: false,
     style: defaultStyle(),
     x: 0, y: 0, w: 3, h: 2,
     ...overrides,
@@ -179,6 +197,12 @@ export function createField({ fieldType = "text", label = "Stat", x = 0, y = 0, 
   });
   if (fieldType === "text") {
     field.value = "";
+    // Whether the hover dice roller appears on this field. Off by
+    // default — rolling only makes sense for checks, saves, and
+    // attacks, so the starter sheet opts its modifier fields in
+    // (see ensureRollableFlags in customSheet.js) and anyone can flip
+    // any field with the toolbar dice button.
+    field.rollable = false;
   } else if (fieldType === "label") {
     field.value = "Label text";
   } else if (fieldType === "textarea") {
@@ -306,9 +330,10 @@ function toggleField(opts, id) {
  *  and the "grantTag" statModifier op for how a Race/Class/
  *  Background's own fixed or chosen proficiencies show up here too,
  *  locked, without living in `items` at all. */
-function tagListField(opts, tagOptions, id) {
+function tagListField(opts, tagOptions, id, tagGroups = null) {
   const f = createField({ ...opts, fieldType: "taglist" });
   f.tagOptions = tagOptions;
+  if (tagGroups) f.tagGroups = tagGroups;
   f.items = [];
   if (id) f.id = id;
   return f;
@@ -395,21 +420,23 @@ export function createStarterLayout() {
     ];
   });
 
-  // 3 options = INT / WIS / CHA, in that order — the only three
-  // abilities D&D ever uses for spellcasting, so a plain 1/2/3 radio
-  // (rather than all 6 abilities) keeps spellAbilityMod's formula a
-  // 3-way, not 6-way, branch below.
+  // INT / WIS / CHA are the only three abilities D&D ever uses for
+  // spellcasting, so a 3-choice dropdown (rather than all 6
+  // abilities) keeps spellAbilityMod's formula a 3-way, not 6-way,
+  // branch below. Choice ids stay "1"/"2"/"3", which is exactly what
+  // that formula compares against — and what formulas read from any
+  // numeric-id dropdown.
   const spellcasting = createBlock({ name: "Spellcasting", x: 10, y: 0, w: 6, h: 4 });
   spellcasting.children = [
-    // The old inline label "Ability (1=INT 2=WIS 3=CHA)" was 27
-    // characters trying to fit in this radio's own single cell (a
-    // radio's w/h tracks its option count only — see syncOptionWidth
-    // — not its label). Split it: a short "Ability" label on the
-    // radio itself, and the 1/2/3 legend as its own caption with
-    // proper width, in the two cells this row already had going
-    // unused (x4-6, in the original layout).
-    field({ fieldType: "radio", label: "Ability", x: 0, y: 0, w: 1, h: 1, tooltip: "Which ability powers your spells: 1 = Intelligence, 2 = Wisdom, 3 = Charisma. Set it once." }, "spellAbility"),
-    nameLabel("1=INT 2=WIS 3=CHA", 1, 0, 2),
+    field({
+      fieldType: "dropdown", label: "Spell Ability", x: 0, y: 0, w: 3, h: 1,
+      choices: [
+        { id: "1", text: "Intelligence" },
+        { id: "2", text: "Wisdom" },
+        { id: "3", text: "Charisma" },
+      ],
+      tooltip: "Which ability powers your spells. Sets your Save DC and spell attacks — pick once.",
+    }, "spellAbility"),
     field({
       fieldType: "text", label: "Mod", x: 3, y: 0, w: 1, h: 1,
       formula: {
@@ -512,7 +539,7 @@ export function createStarterLayout() {
 
   const attacks = createBlock({ name: "Attacks", x: 10, y: 4, w: 6, h: 5 });
   attacks.children = [
-    field({ fieldType: "textlist", label: "Name — to hit — damage/type", x: 0, y: 0, w: 6, h: 4 }),
+    field({ fieldType: "textlist", label: "Name — to hit — damage/type", x: 0, y: 0, w: 6, h: 4 }, "attacks"),
   ];
 
   // Middle column (x4 w6): Abilities, Inventory, Details, Personality — ends y28.
@@ -544,7 +571,7 @@ export function createStarterLayout() {
     field({ fieldType: "text", label: "Alignment", x: 4, y: 0, w: 2, h: 1 }),
     tagListField({ label: "Armor Prof.", x: 0, y: 1, w: 2, h: 2 }, ARMOR_PROFICIENCIES, "armorProf"),
     tagListField({ label: "Weapon Prof.", x: 2, y: 1, w: 2, h: 2 }, WEAPON_PROFICIENCIES, "weaponProf"),
-    tagListField({ label: "Tool Prof.", x: 4, y: 1, w: 2, h: 2 }, TOOL_PROFICIENCIES, "toolProf"),
+    tagListField({ label: "Tool Prof.", x: 4, y: 1, w: 2, h: 2 }, TOOL_PROFICIENCIES, "toolProf", TOOL_PROFICIENCY_GROUPS),
     tagListField({ label: "Languages", x: 0, y: 3, w: 6, h: 2 }, LANGUAGES, "languages"),
     tagListField({ label: "Vehicle Prof.", x: 0, y: 5, w: 6, h: 2 }, VEHICLE_PROFICIENCIES, "vehicleProf"),
   ];

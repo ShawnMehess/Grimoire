@@ -42,7 +42,8 @@
   position: absolute;
   top: -2px;
   left: calc(100% + var(--space-2));
-  width: 220px;
+  width: min(220px, calc(100vw - 48px));
+  box-sizing: border-box;
   background: var(--color-bg-inset);
   border: var(--border-width) solid var(--color-border-strong);
   border-radius: var(--radius-md);
@@ -275,6 +276,20 @@
   flex-direction: column;
   gap: var(--space-3);
 }
+
+/* First-run orientation after Finish Setup. Base CSS strips list
+   bullets globally, so they come back explicitly here. */
+.coach-note ul {
+  margin: 0 0 var(--space-2);
+  padding-left: 1.25em;
+  list-style: disc;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.coach-note h3 { margin: 0; }
 
 /* --- d20 roll result dialog --- */
 .modal-box.roll-dialog {

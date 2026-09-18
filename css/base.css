@@ -77,6 +77,80 @@ button, input, select, textarea {
 
 ul, ol { margin: 0; padding: 0; list-style: none; }
 
+/* Themed checkboxes + radios (replaces jarring native controls
+   everywhere: sheet option grids, wizard pickers, ruleset list,
+   toolbar toggles). Drawn from theme tokens so every theme — and
+   light/dark — restyles them for free. Native controls come back in
+   print, where custom paint can't be relied on to transfer to paper. */
+input[type="checkbox"],
+input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  display: inline-grid;
+  place-content: center;
+  vertical-align: middle;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border-strong);
+  box-shadow: var(--shadow-inset);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
+}
+input[type="checkbox"] {
+  border-radius: var(--radius-sm);
+}
+input[type="radio"] {
+  border-radius: 50%;
+}
+input[type="checkbox"]:hover,
+input[type="radio"]:hover {
+  border-color: var(--color-accent);
+}
+input[type="checkbox"]:checked {
+  background: var(--gradient-accent);
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-glow-accent);
+}
+input[type="checkbox"]:checked::after {
+  content: "✓";
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+input[type="radio"]:checked {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-glow-accent);
+}
+input[type="radio"]:checked::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gradient-accent);
+}
+input[type="checkbox"]:disabled,
+input[type="radio"]:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+@media print {
+  input[type="checkbox"],
+  input[type="radio"] {
+    appearance: auto;
+    -webkit-appearance: auto;
+  }
+  input[type="checkbox"]::after,
+  input[type="radio"]::after {
+    content: none;
+  }
+}
+
 /* Visible keyboard focus everywhere — not optional */
 :focus-visible {
   outline: 2px solid var(--color-accent);

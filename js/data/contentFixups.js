@@ -431,3 +431,13 @@ export function stripSecondaryClassBundle(bundle) {
 export const SUBCLASS_BUNDLE_MAP = new Map(
   SUBCLASS_SUPPLEMENT.map((s) => [s.key, patchedSubclassBundle(s.name, s.bundle)])
 );
+
+// Alias for the historical "Shephard" misspelling: older saves (and
+// older user libraries) may still reference it, and they should keep
+// resolving to the same bundle.
+{
+  const shepherd = SUBCLASS_BUNDLE_MAP.get("circleoftheshepherd");
+  if (shepherd && !SUBCLASS_BUNDLE_MAP.has("circleoftheshephard")) {
+    SUBCLASS_BUNDLE_MAP.set("circleoftheshephard", shepherd);
+  }
+}

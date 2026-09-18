@@ -34,7 +34,7 @@ const XANATHAR_CLASSES = [
   { name: "Barbarian", subclassLevel: 3, caster: null, subclasses: ["Path of the Ancestral Guardian", "Path of the Storm Herald", "Path of the Zealot Herald"] },
   { name: "Bard", subclassLevel: 3, caster: "full", subclasses: ["College of Glamour", "College of Swords", "College of Whispers"] },
   { name: "Cleric", subclassLevel: 1, caster: "full", subclasses: ["Forge Domain", "Grave Domain"] },
-  { name: "Druid", subclassLevel: 2, caster: "full", subclasses: ["Circle of Dreams", "Circle of the Shephard"] },
+  { name: "Druid", subclassLevel: 2, caster: "full", subclasses: ["Circle of Dreams", "Circle of the Shepherd"] },
   { name: "Fighter", subclassLevel: 3, caster: null, subclasses: ["Arcane Archer", "Cavalier", "Samurai"] },
   { name: "Monk", subclassLevel: 3, caster: null, subclasses: ["Way of the Drunken Master", "Way of the Kensei", "Way of the Sun Soul"] },
   { name: "Paladin", subclassLevel: 3, caster: "half", subclasses: ["Oath of Conquest", "Oath of Redemption"] },

@@ -4,6 +4,8 @@
 // customSheet.js owns DOM + commitMutation; it delegates array/set math
 // here so the rules live in one testable place with no DOM dependency.
 
+import { hideToggleBtnInto } from "./sheetStyles.js";
+
 // --- Field node DOM ---------------------------------------------------------
 //
 // Migration of renderFieldNode from customSheet.js:
@@ -137,16 +139,28 @@ export function addListItem(items, text = "") {
   return items;
 }
 
-export function tagState({ items = [], granted = new Set(), tagOptions = [] } = {}) {
+export function tagState({ items = [], granted = new Set(), tagOptions = [], tagGroups = null } = {}) {
   const grantedSet = granted instanceof Set ? granted : new Set(granted || []);
   const known = new Set([...items, ...grantedSet]);
   const grantedChips = [...grantedSet].sort();
   const manualChips = items.slice().sort().filter((tag) => !grantedSet.has(tag));
   const available = (tagOptions || []).filter((opt) => !known.has(opt));
+  // Grouped dropdown (tool proficiencies): same entries organized
+  // under optgroup headings, each filtered against what's known.
+  let availableGroups = null;
+  if (Array.isArray(tagGroups) && tagGroups.length) {
+    availableGroups = tagGroups
+      .map((group) => ({
+        label: group.label,
+        options: (group.options || []).filter((opt) => !known.has(opt)),
+      }))
+      .filter((group) => group.options.length > 0);
+  }
   return {
     grantedChips,
     manualChips,
     available,
+    availableGroups,
     placeholder: available.length ? "Add…" : "Nothing left to add",
     disabled: available.length === 0,
   };
@@ -1072,6 +1086,32 @@ export function buildFieldToolbarInto(field, parentBlock, wrapperEl, deps) {
     bar.append(styleBtnFn(field, wrapperEl));
   }
   bar.append(borderBtnFn(field, wrapperEl));
+  bar.append(hideToggleBtnInto(field, { commitFn }));
+
+  // Dice roller on/off for number fields — rolling only makes sense
+  // for checks, saves, and attacks, so a Level or Prof. Bonus stays
+  // quiet while a sword bonus or save modifier can roll.
+  if (field.fieldType === "text") {
+    const rollBtn = document.createElement("button");
+    rollBtn.type = "button";
+    rollBtn.title = field.rollable
+      ? "Dice rolling is on for this field (click to turn off)"
+      : "Dice rolling is off for this field (click to turn on)";
+    rollBtn.textContent = "🎲";
+    if (field.rollable) rollBtn.className = "active";
+    rollBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      commitFn(() => {
+        field.rollable = !field.rollable;
+      });
+      rollBtn.classList.toggle("active", !!field.rollable);
+      rollBtn.title = field.rollable
+        ? "Dice rolling is on for this field (click to turn off)"
+        : "Dice rolling is off for this field (click to turn on)";
+      gridFn();
+    });
+    bar.append(rollBtn);
+  }
 
   if (!captionlessTypes.has(field.fieldType)) {
     const cycleLabelBtn = document.createElement("button");
@@ -1584,6 +1624,7 @@ export function buildTagListValueInto(field, grantedSet, deps) {
       items: field.items,
       granted: grantedSet,
       tagOptions: field.tagOptions || [],
+      tagGroups: field.tagGroups || null,
     });
     chipsWrap.innerHTML = "";
     state.grantedChips.forEach((tag) => chipsWrap.append(buildChip(tag, true)));
@@ -1594,12 +1635,26 @@ export function buildTagListValueInto(field, grantedSet, deps) {
     placeholder.value = "";
     placeholder.textContent = state.placeholder;
     select.append(placeholder);
-    state.available.forEach((opt) => {
-      const optionEl = document.createElement("option");
-      optionEl.value = opt;
-      optionEl.textContent = opt;
-      select.append(optionEl);
-    });
+    if (state.availableGroups) {
+      state.availableGroups.forEach((group) => {
+        const optgroup = document.createElement("optgroup");
+        optgroup.label = group.label;
+        group.options.forEach((opt) => {
+          const optionEl = document.createElement("option");
+          optionEl.value = opt;
+          optionEl.textContent = opt;
+          optgroup.append(optionEl);
+        });
+        select.append(optgroup);
+      });
+    } else {
+      state.available.forEach((opt) => {
+        const optionEl = document.createElement("option");
+        optionEl.value = opt;
+        optionEl.textContent = opt;
+        select.append(optionEl);
+      });
+    }
     select.disabled = state.disabled;
   }
 

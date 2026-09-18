@@ -243,7 +243,8 @@ name plus class entries shaped like this:
 }
 ```
 
-The character toolbar stores the chosen ruleset id on that character. The
+The character toolbar stores the primary ruleset id on that character
+(the full included set lives in `rules.rulesetIds`). The
 guide then filters its Subclass dropdown, presents the right subclass choice
 at the configured level, and applies HP and supported spell-slot progression.
 Both the 2014 PHB and 2024 PHB rulesets now contain the full 12-class roster
@@ -333,24 +334,30 @@ spell name must resolve or it fails.
 
 ## Character creation wizard
 
-Step order: Ruleset → Identity → Class → Ability Scores → Background →
-Preferences → Innate Abilities → Spells & Abilities → Languages →
-Starting Equipment → Feats → Ability Proficiencies → Equipment
-Proficiencies → Review.
+Step order: Rulesets → Identity → Class → Ability Scores → Background →
+Spells & Abilities → Languages → Starting Equipment → Feats →
+Proficiencies → Review. Steps with nothing to decide for the current
+picks are skipped automatically.
 
 Starting Equipment offers each class's 2014 packages (packs expanded
 into contents) or the fixed-average gold, plus the background's fixed
-package — applied once at Finish Setup. Equipment Proficiencies is a
-separate picker over the full weapon/armor/tool/vehicle vocabularies
-with already-granted tags locked; sheet taglists stay editable after
-setup, and a category with nothing to choose shows who-you-are and
-says so instead of an empty picker.
+package — applied once at Finish Setup. Proficiencies is one page with
+two sections (skills/saves, then weapons/armor/tools); sheet taglists
+stay editable after setup, and a category with nothing to choose shows
+who-you-are and says so instead of an empty picker. Review also sets
+the HP-on-level-up method and recaps automatic (innate) grants, so
+those need no pages of their own.
 
 - **Gated pages.** Next (and forward dot-jumps) stay disabled until the
   current page's decisions are made — picks, subclass where choosable
-  now, spell caps, HP. Dots and Back always work backward.
-- **Sensible defaults.** A single ruleset selects itself; fresh ability
+  now, spell caps, HP. Dots and Back always work backward. A "Step X
+  of N" counter plus progress bar tracks where you are.
+- **Sensible defaults.** A single source selects itself; fresh ability
   scores start on Point Buy; HP defaults to Fixed Average.
+- **First page picks sources, not one rulebook.** Check Homebrew,
+  Xanathar's, or both — checked sources combine on later pages, the
+  first checked is primary for level-up math, and adding a source never
+  clears existing picks.
 - **Picker rows** show a personality/playstyle blurb plus categorized,
   bulleted mechanics (Statistical traits → Ability increases →
   Proficiencies → Innate abilities), collapsible per row with

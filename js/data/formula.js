@@ -324,6 +324,12 @@ export function computeAllFormulas(fields) {
   fields.forEach((f) => {
     if (f.fieldType === "radio") {
       valueMap[f.id] = f.selected || 0;
+    } else if (f.fieldType === "dropdown") {
+      // A dropdown reads as its selected choice id when numeric
+      // (the Spell Ability dropdown uses ids "1"/"2"/"3" for exactly
+      // this) and 0 otherwise — same 0 an unmapped token always
+      // substituted to, so existing formulas can't change meaning.
+      valueMap[f.id] = Number(f.selected) || 0;
     } else if (f.fieldType === "checkbox") {
       (f.checked || []).forEach((checked, i) => {
         valueMap[`${f.id}::${i}`] = checked ? 1 : 0;

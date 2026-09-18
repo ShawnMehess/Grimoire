@@ -25,6 +25,15 @@
   font-size: var(--text-lg);
 }
 
+/* Guided-panel empty state on the Leveling tab (no class/level yet,
+   or nothing on file) — dashed so it reads as "missing", not content. */
+.leveling-tab__empty-guide {
+  padding: var(--space-3);
+  border: var(--border-width) dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-inset);
+}
+
 .level-guide__status {
   color: var(--color-accent-hover);
   font-size: var(--text-sm);
@@ -96,6 +105,20 @@
   grid-column: 1 / -1;
 }
 
+/* Grouped content inside one wizard page (merged Proficiencies page,
+   Review page sections). Full-width flex column; inner pickers and
+   notes stack normally. */
+.wizard__subsection {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.wizard__subsection:empty {
+  display: none;
+}
+
 /* Ability Scores step — one field per row (not the default two-column
    level-guide__form grid), a short description beside each score, and
    the method note/Roll-All row kept separate from the score rows. */
@@ -165,19 +188,37 @@
   text-transform: uppercase;
 }
 
-/* Review step — one line per chosen item, Finish Setup centered below. */
+/* Review step — first line (name) reads as a header, the rest flow
+   in two columns, Finish Setup centered below. */
 .wizard__review-rows {
   grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px var(--space-4);
   margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-inset);
 }
 
 .wizard__review-row {
   margin: 0;
   color: var(--color-text-muted);
   font-size: var(--text-sm);
+}
+
+.wizard__review-row:first-child {
+  grid-column: 1 / -1;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--color-text);
+}
+
+@media (max-width: 600px) {
+  .wizard__review-rows {
+    grid-template-columns: 1fr;
+  }
 }
 
 .wizard__review-button-row {
@@ -302,6 +343,13 @@
 
 .wizard__nav .btn:only-child {
   margin-left: auto;
+}
+
+/* Hidden while the bottom nav is fully on screen (see the
+   IntersectionObserver in renderStepWizardInto) — one Back/Next set
+   at a time. */
+.wizard__nav--hidden {
+  display: none;
 }
 
 .level-guide__field {
@@ -524,6 +572,33 @@
   opacity: 0.6;
 }
 
+/* Step counter + slim progress bar under the dots. */
+.wizard__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.wizard__counter {
+  flex: 0 0 auto;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.wizard__bar {
+  flex: 1 1 auto;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-bg-inset);
+  overflow: hidden;
+}
+.wizard__bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--gradient-accent);
+  transition: width var(--transition-normal);
+}
+
 /* Collapsible picker rows (Race/Class/Background tables): per-row
    expander plus Expand All / Collapse All above the list. Details
    start collapsed so long mechanics lists don't bury the names. */
@@ -566,6 +641,15 @@
   margin-top: 2px;
 }
 
+/* Spell picker lists flow across the width in responsive columns
+   instead of one long single file. */
+.spell-picker-list .choice-row-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+}
+.spell-picker-list .choice-row {
+  align-items: flex-start;
+}
 /* Spell-cap tooltip: transient, anchored right under the clicked row,
    replacing the old top-of-table error. */
 .spell-picker-tip {

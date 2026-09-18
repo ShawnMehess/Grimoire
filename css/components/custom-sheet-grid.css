@@ -327,6 +327,58 @@
   min-width: 6rem;
 }
 
+/* Display prefs dropdown + collapsible card-field zones keep the
+   everyday toolbar to one short row of essentials. */
+.toolbar-display {
+  position: relative;
+}
+.toolbar-display > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.toolbar-display > summary::-webkit-details-marker {
+  display: none;
+}
+.toolbar-display__panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 240px;
+  background: var(--color-bg-inset);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-3);
+}
+.toolbar-display__row {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  align-items: center;
+  gap: var(--space-2);
+}
+.toolbar-display__label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.toolbar-display__row .input-group__control {
+  width: 100%;
+  max-width: none !important;
+  box-sizing: border-box;
+}
+.toolbar-card-zones {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.toolbar-card-zones[hidden] {
+  display: none;
+}
+
 /* --- Node chrome (shared by top-level blocks and fields) --- */
 
 .grid-node {
@@ -379,6 +431,21 @@
   border-color: var(--color-accent);
 }
 
+/* Calc-only nodes hidden in play mode (toolbar eye toggle) — still
+   laid out while editing (ghosted) and always laid out in print, so
+   paper keeps the numbers. */
+.page-grid:not(.is-edit-mode) .grid-node.is-hidden-field {
+  display: none;
+}
+.is-edit-mode .grid-node.is-hidden-field {
+  opacity: 0.55;
+}
+@media print {
+  .page-grid:not(.is-edit-mode) .grid-node--field.is-hidden-field { display: flex; }
+  .page-grid:not(.is-edit-mode) .grid-node--label-block.is-hidden-field { display: flex; }
+  .page-grid:not(.is-edit-mode) .grid-node--block.is-hidden-field { display: block; }
+}
+
 /* Per-node border shapes (style popover → Border Shape). One option
    per theme, usable on any theme — an explicit override of whatever
    the active theme's own .grid-node treatment is. */
@@ -402,6 +469,12 @@
   border-width: 1px;
   border-style: solid;
   box-shadow: var(--shadow-md), 0 0 18px -4px rgba(76,201,240,0.4);
+}
+.grid-node.border-shape--dos {
+  border-radius: 0;
+  border-width: 2px;
+  border-style: solid;
+  box-shadow: none;
 }
 
 /* Theme picker + Light-mode checkbox sit side by side in the toolbar. */
@@ -1478,6 +1551,9 @@
   min-width: 0;
   min-height: 0;
   display: flex;
+  /* Lets narrow (1-cell) fields shed the Advantage/Disadvantage
+     words and keep just the dice — see the container query below. */
+  container-type: inline-size;
 }
 .field-roll-wrap > .field-value {
   flex: 1 1 auto;
@@ -1524,4 +1600,9 @@
   .field-roll { display: flex; }
   .field-roll__full { display: none; }
   .field-roll__short { display: inline; }
+}
+/* Cramped fields (single-cell modifiers and the like): dice icon
+   only, so the pill never covers the value it's rolling for. */
+@container (max-width: 130px) {
+  .field-roll__mode { display: none; }
 }

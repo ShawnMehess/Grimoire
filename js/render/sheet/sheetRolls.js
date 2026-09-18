@@ -158,13 +158,16 @@ export function openRollResultDialog({ fieldLabel, modifier, initialMode = "norm
 }
 
 /**
- * Whether a text field is "relevant" for rolling: it holds a number
- * (a computed formula value, a typed number, or a still-blank new
- * number field). Plain prose ("Half-Elf", "Chain mail") is not — no
- * dice trigger is shown for those.
+ * Whether a text field is "relevant" for rolling: it opted in (the
+ * starter sheet opts in ability/save/skill modifiers, initiative, and
+ * spell attacks; anyone can flip the toolbar dice button) AND holds
+ * a number (a computed formula value, a typed number, or a
+ * still-blank new number field). Plain prose ("Half-Elf",
+ * "Chain mail") never rolls — no dice trigger is shown for those.
  */
-export function isRollRelevant({ fieldType, value, formulaValue, parseFn } = {}) {
+export function isRollRelevant({ fieldType, value, formulaValue, rollable = false, parseFn } = {}) {
   if (fieldType !== "text") return false;
+  if (rollable !== true) return false;
   if (Number.isFinite(formulaValue)) return true;
   const raw = (value || "").trim();
   if (!raw) return true;

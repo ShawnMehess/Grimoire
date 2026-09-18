@@ -46,12 +46,16 @@ export function creationChoiceGroupsForState(state, bundleLookup) {
 }
 
 export function creationFixedBundlesFor(state, bundleLookup) {
+  // Positional [Race, Class, Subclass, Background] — deliberately NOT
+  // filtered, so index-based readers (innateAbilitySections) stay
+  // aligned when a slot is unpicked (null). Null-tolerant readers
+  // (ownedSkillIdsFromBundles) skip nulls themselves.
   return [
     bundleLookup("Race", state.species, state.rulesetId),
     bundleLookup("Class", state.className, state.rulesetId),
     bundleLookup("Subclass", state.subclass, state.rulesetId),
     bundleLookup("Background", state.background, state.rulesetId),
-  ].filter(Boolean);
+  ];
 }
 
 export function ownedSkillIdsFromBundles(fixedBundles = [], otherGroups = [], excludeGroupKey, choicesByKey = {}) {
@@ -147,6 +151,7 @@ export function spellsForLevelIn(catalog, levelNum, className) {
       name: e.name,
       description: e.description || "",
       classes: (e.fieldValues?.classes || "").trim(),
+      classList: spellClassesFor(e),
       tags: Array.isArray(e.fieldValues?.tags) ? [...e.fieldValues.tags] : [],
       school: (e.fieldValues?.school || "").trim(),
       mechanics: spellMechanicsLine(e),
@@ -154,7 +159,26 @@ export function spellsForLevelIn(catalog, levelNum, className) {
     .filter((e) => e.name);
   if (!className) return entries;
   const norm = (s) => (s || "").toLowerCase();
-  return entries.filter((e) => !e.classes || norm(e.classes).includes(norm(className)));
+  // Entries that name their classes only show for those classes;
+  // entries with no class information anywhere can't be filtered and
+  // still show (backgrounds never gate spell lists — racial/cantrip
+  // grants arrive separately as auto-added Spells Known).
+  return entries.filter((e) => e.classList.length === 0 || e.classList.some((c) => norm(c) === norm(className)));
+}
+
+/** Which classes a spell belongs to: the explicit classes field
+ *  when set, else parsed from a trailing "Spell Lists. X, Y, Z" line
+ *  in the effect text. Returns [] when unknowable (caller shows it
+ *  everywhere rather than hiding something learnable). Pure. */
+const SPELLCASTER_CLASSES = ["Artificer", "Bard", "Cleric", "Druid", "Paladin", "Ranger", "Sorcerer", "Warlock", "Wizard"];
+
+export function spellClassesFor(entry) {
+  const raw = String(entry?.fieldValues?.classes || "").trim();
+  if (raw) return raw.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+  const effect = String(entry?.fieldValues?.effect || entry?.description || "");
+  const m = effect.match(/spell lists?\s*[:.]\s*([^\n.]+)/i);
+  if (!m) return [];
+  return SPELLCASTER_CLASSES.filter((cls) => new RegExp(`\\b${cls}\\b`, "i").test(m[1]));
 }
 
 /** One spell's mechanical summary for picker rows: level/school/
@@ -175,12 +199,16 @@ export function spellMechanicsLine(entry) {
     dur += " (concentration)";
   }
   if (dur) bits.push(dur);
+  const who = spellClassesFor(entry);
+  if (who.length) bits.push(who.join(", "));
   return { meta: bits.join(" · "), effect: briefDescription(fv.effect, 160) };
 }
 
-/** Review-tab lines for choice groups with picks: "Label: A, B".
- *  Groups with no picks are skipped; works for flat and
- *  cross-category option shapes. */
+/** Review-tab lines for choice groups with picks. Groups whose label
+ *  reads like a prompt ("Choose one (Smith's tools)", ...) list just
+ *  the picks — the prompt adds nothing on a summary. Everything else
+ *  keeps "Label: A · B". Works for flat and cross-category shapes;
+ *  groups with no picks are skipped. */
 export function reviewChoiceLinesFor(groups = [], choicesStore = {}) {
   const lines = [];
   for (const group of groups) {
@@ -192,7 +220,12 @@ export function reviewChoiceLinesFor(groups = [], choicesStore = {}) {
     ];
     const names = picks.map((id) => allOptions.find((o) => o.id === id)?.name || id).filter(Boolean);
     if (!names.length) continue;
-    lines.push(`${group.label || group.source || "Choice"}: ${names.join(", ")}`);
+    const label = (group.label || group.source || "").trim();
+    if (!label || /^(choose|pick|select)\b/i.test(label)) {
+      lines.push(names.join(" · "));
+    } else {
+      lines.push(`${label}: ${names.join(" · ")}`);
+    }
   }
   return lines;
 }
@@ -316,6 +349,22 @@ export function renderStepWizardInto(steps, stepState, { title, intro } = {}, gr
   });
   wrap.append(dots);
 
+  // Orientation for long wizards: "Step X of N" plus a slim progress
+  // bar. Dots stay for navigation; this is for at-a-glance progress.
+  const progress = document.createElement("div");
+  progress.className = "wizard__progress";
+  const counter = document.createElement("span");
+  counter.className = "wizard__counter";
+  counter.textContent = `Step ${stepState.index + 1} of ${applicableSteps.length}`;
+  const bar = document.createElement("div");
+  bar.className = "wizard__bar";
+  const fill = document.createElement("div");
+  fill.className = "wizard__bar-fill";
+  fill.style.width = `${((stepState.index + 1) / applicableSteps.length) * 100}%`;
+  bar.append(fill);
+  progress.append(counter, bar);
+  wrap.append(progress);
+
   const currentStep = applicableSteps[stepState.index];
   if (currentStep.descriptionItems && currentStep.descriptionItems.length) {
     const list = document.createElement("ul");
@@ -369,7 +418,23 @@ export function renderStepWizardInto(steps, stepState, { title, intro } = {}, gr
   wrap.append(body);
   currentStep.render(body);
 
-  wrap.append(buildNav());
+  const bottomNav = buildNav();
+  wrap.append(bottomNav);
+
+  // One set of Back/Next is enough: while the bottom nav is fully on
+  // screen (short pages, wide windows), the top duplicate hides
+  // itself; scrolling down brings it back. No cleanup needed — the
+  // observer dies with these nodes on the next re-render.
+  if (typeof IntersectionObserver !== "undefined") {
+    const topNav = wrap.querySelector(".wizard__nav--top");
+    if (topNav) {
+      const io = new IntersectionObserver((entries) => {
+        const visible = entries.some((e) => e.isIntersecting);
+        topNav.classList.toggle("wizard__nav--hidden", visible);
+      }, { threshold: 0.6 });
+      io.observe(bottomNav);
+    }
+  }
 
   // Lightweight nav refresh for mutations that don't trigger a full
   // re-render (choice-group toggles save without rebuilding the page).
@@ -705,6 +770,20 @@ export function bundleForIn(category, name, rulesetId, libraryCache = [], starte
 // from customSheet.js. All behavior arrives via params (no sheet
 // closure); bodies are verbatim.
 
+/** Expanded/collapsed memory for collapsible picker rows, keyed by
+ *  option name. Picker lists rebuild on every pick (full re-render),
+ *  which would otherwise collapse whatever the player just opened. */
+const expandedChoiceRows = new Set();
+
+export function isChoiceRowExpanded(name) {
+  return expandedChoiceRows.has(name);
+}
+
+export function setChoiceRowExpanded(name, expanded) {
+  if (expanded) expandedChoiceRows.add(name);
+  else expandedChoiceRows.delete(name);
+}
+
 export function renderSelectableRowsInto(container, names, { selectedName, onSelect, getInfo, getMechanics, getMechanicsList, afterRow, nested = false, collapsible = false } = {}) {
   const list = document.createElement("div");
   list.className = "choice-row-list" + (nested ? " choice-row-list--nested" : "");
@@ -720,10 +799,12 @@ export function renderSelectableRowsInto(container, names, { selectedName, onSel
     collapseAll.className = "btn";
     collapseAll.textContent = "Collapse All";
     expandAll.addEventListener("click", () => {
+      names.forEach((name) => expandedChoiceRows.add(name));
       list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = false; });
       list.querySelectorAll(".choice-row__expander").forEach((b) => { b.textContent = "▾ Details"; b.setAttribute("aria-expanded", "true"); });
     });
     collapseAll.addEventListener("click", () => {
+      names.forEach((name) => expandedChoiceRows.delete(name));
       list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = true; });
       list.querySelectorAll(".choice-row__expander").forEach((b) => { b.textContent = "▸ Details"; b.setAttribute("aria-expanded", "false"); });
     });
@@ -793,17 +874,21 @@ export function renderSelectableRowsInto(container, names, { selectedName, onSel
     }
     if (hasDetails) {
       if (collapsible) {
-        details.hidden = true;
+        const expanded = expandedChoiceRows.has(name);
+        details.hidden = !expanded;
         const expander = document.createElement("button");
         expander.type = "button";
         expander.className = "btn choice-row__expander";
-        expander.textContent = "▸ Details";
-        expander.setAttribute("aria-expanded", "false");
+        expander.textContent = expanded ? "▾ Details" : "▸ Details";
+        expander.setAttribute("aria-expanded", String(expanded));
         expander.addEventListener("click", (e) => {
           e.stopPropagation();
-          details.hidden = !details.hidden;
-          expander.textContent = details.hidden ? "▸ Details" : "▾ Details";
-          expander.setAttribute("aria-expanded", String(!details.hidden));
+          const next = details.hidden;
+          details.hidden = !next;
+          if (next) expandedChoiceRows.add(name);
+          else expandedChoiceRows.delete(name);
+          expander.textContent = next ? "▾ Details" : "▸ Details";
+          expander.setAttribute("aria-expanded", String(next));
         });
         expander.addEventListener("keydown", (e) => e.stopPropagation());
         body.append(expander);
@@ -873,7 +958,7 @@ export function renderMultiSelectableRowsInto(container, names, { selectedSet, o
     if (Array.isArray(info?.tags) && info.tags.length) {
       const tags = document.createElement("div");
       tags.className = "choice-row__tags";
-      info.tags.forEach((tag) => {
+      [...info.tags].sort((a, b) => String(a).localeCompare(String(b))).forEach((tag) => {
         const chip = document.createElement("span");
         chip.className = "choice-row__tag";
         chip.textContent = tag;

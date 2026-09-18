@@ -27,7 +27,7 @@ export const EQUIPMENT_PACK_CONTENTS = {
   "Scholar's Pack": ["Backpack", "Book of lore", "Bottle of ink", "Ink pen", "10 sheets of parchment", "Little bag of sand", "Small knife"],
 };
 
-const pack = (name) => [`${name} (${EQUIPMENT_PACK_CONTENTS[name].length} items)`, ...EQUIPMENT_PACK_CONTENTS[name].map((item) => `  • ${item}`)];
+const pack = (name) => [name, ...EQUIPMENT_PACK_CONTENTS[name]];
 
 export const CLASS_STARTING_EQUIPMENT = {
   Barbarian: {

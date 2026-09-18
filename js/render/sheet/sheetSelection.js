@@ -212,4 +212,23 @@ export function wireHoverToolbarInto(triggerEl, toolbarEl, deps) {
   toolbarEl.addEventListener("mouseenter", show);
   toolbarEl.addEventListener("mouseleave", scheduleHide);
   toolbarEl._scheduleHide = scheduleHide;
+  // Touchscreens have no hover: tapping the node itself toggles its
+  // toolbar. Mouse users keep the pure-hover behavior (toggling on
+  // tap would fight normal clicking), so this only arms on
+  // hover-incapable devices. Taps that start editing (text, inputs,
+  // buttons, the dice roller) are never toggles.
+  if (typeof window !== "undefined" && window.matchMedia
+    && window.matchMedia("(hover: none)").matches) {
+    triggerEl.addEventListener("click", (e) => {
+      if (!isEditMode()) return;
+      if (e.target.closest('[contenteditable="true"], input, select, textarea, button, a, .field-roll, .style-popover')) return;
+      if (getOpenPopup() === toolbarEl) return;
+      if (toolbarEl.classList.contains("is-visible")) {
+        toolbarEl.classList.remove("is-visible");
+        if (getActiveToolbar() === toolbarEl) setActiveToolbar(null);
+      } else {
+        show();
+      }
+    });
+  }
 }

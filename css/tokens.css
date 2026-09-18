@@ -230,18 +230,20 @@
   --gradient-surface: linear-gradient(160deg, #241d14, var(--color-bg-raised) 60%);
 }
 :root[data-theme="fancy-medieval"][data-mode="light"] {
-  --color-bg:            #f4ead3;
-  --color-bg-raised:     #fff9e9;
-  --color-bg-inset:      #e8d9b8;
+  --color-bg:            #f1e2bd;
+  --color-bg-raised:     #fff7e0;
+  --color-bg-inset:      #e3cfa0;
   --color-border:        #b49b62;
   --color-border-strong: #8a713d;
   --color-text:          #33270f;
   --color-text-muted:    #6f5c36;
   --color-text-faint:    #9a8a64;
-  --color-accent:        #9c3a22;
+  --color-accent:        #8f2f1c;
   --color-accent-hover:  #b3492b;
   --color-accent-muted:  #dcbf85;
-  --gradient-surface: linear-gradient(160deg, #fff9e9, var(--color-bg-raised) 60%);
+  --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 0 18px -2px rgba(143,47,28,0.35);
+  --gradient-accent: linear-gradient(155deg, #d4af37, var(--color-accent) 60%, #6e2a16);
+  --gradient-surface: linear-gradient(160deg, #fff7e0, var(--color-bg-raised) 60%);
 }
 :root[data-theme="fancy-medieval"] .grid-node { border-width: 2px; border-style: double; border-radius: 10px; }
 :root[data-theme="fancy-medieval"] .grid-node--block {
@@ -352,18 +354,20 @@
   --gradient-surface: linear-gradient(160deg, #141428, var(--color-bg-raised) 60%);
 }
 :root[data-theme="cyberpunk"][data-mode="light"] {
-  --color-bg:            #f4f0ff;
+  --color-bg:            #f6f0ff;
   --color-bg-raised:     #ffffff;
-  --color-bg-inset:      #e2dcf7;
+  --color-bg-inset:      #e6dcfa;
   --color-border:        #c81e7e;
   --color-border-strong: #0e7490;
-  --color-text:          #160f2e;
-  --color-text-muted:    #4d4480;
-  --color-text-faint:    #847cae;
+  --color-text:          #1c0f30;
+  --color-text-muted:    #5b4391;
+  --color-text-faint:    #9788c2;
   --color-accent:        #c81e7e;
   --color-accent-hover:  #ff2ea6;
   --color-accent-muted:  #f5c2e2;
-  --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 4px 16px -2px rgba(200,30,126,0.4);
+  --color-arcane:        #0e7490;
+  --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 0 12px -2px rgba(200,30,126,0.55);
+  --gradient-accent: linear-gradient(135deg, #ff2ea6, #7b2eff 55%, #00b8d4);
 }
 :root[data-theme="cyberpunk"] .grid-node {
   border-radius: 0;
@@ -416,3 +420,66 @@
 :root[data-theme="space"] .field-value--textarea,
 :root[data-theme="space"] .field-value--textlist,
 :root[data-theme="space"] .field-value--taglist { border-radius: 12px; }
+
+/* DOS Terminal — green phosphor on black, all monospace, sharp
+   corners, faint scanlines. Light mode is printer paper. */
+:root[data-theme="dos"] {
+  --color-bg:            #070907;
+  --color-bg-raised:     #0c0f0c;
+  --color-bg-inset:      #030403;
+  --color-border:        #1e4d1e;
+  --color-border-strong: #33cc33;
+  --color-text:          #4dff4d;
+  --color-text-muted:    #2eb82e;
+  --color-text-faint:    #1a6b1a;
+  --color-accent:        #33ff33;
+  --color-accent-hover:  #80ff80;
+  --color-accent-muted:  #33ff3333;
+  --color-arcane:        #ffb000;
+  --color-positive:      #33ff33;
+  --color-negative:      #ff4444;
+  --font-display: "JetBrains Mono", monospace;
+  --font-body: "JetBrains Mono", monospace;
+  --font-mono: "JetBrains Mono", monospace;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-glow-accent: 0 0 8px rgba(51,255,51,0.5);
+  --shadow-inset: none;
+  --gradient-accent: linear-gradient(180deg, #2bd92b, #1a8a1a);
+  --gradient-surface: linear-gradient(180deg, #0c0f0c, var(--color-bg-raised) 60%);
+}
+:root[data-theme="dos"] body {
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.25) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse 1200px 800px at 50% -10%, #0e140e 0%, transparent 60%),
+    var(--color-bg);
+}
+:root[data-theme="dos"] .grid-node { border-radius: 0; border-width: 1px; border-style: solid; box-shadow: none; }
+:root[data-theme="dos"] .grid-node--block { border-radius: 0; border-width: 2px; }
+:root[data-theme="dos"] .field-value { border-radius: 0; box-shadow: none; }
+:root[data-theme="dos"] .btn--primary { box-shadow: var(--shadow-glow-accent); }
+:root[data-theme="dos"][data-mode="light"] {
+  --color-bg:            #e9e6d6;
+  --color-bg-raised:     #f7f4e8;
+  --color-bg-inset:      #d9d4bc;
+  --color-border:        #5a5a3a;
+  --color-border-strong: #1a4d1a;
+  --color-text:          #0d0f0d;
+  --color-text-muted:    #2e4d2e;
+  --color-text-faint:    #6b7a5a;
+  --color-accent:        #0d6b0d;
+  --color-accent-hover:  #149414;
+  --color-accent-muted:  #9db894;
+  --color-arcane:        #8a5a00;
+  --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted);
+  --gradient-accent: linear-gradient(180deg, #149414, #0d6b0d);
+  --gradient-surface: linear-gradient(180deg, #f7f4e8, var(--color-bg-raised) 60%);
+}
+:root[data-theme="dos"][data-mode="light"] body {
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.05) 0 1px, transparent 1px 3px),
+    var(--color-bg);
+}

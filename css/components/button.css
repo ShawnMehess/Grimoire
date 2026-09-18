@@ -57,3 +57,9 @@
 .btn--icon {
   padding: var(--space-2);
 }
+
+/* Toggled-on toolbar buttons (Card fields toggle). */
+.btn.active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}

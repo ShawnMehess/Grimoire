@@ -57,9 +57,9 @@ assert(
 );
 assert(JSON.stringify(collapseBits(["A", "A", "B"])) === '["2 A","B"]', "collapseBits counts duplicates");
 assert(collapseBits(["A"])[0] === "A", "collapseBits singleton untouched");
-assert(featureBit({ name: "Speed", description: "25 ft. walking" }) === "Speed 25 ft", "featureBit speed");
+assert(featureBit({ name: "Speed", description: "25 ft. walking" }) === "Speed: 25 feet", "featureBit speed");
 assert(featureBit({ name: "Speed", description: "no measurement" }) === "Speed", "featureBit speed fallback");
-assert(featureBit({ name: "Darkvision", description: "60 ft." }) === "Darkvision", "featureBit non-speed untouched");
+assert(featureBit({ name: "Darkvision", description: "60 ft." }) === "Darkvision: 60 feet", "featureBit darkvision range");
 {
   // Dwarf-like bundle: counts collapse, speed carries its measurement.
   const dwarf = {
@@ -71,7 +71,7 @@ assert(featureBit({ name: "Darkvision", description: "60 ft." }) === "Darkvision
     featureGrants: [{ name: "Speed", description: "25 ft. walking", minLevel: 1 }],
   };
   const bits = previewBitsFor(dwarf, 1, { summarize: (m) => statModifierSummary(m, { resolveLabel: m.targetFieldId === "conScore" ? "CON" : "Languages" }) });
-  assert(bits.includes("+2 CON") && bits.includes("2 Languages") && bits.includes("Speed 25 ft"), "previewBitsFor counts + speed");
+  assert(bits.includes("+2 CON") && bits.includes("2 Languages") && bits.includes("Speed: 25 feet"), "previewBitsFor counts + speed");
 }
 assert(laterCountFor({ statModifiers: [{ minLevel: 4 }], featureGrants: [] }, 1) === 1, "laterCountFor");
 {
@@ -552,13 +552,49 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
     ],
   }, 1, { abilityIds: ["dex"] });
   const titles = sections.map((s) => s.title);
-  assert(JSON.stringify(titles) === JSON.stringify(["Statistical traits", "Ability score increases", "Proficiencies", "Innate abilities"]), "mechanicsBullets order");
+  assert(JSON.stringify(titles) === JSON.stringify(["Racial Traits", "Ability Score Increases", "Proficiencies", "Innate Abilities"]), "mechanicsBullets order");
   assert(sections[0].items.some((i) => i.startsWith("Languages: Common, Elvish")), "mechanicsBullets tags grouped");
   assert(sections[1].items[0] === "+2 DEX", "mechanicsBullets score");
   assert(sections[2].items[0] === "perceptionProf", "mechanicsBullets prof fallback without vocab");
   assert(sections[3].items.some((i) => i.startsWith("Trance")), "mechanicsBullets innate");
   assert(mechanics.mechanicsBulletsFor(null, 1).length === 0, "mechanicsBullets null-safe");
   assert(mechanics.briefDescription("First. Second.", 200) === "First.", "briefDescription");
+  assert(mechanics.briefDescription("A very long single sentence with no ending in sight at all whatsoever", 20).endsWith("…"), "briefDescription word-cut fallback");
+  assert(JSON.stringify(wizardMod.spellClassesFor({ fieldValues: { classes: "Wizard, Sorcerer" } })) === '["Wizard","Sorcerer"]', "spellClassesFor explicit");
+  assert(wizardMod.spellClassesFor({ fieldValues: { effect: "Boom. Spell Lists. Bard, Cleric." } }).join() === "Bard,Cleric", "spellClassesFor parsed");
+  assert(wizardMod.spellClassesFor({ fieldValues: { effect: "Boom with no list." } }).length === 0, "spellClassesFor unknown");
+  {
+    const onlyClass = wizardMod.creationFixedBundlesFor({ species: "", className: "Fighter", subclass: "", background: "", rulesetId: null }, (c, n) => (n === "Fighter" ? { name: "F" } : null));
+    assert(onlyClass.length === 4 && onlyClass[0] === null && onlyClass[1]?.name === "F" && onlyClass[3] === null, "creationFixedBundlesFor stays positional");
+  }
+  {
+    // Attack suggestions + layout presets.
+    const attacks = await import("../js/render/sheet/sheetAttacks.js");
+    assert(attacks.normalizeWeaponName("2 handaxes") === "handaxe", "normalizeWeaponName count+plural");
+    assert(attacks.normalizeWeaponName("Longsword") === "longsword", "normalizeWeaponName case");
+    const lines = attacks.suggestAttackLines({
+      items: ["Longsword", "Light crossbow", "Backpack", "Longsword"],
+      cantripsKnown: ["Fire Bolt", "Light"],
+      existing: [],
+      prof: 2, strMod: 3, dexMod: 1, spellMod: 3,
+    });
+    assert(lines.some((l) => l.startsWith("Longsword — +5 to hit — 1d8+3 slashing")), "suggest longsword");
+    assert(lines.some((l) => l.startsWith("Light Crossbow — +3 to hit — 1d8+1 piercing")), "suggest crossbow uses Dex");
+    assert(lines.some((l) => l.startsWith("Fire Bolt — +5 to hit")), "suggest cantrip");
+    assert(!lines.some((l) => l.startsWith("Light —")), "skip non-attack cantrips");
+    assert(lines.filter((l) => l.startsWith("Longsword")).length === 1, "suggest dedupes");
+    assert(attacks.innateAttacksFromGrants([{ name: "Claws", description: "Deal 1d4 + Strength slashing." }])[0]?.dice === "1d4", "innateAttacksFromGrants");
+    const layouts = await import("../js/render/sheet/sheetLayouts.js");
+    assert(layouts.LAYOUT_PRESETS.length === 3, "three layout presets");
+    const mk = () => [{ kind: "block", name: "A", x: 5, y: 5, w: 4, h: 2 }, { kind: "block", name: "Combat", x: 0, y: 9, w: 4, h: 3 }];
+    const single = layouts.applyLayoutPresetTo(mk(), "single-column");
+    assert(single[0].x === 0 && single[0].w === 16 && single[1].y === 2, "single-column stacks");
+    const two = layouts.applyLayoutPresetTo(mk(), "two-column");
+    assert(two[0].w === 8 && two[1].x === 8 && two[1].w === 8, "two-column splits");
+    const combat = layouts.applyLayoutPresetTo(mk(), "combat-first");
+    assert(combat[0].name === "Combat" && combat[0].x === 0, "combat-first reorders");
+    assert(layouts.applyLayoutPresetTo(mk(), "nope")[0].x === 5, "unknown preset no-op");
+  }
 }
 
 // Flavor blurbs resolve case-insensitively.
@@ -578,7 +614,7 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
     [{ key: "g1", label: "Skills", options: [{ id: "a", name: "Arcana" }], categories: [{ options: [{ id: "b", name: "History" }] }] }],
     { g1: ["a", "b"] }
   );
-  assert(lines.length === 1 && lines[0] === "Skills: Arcana, History", "reviewChoiceLinesFor");
+  assert(lines.length === 1 && lines[0] === "Skills: Arcana · History", "reviewChoiceLinesFor");
   assert(wizard.reviewChoiceLinesFor([{ key: "g", options: [] }], {}).length === 0, "reviewChoiceLinesFor skips empty");
   const owned = new Set(["s", "tag:languages:Common"]);
   assert(wizard.optionIsOwned({ statModifiers: [{ op: "grant", targetFieldId: "s" }] }, owned) === true, "optionIsOwned grant");

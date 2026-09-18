@@ -57,15 +57,19 @@ export function collapseBits(bits) {
   return [...counts.entries()].map(([bit, count]) => (count > 1 ? `${count} ${bit}` : bit));
 }
 
-/** A feature grant's display bit. Speed carries its measurement from
- *  the description ("25 ft. walking…") so options can be told apart
- *  ("Speed 25 ft" vs "Speed 30 ft"); anything else shows its plain
- *  name. */
+/** A feature grant's display bit. Speed and Darkvision carry their
+ *  range from the description ("Speed: 25 ft", "Darkvision: 60 feet")
+ *  so options can be told apart; anything else shows its plain name.
+ *  Label and detail always join with a colon, site-wide. */
 export function featureBit(grant) {
   const name = grant.name || "";
   if (/^speed$/i.test(name.trim())) {
     const match = /(\d+\s*ft\.?)/i.exec(grant.description || "");
-    if (match) return `Speed ${match[1].replace(/\.$/, "")}`;
+    if (match) return `Speed: ${match[1].replace(/\.$/, "").replace(/\s*ft$/i, " feet")}`;
+  }
+  if (/darkvision/i.test(name.trim())) {
+    const match = /(\d+\s*ft\.?)/i.exec(grant.description || "");
+    if (match) return `Darkvision: ${match[1].replace(/\.$/, "").replace(/\s*ft$/i, " feet")}`;
   }
   return name;
 }
@@ -143,12 +147,17 @@ const TAG_FIELD_LABELS = {
   otherProf: "Other",
 };
 
-/** First sentence of a longer text, capped — keeps picker bullets brief. */
+/** First sentence of a longer text, capped — keeps picker bullets brief
+ *  without trailing off mid-thought: a sentence boundary inside the
+ *  cap wins; otherwise the whole first sentence (up to 2× cap) rather
+ *  than a word-cut fragment. */
 export function briefDescription(text, max = 140) {
   const flat = String(text || "").replace(/\s+/g, " ").trim();
   if (!flat) return "";
   const m = flat.match(new RegExp(`(.{1,${max}}?[.!?])(\\s|$)`));
   if (m) return m[1].trim();
+  const firstEnd = flat.search(/[.!?](\s|$)/);
+  if (firstEnd !== -1 && firstEnd + 1 <= max * 2) return flat.slice(0, firstEnd + 1).trim();
   if (flat.length <= max) return flat;
   const cut = flat.slice(0, max);
   const space = cut.lastIndexOf(" ");
@@ -165,12 +174,13 @@ function isProfGrant(mod) {
 
 /** Categorized, bulleted mechanics for a picker row — the structured
  *  replacement for the one-line mechanicsPreviewFor on Race/Class/
- *  Background/Subclass rows. Fixed category order (Statistical
- *  traits → Ability score increases → Proficiencies → Innate
- *  abilities); a category with nothing in it is omitted outright.
- *  Returns [{ title, items: [string] }]. `level` annotates (not
- *  filters) grants that unlock later: "(level N)". */
-export function mechanicsBulletsFor(bundle, level, deps = {}) {
+ *  Background/Subclass rows. Fixed category order (Racial Traits →
+ *  Ability Score Increases → Proficiencies → Innate Abilities); a
+ *  category with nothing in it is omitted outright.
+ *  Returns [{ title, items: [string] }]. Only grants at or below
+ *  `level` are listed (default Infinity = everything, for contexts
+ *  with no level yet); label and detail always join with a colon. */
+export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   if (!bundle) return [];
   const { abilityIds = [], abilities = [], skills = [], resolveLabel = null } = deps;
   const summarize = (m) => statModifierSummary(m, { abilityIds, abilities, skills, resolveLabel });
@@ -178,6 +188,7 @@ export function mechanicsBulletsFor(bundle, level, deps = {}) {
     || (typeof resolveLabel === "function" && resolveLabel(fieldId))
     || fieldId;
   const levelTag = (minLevel) => (Number.isFinite(minLevel) && minLevel > 1 ? ` (level ${minLevel})` : "");
+  const atLevel = (item) => !item.minLevel || item.minLevel <= level;
 
   const traits = [];
   const scores = [];
@@ -185,7 +196,7 @@ export function mechanicsBulletsFor(bundle, level, deps = {}) {
   const innate = [];
 
   const tagsByField = new Map();
-  for (const mod of (bundle.statModifiers || [])) {
+  for (const mod of (bundle.statModifiers || []).filter(atLevel)) {
     if (mod.op === "grantTag") {
       if (!tagsByField.has(mod.targetFieldId)) tagsByField.set(mod.targetFieldId, []);
       if (mod.value) tagsByField.get(mod.targetFieldId).push(mod.value);
@@ -203,24 +214,21 @@ export function mechanicsBulletsFor(bundle, level, deps = {}) {
     const unique = [...new Set(values)];
     if (unique.length) traits.push(`${tagLabel(fieldId)}: ${unique.join(", ")}`);
   }
-  for (const grant of (bundle.featureGrants || [])) {
+  for (const grant of (bundle.featureGrants || []).filter(atLevel)) {
     const name = (grant.name || "").trim();
     if (!name) continue;
-    if (/^speed$/i.test(name)) {
+    if (/^speed$/i.test(name) || /darkvision/i.test(name)) {
       traits.push(`${featureBit(grant)}${levelTag(grant.minLevel)}`);
-    } else if (/darkvision/i.test(name)) {
-      const why = briefDescription(grant.description, 110);
-      traits.push(`${featureBit(grant)}${why ? ` — ${why}` : ""}${levelTag(grant.minLevel)}`);
     } else {
       const why = briefDescription(grant.description, 120);
-      innate.push(`${name}${why ? ` — ${why}` : ""}${levelTag(grant.minLevel)}`);
+      innate.push(`${name}${why ? `: ${why}` : ""}${levelTag(grant.minLevel)}`);
     }
   }
 
   const out = [];
-  if (traits.length) out.push({ title: "Statistical traits", items: traits });
-  if (scores.length) out.push({ title: "Ability score increases", items: scores });
+  if (traits.length) out.push({ title: "Racial Traits", items: traits });
+  if (scores.length) out.push({ title: "Ability Score Increases", items: scores });
   if (profs.length) out.push({ title: "Proficiencies", items: [profs.join(", ")] });
-  if (innate.length) out.push({ title: "Innate abilities", items: innate });
+  if (innate.length) out.push({ title: "Innate Abilities", items: innate });
   return out;
 }

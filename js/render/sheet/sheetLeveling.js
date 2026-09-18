@@ -712,7 +712,7 @@ export function renderLevelUpRowInto(level, isCurrent, data, fieldDefs, deps) {
 }
 
 export function renderLevelingTabInto(pageGrid, deps) {
-  const { guideEl, resourcesEl, currentLevel, expandedSet, gridFn, rowFn, scrollFn } = deps;
+  const { guideEl, resourcesEl, currentLevel, expandedSet, gridFn, rowFn, scrollFn, emptyGuideNote = null } = deps;
   const wrap = document.createElement("div");
   wrap.className = "leveling-tab";
 
@@ -722,6 +722,12 @@ export function renderLevelingTabInto(pageGrid, deps) {
   wrap.append(intro);
 
   if (guideEl) wrap.append(guideEl);
+  else if (emptyGuideNote) {
+    const note = document.createElement("p");
+    note.className = "leveling-tab__intro leveling-tab__empty-guide";
+    note.textContent = emptyGuideNote;
+    wrap.append(note);
+  }
   if (resourcesEl) wrap.append(resourcesEl);
 
   if (currentLevel) {

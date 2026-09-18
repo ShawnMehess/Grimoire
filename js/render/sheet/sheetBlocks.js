@@ -4,6 +4,7 @@
 // customSheet.js owns DOM + character mutation; it delegates math here.
 
 import { buildLabelValueInto } from "./sheetFields.js";
+import { hideToggleBtnInto } from "./sheetStyles.js";
 
 export function resolveSourceBlock(block, globalLayout = []) {
   if (!block?.sourceBlockId) return block;
@@ -180,8 +181,7 @@ export function blockHeaderPx(headerRows, cw, gapPx) {
 //     typeMenuFn, commitFn, sourceOf, defaultSize, createFieldFn, hoverFn,
 //   })
 
-export function buildBlockToolbarInto(block, wrapperEl, deps) {
-  const {
+export function buildBlockToolbarInto(block, wrapperEl, deps) {  const {
     styleBtnFn,
     borderBtnFn,
     viewOf,
@@ -198,6 +198,7 @@ export function buildBlockToolbarInto(block, wrapperEl, deps) {
 
   bar.append(styleBtnFn(block, wrapperEl));
   bar.append(borderBtnFn(block, wrapperEl));
+  bar.append(hideToggleBtnInto(block, { commitFn }));
 
   if (viewOf(block).blockType !== "label") {
     const addFieldBtn = document.createElement("button");

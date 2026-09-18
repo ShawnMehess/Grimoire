@@ -287,6 +287,10 @@ async function renderCharacterList() {
       const metaEl = document.createElement("div");
       metaEl.className = "character-card__meta";
       metaEl.textContent = buildCardMeta(c);
+      if (metaEl.textContent === "—") {
+        metaEl.classList.add("character-card__meta--empty");
+        metaEl.title = "Tip: open the sheet and drag fields onto “Card fields” to show them here";
+      }
       info.append(nameEl, metaEl);
       card.append(info);
 

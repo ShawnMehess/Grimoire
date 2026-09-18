@@ -14,6 +14,7 @@ export const SHEET_THEMES = [
   { id: "modern", name: "Modern Day" },
   { id: "cyberpunk", name: "Cyberpunk" },
   { id: "space", name: "Space Sci-Fi" },
+  { id: "dos", name: "DOS Terminal" },
 ];
 
 // Legacy ids from before the six-theme set (Dark Fantasy / Parchment
@@ -50,13 +51,14 @@ export function sheetThemeName(id) {
 // Border Shape picker offers these same looks per-node, so a node can
 // opt into another theme's border without switching the whole sheet.
 export const THEME_BORDER_SHAPES = [
-  { id: "", name: "Theme default" },
-  { id: "standard", name: "Standard (soft rounded)" },
-  { id: "fancy-medieval", name: "Fancy Medieval (ornate double)" },
-  { id: "simple-medieval", name: "Simple Medieval (plain square)" },
-  { id: "modern", name: "Modern (sharp minimal)" },
-  { id: "cyberpunk", name: "Cyberpunk (notched neon)" },
-  { id: "space", name: "Space Sci-Fi (pill glow)" },
+  { id: "", name: "Theme Default" },
+  { id: "standard", name: "Standard (Soft Rounded)" },
+  { id: "fancy-medieval", name: "Fancy Medieval (Ornate Double)" },
+  { id: "simple-medieval", name: "Simple Medieval (Plain Square)" },
+  { id: "modern", name: "Modern (Sharp Minimal)" },
+  { id: "cyberpunk", name: "Cyberpunk (Notched Neon)" },
+  { id: "space", name: "Space Sci-Fi (Pill Glow)" },
+  { id: "dos", name: "DOS Terminal (Sharp Phosphor)" },
 ];
 
 export function applySheetTheme(id, mode) {

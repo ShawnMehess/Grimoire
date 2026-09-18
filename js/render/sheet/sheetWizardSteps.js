@@ -8,18 +8,18 @@
 import { commonPreviewBits, mechanicsPreviewFor } from "./sheetMechanics.js";
 
 export const ABILITY_DESCRIPTIONS = {
-  str: "Physical power — melee attacks, carrying capacity, and Athletics checks.",
-  dex: "Agility and reflexes — Armor Class, ranged attacks, initiative, and Acrobatics/Stealth checks.",
-  con: "Endurance and fortitude — sets your hit points at every level.",
-  int: "Reasoning and memory — Investigation/Arcana checks, and some casters' spells.",
-  wis: "Awareness and intuition — Perception/Insight checks, and some casters' spells.",
-  cha: "Force of personality — Persuasion/Deception checks, and some casters' spells.",
+  str: "Physical power: melee attacks, carrying capacity, and Athletics checks.",
+  dex: "Agility and reflexes: Armor Class, initiative, ranged attacks, and Stealth and Acrobatics checks.",
+  con: "Endurance and fortitude: more hit points at every level, and holding concentration on spells.",
+  int: "Reasoning and memory: Investigation and Arcana checks. Wizards cast with Intelligence.",
+  wis: "Awareness and intuition: Perception and Insight checks. Clerics, Druids, and Rangers cast with Wisdom.",
+  cha: "Force of personality: Persuasion and Deception checks. Bards, Paladins, Sorcerers, and Warlocks cast with Charisma.",
 };
 
 export const HP_METHOD_OPTIONS = [
-  { value: "average", label: "Fixed average", description: "Always take the fixed average for your hit die (e.g. 5 for a d8), plus your Constitution modifier. Consistent and predictable, no rolling involved." },
-  { value: "roll", label: "Roll in-browser", description: "Roll your hit die right here each time you level up, plus your Constitution modifier. Keeps the randomness without needing physical dice." },
-  { value: "manual", label: "I'll roll at the table and type it in", description: "Roll however you prefer at the table (or elsewhere) and just type the result in when you level up." },
+  { value: "average", label: "Fixed Average", description: "Always take the fixed average for your hit die (e.g. 5 for a d8), plus your Constitution modifier. Consistent and predictable, no rolling involved." },
+  { value: "roll", label: "Roll In-Browser", description: "Roll your hit die right here each time you level up, plus your Constitution modifier. Keeps the randomness without needing physical dice." },
+  { value: "manual", label: "Roll at the Table", description: "Roll however you prefer at the table (or elsewhere) and just type the result in when you level up." },
 ];
 
 export const POINT_BUY_MIN = 8;
@@ -281,6 +281,8 @@ export function renderSpellsStepInto(container, state, deps) {  const { groups, 
 // Finish Setup button that syncs wizard answers onto the sheet.
 
 export function reviewLinesFor({ characterName, rulesetName, species, className, subclass, background, level, spellLimit, resources = [], abilityScores = null, abilityMethod = null, hpMethod = null, choiceLines = [], spellsPicked = [], equipmentLine = null, featNames = [] }) {
+  const ABILITY_METHOD_NAMES = { pointbuy: "Point Buy", roll: "Random Roll", manual: "Manual Entry" };
+  const HP_METHOD_NAMES = { average: "Fixed Average", roll: "Roll In-Browser", manual: "Roll at the Table" };
   const noteLines = [
     characterName && `Name: ${characterName}`,
     rulesetName || null,
@@ -292,21 +294,21 @@ export function reviewLinesFor({ characterName, rulesetName, species, className,
   if (abilityScores) {
     const scores = Object.entries(abilityScores)
       .map(([id, value]) => `${String(id).toUpperCase()} ${value}`)
-      .join(", ");
-    noteLines.push(`Ability scores${abilityMethod ? ` (${abilityMethod})` : ""}: ${scores}`);
+      .join(" · ");
+    noteLines.push(`Ability Scores${abilityMethod ? ` (${ABILITY_METHOD_NAMES[abilityMethod] || abilityMethod})` : ""}: ${scores}`);
   }
-  if (hpMethod) noteLines.push(`HP method: ${hpMethod}`);
+  if (hpMethod) noteLines.push(`HP Method: ${HP_METHOD_NAMES[hpMethod] || hpMethod}`);
   for (const line of choiceLines) noteLines.push(line);
   if (spellLimit) {
     const { style, cantrips, spells } = spellLimit;
     const bits = [];
     if (cantrips) bits.push(`${cantrips} cantrip${cantrips === 1 ? "" : "s"}`);
     bits.push(`${spells} spell${spells === 1 ? "" : "s"} ${style === "known" ? "known" : "prepared"}`);
-    noteLines.push(`Spells: ${bits.join(", ")}`);
+    noteLines.push(`Spells: ${bits.join(" · ")}`);
   }
-  if (spellsPicked.length) noteLines.push(`Spells known: ${spellsPicked.join(", ")}`);
+  if (spellsPicked.length) noteLines.push(`Spells Known: ${spellsPicked.join(" · ")}`);
   if (equipmentLine) noteLines.push(equipmentLine);
-  if (featNames.length) noteLines.push(`Feats: ${featNames.join(", ")}`);
+  if (featNames.length) noteLines.push(`Feats: ${featNames.join(" · ")}`);
   resources.forEach((resource) => noteLines.push(`${resource.name}: ${resource.maximum}`));
   return noteLines;
 }
@@ -701,7 +703,7 @@ export function levelReviewSummary({ hp, subclass, needsAsi, asiMode, featChoice
   if (classLabel) parts.unshift(classLabel);
   if (subclass) parts.push(`Subclass: ${subclass}`);
   if (needsAsi) parts.push(asiMode === "feat" ? `Feat: ${featChoice || "not chosen yet"}` : `ASI: ${asiAbilities.filter(Boolean).map((id) => id.toUpperCase()).join(", ") || "not chosen yet"}`);
-  if (slots) parts.push(`Spell slots: ${slots}`);
+  if (slots) parts.push(`Spell Slots: ${slots}`);
   return parts.join(" · ");
 }
 
