@@ -71,6 +71,7 @@ import { FEAT_BUNDLES, FEAT_CATALOG, FEAT_NAMES } from "../data/featBundles.js";
 import { SPELL_CATALOG, WEAPONS_ARMOR_CATALOG, GEAR_CATALOG } from "../data/contentCatalogs.js";
 import { RACE_EXTRA_CATALOG_ENTRIES } from "../data/extraRaces.js";
 import { flavorFor } from "../data/pickerFlavor.js";
+import { portraitArtFor } from "../data/portraitArt.js";
 import { SHEET_THEMES, applySheetTheme, normalizeThemeId, normalizeThemeMode } from "../data/themes.js";
 import { CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT, goldOptionIdFor, slugId, resolveStartingEquipmentPick } from "../data/startingEquipment.js";
 import { ABILITIES, SKILLS } from "../data/schema.js";
@@ -2602,11 +2603,18 @@ export function renderCustomSheet(root, character, store, opts = {}) {
    *  Degrades gracefully (name + placeholder icon) when nothing matches. */
   function catalogEntryInfo(keywords, name) {
     const info = catalogEntryInfoIn(catalogCache, keywords, name);
+    // Portrait priority: an imported catalog's own image first, then
+    // the built-in public-domain portrait set (races, classes,
+    // backgrounds) — never the placeholder initial when art exists.
+    const portrait = info?.imageData || portraitArtFor(name);
     // Hand-written personality/social/playstyle briefs win over catalog
-    // flavor text on picker rows; portraits still come from catalogs.
+    // flavor text on picker rows; catalogs (with portraits) are untouched.
     const flavor = flavorFor(name);
-    if (!flavor) return info;
-    return { description: flavor, imageData: info?.imageData || null };
+    if (!flavor) {
+      if (!info) return portrait ? { description: "", imageData: portrait } : null;
+      return { description: info.description, imageData: portrait };
+    }
+    return { description: flavor, imageData: portrait };
   }
 
   /** Categorized bulleted mechanics for a Race/Class/Subclass/

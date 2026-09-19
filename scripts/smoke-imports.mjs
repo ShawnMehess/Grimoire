@@ -595,6 +595,14 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
     assert(combat[0].name === "Combat" && combat[0].x === 0, "combat-first reorders");
     assert(layouts.applyLayoutPresetTo(mk(), "nope")[0].x === 5, "unknown preset no-op");
   }
+  {
+    // Built-in public-domain portraits for picker rows.
+    const portraits = await import("../js/data/portraitArt.js");
+    assert(portraits.portraitArtFor("Wizard") === "assets/portraits/class-wizard.jpg", "portraitArtFor class");
+    assert(portraits.portraitArtFor("HALF-ELF") === "assets/portraits/race-half-elf.jpg", "portraitArtFor case-insensitive");
+    assert(portraits.portraitArtFor("Urban Bounty Hunter") === "assets/portraits/bg-urban-bounty-hunter.jpg", "portraitArtFor background");
+    assert(portraits.portraitArtFor("Champion") === null && portraits.portraitArtFor("") === null, "portraitArtFor miss");
+  }
 }
 
 // Flavor blurbs resolve case-insensitively.
