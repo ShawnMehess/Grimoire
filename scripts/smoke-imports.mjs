@@ -533,6 +533,14 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   assert(dwarfBase.statModifiers.length === 0 && dwarfBase.featureGrants.length === 0, "Dwarf base carries no traits (all in subraces)");
   assert(group(dwarfBase, "dwarf-subrace")?.options.map((o) => o.name).join(",") === "Hill Dwarf,Mountain Dwarf,Duergar", "Dwarf subrace picker");
   assert(!FIXED_RACE_ENTRIES.some((e) => ["Hill Dwarf", "Mountain Dwarf", "Duergar"].includes(e.name)), "superseded dwarf races leave the race list");
+  const gnomeBase = FIXED_RACE_ENTRIES.find((e) => e.name === "Gnome").bundle;
+  assert(gnomeBase.statModifiers.length === 0 && gnomeBase.featureGrants.length === 0, "Gnome base carries no traits (all in subraces)");
+  assert(group(gnomeBase, "gnome-subrace")?.options.map((o) => o.name).join(",") === "Forest Gnome,Rock Gnome", "Gnome subrace picker");
+  const rock = group(gnomeBase, "gnome-subrace")?.options.find((o) => o.name === "Rock Gnome");
+  assert(rock.statModifiers.some((m) => m.targetFieldId === "conScore" && m.value === 1), "Rock Gnome +1 CON");
+  const halflingBase = FIXED_RACE_ENTRIES.find((e) => e.name === "Halfling").bundle;
+  assert(halflingBase.statModifiers.length === 0 && halflingBase.featureGrants.length === 0, "Halfling base carries no traits (all in subraces)");
+  assert(group(halflingBase, "halfling-subrace")?.options.map((o) => o.name).join(",") === "Lightfoot Halfling,Stout Halfling", "Halfling subrace picker");
   // Race categories cover every starter race exactly once, alphabetical within.
   {
     const { RACE_CATEGORIES } = await import("../js/data/raceCategories.js");

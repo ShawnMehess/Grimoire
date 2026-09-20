@@ -429,6 +429,124 @@ function dwarfBaseEntry(entry) {
 // sheet open; see healLegacyDwarfSubrace in customSheet.js).
 const SUPERSEDED_DWARF_RACES = new Set(["Hill Dwarf", "Mountain Dwarf", "Duergar"]);
 
+// --- Gnomish + Halfling subraces ------------------------------------------------
+// Base Gnomes/Halflings carry no traits or bonuses of their own —
+// Forest/Rock and Lightfoot/Stout each arrive as a full kit, with the
+// shared traits duplicated onto every option (same rule as elves and
+// dwarves above).
+const GNOME_SHARED_STATS = [
+  { targetFieldId: "intScore", op: "add", value: 2, minLevel: null },
+  { targetFieldId: "languages", op: "grantTag", value: "Common" },
+  { targetFieldId: "languages", op: "grantTag", value: "Gnomish" },
+];
+const GNOME_SHARED_FEATS = [
+  { name: "Gnome Cunning", description: "Advantage on saving throw on INT/WIS/CHA saves against magic.", minLevel: null },
+  { name: "Speed", description: "25 ft. walking", minLevel: null },
+  { name: "Senses", description: "Darkvision 60 ft.", minLevel: null },
+];
+const HALFLING_SHARED_STATS = [
+  { targetFieldId: "dexScore", op: "add", value: 2, minLevel: null },
+  { targetFieldId: "languages", op: "grantTag", value: "Common" },
+  { targetFieldId: "languages", op: "grantTag", value: "Halfling" },
+];
+const HALFLING_SHARED_FEATS = [
+  { name: "Lucky", description: "Reroll a 1 on attack roll, ability check, saving throw dice (must use the new roll).", minLevel: null },
+  { name: "Brave", description: "Advantage on saving throw against frightened.", minLevel: null },
+  { name: "Halfling Nimbleness", description: "Can move through the space of any creature that is a size larger than you.", minLevel: null },
+  { name: "Speed", description: "25 ft. walking", minLevel: null },
+];
+
+function gnomeSubraceOption(id, name, extraStats, extraFeats) {
+  return {
+    id, name, description: "",
+    statModifiers: [...clone(GNOME_SHARED_STATS), ...extraStats],
+    featureGrants: [...clone(GNOME_SHARED_FEATS), ...extraFeats],
+    resourceGrants: [],
+  };
+}
+
+function halflingSubraceOption(id, name, extraStats, extraFeats) {
+  return {
+    id, name, description: "",
+    statModifiers: [...clone(HALFLING_SHARED_STATS), ...extraStats],
+    featureGrants: [...clone(HALFLING_SHARED_FEATS), ...extraFeats],
+    resourceGrants: [],
+  };
+}
+
+/** Rebuilds the compiled Gnome/Halfling entries as traitless bases
+ *  whose whole kit comes from their subrace picker. */
+function gnomeBaseEntry(entry) {
+  return {
+    ...entry,
+    bundle: {
+      statModifiers: [],
+      dropdownAccess: [],
+      featureGrants: [],
+      resourceGrants: [],
+      choiceGroups: [
+        {
+          id: "gnome-subrace", label: "Gnomish Subrace", subrace: true, minLevel: 1, minSelections: 1, maxSelections: 1,
+          options: [
+            gnomeSubraceOption(
+              "gnome-subrace-forest-gnome", "Forest Gnome",
+              [{ targetFieldId: "dexScore", op: "add", value: 1, minLevel: null }],
+              [
+                { name: "Natural Illusionist", description: "You know the Minor Illusion cantrip. Intelligence is your spellcasting ability for it.", minLevel: null },
+                { name: "Speak with Small Beasts", description: "Through sounds and gestures, you can communicate simple ideas with Small or smaller beasts.", minLevel: null },
+              ]
+            ),
+            gnomeSubraceOption(
+              "gnome-subrace-rock-gnome", "Rock Gnome",
+              [
+                { targetFieldId: "conScore", op: "add", value: 1, minLevel: null },
+                { targetFieldId: "toolProf", op: "grantTag", value: "Tinker's Tools" },
+              ],
+              [
+                { name: "Artificer's Lore", description: "Whenever you make an Intelligence (History) check related to magic items, alchemical objects, or technological devices, you can add twice your proficiency bonus instead of any proficiency bonus you normally apply.", minLevel: null },
+                { name: "Tinker", description: "You have proficiency with tinker's tools. With 1 hour and 10 gp of materials you can build a Tiny clockwork device (toy, fire starter, or music box, up to three at once).", minLevel: null },
+              ]
+            ),
+          ],
+        },
+      ],
+    },
+  };
+}
+
+function halflingBaseEntry(entry) {
+  return {
+    ...entry,
+    bundle: {
+      statModifiers: [],
+      dropdownAccess: [],
+      featureGrants: [],
+      resourceGrants: [],
+      choiceGroups: [
+        {
+          id: "halfling-subrace", label: "Halfling Subrace", subrace: true, minLevel: 1, minSelections: 1, maxSelections: 1,
+          options: [
+            halflingSubraceOption(
+              "halfling-subrace-lightfoot-halfling", "Lightfoot Halfling",
+              [{ targetFieldId: "chaScore", op: "add", value: 1, minLevel: null }],
+              [
+                { name: "Naturally Stealthy", description: "You can attempt to hide even when you are obscured only by a creature that is at least one size larger than you.", minLevel: null },
+              ]
+            ),
+            halflingSubraceOption(
+              "halfling-subrace-stout-halfling", "Stout Halfling",
+              [{ targetFieldId: "conScore", op: "add", value: 1, minLevel: null }],
+              [
+                { name: "Stout Resilience", description: "You have advantage on saving throws against poison, and you have resistance against poison damage.", minLevel: null },
+              ]
+            ),
+          ],
+        },
+      ],
+    },
+  };
+}
+
 // --- Subclass patches ---------------------------------------------------------------
 function patchHunterConclave(bundle) {
   if ((bundle.choiceGroups || []).some((g) => /hunter-s-prey|hunters-prey/.test(g.id))) return bundle;
@@ -566,7 +684,12 @@ export const FIXED_RACE_ENTRIES = [
   ...DEFAULT_CONTENT.raceEntries
     .map(patchRaceEntry)
     .filter((entry) => !SUPERSEDED_DWARF_RACES.has(entry.name))
-    .map((entry) => (entry.name === "Dwarf" ? dwarfBaseEntry(entry) : entry)),
+    .map((entry) => {
+      if (entry.name === "Dwarf") return dwarfBaseEntry(entry);
+      if (entry.name === "Gnome") return gnomeBaseEntry(entry);
+      if (entry.name === "Halfling") return halflingBaseEntry(entry);
+      return entry;
+    }),
   // Extra races arrive with full subrace pickers already attached (see
   // extraRaces.js); the freeform-ASI ones still need their picker.
   ...RACE_EXTRA_ENTRIES.map((entry) => {

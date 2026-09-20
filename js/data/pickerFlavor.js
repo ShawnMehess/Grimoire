@@ -50,6 +50,10 @@ export const RACE_FLAVOR = {
   "High Elf": "Scholarly elven aristocracy. A wizard cantrip, an extra language, and centuries of haughty poise.",
   "Wood Elf": "Wildwood runners. Fast, stealthy, and at home under leaves — the fleet feet of the elven peoples.",
   Drow: "Underdark exiles with starlight magic. Superior darkvision and inborn spells — sunlight is their bane.",
+  "Forest Gnome": "Reclusive grove-dwellers. A touch of illusion magic and a way with small beasts — twice as shy, twice as clever.",
+  "Rock Gnome": "Tinkerers of forge and workbench. Artificer's lore and clockwork toys — curiosity with a toolkit.",
+  "Lightfoot Halfling": "The classic wanderer. Charming, lucky, and gone before you noticed — easiest to hide behind a tall friend.",
+  "Stout Halfling": "Hardy homebodies with dwarven grit. Poison barely touches them — dinner, however, is taken very seriously.",
 };
 
 export const BG_FLAVOR = {
