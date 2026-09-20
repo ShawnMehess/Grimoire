@@ -5,7 +5,7 @@ import { loadStore } from "./state/store.js";
 // not (?offline=1, no connection, or CDN failure) — same exports
 // either way, so everything below is backend-agnostic.
 const characterStore = await loadStore();
-const { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, createCharacter, deleteCharacter, currentUserId, listSheetTemplates } = characterStore;
+const { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, createCharacter, deleteCharacter, currentUserId } = characterStore;
 import { createBlankCharacter } from "./data/schema.js";
 import { renderCustomSheet } from "./render/customSheet.js";
 import { computeAllFormulas } from "./data/formula.js";
@@ -177,7 +177,7 @@ async function renderCharacterList() {
   const newBtn = document.createElement("button");
   newBtn.className = "btn btn--primary";
   newBtn.textContent = "+ New Character";
-  newBtn.addEventListener("click", openNewCharacterDialog);
+  newBtn.addEventListener("click", createNewBlankCharacter);
   heading.append(title, newBtn);
   appRoot.append(heading);
 
@@ -308,7 +308,7 @@ async function renderCharacterList() {
  *  starting point for a variant build, or for a friend who wants "the
  *  same character but at level 5" without redoing every choice.
  *  Deliberately NOT a template — templates are meant to be a reusable
- *  starting *shape* (see openNewCharacterDialog); this is a full,
+ *  starting *shape*; this is a full,
  *  independent copy of one specific character. */
 async function duplicateCharacter(character) {
   const { id, createdAt, updatedAt, ...rest } = character;
@@ -319,126 +319,18 @@ async function duplicateCharacter(character) {
   return newId;
 }
 
-async function openNewCharacterDialog() {
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
-
-  const box = document.createElement("div");
-  box.className = "modal-box modal-box--sheet-template";
-  box.addEventListener("click", (e) => e.stopPropagation());
-
-  const title = document.createElement("h3");
-  title.textContent = "Create Character";
-
-  const copy = document.createElement("p");
-  copy.className = "modal-copy";
-  copy.textContent = "Start with a blank sheet or choose a saved template.";
-
-  const modeRow = document.createElement("div");
-  modeRow.className = "modal-copy";
-  modeRow.textContent = "How will you mainly use this sheet? (Changeable anytime from its toolbar.) ";
-  const screenLabel = document.createElement("label");
-  const screenRadio = document.createElement("input");
-  screenRadio.type = "radio"; screenRadio.name = "sheet-mode"; screenRadio.value = "screen"; screenRadio.checked = true;
-  screenLabel.append(screenRadio, " Use on screen");
-  const printLabel = document.createElement("label");
-  const printRadio = document.createElement("input");
-  printRadio.type = "radio"; printRadio.name = "sheet-mode"; printRadio.value = "print";
-  printLabel.append(printRadio, " Print out");
-  modeRow.append(screenLabel, " ", printLabel);
-
-  const templateSelect = document.createElement("select");
-  templateSelect.className = "input-group__control";
-  templateSelect.disabled = true;
-
-  const loadingOpt = document.createElement("option");
-  loadingOpt.textContent = "Loading templates...";
-  templateSelect.append(loadingOpt);
-
-  const buttonRow = document.createElement("div");
-  buttonRow.className = "modal-actions";
-
-  const blankBtn = document.createElement("button");
-  blankBtn.type = "button";
-  blankBtn.className = "btn";
-  blankBtn.textContent = "Blank Sheet";
-
-  const templateBtn = document.createElement("button");
-  templateBtn.type = "button";
-  templateBtn.className = "btn btn--primary";
-  templateBtn.textContent = "Use Template";
-  templateBtn.disabled = true;
-
-  const cancelBtn = document.createElement("button");
-  cancelBtn.type = "button";
-  cancelBtn.className = "btn";
-  cancelBtn.textContent = "Cancel";
-
-  buttonRow.append(blankBtn, templateBtn, cancelBtn);
-  box.append(title, copy, modeRow, templateSelect, buttonRow);
-  overlay.append(box);
-  document.body.append(overlay);
-
-  const close = () => overlay.remove();
-  overlay.addEventListener("click", close);
-  cancelBtn.addEventListener("click", close);
-
-  const chosenSheetMode = () => (printRadio.checked ? "print" : "screen");
-  blankBtn.addEventListener("click", async () => {
-    // No `layout` key here on purpose — renderCustomSheet seeds a
-    // fresh one (createStarterLayout(), now a real D&D core stat
-    // block) the first time a character has none. Explicitly setting
-    // layout: [] here used to defeat that check (an empty array is
-    // still truthy), so new "blank" characters silently got nothing.
-    const data = createBlankCharacter(currentUserId());
-    data.sheetMode = chosenSheetMode();
-    const id = await createCharacter(data);
-    close();
-    openCharacter(id);
-  });
-
-  let templates = [];
-  try {
-    templates = await listSheetTemplates();
-  } catch (err) {
-    console.error("Failed to load sheet templates:", err);
-  }
-
-  templateSelect.innerHTML = "";
-  if (templates.length === 0) {
-    const opt = document.createElement("option");
-    opt.textContent = "No templates found";
-    templateSelect.append(opt);
-  } else {
-    templates.forEach((template, index) => {
-      const opt = document.createElement("option");
-      opt.value = String(index);
-      opt.textContent = `${template.name || "Unnamed Template"} (${template.scope === "global" ? "Global" : "Mine"})`;
-      templateSelect.append(opt);
-    });
-    templateSelect.disabled = false;
-    templateBtn.disabled = false;
-  }
-
-  templateBtn.addEventListener("click", async () => {
-    const template = templates[Number(templateSelect.value)];
-    if (!template) return;
-    const sheetTabs = cloneLayout(template.sheetTabs || []);
-    const layout = sheetTabs[0]?.layout || cloneLayout(template.layout);
-    const characterData = {
-      ...createBlankCharacter(currentUserId()),
-      sheetMode: chosenSheetMode(),
-      layout,
-    };
-    if (sheetTabs.length > 0) characterData.sheetTabs = sheetTabs;
-    const id = await createCharacter(characterData);
-    close();
-    openCharacter(id);
-  });
-}
-
-function cloneLayout(layout) {
-  return JSON.parse(JSON.stringify(layout || []));
+async function createNewBlankCharacter() {
+  // No `layout` key here on purpose — renderCustomSheet seeds a
+  // fresh one (createStarterLayout(), now a real D&D core stat
+  // block) the first time a character has none. Explicitly setting
+  // layout: [] here used to defeat that check (an empty array is
+  // still truthy), so new "blank" characters silently got nothing.
+  // Screen mode by default; changeable anytime from the sheet's own
+  // toolbar.
+  const data = createBlankCharacter(currentUserId());
+  data.sheetMode = "screen";
+  const id = await createCharacter(data);
+  openCharacter(id);
 }
 
 async function openCharacter(characterId) {
