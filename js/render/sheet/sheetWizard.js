@@ -257,10 +257,15 @@ export function availableSpellLevels(plan) {
 // `steps` is an ordered array of {id, title, isApplicable(),
 // render(container), description?, descriptionItems?,
 // unavailableMessage?}. isApplicable is re-checked on every render.
-// `stepState` is a small {index} object the caller keeps so the step
-// survives full re-renders.
+// `stepState` is a small {index, stepId?} object the caller keeps so
+// the step survives full re-renders — and, when the caller persists
+// stepId (see creationStepId/levelingStepId), across sessions too: a
+// persisted step id wins over the numeric index whenever it still
+// applies, since ids are stable while positions shift as steps
+// appear/disappear. `onNavigate` fires after every step change
+// (dots, Back, Next) so the caller can persist the new position.
 //
-//   renderStepWizardInto(steps, stepState, {title, intro}, gridFn)
+//   renderStepWizardInto(steps, stepState, {title, intro, onNavigate}, gridFn)
 
 export function applicableStepsOf(steps) {
   return steps.filter((step) => isStepApplicable(step));
@@ -294,10 +299,23 @@ export function firstIncompleteStep(steps) {
   return -1;
 }
 
-export function renderStepWizardInto(steps, stepState, { title, intro } = {}, gridFn) {
+export function renderStepWizardInto(steps, stepState, { title, intro, onNavigate } = {}, gridFn) {
   const applicableSteps = applicableStepsOf(steps);
   if (applicableSteps.length === 0) return null;
+  if (typeof stepState.stepId === "string") {
+    const resumeAt = applicableSteps.findIndex((step) => step.id === stepState.stepId);
+    if (resumeAt !== -1) stepState.index = resumeAt;
+  }
   stepState.index = clampStepIndex(applicableSteps.length, stepState.index);
+  // Single choke point for every step change — records the new
+  // position (numeric index for this render, stable id for later
+  // sessions) and notifies the caller before re-rendering.
+  const goTo = (i) => {
+    stepState.index = clampStepIndex(applicableSteps.length, i);
+    stepState.stepId = applicableSteps[stepState.index]?.id ?? null;
+    if (typeof onNavigate === "function") onNavigate(stepState);
+    gridFn();
+  };
 
   const wrap = document.createElement("section");
   wrap.className = "leveling-tab character-rules wizard";
@@ -345,7 +363,7 @@ export function renderStepWizardInto(steps, stepState, { title, intro } = {}, gr
       dots.append(dot);
       return;
     }
-    dot.addEventListener("click", () => { stepState.index = i; gridFn(); });
+    dot.addEventListener("click", () => { goTo(i); });
     dots.append(dot);
   });
   wrap.append(dots);
@@ -394,7 +412,7 @@ export function renderStepWizardInto(steps, stepState, { title, intro } = {}, gr
       back.type = "button";
       back.className = "btn";
       back.textContent = "← Back";
-      back.addEventListener("click", () => { stepState.index -= 1; gridFn(); });
+      back.addEventListener("click", () => { goTo(stepState.index - 1); });
       nav.append(back);
     }
     if (stepState.index < applicableSteps.length - 1) {
@@ -406,7 +424,7 @@ export function renderStepWizardInto(steps, stepState, { title, intro } = {}, gr
         forward.disabled = true;
         forward.title = "Make your selections on this page to continue.";
       }
-      forward.addEventListener("click", () => { stepState.index += 1; gridFn(); });
+      forward.addEventListener("click", () => { goTo(stepState.index + 1); });
       nav.append(forward);
     }
     return nav;

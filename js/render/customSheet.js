@@ -393,6 +393,19 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     // Character Setup wizard finishes. See activeTab()/renderAll() for
     // where this actually hides the tab bar and forces the wizard tab.
     character.setupComplete = false;
+    // Persist the unfinished flag right away (silently — statusEl
+    // doesn't exist yet this early): otherwise closing before Finish
+    // Setup and reopening would see a layout but no flag and jump
+    // straight to the sheet instead of resuming the wizard.
+    if (store.saveCharacterFields) {
+      store.saveCharacterFields(character.id, { setupComplete: false }).catch((err) => {
+        console.error("Failed to save setup state:", err);
+      });
+    } else if (store.saveCharacterField) {
+      store.saveCharacterField(character.id, "setupComplete", false).catch((err) => {
+        console.error("Failed to save setup state:", err);
+      });
+    }
   }
   // Anything that already had a layout before this feature existed
   // never touched the branch above, so it never got setupComplete set
@@ -412,10 +425,19 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   const expandedLevelUpRows = new Set();
   // Step position for the Character-setup and Leveling wizards — same
   // "must survive a full renderPageGrid() rebuild" reasoning as above.
-  // Kept as plain {index} objects (not just a number) so step
+  // Kept as plain {index, stepId} objects (not just a number) so step
   // definitions below can close over and mutate them directly.
-  const creationWizardState = { index: 0 };
-  const levelingWizardState = { index: 0 };
+  // stepId seeds from the character's persisted wizard progress (see
+  // persistWizardProgress below), so closing mid-wizard and reopening
+  // later resumes the same page instead of starting over.
+  const creationWizardState = {
+    index: 0,
+    stepId: typeof character.creationStepId === "string" ? character.creationStepId : null,
+  };
+  const levelingWizardState = {
+    index: 0,
+    stepId: typeof character.levelingStepId === "string" ? character.levelingStepId : null,
+  };
   // In-progress answers for whichever level's guide is currently open,
   // keyed by level so switching levels doesn't mix them up. Lives out
   // here (not as a local inside renderRulesetLevelGuide) so a value
@@ -423,7 +445,19 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // back — every Next/Back/step-dot click does a full renderPageGrid(),
   // which would otherwise reset any local variable back to its default.
   // Cleared for a level once that level's changes are actually applied.
-  const levelingPendingState = {};
+  // Seeded from the character's persisted copy (see
+  // persistWizardProgress below) so in-progress level-up picks also
+  // survive closing and reopening the sheet — cloned, so live edits
+  // here never dirty the stored snapshot except through a real save.
+  const levelingPendingState = restoreLevelingPending(character.levelingPending);
+  function restoreLevelingPending(stored) {
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) return {};
+    try {
+      return JSON.parse(JSON.stringify(stored));
+    } catch {
+      return {};
+    }
+  }
   const undoStack = [];
   const redoStack = [];
   // Multi-select: which block/field ids are currently selected. Most
@@ -971,6 +1005,46 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   }
 
   const persist = debounce(persistSheetState);
+
+  /** Persists wizard resume state — which wizard page was last open
+   *  plus in-progress level-up picks — so closing mid-wizard and
+   *  reopening later resumes instead of starting over. Deliberately
+   *  silent (no statusEl "Saving…" flicker on every step click) and
+   *  debounced; worst case on a failed write is resuming an older
+   *  page, never lost character data (answers themselves persist
+   *  through their own save paths). Reads live session state at fire
+   *  time, so a write scheduled before Apply/Finish Setup still sees
+   *  the already-cleared state rather than resurrecting it. Runs on
+   *  wizard navigation and wizard edits (see the call sites), plus one
+   *  final flush in destroy() so closing the sheet keeps the latest. */
+  function persistWizardProgress() {
+    const save = store.saveCharacterFields
+      ? (patch) => store.saveCharacterFields(character.id, patch)
+      : (patch) => Promise.all(Object.entries(patch).map(([fieldId, value]) => store.saveCharacterField(character.id, fieldId, value)));
+    const patch = {
+      creationStepId: creationWizardState.stepId ?? null,
+      levelingStepId: levelingWizardState.stepId ?? null,
+      levelingPending: snapshotPending(),
+    };
+    // Only unfinished characters need the flag re-asserted; finished
+    // ones already saved setupComplete: true at Finish Setup.
+    if (character.setupComplete === false) patch.setupComplete = false;
+    save(patch).catch((err) => {
+      console.error("Failed to save wizard progress:", err);
+    });
+  }
+  const persistWizardProgressSoon = debounce(persistWizardProgress, 800);
+
+  /** Plain-data snapshot of in-progress level-up picks ({} on
+   *  anything unserializable — never let a weird value break a
+   *  save that carries real character data alongside it). */
+  function snapshotPending() {
+    try {
+      return JSON.parse(JSON.stringify(levelingPendingState));
+    } catch {
+      return {};
+    }
+  }
 
   // See needsLevelFieldAutosave at the top of this function — this is
   // the earliest point saveWithStatus is safe to call from (it reads
@@ -2581,8 +2655,8 @@ export function renderCustomSheet(root, character, store, opts = {}) {
    *  the sheet reads from, so nothing needs to be specially undone;
    *  see getAllowedChoiceIds/applyBundleModifiers, which recompute
    *  everything from the current selection on every render anyway. */
-  function renderStepWizard(steps, stepState, { title, intro } = {}) {
-    return renderStepWizardInto(steps, stepState, { title, intro }, () => renderPageGrid());
+  function renderStepWizard(steps, stepState, { title, intro, onNavigate } = {}) {
+    return renderStepWizardInto(steps, stepState, { title, intro, onNavigate }, () => renderPageGrid());
   }
 
   /** Re-evaluates wizard Next/dot gating in place (no full re-render)
@@ -3292,7 +3366,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     if (levelingTab) activeTabId = levelingTab.id;
     // Keep the top-level mirror in sync with the canonical rules copy.
     character.rulesetId = character.rules.rulesetId;
-    await store.saveCharacterFields(character.id, { rules: character.rules, rulesetId: character.rules.rulesetId, layout: character.layout, sheetTabs: character.sheetTabs, setupComplete: true });
+    await store.saveCharacterFields(character.id, { rules: character.rules, rulesetId: character.rules.rulesetId, layout: character.layout, sheetTabs: character.sheetTabs, setupComplete: true, creationStepId: null });
     statusEl.textContent = "Saved";
     renderAll();
     // The toolbar inputs were built once at open (possibly before any
@@ -3745,6 +3819,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const wizard = renderStepWizard(steps, creationWizardState, {
       title: "Character Setup",
       intro: "Step through these once to get your character started — you can always come back and change an earlier answer.",
+      // Answers persist through their own saves; only the page
+      // position needs persisting here so reopening resumes it.
+      onNavigate: () => persistWizardProgressSoon(),
     });
     if (wizard) pageGrid.append(wizard);
   }
@@ -3764,12 +3841,21 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     // class, an existing secondary, or "__new" + pending.newClassName
     // for a brand-new multiclass (level 2+ only).
     const levelKey = String(level);
+    // A level with no in-progress picks is a fresh guide open — start
+    // at the first step rather than resuming a page left over from a
+    // different level's session (the persisted step id only applies
+    // while its level still has pending picks).
+    const hadPending = Boolean(levelingPendingState[levelKey]);
     const pending = initPendingLevelState(levelingPendingState, levelKey, {
       subclass: selectedChoiceName("subclass", "Subclass"),
       choices: {},
       className: primaryName,
       newClassName: "",
     });
+    if (!hadPending) {
+      levelingWizardState.index = 0;
+      levelingWizardState.stepId = null;
+    }
     const validClassNames = [primaryName, ...entries.map((e) => e.name), "__new"].filter(Boolean);
     if (!validClassNames.includes(pending.className)) {
       pending.className = primaryName;
@@ -4150,11 +4236,19 @@ export function renderCustomSheet(root, character, store, opts = {}) {
           syncGrantedListItems(level);
           mirrorFirstTabLayout();
           unsavedChanges = true;
+          // Clear this level's in-progress state BEFORE saving, so the
+          // stored snapshot can't resurrect picks that were just
+          // applied (and so a debounced progress write scheduled from
+          // earlier typing sees the cleared state when it fires).
+          // Stashed to restore if the save itself fails, so Apply can
+          // still be retried with picks intact.
+          const stashedPending = levelingPendingState[levelKey];
+          delete levelingPendingState[levelKey];
+          levelingWizardState.index = 0;
+          levelingWizardState.stepId = null;
           try {
-            await store.saveCharacterFields(character.id, { layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps, rules: character.rules });
+            await store.saveCharacterFields(character.id, { layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps, rules: character.rules, levelingPending: snapshotPending(), levelingStepId: null });
             unsavedChanges = false;
-            delete levelingPendingState[levelKey];
-            levelingWizardState.index = 0;
             statusEl.textContent = "Saved";
             renderAll();
           } catch (err) {
@@ -4163,6 +4257,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             character.sheetTabs = before.sheetTabs;
             character.levelUps = before.levelUps;
             character.rules = before.rules;
+            if (stashedPending !== undefined) levelingPendingState[levelKey] = stashedPending;
             feedback.textContent = "The update could not be saved. Please try again.";
             feedback.classList.add("level-guide__feedback--error");
             applyBtn.disabled = false;
@@ -4173,12 +4268,22 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     });
 
     const singleClass = !entries.length && !takingNewClass;
-    return renderStepWizard(steps, levelingWizardState, {
+    const guide = renderStepWizard(steps, levelingWizardState, {
       title: singleClass
         ? `${primaryName || "Character"} Level ${level}`
         : `${levelClass || "Class"} ${newClassLevel} · character level ${level}`,
       intro: "Step through whatever applies at this level — anything that doesn't apply is skipped automatically.",
+      onNavigate: () => persistWizardProgressSoon(),
     });
+    if (guide) {
+      // In-step edits (choice toggles, ASI/HP/notes inputs, spell
+      // picks) mutate the pending object without re-rendering or
+      // saving — catch them all here so closing mid-step keeps the
+      // picks, not just the page. Debounced, so a burst of edits is
+      // still a single small write.
+      ["input", "change", "click"].forEach((type) => guide.addEventListener(type, persistWizardProgressSoon, true));
+    }
+    return guide;
   }
 
   /** Short/Long Rest: restores feature uses by reset type. A long rest
@@ -5268,6 +5373,14 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   function   destroy() {
     window.removeEventListener("resize", onResize);
     window.removeEventListener("beforeunload", onBeforeUnload);
+    // Final flush of wizard resume state (fire-and-forget): picks made
+    // seconds before closing would otherwise wait out the debounce and
+    // never get written, so reopening would miss the very latest.
+    try {
+      persistWizardProgress();
+    } catch (err) {
+      console.error("Failed to save wizard progress on close:", err);
+    }
     // Leave the document theme clean for whatever renders next
     // (character list, another character with its own theme).
     applySheetTheme("standard", "dark");
