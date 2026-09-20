@@ -2,7 +2,7 @@
 // The sheet grid remains editable; this object is the source of truth for
 // guided creation and leveling.
 
-import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo } from "./dnd5e.js";
+import { getContentPack, getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, contentPackIdsFor, canonicalizeSourceIds } from "./dnd5e.js";
 
 export const ABILITY_IDS = ["str", "dex", "con", "int", "wis", "cha"];
 
@@ -118,11 +118,15 @@ export function classLevelsFor(state) {
 
 export function createRulesState() {
   return {
+    // rulesetId = the game SYSTEM (e.g. "dnd5e-2014") — the source
+    // level-up math and spellcasting info resolve against.
     rulesetId: null,
-    // Every source included for option lists (race/class/etc. names,
-    // bundles). rulesetId above stays the PRIMARY source — the one
-    // level-up math and spellcasting info resolve against. Migration
-    // in normalizeRulesState keeps the two in sync.
+    // rulesetIds = the CONTENT PACKS (books) included for option
+    // lists (race/class/etc. names, bundles). rulesetId above is a
+    // system; these are its books, so the two are deliberately NOT
+    // kept identical. Migration in normalizeRulesState rewrites the
+    // legacy single-rule-source saves ("homebrew"/"xanathar") to the
+    // new system + packs.
     rulesetIds: [],
     species: "",
     background: "",
@@ -150,15 +154,13 @@ export function createRulesState() {
 export function normalizeRulesState(value) {
   const defaults = createRulesState();
   const state = { ...defaults, ...(value || {}) };
-  // Included sources: migrate legacy single-ruleset saves, keep the
-  // primary inside the set, drop blanks/duplicates. Never overrides
-  // an explicit primary — an empty set simply means "nothing picked
-  // yet" and leaves rulesetId as-is.
-  const rawIds = Array.isArray(value?.rulesetIds) ? value.rulesetIds : (state.rulesetId ? [state.rulesetId] : []);
-  state.rulesetIds = [...new Set(rawIds.filter((id) => typeof id === "string" && id))];
-  if (state.rulesetIds.length > 0 && !state.rulesetIds.includes(state.rulesetId)) {
-    state.rulesetId = state.rulesetIds[0];
-  }
+  // Included sources: migrate legacy single-rule-source saves to the
+  // system + content-pack model, then dedupe and drop blanks. The
+  // primary is a system id and the included set holds book ids, so
+  // the old "primary stays inside the set" rule no longer applies.
+  const canonical = canonicalizeSourceIds(value);
+  state.rulesetId = canonical.rulesetId;
+  state.rulesetIds = [...new Set(canonical.contentPackIds.filter((id) => typeof id === "string" && id))];
   state.abilityScores = { ...defaults.abilityScores, ...(value?.abilityScores || {}) };
   state.choices = { ...(value?.choices || {}) };
   state.resourceUses = { ...(value?.resourceUses || {}) };
@@ -178,19 +180,25 @@ export function normalizeRulesState(value) {
   return state;
 }
 
-/** Every source included for option lists, oldest saves included:
- *  the stored set when present, else the legacy single primary. Pure. */
+/** Content packs included for option lists, oldest saves included:
+ *  the stored set when present, else the primary system's default
+ *  books (so a lone-system selection never faces an empty list).
+ *  Pure. */
 export function includedRulesetIds(state) {
   if (Array.isArray(state?.rulesetIds) && state.rulesetIds.length > 0) {
     return [...new Set(state.rulesetIds.filter((id) => typeof id === "string" && id))];
   }
-  return state?.rulesetId ? [state.rulesetId] : [];
+  return contentPackIdsFor(state);
 }
 
-/** The primary source — the one level-up math and spellcasting info
- *  resolve against. Pure. */
+/** The primary system — the one level-up math and spellcasting info
+ *  resolve against. Derived from the system a character's packs
+ *  belong to when no explicit primary is stored. Pure. */
 export function primaryRulesetId(state) {
-  return state?.rulesetId || includedRulesetIds(state)[0] || null;
+  const canonical = canonicalizeSourceIds(state);
+  if (canonical.rulesetId) return canonical.rulesetId;
+  const packs = contentPackIdsFor(state);
+  return packs[0] ? (getContentPack(packs[0])?.rulesetId || packs[0]) : null;
 }
 
 export function resolveRulesState(value) {  const state = normalizeRulesState(value);

@@ -7,6 +7,8 @@
 // visible to fix by hand, not silently dropped). All functions take
 // explicit inputs — the renderer supplies newId + grant-name lookup.
 
+import { contentIdMatches } from "../../data/dnd5e.js";
+
 export function ensureBundleShape(choice) {
   if (!choice.bundle) choice.bundle = { statModifiers: [], dropdownAccess: [], featureGrants: [], resourceGrants: [], choiceGroups: [] };
   if (!choice.bundle.statModifiers) choice.bundle.statModifiers = [];
@@ -652,7 +654,7 @@ export function matchLibraryForChosen(targets, libraryCache, rulesetId) {
       if (!target) return null;
       const choice = target.choices?.find((c) => c.id === target.selected);
       if (!choice) return null;
-      const lib = libraryCache.find((entry) => entry.rulesetId === rulesetId && norm(entry.name) === norm(choice.text));
+      const lib = libraryCache.find((entry) => contentIdMatches(entry.rulesetId, rulesetId) && norm(entry.name) === norm(choice.text));
       return lib ? { target, choice, lib } : null;
     })
     .filter(Boolean);

@@ -282,8 +282,8 @@
 
 .choice-row__portrait {
   flex: 0 0 auto;
-  width: 48px;
-  height: 48px;
+  width: 96px;
+  height: 96px;
   border-radius: var(--radius-sm);
   background: var(--color-bg-raised);
   overflow: hidden;

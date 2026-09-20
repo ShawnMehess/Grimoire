@@ -7272,6 +7272,92 @@ export const SUBCLASS_SUPPLEMENT = [
       "resourceGrants": [],
       "choiceGroups": []
     }
+  },
+  {
+    "key": "alchemist",
+    "name": "Alchemist",
+    "className": "Artificer",
+    "classIdentifier": "artificer",
+    "choiceId": "subclass-alchemist",
+    "bundle": {
+      "statModifiers": [],
+      "dropdownAccess": [],
+      "featureGrants": [
+        { "id": "alchemist-3-tool-proficiency", "name": "Tool Proficiency", "description": "Alchemist — 3rd-level feature.", "minLevel": 3 },
+        { "id": "alchemist-3-alchemist-spells", "name": "Alchemist Spells", "description": "Alchemist — 3rd-level feature.", "minLevel": 3 },
+        { "id": "alchemist-3-experimental-elixir", "name": "Experimental Elixir", "description": "Alchemist — 3rd-level feature.", "minLevel": 3 },
+        { "id": "alchemist-5-alchemical-savant", "name": "Alchemical Savant", "description": "Alchemist — 5th-level feature.", "minLevel": 5 },
+        { "id": "alchemist-9-restorative-reagents", "name": "Restorative Reagents", "description": "Alchemist — 9th-level feature.", "minLevel": 9 },
+        { "id": "alchemist-15-chemical-mastery", "name": "Chemical Mastery", "description": "Alchemist — 15th-level feature.", "minLevel": 15 }
+      ],
+      "resourceGrants": [],
+      "choiceGroups": []
+    }
+  },
+  {
+    "key": "armorer",
+    "name": "Armorer",
+    "className": "Artificer",
+    "classIdentifier": "artificer",
+    "choiceId": "subclass-armorer",
+    "bundle": {
+      "statModifiers": [],
+      "dropdownAccess": [],
+      "featureGrants": [
+        { "id": "armorer-3-tools-of-the-trade", "name": "Tools of the Trade", "description": "Armorer — 3rd-level feature.", "minLevel": 3 },
+        { "id": "armorer-3-armorer-spells", "name": "Armorer Spells", "description": "Armorer — 3rd-level feature.", "minLevel": 3 },
+        { "id": "armorer-3-arcane-armor", "name": "Arcane Armor", "description": "Armorer — 3rd-level feature.", "minLevel": 3 },
+        { "id": "armorer-3-armor-model", "name": "Armor Model", "description": "Armorer — 3rd-level feature.", "minLevel": 3 },
+        { "id": "armorer-5-extra-attack", "name": "Extra Attack", "description": "Armorer — 5th-level feature.", "minLevel": 5 },
+        { "id": "armorer-9-armor-modifications", "name": "Armor Modifications", "description": "Armorer — 9th-level feature.", "minLevel": 9 },
+        { "id": "armorer-15-perfected-armor", "name": "Perfected Armor", "description": "Armorer — 15th-level feature.", "minLevel": 15 }
+      ],
+      "resourceGrants": [],
+      "choiceGroups": []
+    }
+  },
+  {
+    "key": "artillerist",
+    "name": "Artillerist",
+    "className": "Artificer",
+    "classIdentifier": "artificer",
+    "choiceId": "subclass-artillerist",
+    "bundle": {
+      "statModifiers": [],
+      "dropdownAccess": [],
+      "featureGrants": [
+        { "id": "artillerist-3-tool-proficiency", "name": "Tool Proficiency", "description": "Artillerist — 3rd-level feature.", "minLevel": 3 },
+        { "id": "artillerist-3-artillerist-spells", "name": "Artillerist Spells", "description": "Artillerist — 3rd-level feature.", "minLevel": 3 },
+        { "id": "artillerist-3-eldritch-cannon", "name": "Eldritch Cannon", "description": "Artillerist — 3rd-level feature.", "minLevel": 3 },
+        { "id": "artillerist-5-arcane-firearm", "name": "Arcane Firearm", "description": "Artillerist — 5th-level feature.", "minLevel": 5 },
+        { "id": "artillerist-9-explosive-cannon", "name": "Explosive Cannon", "description": "Artillerist — 9th-level feature.", "minLevel": 9 },
+        { "id": "artillerist-15-fortified-position", "name": "Fortified Position", "description": "Artillerist — 15th-level feature.", "minLevel": 15 }
+      ],
+      "resourceGrants": [],
+      "choiceGroups": []
+    }
+  },
+  {
+"key": "battlesmith",
+    "name": "Battle Smith",
+    "className": "Artificer",
+    "classIdentifier": "artificer",
+"choiceId": "subclass-battlesmith",
+    "bundle": {
+      "statModifiers": [],
+      "dropdownAccess": [],
+      "featureGrants": [
+        { "id": "battle-smith-3-tool-proficiency", "name": "Tool Proficiency", "description": "Battle Smith — 3rd-level feature.", "minLevel": 3 },
+        { "id": "battle-smith-3-battle-smith-spells", "name": "Battle Smith Spells", "description": "Battle Smith — 3rd-level feature.", "minLevel": 3 },
+        { "id": "battle-smith-3-battle-ready", "name": "Battle Ready", "description": "Battle Smith — 3rd-level feature.", "minLevel": 3 },
+        { "id": "battle-smith-3-steel-defender", "name": "Steel Defender", "description": "Battle Smith — 3rd-level feature.", "minLevel": 3 },
+        { "id": "battle-smith-5-extra-attack", "name": "Extra Attack", "description": "Battle Smith — 5th-level feature.", "minLevel": 5 },
+        { "id": "battle-smith-9-arcane-jolt", "name": "Arcane Jolt", "description": "Battle Smith — 9th-level feature.", "minLevel": 9 },
+        { "id": "battle-smith-15-improved-defender", "name": "Improved Defender", "description": "Battle Smith — 15th-level feature.", "minLevel": 15 }
+      ],
+      "resourceGrants": [],
+      "choiceGroups": []
+    }
   }
 ];
 
@@ -7375,6 +7461,10 @@ export const SUBCLASS_CHOICE_NAMES = [
   "The Hexblade",
   "The Undead",
   "The Undying",
+  "Alchemist",
+  "Armorer",
+  "Artillerist",
+  "Battle Smith",
   "Bladesinging",
   "Chronurgy Magic",
   "Graviturgy Magic",
@@ -7388,4 +7478,94 @@ export const SUBCLASS_CHOICE_NAMES = [
   "School of Necromancy",
   "School of Transmutation",
   "War Magic"
+,
+
+  ,
+  {
+    "key": "alchemist",
+    "name": "Alchemist",
+    "className": "Artificer",
+    "classIdentifier": "artificer",
+    "choiceId": "subclass-alchemist",
+    "bundle": {
+      "statModifiers": [],
+      "dropdownAccess": [],
+      "featureGrants": [
+        { "id": "alchemist-3-tool-proficiency", "name": "Tool Proficiency", "description": "Alchemist — 3rd-level feature.", "minLevel": 3 },
+        { "id": "alchemist-3-alchemist-spells", "name": "Alchemist Spells", "description": "Alchemist — 3rd-level feature.", "minLevel": 3 },
+        { "id": "alchemist-3-experimental-elixir", "name": "Experimental Elixir", "description": "Alchemist — 3rd-level feature.", "minLevel": 3 },
+        { "id": "alchemist-5-alchemical-savant", "name": "Alchemical Savant", "description": "Alchemist — 5th-level feature.", "minLevel": 5 },
+        { "id": "alchemist-9-restorative-reagents", "name": "Restorative Reagents", "description": "Alchemist — 9th-level feature.", "minLevel": 9 },
+        { "id": "alchemist-15-chemical-mastery", "name": "Chemical Mastery", "description": "Alchemist — 15th-level feature.", "minLevel": 15 }
+      ],
+      "resourceGrants": [],
+      "choiceGroups": []
+    }
+  },
+  {
+    "key": "armorer",
+    "name": "Armorer",
+    "className": "Artificer",
+    "classIdentifier": "artificer",
+    "choiceId": "subclass-armorer",
+    "bundle": {
+      "statModifiers": [],
+      "dropdownAccess": [],
+      "featureGrants": [
+        { "id": "armorer-3-tools-of-the-trade", "name": "Tools of the Trade", "description": "Armorer — 3rd-level feature.", "minLevel": 3 },
+        { "id": "armorer-3-armorer-spells", "name": "Armorer Spells", "description": "Armorer — 3rd-level feature.", "minLevel": 3 },
+        { "id": "armorer-3-arcane-armor", "name": "Arcane Armor", "description": "Armorer — 3rd-level feature.", "minLevel": 3 },
+        { "id": "armorer-3-armor-model", "name": "Armor Model", "description": "Armorer — 3rd-level feature.", "minLevel": 3 },
+        { "id": "armorer-5-extra-attack", "name": "Extra Attack", "description": "Armorer — 5th-level feature.", "minLevel": 5 },
+        { "id": "armorer-9-armor-modifications", "name": "Armor Modifications", "description": "Armorer — 9th-level feature.", "minLevel": 9 },
+        { "id": "armorer-15-perfected-armor", "name": "Perfected Armor", "description": "Armorer — 15th-level feature.", "minLevel": 15 }
+      ],
+      "resourceGrants": [],
+      "choiceGroups": []
+    }
+  },
+  {
+    "key": "artillerist",
+    "name": "Artillerist",
+    "className": "Artificer",
+    "classIdentifier": "artificer",
+    "choiceId": "subclass-artillerist",
+    "bundle": {
+      "statModifiers": [],
+      "dropdownAccess": [],
+      "featureGrants": [
+        { "id": "artillerist-3-tool-proficiency", "name": "Tool Proficiency", "description": "Artillerist — 3rd-level feature.", "minLevel": 3 },
+        { "id": "artillerist-3-artillerist-spells", "name": "Artillerist Spells", "description": "Artillerist — 3rd-level feature.", "minLevel": 3 },
+        { "id": "artillerist-3-eldritch-cannon", "name": "Eldritch Cannon", "description": "Artillerist — 3rd-level feature.", "minLevel": 3 },
+        { "id": "artillerist-5-arcane-firearm", "name": "Arcane Firearm", "description": "Artillerist — 5th-level feature.", "minLevel": 5 },
+        { "id": "artillerist-9-explosive-cannon", "name": "Explosive Cannon", "description": "Artillerist — 9th-level feature.", "minLevel": 9 },
+        { "id": "artillerist-15-fortified-position", "name": "Fortified Position", "description": "Artillerist — 15th-level feature.", "minLevel": 15 }
+      ],
+      "resourceGrants": [],
+      "choiceGroups": []
+    }
+  },
+  {
+    "key": "battle-smith",
+    "name": "Battle Smith",
+    "className": "Artificer",
+    "classIdentifier": "artificer",
+    "choiceId": "subclass-battle-smith",
+    "bundle": {
+      "statModifiers": [],
+      "dropdownAccess": [],
+      "featureGrants": [
+        { "id": "battle-smith-3-tool-proficiency", "name": "Tool Proficiency", "description": "Battle Smith — 3rd-level feature.", "minLevel": 3 },
+        { "id": "battle-smith-3-battle-smith-spells", "name": "Battle Smith Spells", "description": "Battle Smith — 3rd-level feature.", "minLevel": 3 },
+        { "id": "battle-smith-3-battle-ready", "name": "Battle Ready", "description": "Battle Smith — 3rd-level feature.", "minLevel": 3 },
+        { "id": "battle-smith-3-steel-defender", "name": "Steel Defender", "description": "Battle Smith — 3rd-level feature.", "minLevel": 3 },
+        { "id": "battle-smith-5-extra-attack", "name": "Extra Attack", "description": "Battle Smith — 5th-level feature.", "minLevel": 5 },
+        { "id": "battle-smith-9-arcane-jolt", "name": "Arcane Jolt", "description": "Battle Smith — 9th-level feature.", "minLevel": 9 },
+        { "id": "battle-smith-15-improved-defender", "name": "Improved Defender", "description": "Battle Smith — 15th-level feature.", "minLevel": 15 }
+      ],
+      "resourceGrants": [],
+      "choiceGroups": []
+    }
+  }
+  
 ];

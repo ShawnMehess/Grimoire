@@ -70,11 +70,18 @@ const FIGHTING_STYLES = {
   "Great Weapon Fighting": "When you roll a 1 or 2 on a damage die for a two-handed/melee-versatile attack, you can reroll the die (must use the new roll).",
   Protection: "When a creature you can see attacks a target other than you within 5 feet while you wield a shield, use your reaction to impose disadvantage.",
   "Two-Weapon Fighting": "When you engage in two-weapon fighting, you can add your ability modifier to the damage of the second attack.",
+  "Blind Fighting": "You have blindsight with a range of 10 feet. You can see anything in range that isn't behind total cover, even blinded or in darkness, plus invisible creatures unless hidden.",
+  Interception: "When a creature you can see hits another target within 5 feet of you, use your reaction to reduce the damage by 1d10 + proficiency bonus (min 0). Must wield a shield or simple/martial weapon.",
+  "Superior Technique": "Learn one Battle Master maneuver; gain one d6 superiority die (short/long rest). Save DC = 8 + proficiency + Str or Dex (your choice).",
+  "Thrown Weapon Fighting": "Draw a thrown weapon as part of the attack; +2 damage on ranged thrown-weapon hits.",
+  "Unarmed Fighting": "Unarmed strikes deal 1d6 + Str bludgeoning (d8 if no weapons/shield). At the start of each turn deal 1d4 to one grappled creature.",
+  "Blessed Warrior": "Learn two Cleric cantrips (Cha-based, count as Paladin spells); replace one per Paladin level.",
+  "Druidic Warrior": "Learn two Druid cantrips (Wis-based, count as Ranger spells); replace one per Ranger level.",
 };
 const FS_LISTS = {
-  Fighter: ["Archery", "Defense", "Dueling", "Great Weapon Fighting", "Protection", "Two-Weapon Fighting"],
-  Paladin: ["Defense", "Dueling", "Great Weapon Fighting", "Protection"],
-  Ranger: ["Archery", "Defense", "Dueling", "Two-Weapon Fighting"],
+  Fighter: ["Archery", "Defense", "Dueling", "Great Weapon Fighting", "Protection", "Two-Weapon Fighting", "Blind Fighting", "Interception", "Superior Technique", "Thrown Weapon Fighting", "Unarmed Fighting"],
+  Paladin: ["Defense", "Dueling", "Great Weapon Fighting", "Protection", "Blessed Warrior", "Blind Fighting", "Interception"],
+  Ranger: ["Archery", "Defense", "Dueling", "Two-Weapon Fighting", "Blind Fighting", "Druidic Warrior", "Thrown Weapon Fighting"],
 };
 
 function fightingStyleGroup(prefix, minLevel, styles) {
@@ -86,7 +93,7 @@ function fightingStyleGroup(prefix, minLevel, styles) {
   };
 }
 
-// --- Sorcerer Metamagic (2014 PHB 8) ------------------------------------------
+// --- Sorcerer Metamagic (2014 PHB 8 + TCE Seeking/Transmuted) -------------
 const METAMAGIC = {
   "Careful Spell": "Spend 1 sorcery point; chosen creatures automatically succeed on the spell's save.",
   "Distant Spell": "Spend 1 sorcery point to double range (or make touch 30 ft).",
@@ -96,9 +103,11 @@ const METAMAGIC = {
   "Quickened Spell": "Spend 2 sorcery points to cast a 1-action spell as a bonus action.",
   "Subtle Spell": "Spend 1 sorcery point to cast without somatic/verbal components.",
   "Twinned Spell": "Spend sorcery points equal to the spell's level to target a second creature.",
+  "Seeking Spell": "Spend 2 sorcery points to reroll a missed spell attack (must use the new roll). Usable even with another Metamagic on the spell.",
+  "Transmuted Spell": "Spend 1 sorcery point to change a spell's acid/cold/fire/lightning/poison/thunder damage to another listed type.",
 };
 
-// --- Warlock invocations (2014 PHB, with prerequisites) ------------------------
+// --- Warlock invocations (2014 PHB + TCE, with prerequisites) -------------------
 const INVOCATIONS = [
   ["Agonizing Blast", "Add CHA modifier to Eldritch Blast damage. Prerequisite: Eldritch Blast cantrip."],
   ["Armor of Shadows", "Cast Mage Armor on yourself at will (no slot/materials)."],
@@ -117,11 +126,20 @@ const INVOCATIONS = [
   ["Repelling Blast", "Push Large-or-smaller creatures hit by Eldritch Blast 10 feet. Prerequisite: Eldritch Blast cantrip."],
   ["Thirsting Blade", "Extra attack with pact weapon. Prerequisite: 5th level, Pact of the Blade."],
   ["Whispers of the Grave", "Cast Speak with Dead at will (no slot). Prerequisite: 9th level."],
+  ["Bond of the Talisman", "You or the talisman's wearer can action-teleport to the nearest unoccupied space by the other (same plane), proficiency times/rest. Prerequisite: 12th level, Pact of the Talisman."],
+  ["Eldritch Mind", "Advantage on Constitution saves to maintain concentration."],
+  ["Far Scribe", "A page in your Book of Shadows holds names (up to proficiency); cast Sending to a named creature without slot/components by writing the message. Prerequisite: 5th level, Pact of the Tome."],
+  ["Gift of the Protectors", "A page in your Book of Shadows holds names (up to proficiency); a named creature reduced to 0 HP drops to 1 HP instead (once until long rest). Prerequisite: 9th level, Pact of the Tome."],
+  ["Investment of the Chain Master", "Your familiar gains 40-ft fly or swim speed; bonus action to command Attack; attacks count as magical; saves use your DC; reaction grants it resistance when damaged. Prerequisite: Pact of the Chain."],
+  ["Protection of the Talisman", "When the wearer fails a save, add d4 (proficiency times/rest). Prerequisite: 7th level, Pact of the Talisman."],
+  ["Rebuke of the Talisman", "When the wearer is hit by an attacker you see within 30 ft, use your reaction to deal proficiency-bonus psychic damage and push it 10 ft. Prerequisite: Pact of the Talisman."],
+  ["Undying Servitude", "Cast Animate Dead once without a slot (long rest to reuse). Prerequisite: 5th level."],
 ];
 const PACT_BOONS = {
   "Pact of the Chain": "Gain a familiar (imp, pseudodragon, quasit, or sprite) with extra options.",
   "Pact of the Blade": "Create a pact weapon in your hand; proficient with it; extra attack via Thirsting Blade.",
   "Pact of the Tome": "Your Book of Shadows holds three cantrips from any class list; Book of Ancient Secrets lets you inscribe rituals.",
+  "Pact of the Talisman": "Your patron gives you an amulet. When the wearer fails an ability check, add d4 (proficiency times/rest). 1-hour ceremony replaces a lost talisman.",
 };
 
 // --- Free-form racial ASIs ------------------------------------------------------

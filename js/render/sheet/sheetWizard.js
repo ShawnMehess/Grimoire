@@ -5,6 +5,7 @@
 // step navigation, and spell-catalog lookups live here testably.
 
 import { briefDescription } from "./sheetMechanics.js";
+import { contentIdMatches } from "../../data/dnd5e.js";
 
 export function isStepApplicable(step) {
   return !step.isApplicable || step.isApplicable();
@@ -465,16 +466,17 @@ export function renderStepWizardInto(steps, stepState, { title, intro } = {}, gr
 }
 
 /** Bundle-library class/race/background names tagged to one or more
- *  rulesets — unions across every included id (first-seen order),
- *  falling back to the hardcoded list (Class only) when nothing is
- *  imported yet. Accepts a single id or an array. */
+ *  content packs (or whole rulesets) — unions across every included
+ *  id (first-seen order), falling back to the hardcoded list (Class
+ *  only) when nothing is imported yet. Accepts a single id or an
+ *  array; legacy tags ("homebrew") match their new pack ("phb"). */
 export function rulesetOptionNamesIn(libraryCache, rulesetIdOrIds, category, fallback = []) {
   const ids = (Array.isArray(rulesetIdOrIds) ? rulesetIdOrIds : [rulesetIdOrIds]).filter(Boolean);
   const seen = new Set();
   const fromBundles = [];
-  ids.forEach((rulesetId) => {
+  ids.forEach((id) => {
     libraryCache
-      .filter((entry) => entry.rulesetId === rulesetId && entry.category === category)
+      .filter((entry) => entry.category === category && contentIdMatches(entry.rulesetId, id))
       .map((entry) => entry.name)
       .forEach((name) => {
         if (!seen.has(name)) {
@@ -748,14 +750,14 @@ export function catalogEntryInfoIn(catalogs = [], keywords = [], name) {
   return null;
 }
 
-/** Look up a Bundle Library entry by category+name+ruleset, falling
- *  back to the sheet's own starter field (baked-in bundles live on
- *  the dropdown's choice, not in any library). `starterLookup`
+/** Look up a Bundle Library entry by category+name+content pack,
+ *  falling back to the sheet's own starter field (baked-in bundles
+ *  live on the dropdown's choice, not in any library). `starterLookup`
  *  maps a category to its starter dropdown field (or null). */
 export function bundleForIn(category, name, rulesetId, libraryCache = [], starterLookup = () => null) {
   if (!name) return null;
   const norm = (s) => (s || "").trim().toLowerCase();
-  const fromLibrary = libraryCache.find((entry) => entry.rulesetId === rulesetId
+  const fromLibrary = libraryCache.find((entry) => contentIdMatches(entry.rulesetId, rulesetId)
     && norm(entry.category) === norm(category) && norm(entry.name) === norm(name));
   if (fromLibrary) return fromLibrary;
   const target = CATEGORY_FIELD[category] && starterLookup(category);

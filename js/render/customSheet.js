@@ -62,7 +62,7 @@ import { openFormulaEditor } from "./formulaEditor.js";
 import { openBundleLibraryManager } from "./bundleLibraryEditor.js";
 import { openCatalogLibraryManager } from "./catalogLibraryEditor.js";
 import { openCatalogBrowser } from "./catalogBrowser.js";
-import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets, hitDieFor, multiclassSlotsFor, classNamesIn, subclassesAcrossRulesets } from "../data/dnd5e.js";
+import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets, listContentPacks, getContentPack, defaultContentPackIds, hitDieFor, multiclassSlotsFor, classNamesIn, subclassesAcrossRulesets, contentIdMatches } from "../data/dnd5e.js";
 import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor, classLevelsFor, meetsMulticlassPrereq, effectiveScoresFor, multiclassPrereqReason, includedRulesetIds, primaryRulesetId } from "../data/rulesEngine.js";
 import { SUBCLASS_SUPPLEMENT } from "../data/subclassContent.js";
 import { stripSecondaryClassBundle } from "../data/contentFixups.js";
@@ -645,13 +645,14 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     return row;
   }
 
-  // Rulesets are data packs. The generic level-up guide and subclass
-  // dropdown use this saved selection instead of hardcoded class logic.
-  // Single source of truth is character.rules (rulesetId = PRIMARY
-  // source for level-up math, rulesetIds = every included source for
-  // option lists); the top-level character.rulesetId mirror exists for
-  // older saves and is kept in sync on every write (plus backfilled in
-  // normalizeTabs), so either read path agrees.
+  // Rulesets are game systems; content comes from books (content
+  // packs) under them. The generic level-up guide and subclass
+  // dropdown use this saved selection instead of hardcoded class
+  // logic. Single source of truth is character.rules (rulesetId = the
+  // PRIMARY SYSTEM for level-up math, rulesetIds = the CONTENT PACKS
+  // included for option lists); the top-level character.rulesetId
+  // mirror exists for older saves and is kept in sync on every write
+  // (plus backfilled in normalizeTabs), so either read path agrees.
   function currentRulesetId() {
     return primaryRulesetId(character.rules) || character.rulesetId || null;
   }
@@ -659,14 +660,16 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const ids = includedRulesetIds(character.rules);
     if (ids.length > 0) return ids;
     const legacy = character.rulesetId;
-    return legacy ? [legacy] : [];
+    return legacy ? includedRulesetIds({ rulesetId: legacy }) : [];
   }
   function setRulesetId(next) {
     character.rulesetId = next;
     character.rules = normalizeRulesState(character.rules);
     character.rules.rulesetId = next;
-    if (next && !includedRulesetIds(character.rules).includes(next)) {
-      character.rules.rulesetIds = [next, ...includedRulesetIds(character.rules)];
+    // A system with no books checked yet picks up its default books,
+    // so a lone-system selection never leaves an empty content list.
+    if (next && includedRulesetIds(character.rules).length === 0) {
+      character.rules.rulesetIds = defaultContentPackIds(next);
     }
     // Save BOTH copies: "rules" alone would leave the top-level mirror
     // stale on reload (which is exactly how the toolbar used to come
@@ -674,14 +677,19 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     saveWithStatus("rules", character.rules);
     saveWithStatus("rulesetId", character.rulesetId);
   }
-  /** Sets the full included set (wizard page 1). Primary stays put
-   *  when still included, else falls to the first included source. */
+  /** Sets the included content books (wizard page 1). The primary
+   *  system stays put when it still owns one of the books, else falls
+   *  to whatever system the first checked book belongs to. */
   function setIncludedRulesetIds(nextIds) {
     const ids = [...new Set((nextIds || []).filter(Boolean))];
-    const prevPrimary = currentRulesetId();
+    const prevRuleset = (() => {
+      const prev = currentRulesetId();
+      return getRuleset(prev) ? prev : null;
+    })();
     character.rules = normalizeRulesState(character.rules);
     character.rules.rulesetIds = ids;
-    character.rules.rulesetId = ids.includes(prevPrimary) ? prevPrimary : (ids[0] || null);
+    const firstPack = getContentPack(ids.find((id) => getContentPack(id)) || "");
+    character.rules.rulesetId = prevRuleset || (firstPack?.rulesetId || prevRuleset);
     character.rulesetId = character.rules.rulesetId;
     saveWithStatus("rules", character.rules);
     saveWithStatus("rulesetId", character.rulesetId);
@@ -690,14 +698,14 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     rulesetSelect.value = currentRulesetId() || "";
   }
   const rulesetSelect = buildRulesetSelect(listRulesets(), currentRulesetId() || "");
-  rulesetSelect.title = "Primary ruleset for guided leveling (page 1 of Character Setup picks which sources are included)";
+  rulesetSelect.title = "Game system for guided leveling (page 1 of Character Setup picks which content books are included)";
   rulesetSelect.addEventListener("change", () => {
     setRulesetId(rulesetSelect.value || null);
     const syncMessage = syncRulesetBundles(includedRulesetIdsFor());
     renderAll();
     if (syncMessage) statusEl.textContent = syncMessage;
   });
-  displayRow("Primary ruleset", rulesetSelect);
+  displayRow("Ruleset", rulesetSelect);
 
   // Re-run the ruleset auto-sync on demand — e.g. after importing more
   // bundles for a ruleset that's already selected, since selecting the
@@ -2531,12 +2539,20 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const subclassField = findStarterField("subclass", "Subclass");
     const classChoice = classField?.choices?.find((c) => c.text === className);
     const fromBundle = subclassNamesFromBundleRule(classChoice, subclassField);
-    // Union across every included source: an imported bundle rule
-    // plus each included ruleset's own list (Homebrew, Xanathar's,
-    // ...), deduplicated. Level is the lowest known unlock.
+    // Union across every included content book: an imported bundle rule
+    // plus each included pack's own list (PHB, Xanathar's, ...),
+    // deduplicated. Level is the lowest known unlock. Book gating: a
+    // class with known pack metadata shows only the subclasses its
+    // included packs contribute; classes with no metadata (homebrew
+    // imports) keep their full bundle list.
     const across = subclassesAcrossRulesets(className, includedRulesetIdsFor());
+    const gated = new Set(across.subclasses);
+    let bundleSubs = fromBundle?.subclasses || [];
+    if (gated.size > 0 && bundleSubs.length) {
+      bundleSubs = bundleSubs.filter((name) => gated.has(name));
+    }
     const seen = new Set();
-    const subclasses = [...(fromBundle?.subclasses || []), ...across.subclasses]
+    const subclasses = [...bundleSubs, ...across.subclasses]
       .filter((name) => (seen.has(name) ? false : (seen.add(name), true)));
     const levels = [fromBundle?.subclassLevel, across.subclassLevel].filter(Number.isFinite);
     if (!subclasses.length) return { subclasses: [], subclassLevel: Infinity };
@@ -2761,7 +2777,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       // wins when explicitly imported.
       for (const id of lookupIds) {
         const fromLibrary = (bundleLibraryCache || []).find((entry) =>
-          entry.rulesetId === id
+          contentIdMatches(entry.rulesetId, id)
           && norm(entry.category) === "feat" && norm(entry.name) === norm(name));
         if (fromLibrary) return fromLibrary;
       }
@@ -2769,7 +2785,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     }
     for (const id of lookupIds) {
       const fromLibrary = (bundleLibraryCache || []).find((entry) =>
-        entry.rulesetId === id
+        contentIdMatches(entry.rulesetId, id)
         && norm(entry.category) === norm(category) && norm(entry.name) === norm(name));
       if (fromLibrary) return fromLibrary;
     }
@@ -3130,7 +3146,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const ids = (Array.isArray(rulesetIdOrIds) ? rulesetIdOrIds : [rulesetIdOrIds]).filter(Boolean);
     if (ids.length === 0) return null;
     const allFields = flattenGlobalFields();
-    const rulesetBundles = bundleLibraryCache.filter((entry) => ids.includes(entry.rulesetId));
+    const rulesetBundles = bundleLibraryCache.filter((entry) => contentIdMatches(entry.rulesetId, ids));
     let applied = 0;
     rulesetBundleMatches(allFields, rulesetBundles).forEach(({ choice, lib }) => {
       if (applyBundleLibraryToChoice(lib, choice, allFields)) applied++;
@@ -3419,26 +3435,22 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const steps = [
       {
         id: "ruleset",
-        title: "Rulesets",
-        description: "Check every source your table uses — Homebrew, Xanathar's Guide, or both. Checked sources combine on later pages; the first checked is primary for level-up math.",
-        isComplete: () => includedRulesetIds(state).length > 0,
+        title: "Ruleset & Content",
+        description: "Pick the game system (ruleset), then check every content book your table uses. Book options combine on later pages; each book's options are only visible while it's checked.",
+        isComplete: () => includedRulesetIds(state).length > 0 && Boolean(primaryRulesetId(state)),
         render(container) {
           renderRulesetStepInto(container, state, {
             listRulesetsFn: () => listRulesets(),
+            listContentPacksFn: (rid) => listContentPacks(rid),
+            defaultContentPackIdsFn: (rid) => defaultContentPackIds(rid),
             includedIds: includedRulesetIds(state),
             primaryId: primaryRulesetId(state),
             hasDownstreamChoices: !!(state.species || state.className || state.subclass || state.background),
             confirmFn: (msg) => window.confirm(msg),
-            updateIdsFn: (nextIds, opts) => {
-              const prevIds = includedRulesetIds(state);
+            setPrimaryFn: (rulesetId, opts) => {
               const prevPrimary = primaryRulesetId(state);
-              const removed = prevIds.filter((id) => !nextIds.includes(id));
-              const primaryChanged = (nextIds.includes(prevPrimary) ? prevPrimary : (nextIds[0] || null)) !== prevPrimary;
-              // Adding a source never disturbs existing picks — only
-              // removing one (or switching primary) can strand them,
-              // so only then confirm + clear downstream choices.
-              if ((removed.length > 0 || primaryChanged) && (state.species || state.className || state.subclass || state.background)) {
-                if (!window.confirm("Changing sources clears your Race, Class, Subclass, and Background choices below, since those come from a specific source. Continue?")) {
+              if (rulesetId !== prevPrimary && (state.species || state.className || state.subclass || state.background)) {
+                if (!window.confirm("Changing the ruleset clears your Race, Class, Subclass, and Background choices below. Continue?")) {
                   renderPageGrid();
                   return;
                 }
@@ -3446,13 +3458,35 @@ export function renderCustomSheet(root, character, store, opts = {}) {
                 state.className = "";
                 state.subclass = "";
                 state.background = "";
-                character.rulesetId = nextIds.includes(prevPrimary) ? prevPrimary : (nextIds[0] || null);
+              }
+              setRulesetId(rulesetId);
+              saveRules();
+              if (opts?.rerender === false) return;
+              const syncMessage = syncRulesetBundles(includedRulesetIdsFor());
+              renderPageGrid();
+              if (syncMessage) statusEl.textContent = syncMessage;
+            },
+            updateIdsFn: (nextIds, opts) => {
+              const prevIds = includedRulesetIds(state);
+              const removed = prevIds.filter((id) => !nextIds.includes(id));
+              // Adding a book never disturbs existing picks — only
+              // removing one can strand them, so only then confirm +
+              // clear downstream choices.
+              if (removed.length > 0 && (state.species || state.className || state.subclass || state.background)) {
+                if (!window.confirm("Removing a content book can strand your Race, Class, Subclass, and Background choices below if they only come from that book. Continue?")) {
+                  renderPageGrid();
+                  return;
+                }
+                state.species = "";
+                state.className = "";
+                state.subclass = "";
+                state.background = "";
               }
               setIncludedRulesetIds(nextIds);
               saveRules();
-              // Skipped when persisting mid-render (single-source
-              // auto-select): the in-progress render paints it, and
-              // bundle sync waits for a real user action.
+              // Skipped when persisting mid-render (auto-select): the
+              // in-progress render paints it, and bundle sync waits
+              // for a real user action.
               if (opts?.rerender === false) return;
               const syncMessage = syncRulesetBundles(nextIds);
               renderPageGrid();

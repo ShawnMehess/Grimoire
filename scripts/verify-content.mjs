@@ -299,7 +299,7 @@ function featListWith(namesAndLevels) {
       selectByText(fields, "Class", b.className);
       selectByText(fields, "Race", b.race);
       selectByText(fields, "Background", b.bg);
-      const plan = getLevelUpPlan("homebrew", b.className, 20);
+      const plan = getLevelUpPlan("dnd5e-2014", b.className, 20);
       const sl = plan?.subclassLevel || 3;
       const choicesStore = {};
       const feats = [];
@@ -347,7 +347,7 @@ function featListWith(namesAndLevels) {
   for (const e of DEFAULT_CONTENT.classEntries) {
     const fields = freshFields();
     selectByText(fields, "Class", e.name);
-    const plan = getLevelUpPlan("homebrew", e.name, 20);
+    const plan = getLevelUpPlan("dnd5e-2014", e.name, 20);
     if (!plan) { fail(`${e.name}: no level-up plan (bad ruleset id?)`); continue; }
     const sl = plan.subclassLevel || 3;
     const sub = fields.find((f) => f.label === "Subclass");
@@ -381,7 +381,7 @@ function featListWith(namesAndLevels) {
   const cls = (n) => FIXED_CLASS_ENTRIES.find((e) => e.name === n)?.bundle;
   const race = (n) => FIXED_RACE_ENTRIES.find((e) => e.name === n)?.bundle;
 
-  // Fighting styles replaced the FEATURE_SELECT stubs (6/4/4 options).
+  // Fighting styles replaced the FEATURE_SELECT stubs (11/7/7 options with TCE).
   const fs = (n, count) => {
     const g = group(cls(n), `${n.toLowerCase()}-fighting-style`);
     if (!g || g.options.length !== count) fail(`${n}: fighting-style picker missing (want ${count} options)`);
@@ -389,7 +389,7 @@ function featListWith(namesAndLevels) {
       fail(`${n}: stale Fighting Style stub note still present`);
     }
   };
-  fs("Fighter", 6); fs("Paladin", 4); fs("Ranger", 4);
+  fs("Fighter", 11); fs("Paladin", 7); fs("Ranger", 7);
 
   // Expertise replaced the SKILL_EXPERTISE stubs (Rogue L1/L6, Bard L3/L10).
   for (const [n, ids] of [["Rogue", ["rogue-expertise-0", "rogue-expertise-1"]], ["Bard", ["bard-expertise-0", "bard-expertise-1"]]]) {
@@ -402,10 +402,10 @@ function featListWith(namesAndLevels) {
     }
   }
 
-  // Sorcerer Metamagic: L3 pick-2, L10/L17 pick-1, 8 options each.
+  // Sorcerer Metamagic: L3 pick-2, L10/L17 pick-1, 10 options each (8 PHB + 2 TCE).
   const mm = ["sorcerer-metamagic-0", "sorcerer-metamagic-1", "sorcerer-metamagic-2"]
     .map((id) => group(cls("Sorcerer"), id));
-  if (mm.some((g) => !g) || mm[0].options.length !== 8 || mm[0].minSelections !== 2) {
+  if (mm.some((g) => !g) || mm[0].options.length !== 10 || mm[0].minSelections !== 2) {
     fail("Sorcerer: metamagic pickers missing/misshapen");
   }
   if ((cls("Sorcerer")?.featureGrants || []).some((f) => /FEATURE_SELECT/.test(f.description || "") && /Metamagic/.test(f.name || ""))) {
@@ -414,9 +414,9 @@ function featListWith(namesAndLevels) {
 
   // Warlock: invocation tiers + pact boon; Mystic Arcanum stays a note.
   const invo = (cls("Warlock")?.choiceGroups || []).filter((g) => g.id.startsWith("warlock-invocations-"));
-  if (invo.length !== 7 || !invo.every((g) => g.options.length >= 12)) fail("Warlock: invocation tier pickers missing");
+  if (invo.length !== 7 || !invo.every((g) => g.options.length >= 20)) fail("Warlock: invocation tier pickers missing");
   const pact = group(cls("Warlock"), "warlock-pact-boon");
-  if (!pact || pact.options.length !== 3) fail("Warlock: pact boon picker missing");
+  if (!pact || pact.options.length !== 4) fail("Warlock: pact boon picker missing");
   if (!(cls("Warlock")?.featureGrants || []).some((f) => /Mystic Arcanum/.test(f.name || ""))) {
     fail("Warlock: Mystic Arcanum notes should remain (free spell choice)");
   }

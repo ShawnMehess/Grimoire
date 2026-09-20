@@ -41,60 +41,145 @@ export function bucketGroupsByCategory(groups, categories, categorizeFn) {
 }
 
 export function renderRulesetStepInto(container, state, deps) {
-  const { listRulesetsFn, includedIds = [], primaryId = null, updateIdsFn } = deps;
-  const sources = listRulesetsFn();
-  if (sources.length === 0) {
+  const {
+    listRulesetsFn, listContentPacksFn = () => [],
+    defaultContentPackIdsFn = () => [],
+    primaryId = null, includedIds = [], updateIdsFn, setPrimaryFn,
+  } = deps;
+  const systems = listRulesetsFn();
+  if (systems.length === 0) {
     const note = document.createElement("p");
     note.className = "leveling-tab__intro";
     note.textContent = "No rulesets found.";
     container.append(note);
     return;
   }
-  // One checkbox per source — checking more combines their options
-  // on later pages rather than swapping lists. Auto-select the only
-  // source so a single-source table never faces an empty checklist.
-  // Persist-only here (no re-render): this runs mid-render, and the
-  // list below paints the checked box in this same pass.
-  let ids = [...new Set((includedIds || []).filter(Boolean))];
-  if (ids.length === 0 && sources.length === 1) {
-    ids = [sources[0].id];
-    updateIdsFn(ids, { rerender: false });
+  // One game system (ruleset) per table; its content comes from the
+  // books checked below. Auto-select the only system so a single-
+  // system table never faces an empty picker. Persist-only here (no
+  // re-render): the rest of this step paints the selection in the
+  // same pass.
+  const primary = (primaryId && systems.some((s) => s.id === primaryId)) ? primaryId : systems[0].id;
+  if (primary !== primaryId && systems.length === 1) {
+    setPrimaryFn(primary, { rerender: false });
   }
+
+  // The ruleset section: a radio list when more than one system
+  // exists, a single selected row otherwise.
+  if (systems.length === 1) {
+    const banner = document.createElement("div");
+    banner.className = "choice-row choice-row--selected";
+    const body = document.createElement("div");
+    body.className = "choice-row__body";
+    const label = document.createElement("div");
+    label.className = "choice-row__label";
+    label.textContent = systems[0].name;
+    const desc = document.createElement("div");
+    desc.className = "choice-row__description";
+    desc.textContent = systems[0].description || "Game system for this character.";
+    const badge = document.createElement("div");
+    badge.className = "choice-row__mechanics-meta";
+    badge.textContent = "Ruleset — used for level-up math";
+    body.append(label, desc, badge);
+    banner.append(body);
+    container.append(banner);
+  } else {
+    const list = document.createElement("div");
+    list.className = "choice-row-list ruleset-list";
+    systems.forEach((entry) => {
+      const checked = entry.id === primary;
+      const row = document.createElement("label");
+      row.className = "choice-row" + (checked ? " choice-row--selected" : "");
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "ruleset";
+      input.checked = checked;
+      input.setAttribute("aria-label", entry.name);
+      input.addEventListener("change", () => {
+        if (input.checked) setPrimaryFn(entry.id);
+      });
+      const body = document.createElement("div");
+      body.className = "choice-row__body";
+      const label = document.createElement("div");
+      label.className = "choice-row__label";
+      label.textContent = entry.name;
+      body.append(label);
+      if (entry.description) {
+        const d = document.createElement("div");
+        d.className = "choice-row__description";
+        d.textContent = entry.description;
+        body.append(d);
+      }
+      if (checked) {
+        const badge = document.createElement("div");
+        badge.className = "choice-row__mechanics-meta";
+        badge.textContent = "Ruleset — used for level-up math";
+        body.append(badge);
+      }
+      row.append(input, body);
+      list.append(row);
+    });
+    container.append(list);
+  }
+
+  // Content books for the primary ruleset: one checkbox per pack.
+  // Auto-select the only book, or the system's default books when
+  // nothing is chosen yet. A lone book stays locked on.
+  const packs = listContentPacksFn(primary);
+  if (packs.length === 0) {
+    const note = document.createElement("p");
+    note.className = "leveling-tab__intro";
+    note.textContent = "This ruleset has no content books registered yet.";
+    container.append(note);
+    return;
+  }
+  let ids = [...new Set((includedIds || []).filter(Boolean))];
+  if (ids.length === 0) {
+    ids = packs.length === 1
+      ? [packs[0].id]
+      : [...new Set((defaultContentPackIdsFn(primary) || []).filter((id) => packs.some((p) => p.id === id)))];
+    if (ids.length > 0) updateIdsFn(ids, { rerender: false });
+  }
+  const locked = packs.length === 1;
+  const section = document.createElement("p");
+  section.className = "wizard__section-label";
+  section.textContent = "Content books";
+  container.append(section);
   const list = document.createElement("div");
   list.className = "choice-row-list ruleset-list";
-  sources.forEach((entry) => {
-    const checked = ids.includes(entry.id);
+  packs.forEach((pack) => {
+    const checked = ids.includes(pack.id);
     const row = document.createElement("label");
     row.className = "choice-row" + (checked ? " choice-row--selected" : "");
     const input = document.createElement("input");
     input.type = "checkbox";
     input.checked = checked;
-    input.setAttribute("aria-label", entry.name);
+    if (locked) input.disabled = true;
+    input.setAttribute("aria-label", pack.name);
     input.addEventListener("change", () => {
       const next = input.checked
-        ? [...ids, entry.id]
-        : ids.filter((id) => id !== entry.id);
-      // Keep list order (first checked = primary) regardless of the
-      // order boxes were ticked in.
-      const ordered = sources.map((s) => s.id).filter((id) => next.includes(id));
+        ? [...ids, pack.id]
+        : ids.filter((id) => id !== pack.id);
+      // Keep pack order regardless of the order boxes were ticked in.
+      const ordered = packs.map((p) => p.id).filter((id) => next.includes(id));
       updateIdsFn(ordered);
     });
     const body = document.createElement("div");
     body.className = "choice-row__body";
     const label = document.createElement("div");
     label.className = "choice-row__label";
-    label.textContent = entry.name;
+    label.textContent = pack.name;
     body.append(label);
-    if (entry.description) {
-      const desc = document.createElement("div");
-      desc.className = "choice-row__description";
-      desc.textContent = entry.description;
-      body.append(desc);
+    if (pack.description) {
+      const d = document.createElement("div");
+      d.className = "choice-row__description";
+      d.textContent = pack.description;
+      body.append(d);
     }
-    if (entry.id === primaryId && ids.length > 1) {
+    if (locked) {
       const badge = document.createElement("div");
       badge.className = "choice-row__mechanics-meta";
-      badge.textContent = "Primary — used for level-up math";
+      badge.textContent = "Only book — always on";
       body.append(badge);
     }
     row.append(input, body);

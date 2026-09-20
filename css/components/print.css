@@ -19,8 +19,8 @@
     align-items: stretch;
   }
   .choice-row__portrait {
-    width: 36px;
-    height: 36px;
+    width: 72px;
+    height: 72px;
   }
   /* Feature-use rows wrap instead of crushing the number input. */
   .rule-resources__row {

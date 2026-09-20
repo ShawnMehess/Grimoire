@@ -486,38 +486,45 @@ assert(levelingMod.restoresOnRest("long rest", "long") === true, "restoresOnRest
 assert(levelingMod.restoresOnRest("rest", "long") === true, "restoresOnRest bare-rest on long");
 assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest bare-rest not on short");
 
-// Subclass supplement: 112/112 choices carry mechanics bundles.
 {
+  // Subclass supplement: 112 original choices + 11 TCE expansion = 123 total.
+  // Every dropdown choice has a supplement bundle; supplement may contain
+  // expansion subclasses beyond the original dropdown.
   const { DEFAULT_CONTENT } = await import("../js/data/defaultContent.js");
   const { SUBCLASS_SUPPLEMENT } = await import("../js/data/subclassContent.js");
   const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const byKey = new Map(SUBCLASS_SUPPLEMENT.map((s) => [s.key, s]));
-  assert(SUBCLASS_SUPPLEMENT.length === 112, "SUBCLASS_SUPPLEMENT count");
+  // Original 112 + 11 TCE = 123
+  assert(SUBCLASS_SUPPLEMENT.length === 116, "SUBCLASS_SUPPLEMENT count (112 base + 4 Artificer)");
   assert(DEFAULT_CONTENT.subclassChoices.every((c) => byKey.has(norm(c.text))), "every subclass choice has a supplement bundle");
-  assert(SUBCLASS_SUPPLEMENT.every((s) => DEFAULT_CONTENT.subclassChoices.some((c) => norm(c.text) === s.key)), "every supplement entry matches a choice");
+  // Supplement may have expansion entries not in the original dropdown
+  const dropdownKeys = new Set(DEFAULT_CONTENT.subclassChoices.map((c) => norm(c.text)));
+  const missing = SUBCLASS_SUPPLEMENT.filter((s) => !dropdownKeys.has(s.key));
+  assert(missing.length === 0, "all supplement entries are in dropdown (Artificer subclasses now in dropdown)");
   const { createStarterLayout } = await import("../js/data/blockModel.js");
   const fields = [];
   (function walk(nodes) { for (const n of nodes || []) { if (n.kind === "field") fields.push(n); if (n.children) walk(n.children); } })(createStarterLayout());
   const sub = fields.find((f) => f.label === "Subclass");
-  assert(sub && sub.choices.length === 112 && sub.choices.every((c) => c.bundle), "starter Subclass choices carry bundles");
+  // Starter dropdown still has 112 original choices (TCE subclasses come from supplement)
+  assert(sub && sub.choices.length === 116 && sub.choices.every((c) => c.bundle), "starter Subclass choices carry bundles");
   const race = fields.find((f) => f.label === "Race");
   assert(race && race.choices.some((c) => c.text === "Human") && race.choices.some((c) => c.text === "Tiefling"), "starter Race includes the five added core races");
   assert(race.choices.find((c) => c.text === "Half-Orc").bundle.resourceGrants.some((g) => g.name === "Relentless Endurance"), "Half-Orc relentless resource");
-}
+  }
 
-// Hand-written fixups replace source-data stubs with real pickers.
+  // Hand-written fixups replace source-data stubs with real pickers.
 {
   const { FIXED_CLASS_ENTRIES, FIXED_RACE_ENTRIES } = await import("../js/data/contentFixups.js");
   const group = (bundle, id) => (bundle?.choiceGroups || []).find((g) => g.id === id);
   const fighter = FIXED_CLASS_ENTRIES.find((e) => e.name === "Fighter").bundle;
-  assert(group(fighter, "fighter-fighting-style")?.options.length === 6, "Fighter fighting-style picker");
+  assert(group(fighter, "fighter-fighting-style")?.options.length === 11, "Fighter fighting-style picker (6 PHB + 5 TCE)");
   assert(!fighter.featureGrants.some((g) => /Fighting Style/.test(g.name || "")), "Fighter stub note replaced");
   const rogue = FIXED_CLASS_ENTRIES.find((e) => e.name === "Rogue").bundle;
   assert(group(rogue, "rogue-expertise-0")?.options.length === 19, "Rogue expertise picker (18 skills + tools)");
   const sorc = FIXED_CLASS_ENTRIES.find((e) => e.name === "Sorcerer").bundle;
-  assert(group(sorc, "sorcerer-metamagic-0")?.options.length === 8, "Sorcerer metamagic picker");
+  assert(group(sorc, "sorcerer-metamagic-0")?.options.length === 10, "Sorcerer metamagic picker (8 PHB + 2 TCE)");
   const lock = FIXED_CLASS_ENTRIES.find((e) => e.name === "Warlock").bundle;
-  assert(group(lock, "warlock-pact-boon")?.options.length === 3, "Warlock pact boon picker");
+  assert(group(lock, "warlock-pact-boon")?.options.length === 4, "Warlock pact boon picker (3 PHB + Talisman)");
   assert(lock.choiceGroups.filter((g) => g.id.startsWith("warlock-invocations-")).length === 7, "Warlock invocation tiers");
   const elf = FIXED_RACE_ENTRIES.find((e) => e.name === "Elf").bundle;
   assert(group(elf, "elf-subrace")?.options.length === 3, "Elf subrace picker");
@@ -530,7 +537,7 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
 // Warlock pact slots are identifiable from the level-up plan (short-rest reset).
 {
   const { getLevelUpPlan } = await import("../js/data/dnd5e.js");
-  const plan = getLevelUpPlan("homebrew", "Warlock", 3);
+  const plan = getLevelUpPlan("dnd5e-2014", "Warlock", 3);
   assert(Array.isArray(plan?.slotChanges) && plan.slotChanges.length > 0, "Warlock plan has slot fields");
 }
 
@@ -725,35 +732,50 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   assert(dnd.casterWeight("full") === 1 && dnd.casterWeight("half") === 0.5 && dnd.casterWeight(null) === 0, "casterWeight basic");
   assert(dnd.casterWeight(null, "Eldritch Knight") === 1 / 3, "casterWeight EK third");
   {
-    // Two registered sources: Homebrew + Xanathar's Guide.
+    // One ruleset (game system) with content books under it.
     const sources = dnd.listRulesets();
-    assert(sources.length === 2 && sources[1].id === "xanathar", "two rulesets registered");
-    assert(typeof sources[1].description === "string" && sources[1].description.length > 0, "ruleset description");
-    assert(dnd.getRuleset("xanathar")?.classes.length === 12, "xanathar covers twelve classes");
+    assert(sources.length === 1 && sources[0].id === "dnd5e-2014", "one ruleset registered");
+    assert(typeof sources[0].description === "string" && sources[0].description.length > 0, "ruleset description");
+    assert(dnd.listContentPacks("dnd5e-2014").length === 3, "three content packs registered");
+    const packs = dnd.listContentPacks("dnd5e-2014");
+    assert(packs.map((p) => p.id).join() === "phb,xanathar,tashas", "content pack ids and order");
+    assert(packs[0].name.includes("Player's Handbook") && packs[2].name.includes("Tasha"), "content pack names");
+    assert(dnd.getContentPack("phb")?.classes.length === 12, "phb covers twelve classes");
+    assert(dnd.getContentPack("tashas") != null && dnd.getContentPack("tashas").rulesetId === "dnd5e-2014", "tashas pack registered under the ruleset");
+    // Pack-level metadata, union helpers, and book gating.
     assert(dnd.getRulesetClass("xanathar", "Wizard")?.subclasses.join() === "War Magic", "xanathar wizard subclasses");
-    assert(dnd.getRulesetClass("nope", "Wizard") === null, "unknown ruleset miss");
-    // Union helpers across included sources.
-    assert(dnd.classNamesIn(["homebrew", "xanathar"]).includes("Fighter"), "classNamesIn union");
-    assert(dnd.classNamesIn("homebrew").length === dnd.classNamesIn(["homebrew", "homebrew"]).length, "classNamesIn dedupes");
-    const subs = dnd.subclassesAcrossRulesets("Rogue", ["homebrew", "xanathar"]);
+    assert(dnd.getRuleset("dnd5e-2014")?.classes.length === 13, "ruleset merges classes across packs (12 PHB + Artificer)");
+    assert(dnd.getRuleset("dnd5e-2014")?.classes.find((c) => c.name === "Wizard")?.subclasses.includes("War Magic"), "merged ruleset includes xanathar subclasses");
+    assert(dnd.getRulesetClass("nope", "Wizard") === null, "unknown source miss");
+    assert(dnd.classNamesIn(["phb"]).includes("Fighter"), "classNamesIn pack union");
+    assert(dnd.classNamesIn("dnd5e-2014").includes("Fighter"), "classNamesIn ruleset union");
+    assert(dnd.classNamesIn("dnd5e-2014").length === 13, "classNamesIn ruleset has 13 classes (12 PHB + Artificer)");
+    const subs = dnd.subclassesAcrossRulesets("Rogue", ["phb", "xanathar"]);
     assert(subs.subclasses.includes("Swashbuckler") && Number.isFinite(subs.subclassLevel), "subclassesAcrossRulesets union");
-    assert(dnd.subclassesAcrossRulesets("Nope", ["homebrew"]).subclasses.length === 0, "subclassesAcrossRulesets miss");
-    // Multi-include state: legacy single-ruleset saves migrate.
-    assert(JSON.stringify(rules.includedRulesetIds({ rulesetId: "homebrew" })) === '["homebrew"]', "includedRulesetIds legacy");
-    assert(rules.primaryRulesetId({ rulesetId: "homebrew", rulesetIds: ["xanathar", "homebrew"] }) === "homebrew", "primaryRulesetId keeps explicit primary");
+    assert(!dnd.subclassesAcrossRulesets("Rogue", ["phb"]).subclasses.includes("Swashbuckler"), "content gating: phb-only excludes xanathar subclasses");
+    assert(dnd.subclassesAcrossRulesets("Rogue", ["phb"]).subclasses.includes("Thief"), "content gating: phb keeps its own subclasses");
+    assert(dnd.subclassesAcrossRulesets("Nope", ["phb"]).subclasses.length === 0, "subclassesAcrossRulesets miss");
+    // Legacy saves migrate to the new system + content packs.
+    assert(JSON.stringify(rules.includedRulesetIds({ rulesetId: "homebrew" })) === '["phb"]', "includedRulesetIds legacy → phb");
+    assert(rules.primaryRulesetId({ rulesetId: "homebrew", rulesetIds: ["xanathar", "homebrew"] }) === "dnd5e-2014", "primaryRulesetId derives system from legacy");
     const migrated = rules.normalizeRulesState({ rulesetId: "homebrew" });
-    assert(JSON.stringify(migrated.rulesetIds) === '["homebrew"]' && migrated.rulesetId === "homebrew", "normalizeRulesState migrates legacy");
+    assert(JSON.stringify(migrated.rulesetIds) === '["phb"]' && migrated.rulesetId === "dnd5e-2014", "normalizeRulesState migrates legacy");
     const multi = rules.normalizeRulesState({ rulesetId: "xanathar", rulesetIds: ["homebrew", "xanathar"] });
-    assert(multi.rulesetId === "xanathar" && multi.rulesetIds.length === 2, "normalizeRulesState keeps multi");
+    assert(multi.rulesetId === "dnd5e-2014" && JSON.stringify(multi.rulesetIds) === '["phb","xanathar"]', "normalizeRulesState keeps multi packs");
     const repaired = rules.normalizeRulesState({ rulesetId: "xanathar", rulesetIds: ["homebrew"] });
-    assert(repaired.rulesetId === "homebrew", "normalizeRulesState reseats stranded primary");
-    // Library option names union across sources.
+    assert(repaired.rulesetId === "dnd5e-2014" && JSON.stringify(repaired.rulesetIds) === '["phb","xanathar"]', "normalizeRulesState migrates stranded xanathar");
+    const defaults = rules.normalizeRulesState({ rulesetId: "dnd5e-2014", rulesetIds: [] });
+    assert(JSON.stringify(rules.includedRulesetIds(defaults)) === '["phb"]', "lone system falls back to its default books");
+    // Library option names union across sources (legacy tags canonicalize).
     const lib = [
       { rulesetId: "homebrew", category: "Race", name: "Human" },
       { rulesetId: "xanathar", category: "Race", name: "Tabaxi" },
     ];
-    assert(wizardMod.rulesetOptionNamesIn(lib, ["homebrew", "xanathar"], "Race", []).join() === "Human,Tabaxi", "rulesetOptionNamesIn union");
-    assert(wizardMod.rulesetOptionNamesIn(lib, "homebrew", "Race", ["Fallback"]).join() === "Human", "rulesetOptionNamesIn single still works");
+    const libWithSystemTag = [...lib, { rulesetId: "dnd5e-2014", category: "Race", name: "Aasimar" }];
+    assert(wizardMod.rulesetOptionNamesIn(lib, ["phb", "xanathar"], "Race", []).join() === "Human,Tabaxi", "rulesetOptionNamesIn canonicalizes legacy tags");
+    assert(wizardMod.rulesetOptionNamesIn(lib, "phb", "Race", ["Fallback"]).join() === "Human", "rulesetOptionNamesIn single pack still works");
+    assert(wizardMod.rulesetOptionNamesIn(libWithSystemTag, ["dnd5e-2014"], "Race", []).join() === "Human,Tabaxi,Aasimar", "rulesetOptionNamesIn expands a system to its packs");
+    assert(wizardMod.rulesetOptionNamesIn(libWithSystemTag, "phb", "Race", []).join() === "Human,Aasimar", "whole-system bundle matches any single book");
   }  const w3 = dnd.multiclassSlotsFor([{ caster: "full", levels: 3 }]);
   assert(w3[0].fieldId === "slots1" && w3[0].options === 4 && w3[1].options === 2, "multiclassSlotsFor full-3");
   assert(dnd.multiclassSlotsFor([{ caster: null, levels: 5 }]).length === 0, "multiclassSlotsFor martial none");
