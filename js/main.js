@@ -148,21 +148,38 @@ function findAvatarImageData(character) {
   return match ? match.imageData : null;
 }
 
-/** Builds the character card's meta line ("Half-Elf • Ranger • Level
- *  3") purely from whichever fields the DM dragged into the
- *  identity-card-fields drop zone on that character's own sheet — see
- *  the comment there. No fallback to any fixed race/class/level
- *  properties; name is the only thing about a character that isn't
- *  just "whatever field you chose to show here". */
+/** Builds the character card's meta line: Level, Race, and Class up
+ *  front, then whichever extra fields were dragged into the
+ *  identity-card-fields drop zone on that character's own sheet.
+ *  Core values come from guided rules state, falling back to the
+ *  sheet's own Race/Class/Level fields (older or hand-built sheets)
+ *  — name is the only thing about a character that isn't just
+ *  "whatever field you chose to show here". */
 function buildCardMeta(character) {
-  const ids = Array.isArray(character.cardFieldIds) ? character.cardFieldIds : [];
-  if (ids.length === 0) return "—";
+  const rules = character.rules || {};
   const allFields = flattenAllFields(character);
   const formulaValues = computeAllFormulas(allFields);
-  const parts = ids
+  const byLabel = (label) => allFields.find((f) => (f.label || "").trim().toLowerCase() === label);
+  const dropdownText = (label) => {
+    const field = byLabel(label);
+    if (!field || field.fieldType !== "dropdown") return null;
+    return field.choices?.find((c) => c.id === field.selected)?.text || null;
+  };
+  const asLevel = (v) => {
+    if (v === undefined || v === null || String(v).trim() === "" || !Number.isFinite(Number(v))) return null;
+    return `Level ${Number(v)}`;
+  };
+  const core = [
+    asLevel(rules.level) || asLevel(displayValueForField(byLabel("level"), formulaValues)),
+    rules.species || dropdownText("race") || dropdownText("species"),
+    rules.className || dropdownText("class"),
+  ].filter(Boolean);
+  const ids = Array.isArray(character.cardFieldIds) ? character.cardFieldIds : [];
+  const extra = ids
     .map((id) => allFields.find((f) => f.id === id))
     .map((f) => displayValueForField(f, formulaValues))
     .filter(Boolean);
+  const parts = [...core, ...extra];
   return parts.length ? parts.join(" • ") : "—";
 }
 

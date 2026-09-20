@@ -1011,15 +1011,15 @@ export function renderSelectableRowsInto(container, names, { selectedName, onSel
         ul.className = "choice-row__mechanics-list";
         for (const item of section.items) {
           const li = document.createElement("li");
-          // Bold lead topic ("Speed", "Darkvision", …) with the detail
-          // in regular weight — split on the first ": " only, so
+          // Bold lead topic ("Speed", "Darkvision", …) joined to the
+          // detail with an em dash — split on the first ": " only, so
           // colons inside descriptions never break the shape. Items
           // without a topic stay plain text.
           const colon = item.indexOf(": ");
           if (colon > 0) {
             const topic = document.createElement("strong");
             topic.textContent = item.slice(0, colon);
-            li.append(topic, document.createTextNode(item.slice(colon + 1)));
+            li.append(topic, document.createTextNode(` —${item.slice(colon + 1)}`));
           } else {
             li.textContent = item;
           }
@@ -1099,10 +1099,15 @@ export function renderMultiSelectableRowsInto(container, names, { selectedSet, o
     label.className = "choice-row__label";
     label.textContent = name;
     body.append(label);
-    const desc = document.createElement("div");
-    desc.className = "choice-row__description";
-    desc.textContent = info?.description || "No description available yet.";
-    body.append(desc);
+    // The full effect text below already says what the spell does, so
+    // the short description line would just repeat it — it only shows
+    // as a fallback for entries with no mechanics at all.
+    if (!(info?.mechanics && (info.mechanics.meta || info.mechanics.effect))) {
+      const desc = document.createElement("div");
+      desc.className = "choice-row__description";
+      desc.textContent = info?.description || "No description available yet.";
+      body.append(desc);
+    }
     if (info?.mechanics && (info.mechanics.meta || info.mechanics.effect)) {
       if (info.mechanics.meta) {
         const meta = document.createElement("div");
@@ -1123,7 +1128,7 @@ export function renderMultiSelectableRowsInto(container, names, { selectedSet, o
       [...info.tags].sort((a, b) => String(a).localeCompare(String(b))).forEach((tag) => {
         const chip = document.createElement("span");
         chip.className = "choice-row__tag";
-        chip.textContent = tag;
+        chip.textContent = String(tag).replace(/(?:^|[\s-]+)\S/g, (c) => c.toUpperCase());
         tags.append(chip);
       });
       body.append(tags);

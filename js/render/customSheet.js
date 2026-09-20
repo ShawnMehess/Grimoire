@@ -2827,6 +2827,37 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     return renderSelectableRowsInto(container, names, opts);
   }
 
+  /** Languages granted outside the language pickers: fixed bundle
+   *  grants (plus Common, always) and language tags on selected
+   *  options of non-language groups (subrace options chief among
+   *  them). Returns { fixed: [...], picked: [...] } — fixed shows
+   *  locked, picked shows locked here but stays editable at its own
+   *  picker. Takes the rules state explicitly so both the wizard
+   *  step and the Known Languages summary can share it. */
+  function grantedLanguageNames(st) {
+    const fixed = new Set(["Common"]);
+    const picked = new Set();
+    const isLanguageField = (id) => /language/i.test(id || "")
+      || /language/i.test(resolveFieldById(id)?.label || "");
+    creationFixedBundles(st).forEach((bundle) => {
+      (bundle?.statModifiers || []).forEach((mod) => {
+        if (mod.op === "grantTag" && mod.value && isLanguageField(mod.targetFieldId)) fixed.add(mod.value);
+      });
+    });
+    creationChoiceGroupsFor(st)
+      .filter((g) => sharedCategorizeChoiceGroup(g) !== "languages")
+      .forEach((group) => {
+        const all = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+        ((character.rules.choices || {})[group.key] || []).forEach((id) => {
+          const opt = all.find((o) => o.id === id);
+          (opt?.statModifiers || []).forEach((mod) => {
+            if (mod.op === "grantTag" && mod.value && isLanguageField(mod.targetFieldId)) picked.add(mod.value);
+          });
+        });
+      });
+    return { fixed: [...fixed], picked: [...picked] };
+  }
+
   /** Every language the character already knows at Setup time:
    *  Common (always) plus fixed grants and picks so far — including
    *  picks from non-language groups (e.g. a subrace granting Elvish).
@@ -2862,7 +2893,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     // Language tags granted by picks outside language groups (subrace
     // options chief among them) are known too — just changeable, so
     // they show unlocked rather than locked.
-    grantedLanguageNames().picked.forEach((name) => take(name, false));
+    grantedLanguageNames(state).picked.forEach((name) => take(name, false));
     return known;
   }
 
@@ -3020,83 +3051,6 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       group.key
     );
     return groupPicksSatisfied(group, character.rules?.choices?.[group.key], owned);
-  }
-
-  /** Languages granted outside the language pickers: fixed bundle
-   *  grants (plus Common, always) and language tags on selected
-   *  options of non-language groups (subrace options chief among
-   *  them). Returns { fixed: [...], picked: [...] } — fixed shows
-   *  locked, picked shows locked here but stays editable at its own
-   *  picker. */
-  function grantedLanguageNames() {
-    const fixed = new Set(["Common"]);
-    const picked = new Set();
-    const isLanguageField = (id) => /language/i.test(id || "")
-      || /language/i.test(resolveFieldById(id)?.label || "");
-    creationFixedBundles(state).forEach((bundle) => {
-      (bundle?.statModifiers || []).forEach((mod) => {
-        if (mod.op === "grantTag" && mod.value && isLanguageField(mod.targetFieldId)) fixed.add(mod.value);
-      });
-    });
-    creationChoiceGroupsFor(state)
-      .filter((g) => sharedCategorizeChoiceGroup(g) !== "languages")
-      .forEach((group) => {
-        const all = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
-        ((character.rules.choices || {})[group.key] || []).forEach((id) => {
-          const opt = all.find((o) => o.id === id);
-          (opt?.statModifiers || []).forEach((mod) => {
-            if (mod.op === "grantTag" && mod.value && isLanguageField(mod.targetFieldId)) picked.add(mod.value);
-          });
-        });
-      });
-    return { fixed: [...fixed], picked: [...picked] };
-  }
-  /** Merged extra-languages model for the Languages step: one list
-   *  (the full vocabulary, identical for every character) with
-   *  default-known languages locked, everything else pickable up to
-   *  the combined budget. Picks distribute back onto the per-group
-   *  choice keys, so the Known Languages summary, review lines, and
-   *  compute all read them unchanged. */
-  function languageStepData() {
-    const groups = creationGroupsByCategory.languages;
-    const { fixed, picked } = grantedLanguageNames();
-    const fixedOwned = new Set();
-    creationFixedBundles(state).forEach((bundle) => {
-      (bundle?.statModifiers || []).forEach((mod) => {
-        if (mod.op === "grantTag" && mod.value && /language/i.test(mod.targetFieldId || "")) {
-          fixedOwned.add(`tag:${mod.targetFieldId}:${mod.value}`);
-        }
-      });
-    });
-    // Languages granted by non-language picks (subraces) relieve the
-    // budget exactly like fixed grants — same tokens the options use.
-    creationChoiceGroupsFor(state)
-      .filter((g) => sharedCategorizeChoiceGroup(g) !== "languages")
-      .forEach((group) => {
-        const all = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
-        ((character.rules.choices || {})[group.key] || []).forEach((id) => {
-          const opt = all.find((o) => o.id === id);
-          (opt?.statModifiers || []).forEach((mod) => {
-            if (mod.op === "grantTag" && mod.value) fixedOwned.add(`tag:${mod.targetFieldId}:${mod.value}`);
-          });
-        });
-      });
-    const grantedNames = [...fixed, ...picked.filter((n) => !fixed.map((f) => f.toLowerCase()).includes(n.toLowerCase()))];
-    const grantedLower = new Set(grantedNames.map((n) => n.toLowerCase()));
-    const merged = mergeLanguageGroups(groups, LANGUAGES, fixedOwned);
-    const pickedNames = [];
-    const seenPicked = new Set();
-    groups.forEach((group) => {
-      const options = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
-      ((character.rules.choices || {})[group.key] || []).forEach((id) => {
-        const opt = options.find((o) => o.id === id);
-        if (opt?.name && !grantedLower.has(opt.name.toLowerCase()) && !seenPicked.has(opt.name)) {
-          seenPicked.add(opt.name);
-          pickedNames.push(opt.name);
-        }
-      });
-    });
-    return { groups, merged, grantedNames, pickedNames };
   }
 
   /** Fixed feature grants from the staged Race/Class/Subclass/
@@ -3738,6 +3692,55 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     function subraceGroupFor(raceName) {
       return creationGroups.find((g) => g.subrace && g.source === raceName) || null;
     }
+
+  /** Merged extra-languages model for the Languages step: one list
+   *  (the full vocabulary, identical for every character) with
+   *  default-known languages locked, everything else pickable up to
+   *  the combined budget. Picks distribute back onto the per-group
+   *  choice keys, so the Known Languages summary, review lines, and
+   *  compute all read them unchanged. */
+  function languageStepData() {
+    const groups = creationGroupsByCategory.languages;
+    const { fixed, picked } = grantedLanguageNames(state);
+    const fixedOwned = new Set();
+    creationFixedBundles(state).forEach((bundle) => {
+      (bundle?.statModifiers || []).forEach((mod) => {
+        if (mod.op === "grantTag" && mod.value && /language/i.test(mod.targetFieldId || "")) {
+          fixedOwned.add(`tag:${mod.targetFieldId}:${mod.value}`);
+        }
+      });
+    });
+    // Languages granted by non-language picks (subraces) relieve the
+    // budget exactly like fixed grants — same tokens the options use.
+    creationChoiceGroupsFor(state)
+      .filter((g) => sharedCategorizeChoiceGroup(g) !== "languages")
+      .forEach((group) => {
+        const all = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+        ((character.rules.choices || {})[group.key] || []).forEach((id) => {
+          const opt = all.find((o) => o.id === id);
+          (opt?.statModifiers || []).forEach((mod) => {
+            if (mod.op === "grantTag" && mod.value) fixedOwned.add(`tag:${mod.targetFieldId}:${mod.value}`);
+          });
+        });
+      });
+    const grantedNames = [...fixed, ...picked.filter((n) => !fixed.map((f) => f.toLowerCase()).includes(n.toLowerCase()))];
+    const grantedLower = new Set(grantedNames.map((n) => n.toLowerCase()));
+    const merged = mergeLanguageGroups(groups, LANGUAGES, fixedOwned);
+    const pickedNames = [];
+    const seenPicked = new Set();
+    groups.forEach((group) => {
+      const options = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+      ((character.rules.choices || {})[group.key] || []).forEach((id) => {
+        const opt = options.find((o) => o.id === id);
+        if (opt?.name && !grantedLower.has(opt.name.toLowerCase()) && !seenPicked.has(opt.name)) {
+          seenPicked.add(opt.name);
+          pickedNames.push(opt.name);
+        }
+      });
+    });
+    return { groups, merged, grantedNames, pickedNames };
+  }
+
     function wizardUnavailableMessage() {
       return wizardUnavailableMessageFor(state);
     }
@@ -3840,7 +3843,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
-            mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
+            // Races with subraces show no Details of their own — the
+            // subrace rows underneath carry all of it.
+            mechanicsListFn: (category, name) => (subraceGroupFor(name)?.group
+              ? []
+              : mechanicsListFor(category, name, state.level)),
             selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: true, ...opts }),
             debounceFn: (fn, ms) => debounce(fn, ms),
             subraceGroupFn: (raceName) => {
