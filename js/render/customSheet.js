@@ -72,7 +72,6 @@ import { SPELL_CATALOG, WEAPONS_ARMOR_CATALOG, GEAR_CATALOG } from "../data/cont
 import { RACE_EXTRA_CATALOG_ENTRIES } from "../data/extraRaces.js";
 import { flavorFor } from "../data/pickerFlavor.js";
 import { portraitArtFor } from "../data/portraitArt.js";
-import { RACE_CATEGORIES } from "../data/raceCategories.js";
 import { SHEET_THEMES, applySheetTheme, normalizeThemeId, normalizeThemeMode } from "../data/themes.js";
 import { CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT, goldOptionIdFor, slugId, resolveStartingEquipmentPick } from "../data/startingEquipment.js";
 import { ABILITIES, SKILLS } from "../data/schema.js";
@@ -417,45 +416,50 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // existing characters back into the wizard.
   if (character.setupComplete === undefined) character.setupComplete = true;
   normalizeTabs();
-  healLegacyDwarfSubrace();
+  healLegacySubsumedRaces();
 
   /** Characters created before Hill/Mountain/Duergar became Dwarf
-   *  subraces still hold the old race name (which no longer exists as
-   *  a race choice): point them at Dwarf plus the matching subrace
+   *  subraces (or Air/Earth/Fire/Water Genasi became Genasi subraces)
+   *  still hold the old race name, which no longer exists as a race
+   *  choice: point them at the base race plus the matching subrace
    *  pick, so nothing is lost. Runs once per sheet open; silent
    *  (statusEl doesn't exist yet this early). */
-  function healLegacyDwarfSubrace() {
+  function healLegacySubsumedRaces() {
     const LEGACY_SUBRACE_OPTION = {
-      "Hill Dwarf": "dwarf-subrace-hill-dwarf",
-      "Mountain Dwarf": "dwarf-subrace-mountain-dwarf",
-      "Duergar": "dwarf-subrace-duergar",
+      "Hill Dwarf": { base: "Dwarf", groupId: "dwarf-subrace", optionId: "dwarf-subrace-hill-dwarf" },
+      "Mountain Dwarf": { base: "Dwarf", groupId: "dwarf-subrace", optionId: "dwarf-subrace-mountain-dwarf" },
+      "Duergar": { base: "Dwarf", groupId: "dwarf-subrace", optionId: "dwarf-subrace-duergar" },
+      "Air Genasi": { base: "Genasi", groupId: "genasi-subrace", optionId: "genasi-subrace-air-genasi" },
+      "Earth Genasi": { base: "Genasi", groupId: "genasi-subrace", optionId: "genasi-subrace-earth-genasi" },
+      "Fire Genasi": { base: "Genasi", groupId: "genasi-subrace", optionId: "genasi-subrace-fire-genasi" },
+      "Water Genasi": { base: "Genasi", groupId: "genasi-subrace", optionId: "genasi-subrace-water-genasi" },
     };
     const legacy = LEGACY_SUBRACE_OPTION[character.rules?.species];
     if (!legacy) return;
     const raceField = findStarterField("race", "Race");
-    const dwarfChoice = raceField?.choices?.find((c) => c.text === "Dwarf" && c.bundle);
-    if (!raceField || !dwarfChoice) return;
-    raceField.selected = dwarfChoice.id;
-    const group = (dwarfChoice.bundle?.choiceGroups || []).find((g) => g.id === "dwarf-subrace");
+    const baseChoice = raceField?.choices?.find((c) => c.text === legacy.base && c.bundle);
+    if (!raceField || !baseChoice) return;
+    raceField.selected = baseChoice.id;
+    const group = (baseChoice.bundle?.choiceGroups || []).find((g) => g.id === legacy.groupId);
     if (group) {
       // Same key shapes the pickers use: the live creation key while
       // the setup wizard is still open, otherwise the sheet
       // dropdown's real key (ids are per-character, hence computed
       // here rather than hardcoded).
       const key = character.setupComplete === false
-        ? `creation:Race:Dwarf:${group.id}`
-        : `${raceField.id}:${dwarfChoice.id}:${group.id}`;
+        ? `creation:Race:${legacy.base}:${group.id}`
+        : `${raceField.id}:${baseChoice.id}:${group.id}`;
       character.rules.choices = character.rules.choices || {};
-      if (!character.rules.choices[key]) character.rules.choices[key] = [legacy];
+      if (!character.rules.choices[key]) character.rules.choices[key] = [legacy.optionId];
     }
-    character.rules.species = "Dwarf";
+    character.rules.species = legacy.base;
     if (store.saveCharacterFields) {
       store.saveCharacterFields(character.id, { rules: character.rules }).catch((err) => {
-        console.error("Failed to migrate dwarf subrace:", err);
+        console.error("Failed to migrate legacy subrace:", err);
       });
     } else if (store.saveCharacterField) {
       store.saveCharacterField(character.id, "rules", character.rules).catch((err) => {
-        console.error("Failed to migrate dwarf subrace:", err);
+        console.error("Failed to migrate legacy subrace:", err);
       });
     }
   }
@@ -3800,7 +3804,6 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
             selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { ...opts, collapsible: true }),
             debounceFn: (fn, ms) => debounce(fn, ms),
-            raceCategories: RACE_CATEGORIES,
             subraceGroupFn: (raceName) => {
               const group = subraceGroupFor(raceName);
               if (!group) return null;

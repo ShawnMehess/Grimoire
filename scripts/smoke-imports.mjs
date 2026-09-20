@@ -541,15 +541,11 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   const halflingBase = FIXED_RACE_ENTRIES.find((e) => e.name === "Halfling").bundle;
   assert(halflingBase.statModifiers.length === 0 && halflingBase.featureGrants.length === 0, "Halfling base carries no traits (all in subraces)");
   assert(group(halflingBase, "halfling-subrace")?.options.map((o) => o.name).join(",") === "Lightfoot Halfling,Stout Halfling", "Halfling subrace picker");
-  // Race categories cover every starter race exactly once, alphabetical within.
-  {
-    const { RACE_CATEGORIES } = await import("../js/data/raceCategories.js");
-    const covered = RACE_CATEGORIES.flatMap((c) => c.races);
-    const allRaces = FIXED_RACE_ENTRIES.map((e) => e.name);
-    assert(covered.length === allRaces.length && allRaces.every((n) => covered.includes(n)), "race categories cover every race");
-    assert(new Set(covered).size === covered.length, "race categories have no duplicates");
-    assert(RACE_CATEGORIES.every((c) => JSON.stringify(c.races) === JSON.stringify([...c.races].sort((a, b) => a.localeCompare(b)))), "race categories alphabetical");
-  }
+  const genasiBase = FIXED_RACE_ENTRIES.find((e) => e.name === "Genasi").bundle;
+  assert(genasiBase.statModifiers.length === 0, "Genasi base carries no fixed traits");
+  assert(group(genasiBase, "genasi-subrace")?.options.map((o) => o.name).join(",") === "Air Genasi,Earth Genasi,Fire Genasi,Water Genasi", "Genasi subrace picker");
+  assert(group(genasiBase, "genasi-asi")?.options.length === 35, "Genasi shared ASI picker");
+  assert(!FIXED_RACE_ENTRIES.some((e) => ["Air Genasi", "Earth Genasi", "Fire Genasi", "Water Genasi"].includes(e.name)), "standalone genasi leave the race list");
   const aarakocra = FIXED_RACE_ENTRIES.find((e) => e.name === "Aarakocra").bundle;
   assert(aarakocra.choiceGroups.some((g) => g.options.length === 35), "Aarakocra ASI pairs+triples");
   const mi = featMod.FEAT_BUNDLES.find((b) => b.name === "Magic Initiate");
@@ -769,7 +765,7 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   assert(SPELL_CATALOG.tabs.some((t) => t.id === "cantrips") && SPELL_CATALOG.tabs.some((t) => t.id === "level9"), "SPELL_CATALOG tabs");
   assert(WEAPONS_ARMOR_CATALOG.tabs.length >= 1 && GEAR_CATALOG.tabs.length >= 1, "equipment catalogs");
   const { RACE_EXTRA_ENTRIES } = await import("../js/data/extraRaces.js");
-  assert(RACE_EXTRA_ENTRIES.length === 8, "RACE_EXTRA_ENTRIES count");
+  assert(RACE_EXTRA_ENTRIES.length === 5, "RACE_EXTRA_ENTRIES count");
 }
 
 // Multiclass pure layer: level splits, prereqs, slots, stripping.

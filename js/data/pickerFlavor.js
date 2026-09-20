@@ -37,6 +37,7 @@ export const RACE_FLAVOR = {
   "Mountain Dwarf": "Armored masters of war and craft. Disciplined and proud — mountain holds respect strength shown, not claimed.",
   Duergar: "Hardened gray dwarves of the Underdark. Grim survivors shaped by slavery — distrustful, disciplined, and relentless.",
   Gnome: "Curious tinkerers and tricksters. Cheerful obsessives who collect knowledge and jokes in equal measure.",
+  Genasi: "Elemental planetouched. Pick a subrace — Air, Earth, Fire, or Water — for all traits.",
   "Earth Genasi": "Steadfast as bedrock. Stubborn, self-reliant isolates — slow to act, impossible to move once they do.",
   "Fire Genasi": "Quick to flare, quick to forgive. Proud show-offs with tempers to match their element.",
   "Water Genasi": "Go where the tide takes them. Calm, independent drifters — at home on any shore, bound to none.",

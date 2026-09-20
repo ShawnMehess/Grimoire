@@ -1,6 +1,4 @@
-// extraRaces.js — hand-authored core PHB races missing from defaultContent.js,
-// plus the MotM-era genasi (Earth/Fire/Water) matching the compiled Air
-// Genasi's conventions (floating ASI marker, text-only spell traits).
+// extraRaces.js — hand-authored core PHB races missing from defaultContent.js.
 //
 // DEFAULT_CONTENT.raceEntries (compiled from Shawn's races-mechanics.json)
 // covers 13 entries but omits the five most-picked core races: Human,
@@ -80,13 +78,6 @@ function darkvision() {
   return { name: "Darkvision", description: "You can see in dim light within 60 feet as if it were bright light, and in darkness as if it were dim light (no color in darkness).", minLevel: 1 };
 }
 
-// Freeform +2/+1-or-three-+1s marker (see patchFreeformAsi in
-// contentFixups.js): the MotM-era races (genasi here, plus the
-// compiled Aarakocra/Aasimar/Air Genasi/Yuan-ti) leave exact splits
-// to the player instead of fixing them.
-function freeformAsi() {
-  return { name: "Ability Score Increase", description: "Ability Score Increase: plus_2_plus_1_or_three_plus_1s (pick by hand, not a selectable list here yet)", minLevel: 1 };
-}
 
 export const RACE_EXTRA_ENTRIES = [
   {
@@ -284,60 +275,6 @@ export const RACE_EXTRA_ENTRIES = [
       choiceGroups: [],
     },
   },
-  {
-    name: "Earth Genasi",
-    bundle: {
-      statModifiers: [
-        { targetFieldId: "languages", op: "grantTag", value: "Common" },
-      ],
-      dropdownAccess: [],
-      featureGrants: [
-        freeformAsi(),
-        { name: "Earth Walk", description: "You can move across difficult terrain without expending extra movement if you are using your walking speed on the ground or a floor.", minLevel: 1 },
-        { name: "Merge with Stone", description: "You know the Blade Ward cantrip, and can cast it as a bonus action a number of times equal to your proficiency bonus (regained on a long rest). At 5th level you can cast Pass without Trace once per long rest without material components. Intelligence, Wisdom, or Charisma is your spellcasting ability for these (choose).", minLevel: 1 },
-        { name: "Senses", description: "Darkvision 60 ft.", minLevel: 1 },
-        speedFeature(30),
-      ],
-      resourceGrants: [],
-      choiceGroups: [],
-    },
-  },
-  {
-    name: "Fire Genasi",
-    bundle: {
-      statModifiers: [
-        { targetFieldId: "languages", op: "grantTag", value: "Common" },
-      ],
-      dropdownAccess: [],
-      featureGrants: [
-        freeformAsi(),
-        { name: "Senses", description: "Darkvision 60 ft., seeing darkness in shades of red.", minLevel: 1 },
-        { name: "Resistances", description: "Fire", minLevel: 1 },
-        { name: "Reach to the Blaze", description: "You know the Produce Flame cantrip. At 3rd level you can cast Burning Hands once per long rest; at 5th level you can also cast Flame Blade once per long rest. Constitution is your spellcasting ability for these.", minLevel: 1 },
-        speedFeature(30),
-      ],
-      resourceGrants: [],
-      choiceGroups: [],
-    },
-  },
-  {
-    name: "Water Genasi",
-    bundle: {
-      statModifiers: [
-        { targetFieldId: "languages", op: "grantTag", value: "Common" },
-      ],
-      dropdownAccess: [],
-      featureGrants: [
-        freeformAsi(),
-        { name: "Resistances", description: "Acid", minLevel: 1 },
-        { name: "Amphibious", description: "You can breathe air and water.", minLevel: 1 },
-        { name: "Call to the Wave", description: "You know the Acid Splash cantrip. At 3rd level you can cast Create or Destroy Water as a 2nd-level spell once per long rest; at 5th level you can also cast Water Walk once per long rest. Intelligence, Wisdom, or Charisma is your spellcasting ability for these (choose).", minLevel: 1 },
-        speedFeature(30),
-      ],
-      resourceGrants: [],
-      choiceGroups: [],
-    },
-  },
 ];
 
 // Flavor rows for the baked-in Races reference catalog, in the exact
@@ -357,9 +294,6 @@ export const RACE_EXTRA_CATALOG_ENTRIES = [
   { name: "Half-Elf", description: "Diplomatic wanderers. +2 Charisma, +1 to two other abilities, two skills of your choice, Darkvision, Fey Ancestry, one extra language." },
   { name: "Half-Orc", description: "Strong tribal warriors. +2 Strength, +1 Constitution, Darkvision, Menacing (Intimidation), Relentless Endurance, Savage Attacks." },
   { name: "Tiefling", description: "Infernal heritage. +2 Charisma, +1 Intelligence, Darkvision, fire resistance, Infernal Legacy (Thaumaturgy, Hellish Rebuke, Darkness)." },
-  { name: "Earth Genasi", description: "Stone-blooded planetouched. Dao grit, darkvision, earth walk, stone magic — immovable once decided." },
-  { name: "Fire Genasi", description: "Efreet-sparked planetouched. Hot-tempered and flamboyant — fire resistance, darkvision, and a destructive touch." },
-  { name: "Water Genasi", description: "Marid-blooded planetouched. Easy, wandering tide-speakers — acid resistance, amphibious, wave magic." },
 ].map(({ name, description }) => ({
   id: null, name, description, imageData: null,
   archetypeDiff: JSON.parse(JSON.stringify(EMPTY_DIFF)),

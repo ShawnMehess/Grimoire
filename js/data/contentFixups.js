@@ -423,11 +423,12 @@ function dwarfBaseEntry(entry) {
   };
 }
 
-// Standalone Hill/Mountain/Duergar races are superseded by the Dwarf
-// base's subrace picker above — they leave the race list (existing
-// characters holding one are migrated to Dwarf + the matching pick on
-// sheet open; see healLegacyDwarfSubrace in customSheet.js).
-const SUPERSEDED_DWARF_RACES = new Set(["Hill Dwarf", "Mountain Dwarf", "Duergar"]);
+// Standalone Hill/Mountain/Duergar races and standalone Air/Earth/
+// Fire/Water Genasi are superseded by the Dwarf/Genasi bases' subrace
+// pickers below — they leave the race list (existing characters
+// holding one are migrated to the base race + the matching pick on
+// sheet open; see healLegacySubsumedRaces in customSheet.js).
+const SUPERSEDED_RACE_NAMES = new Set(["Hill Dwarf", "Mountain Dwarf", "Duergar", "Air Genasi", "Earth Genasi", "Fire Genasi", "Water Genasi"]);
 
 // --- Gnomish + Halfling subraces ------------------------------------------------
 // Base Gnomes/Halflings carry no traits or bonuses of their own —
@@ -472,6 +473,84 @@ function halflingSubraceOption(id, name, extraStats, extraFeats) {
     featureGrants: [...clone(HALFLING_SHARED_FEATS), ...extraFeats],
     resourceGrants: [],
   };
+}
+
+/** Base Genasi: no traits of its own besides the floating ability
+ *  increase all four heritages share (MotM leaves the exact split to
+ *  the player, hence the shared picker rather than four copies).
+ *  Speed, languages, and elemental traits live on each subrace
+ *  option, like every other subrace on this site. */
+function genasiBaseEntry() {
+  const bundle = {
+    statModifiers: [],
+    dropdownAccess: [],
+    featureGrants: [
+      { name: "Ability Score Increase", description: "Ability Score Increase: plus_2_plus_1_or_three_plus_1s (pick by hand, not a selectable list here yet)", minLevel: 1 },
+    ],
+    resourceGrants: [],
+    choiceGroups: [
+      {
+        id: "genasi-subrace", label: "Genasi Subrace", subrace: true, minLevel: 1, minSelections: 1, maxSelections: 1,
+        options: [
+          {
+            id: "genasi-subrace-air-genasi", name: "Air Genasi", description: "",
+            statModifiers: [
+              { targetFieldId: "languages", op: "grantTag", value: "Common" },
+            ],
+            featureGrants: [
+              { name: "Unending Breath", description: "Can hold your breath indefinitely.", minLevel: null },
+              { name: "Mingle with the Wind", description: "Know the Shocking Grasp cantrip.; Cast Feather Fall starting at level 3 once per long rest (no material components needed).; Cast Levitate starting at level 5 once per long rest (no material components needed).", minLevel: null },
+              { name: "Speed", description: "35 ft. walking", minLevel: null },
+              { name: "Senses", description: "Darkvision 60 ft.", minLevel: null },
+              { name: "Resistances", description: "Lightning", minLevel: null },
+            ],
+            resourceGrants: [],
+          },
+          {
+            id: "genasi-subrace-earth-genasi", name: "Earth Genasi", description: "",
+            statModifiers: [
+              { targetFieldId: "languages", op: "grantTag", value: "Common" },
+            ],
+            featureGrants: [
+              { name: "Earth Walk", description: "You can move across difficult terrain without expending extra movement if you are using your walking speed on the ground or a floor.", minLevel: null },
+              { name: "Merge with Stone", description: "You know the Blade Ward cantrip, and can cast it as a bonus action a number of times equal to your proficiency bonus (regained on a long rest). At 5th level you can cast Pass without Trace once per long rest without material components. Intelligence, Wisdom, or Charisma is your spellcasting ability for these (choose).", minLevel: null },
+              { name: "Senses", description: "Darkvision 60 ft.", minLevel: null },
+              { name: "Speed", description: "30 ft. walking", minLevel: null },
+            ],
+            resourceGrants: [],
+          },
+          {
+            id: "genasi-subrace-fire-genasi", name: "Fire Genasi", description: "",
+            statModifiers: [
+              { targetFieldId: "languages", op: "grantTag", value: "Common" },
+            ],
+            featureGrants: [
+              { name: "Senses", description: "Darkvision 60 ft., seeing darkness in shades of red.", minLevel: null },
+              { name: "Resistances", description: "Fire", minLevel: null },
+              { name: "Reach to the Blaze", description: "You know the Produce Flame cantrip. At 3rd level you can cast Burning Hands once per long rest; at 5th level you can also cast Flame Blade once per long rest. Constitution is your spellcasting ability for these.", minLevel: null },
+              { name: "Speed", description: "30 ft. walking", minLevel: null },
+            ],
+            resourceGrants: [],
+          },
+          {
+            id: "genasi-subrace-water-genasi", name: "Water Genasi", description: "",
+            statModifiers: [
+              { targetFieldId: "languages", op: "grantTag", value: "Common" },
+            ],
+            featureGrants: [
+              { name: "Resistances", description: "Acid", minLevel: null },
+              { name: "Amphibious", description: "You can breathe air and water.", minLevel: null },
+              { name: "Call to the Wave", description: "You know the Acid Splash cantrip. At 3rd level you can cast Create or Destroy Water as a 2nd-level spell once per long rest; at 5th level you can also cast Water Walk once per long rest. Intelligence, Wisdom, or Charisma is your spellcasting ability for these (choose).", minLevel: null },
+              { name: "Speed", description: "30 ft. walking", minLevel: null },
+            ],
+            resourceGrants: [],
+          },
+        ],
+      },
+    ],
+  };
+  patchFreeformAsi(bundle, "genasi");
+  return { name: "Genasi", bundle };
 }
 
 /** Rebuilds the compiled Gnome/Halfling entries as traitless bases
@@ -669,37 +748,27 @@ function patchRaceEntry(entry) {
   const out = { ...entry, bundle: clone(entry.bundle) };
   out.bundle.choiceGroups = [...(out.bundle.choiceGroups || [])];
   out.bundle.featureGrants = [...(out.bundle.featureGrants || [])];
-  if (["Aarakocra", "Aasimar", "Air Genasi", "Earth Genasi", "Fire Genasi", "Water Genasi", "Yuan-ti"].includes(entry.name)) {
+  if (["Aarakocra", "Aasimar", "Yuan-ti"].includes(entry.name)) {
     patchFreeformAsi(out.bundle, entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
   }
   return out;
 }
 
-// Hand-written races whose bundles carry the freeform ASI marker
-// (see freeformAsi() in extraRaces.js) — same picker the compiled
-// MotM-era races get via patchRaceEntry above.
-const FREEFORM_ASI_EXTRAS = new Set(["Earth Genasi", "Fire Genasi", "Water Genasi"]);
-
 export const FIXED_RACE_ENTRIES = [
   ...DEFAULT_CONTENT.raceEntries
     .map(patchRaceEntry)
-    .filter((entry) => !SUPERSEDED_DWARF_RACES.has(entry.name))
+    .filter((entry) => !SUPERSEDED_RACE_NAMES.has(entry.name))
     .map((entry) => {
       if (entry.name === "Dwarf") return dwarfBaseEntry(entry);
       if (entry.name === "Gnome") return gnomeBaseEntry(entry);
       if (entry.name === "Halfling") return halflingBaseEntry(entry);
       return entry;
     }),
-  // Extra races arrive with full subrace pickers already attached (see
-  // extraRaces.js); the freeform-ASI ones still need their picker.
-  ...RACE_EXTRA_ENTRIES.map((entry) => {
-    if (!FREEFORM_ASI_EXTRAS.has(entry.name)) return entry;
-    const out = { ...entry, bundle: clone(entry.bundle) };
-    out.bundle.choiceGroups = [...(out.bundle.choiceGroups || [])];
-    out.bundle.featureGrants = [...(out.bundle.featureGrants || [])];
-    patchFreeformAsi(out.bundle, entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
-    return out;
-  }),
+  // Extra races arrive fully formed (subrace pickers attached in
+  // extraRaces.js) — no patching needed.
+  ...RACE_EXTRA_ENTRIES,
+  // Base Genasi with its four elemental subraces.
+  genasiBaseEntry(),
 ];
 
 const SUBCLASS_PATCHERS = {

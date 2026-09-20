@@ -191,7 +191,6 @@ export function renderRulesetStepInto(container, state, deps) {
 export function renderIdentityStepInto(container, state, deps) {
   const { characterName, nameInputSetFn, saveNameFn, updateFn, fieldFn, optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn, selectableRowsFn, debounceFn } = deps;
   const {
-    raceCategories = null,
     subraceGroupFn = null,
     subraceMechanicsFn = null,
     selectSubraceFn = null,
@@ -222,100 +221,13 @@ export function renderIdentityStepInto(container, state, deps) {
 
   const liveNames = optionNamesFn(state.rulesetId, "Race");
   if (liveNames.length) {
-    if (raceCategories?.length) {
-      renderCategorizedRaceListInto(container, state, {
-        categories: raceCategories,
-        liveNames,
-        selectableRowsFn, catalogInfoFn, mechanicsListFn,
-        subraceGroupFn, subraceMechanicsFn, selectSubraceFn,
-      });
-    } else {
-      selectableRowsFn(container, liveNames, {
-        selectedName: state.species,
-        getInfo: (name) => catalogInfoFn(["race", "species"], name),
-        getMechanicsList: (name) => (mechanicsListFn ? mechanicsListFn("Race", name) : null),
-        onSelect: (name) => updateFn("species", name),
-      });
-    }
-  } else {
-    const input = document.createElement("input");
-    input.type = "text"; input.className = "input-group__control";
-    input.placeholder = "No Race options found for this ruleset yet — type it in for now";
-    input.value = state.species || "";
-    input.addEventListener("change", () => updateFn("species", input.value));
-    fieldFn(container, "Race/Species", input);
-  }
-}
-
-// Expanded race categories persist across re-renders (same reasoning
-// as expandedChoiceRows in sheetWizard.js) — plus whichever category
-// holds the current pick, which starts open on a fresh view.
-const expandedRaceCategories = new Set();
-
-/** Three-level race picker: category → race → subrace. Each category
- *  shows its description plus an alphabetized member row; expanding
- *  reveals the race rows (standard selectable rows with portraits and
- *  mechanics), and the selected race reveals its subrace rows nested
- *  underneath — the same nested pattern the Class step uses for
- *  subclasses. Subrace picks write through selectSubraceFn into the
- *  race bundle's pick-1 subrace choice group, so every compute path
- *  (sheet mods, features, spells, review) sees them with no extra
- *  wiring. All bodies render up front (same total work as the old flat
- *  list); toggling only flips visibility, never re-renders. */
-export function renderCategorizedRaceListInto(container, state, deps) {
-  const {
-    categories, liveNames, selectableRowsFn, catalogInfoFn, mechanicsListFn,
-    updateFn, subraceGroupFn, subraceMechanicsFn, selectSubraceFn,
-  } = deps;
-  const available = new Set(liveNames || []);
-  if (expandedRaceCategories.size === 0 && state.species) {
-    const current = (categories || []).find((c) => (c.races || []).includes(state.species));
-    if (current) expandedRaceCategories.add(current.id);
-  }
-  (categories || []).forEach((cat) => {
-    const members = (cat.races || []).filter((name) => available.has(name));
-    if (!members.length) return;
-    const section = document.createElement("section");
-    section.className = "race-category";
-    const head = document.createElement("div");
-    head.className = "race-category__head";
-    const titles = document.createElement("div");
-    titles.className = "race-category__titles";
-    const name = document.createElement("div");
-    name.className = "race-category__name";
-    name.textContent = cat.name;
-    const desc = document.createElement("div");
-    desc.className = "race-category__description";
-    desc.textContent = cat.description || "";
-    titles.append(name, desc);
-    head.append(titles);
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "btn race-category__toggle";
-    const body = document.createElement("div");
-    body.className = "race-category__body";
-    const paintToggle = () => {
-      const open = expandedRaceCategories.has(cat.id);
-      body.hidden = !open;
-      toggle.textContent = open ? "▾ Collapse" : "▸ Expand";
-      toggle.setAttribute("aria-expanded", String(open));
-    };
-    toggle.addEventListener("click", () => {
-      if (expandedRaceCategories.has(cat.id)) expandedRaceCategories.delete(cat.id);
-      else expandedRaceCategories.add(cat.id);
-      paintToggle();
-    });
-    head.append(toggle);
-    section.append(head);
-    const memberRow = document.createElement("div");
-    memberRow.className = "race-category__members";
-    memberRow.textContent = members.join(" · ");
-    section.append(memberRow);
-    selectableRowsFn(body, members, {
+    selectableRowsFn(container, liveNames, {
       selectedName: state.species,
-      getInfo: (n) => catalogInfoFn(["race", "species"], n),
-      getMechanicsList: (n) => (mechanicsListFn ? mechanicsListFn("Race", n) : null),
-      onSelect: (n) => updateFn("species", n),
+      getInfo: (name) => catalogInfoFn(["race", "species"], name),
+      getMechanicsList: (name) => (mechanicsListFn ? mechanicsListFn("Race", name) : null),
+      onSelect: (name) => updateFn("species", name),
+      // Subrace picker nests under the selected race — the same
+      // pattern the Class step uses for subclasses.
       afterRow: (raceName, rowEl) => {
         if (raceName !== state.species) return;
         const sub = subraceGroupFn ? subraceGroupFn(raceName) : null;
@@ -335,10 +247,14 @@ export function renderCategorizedRaceListInto(container, state, deps) {
         if (holder.firstElementChild) rowEl.after(holder.firstElementChild);
       },
     });
-    section.append(body);
-    container.append(section);
-    paintToggle();
-  });
+  } else {
+    const input = document.createElement("input");
+    input.type = "text"; input.className = "input-group__control";
+    input.placeholder = "No Race options found for this ruleset yet — type it in for now";
+    input.value = state.species || "";
+    input.addEventListener("change", () => updateFn("species", input.value));
+    fieldFn(container, "Race/Species", input);
+  }
 }
 
 export function renderClassStepInto(container, state, deps) {

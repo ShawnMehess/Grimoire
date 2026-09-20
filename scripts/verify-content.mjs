@@ -429,7 +429,7 @@ function featListWith(namesAndLevels) {
   if (!(champ?.choiceGroups || []).some((g) => g.id === "champion-fighting-style")) fail("Champion: fighting-style picker missing");
 
   // Free-form racial ASIs: 15 pairs + 20 triples.
-  for (const n of ["Aarakocra", "Aasimar", "Air Genasi", "Earth Genasi", "Fire Genasi", "Water Genasi", "Yuan-ti"]) {
+  for (const n of ["Aarakocra", "Aasimar", "Yuan-ti", "Genasi"]) {
     const g = (race(n)?.choiceGroups || []).find((g) => g.id.endsWith("-asi"));
     if (!g || g.options.length !== 35) fail(`${n}: ASI picker missing (want 35 options, got ${g?.options.length ?? 0})`);
     if ((race(n)?.featureGrants || []).some((f) => /plus_2_plus_1_or_three_plus_1s/.test(f.description || ""))) {

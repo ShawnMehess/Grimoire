@@ -645,45 +645,6 @@
 .choice-row__mechanics-list li::marker {
   color: var(--color-text-faint);
 }
-
-/* Three-level race picker (Identity step): category → race → subrace. */
-.race-category {
-  margin-bottom: var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-.race-category__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-bg-raised);
-}
-.race-category__name {
-  font-family: var(--font-display);
-  font-size: var(--text-md);
-}
-.race-category__description {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-}
-.race-category__toggle {
-  flex: 0 0 auto;
-}
-.race-category__members {
-  padding: 2px var(--space-3) var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  font-style: italic;
-}
-.race-category__body {
-  padding: 0 var(--space-3) var(--space-3);
-}
-.race-category__body[hidden] {
-  display: none;
-}
 .choice-row__mechanics-meta {
   font-size: var(--text-xs);
   color: var(--color-accent-hover);
