@@ -114,6 +114,80 @@ export function lockCommonInLanguageGroups(groups, categorizeFn) {
   return groups;
 }
 
+/** Reconciles a starter dropdown's embedded choices against current
+ *  canonical bundles (used for the Race dropdown, whose choices embed
+ *  their bundles at creation): refreshes uncustomized older copies
+ *  (identical to canonical modulo their choice groups — groups evolve
+ *  independently and never mark a bundle customized), drops unselected
+ *  choices for removed names, and appends missing current entries.
+ *  Anything customized (or homebrew) is left strictly alone. Pure —
+ *  returns { choices, selectedId, changed }; callers persist when
+ *  changed is true. */
+export function reconcileDropdownChoices(choices, selectedId, canonicalEntries, removedNames, newIdFn, cloneFn, legacyBundles = null) {
+  const canonicalByName = new Map(((canonicalEntries || []).map((e) => [e.name, e.bundle])));
+  const removed = new Set(removedNames || []);
+  const strip = (bundle) => {
+    if (!bundle) return null;
+    const { choiceGroups, ...rest } = bundle;
+    try {
+      return JSON.stringify(rest);
+    } catch {
+      return null;
+    }
+  };
+  let changed = false;
+  const kept = [];
+  const sameJson = (a, b) => {
+    try {
+      return JSON.stringify(a) === JSON.stringify(b);
+    } catch {
+      return false;
+    }
+  };
+  for (const choice of choices || []) {
+    const canonical = canonicalByName.get(choice.text);
+    if (!canonical) {
+      if (removed.has(choice.text) && choice.id !== selectedId) {
+        changed = true;
+        continue;
+      }
+      kept.push(choice);
+      continue;
+    }
+    // Refresh when the embedded copy is either an uncustomized older
+    // revision (same modulo its choice groups) or a recorded
+    // pre-rework shape (see legacyRaceBundles) — anything else is
+    // treated as customized and preserved verbatim.
+    const legacies = (typeof legacyBundles?.get === "function" ? legacyBundles.get(choice.text) : null) || [];
+    const isLegacy = legacies.some((legacy) => sameJson(choice.bundle, legacy));
+    let refresh = isLegacy;
+    if (!refresh) {
+      try {
+        refresh = (!choice.bundle || strip(choice.bundle) === strip(canonical))
+          && !sameJson(choice.bundle, canonical);
+      } catch {
+        refresh = false;
+      }
+    }
+    if (refresh) {
+      kept.push({ ...choice, bundle: cloneFn(canonical) });
+      changed = true;
+      continue;
+    }
+    kept.push(choice);
+  }
+  for (const entry of canonicalEntries || []) {
+    if (!kept.some((c) => c.text === entry.name)) {
+      kept.push({ id: newIdFn(), text: entry.name, bundle: cloneFn(entry.bundle) });
+      changed = true;
+    }
+  }
+  if (!changed) return { choices, selectedId, changed: false };
+  kept.sort((a, b) => String(a.text).localeCompare(String(b.text)));
+  const nextSelected = kept.some((c) => c.id === selectedId) ? selectedId : null;
+  return { choices: kept, selectedId: nextSelected, changed: true };
+}
+
 /** Whether a choice group is satisfied: non-locked picks cover
  *  minSelections minus options that would grant something already
  *  owned (those don't need picking). Flat and cross-category shapes. */

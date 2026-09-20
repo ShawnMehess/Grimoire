@@ -65,7 +65,7 @@ import { openCatalogBrowser } from "./catalogBrowser.js";
 import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets, listContentPacks, getContentPack, defaultContentPackIds, hitDieFor, multiclassSlotsFor, classNamesIn, subclassesAcrossRulesets, contentIdMatches } from "../data/dnd5e.js";
 import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor, classLevelsFor, meetsMulticlassPrereq, effectiveScoresFor, multiclassPrereqReason, includedRulesetIds, primaryRulesetId } from "../data/rulesEngine.js";
 import { SUBCLASS_SUPPLEMENT } from "../data/subclassContent.js";
-import { stripSecondaryClassBundle } from "../data/contentFixups.js";
+import { stripSecondaryClassBundle, FIXED_RACE_ENTRIES, SUPERSEDED_RACE_NAMES, legacyRaceBundles } from "../data/contentFixups.js";
 import { DEFAULT_CONTENT } from "../data/defaultContent.js";
 import { FEAT_BUNDLES, FEAT_CATALOG, FEAT_NAMES } from "../data/featBundles.js";
 import { SPELL_CATALOG, WEAPONS_ARMOR_CATALOG, GEAR_CATALOG } from "../data/contentCatalogs.js";
@@ -222,6 +222,7 @@ import {
   creationFixedBundlesFor,
   mergeLanguageGroups,
   distributeLanguagePicks,
+  reconcileDropdownChoices,
   ownedSkillIdsFromBundles,
   optionIsOwned,
   groupPicksSatisfied,
@@ -417,6 +418,44 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   if (character.setupComplete === undefined) character.setupComplete = true;
   normalizeTabs();
   healLegacySubsumedRaces();
+  healStaleRaceChoices();
+
+  /** Starter Race dropdown choices embed their bundles at creation, so
+   *  characters made before a race rework still carry the old bundle —
+   *  and the wizard reads those embedded copies, hiding new pickers
+   *  (e.g. subraces) and showing retired traits. Refresh any choice
+   *  whose bundle is an uncustomized older copy (identical to canonical
+   *  modulo its choice groups), drop unselected choices for removed
+   *  races, and add missing current races. Anything customized (or a
+   *  homebrew typed-in race) is left strictly alone. Silent, once per
+   *  open — same as the legacy-species heal above. */
+  function healStaleRaceChoices() {
+    const raceField = findStarterField("race", "Race");
+    if (!raceField || !Array.isArray(raceField.choices)) return;
+    const result = reconcileDropdownChoices(
+      raceField.choices, raceField.selected, FIXED_RACE_ENTRIES, SUPERSEDED_RACE_NAMES,
+      () => newId(), (v) => clone(v), legacyRaceBundles()
+    );
+    if (!result.changed) return;
+    raceField.choices = result.choices;
+    raceField.selected = result.selectedId;
+    saveSilent({ layout: character.layout, sheetTabs: character.sheetTabs });
+  }
+
+  /** Silent store write for open-time healing (statusEl doesn't exist
+   *  yet this early) — best-effort only; worst case the heal simply
+   *  re-runs next open. */
+  function saveSilent(patch) {
+    if (store.saveCharacterFields) {
+      store.saveCharacterFields(character.id, patch).catch((err) => {
+        console.error("Failed to save sheet healing:", err);
+      });
+    } else if (store.saveCharacterField) {
+      Promise.all(Object.entries(patch).map(([fieldId, value]) => store.saveCharacterField(character.id, fieldId, value))).catch((err) => {
+        console.error("Failed to save sheet healing:", err);
+      });
+    }
+  }
 
   /** Characters created before Hill/Mountain/Duergar became Dwarf
    *  subraces (or Air/Earth/Fire/Water Genasi became Genasi subraces)
@@ -3802,7 +3841,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
             mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { ...opts, collapsible: true }),
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: true, ...opts }),
             debounceFn: (fn, ms) => debounce(fn, ms),
             subraceGroupFn: (raceName) => {
               const group = subraceGroupFor(raceName);

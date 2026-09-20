@@ -428,7 +428,105 @@ function dwarfBaseEntry(entry) {
 // pickers below — they leave the race list (existing characters
 // holding one are migrated to the base race + the matching pick on
 // sheet open; see healLegacySubsumedRaces in customSheet.js).
-const SUPERSEDED_RACE_NAMES = new Set(["Hill Dwarf", "Mountain Dwarf", "Duergar", "Air Genasi", "Earth Genasi", "Fire Genasi", "Water Genasi"]);
+export const SUPERSEDED_RACE_NAMES = new Set(["Hill Dwarf", "Mountain Dwarf", "Duergar", "Air Genasi", "Earth Genasi", "Fire Genasi", "Water Genasi"]);
+
+/** Pre-subrace bundles for the gutted bases, keyed by race name —
+ *  each value is the list of historical shapes that count as "an
+ *  uncustomized older copy, upgrade me". Dwarf/Gnome/Halfling are
+ *  computed from the still-present compiled sources via the same
+ *  patchRaceEntry every sheet was built with (keep that function
+ *  behavior-stable for these three, or update this registry to
+ *  match); Elf's two hand-written predecessors are recorded
+ *  verbatim (without, then with, the partial elf-subrace picker).
+ *  Anything NOT deep-equal to a listed shape is treated as
+ *  customized and left strictly alone. Used by
+ *  reconcileDropdownChoices (see sheetWizard.js). */
+export function legacyRaceBundles() {
+  const out = new Map();
+  for (const name of ["Dwarf", "Gnome", "Halfling"]) {
+    const compiled = DEFAULT_CONTENT.raceEntries.find((e) => e.name === name);
+    if (compiled) out.set(name, [patchRaceEntry(compiled).bundle]);
+  }
+  const elfBase = (extra) => ({
+    statModifiers: [
+      { targetFieldId: "dexScore", op: "add", value: 2 },
+      { targetFieldId: "perceptionProf", op: "grant" },
+      { targetFieldId: "languages", op: "grantTag", value: "Common" },
+      { targetFieldId: "languages", op: "grantTag", value: "Elvish" },
+    ],
+    dropdownAccess: [],
+    featureGrants: [
+      { name: "Darkvision", description: "You can see in dim light within 60 feet as if it were bright light, and in darkness as if it were dim light (no color in darkness).", minLevel: 1 },
+      { name: "Keen Senses", description: "You have proficiency in the Perception skill.", minLevel: 1 },
+      { name: "Fey Ancestry", description: "You have advantage on saving throws against being charmed, and magic can't put you to sleep.", minLevel: 1 },
+      { name: "Trance", description: "Elves don't need to sleep. You meditate for 4 hours instead (still considered a long rest).", minLevel: 1 },
+      { name: "Elven Subrace", description: "Choose a subrace with your DM (High, Wood, or Drow) — it grants extra traits. Track your subrace pick by hand for now; there is no subrace picker yet.", minLevel: 1 },
+      { name: "Speed", description: "30 ft. walking", minLevel: 1 },
+    ],
+    resourceGrants: [],
+    ...extra,
+  });
+  const elfPartialSubrace = {
+    choiceGroups: [
+      {
+        id: "elf-subrace", label: "Elven Subrace", minLevel: 1, minSelections: 1, maxSelections: 1,
+        options: [
+          {
+            id: "elf-subrace-high", name: "High Elf", description: "",
+            statModifiers: [
+              { targetFieldId: "intScore", op: "add", value: 1, minLevel: null },
+              { targetFieldId: "weaponProf", op: "grantTag", value: "Longsword" },
+              { targetFieldId: "weaponProf", op: "grantTag", value: "Shortsword" },
+              { targetFieldId: "weaponProf", op: "grantTag", value: "Shortbow" },
+              { targetFieldId: "weaponProf", op: "grantTag", value: "Longbow" },
+              { targetFieldId: "languages", op: "grantTag", value: "Common" },
+            ],
+            featureGrants: [
+              { name: "Elf Weapon Training", description: "Proficiency with the longsword, shortsword, shortbow, and longbow.", minLevel: null },
+              { name: "Cantrip", description: "You know one cantrip of your choice from the wizard spell list (pick below); Intelligence is your spellcasting ability for it.", minLevel: null },
+              { name: "Extra Language", description: "You can speak, read, and write one extra language of your choice.", minLevel: null },
+            ],
+            resourceGrants: [],
+          },
+          {
+            id: "elf-subrace-wood", name: "Wood Elf", description: "",
+            statModifiers: [
+              { targetFieldId: "wisScore", op: "add", value: 1, minLevel: null },
+              { targetFieldId: "speed", op: "add", value: 5, minLevel: null },
+              { targetFieldId: "weaponProf", op: "grantTag", value: "Longsword" },
+              { targetFieldId: "weaponProf", op: "grantTag", value: "Shortsword" },
+              { targetFieldId: "weaponProf", op: "grantTag", value: "Shortbow" },
+              { targetFieldId: "weaponProf", op: "grantTag", value: "Longbow" },
+            ],
+            featureGrants: [
+              { name: "Elf Weapon Training", description: "Proficiency with the longsword, shortsword, shortbow, and longbow.", minLevel: null },
+              { name: "Fleet of Foot", description: "Your base walking speed increases to 35 feet (+5 applied here).", minLevel: null },
+              { name: "Mask of the Wild", description: "You can attempt to hide even when only lightly obscured by foliage, rain, snow, mist, or other natural phenomena.", minLevel: null },
+            ],
+            resourceGrants: [],
+          },
+          {
+            id: "elf-subrace-drow", name: "Drow", description: "",
+            statModifiers: [
+              { targetFieldId: "chaScore", op: "add", value: 1, minLevel: null },
+              { targetFieldId: "spellsKnown", op: "addItem", value: "Dancing Lights", minLevel: null },
+              { targetFieldId: "spellsKnown", op: "addItem", value: "Faerie Fire", minLevel: 3 },
+              { targetFieldId: "spellsKnown", op: "addItem", value: "Darkness", minLevel: 5 },
+            ],
+            featureGrants: [
+              { name: "Superior Darkvision", description: "Your darkvision has a radius of 120 feet.", minLevel: null },
+              { name: "Sunlight Sensitivity", description: "Disadvantage on attack rolls and Wisdom (Perception) checks relying on sight when you, the target, or the thing you perceive is in direct sunlight.", minLevel: null },
+              { name: "Drow Magic", description: "Dancing Lights cantrip; Faerie Fire once per long rest at 3rd level; Darkness once per long rest at 5th. Charisma is your spellcasting ability.", minLevel: null },
+            ],
+            resourceGrants: [],
+          },
+        ],
+      },
+    ],
+  };
+  out.set("Elf", [elfBase({ choiceGroups: [] }), elfBase(elfPartialSubrace)]);
+  return out;
+}
 
 // --- Gnomish + Halfling subraces ------------------------------------------------
 // Base Gnomes/Halflings carry no traits or bonuses of their own —

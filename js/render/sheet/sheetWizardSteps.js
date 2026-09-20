@@ -243,6 +243,9 @@ export function renderIdentityStepInto(container, state, deps) {
             if (opt && selectSubraceFn) selectSubraceFn(sub.group, opt.id);
           },
           nested: true,
+          // No Expand All/Collapse All of its own — the race list's
+          // top-level controls already cover these rows.
+          collapsible: false,
         });
         if (holder.firstElementChild) rowEl.after(holder.firstElementChild);
       },

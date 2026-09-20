@@ -617,6 +617,49 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
     assert(JSON.stringify(stored["creation:Race:X:g1"]) === JSON.stringify(["b"]), "distributeLanguagePicks fills first group");
     assert(JSON.stringify(stored["creation:Background:Y:g2"]) === JSON.stringify(["d"]), "distributeLanguagePicks spills into second group");
   }
+  // Stale dropdown reconciliation: refresh, prune, append, preserve.
+  {
+    const canon = [
+      { name: "Elf", bundle: { statModifiers: [], featureGrants: [], extra: 1 } },
+      { name: "Genasi", bundle: { statModifiers: [], featureGrants: [] } },
+    ];
+    const cloneFn = (v) => JSON.parse(JSON.stringify(v));
+    const stale = { text: "Elf", id: "old-elf", bundle: { statModifiers: [], featureGrants: [], extra: 1, choiceGroups: [{ id: "g" }] } };
+    const custom = { text: "Elf", id: "custom-elf", bundle: { statModifiers: [], featureGrants: [], homebrew: true } };
+    const gone = { text: "Hill Dwarf", id: "old-hill", bundle: {} };
+    const homebrew = { text: "Half-Dwarf", id: "brew", bundle: null };
+    const res = wizardMod.reconcileDropdownChoices(
+      [stale, custom, gone, homebrew], "old-elf",
+      canon, ["Hill Dwarf"], (p) => `new-${p}`, cloneFn
+    );
+    assert(res.changed === true, "reconcile detects change");
+    assert(res.choices.find((c) => c.id === "old-elf").bundle.extra === 1, "stale bundle refreshed");
+    assert(res.choices.find((c) => c.id === "custom-elf").bundle.homebrew === true, "customized bundle preserved");
+    assert(!res.choices.some((c) => c.id === "old-hill"), "unselected removed race pruned");
+    assert(res.choices.some((c) => c.text === "Genasi"), "missing race appended");
+    assert(res.choices.some((c) => c.text === "Half-Dwarf"), "homebrew race kept");
+    assert(res.selectedId === "old-elf", "valid selection preserved");
+    // A selected legacy race is kept (the species heal re-points it first).
+    const stillThere = wizardMod.reconcileDropdownChoices([gone], "old-hill", [], ["Hill Dwarf"], (p) => p, cloneFn);
+    assert(stillThere.changed === false && stillThere.choices.length === 1, "selected legacy race preserved");
+    const clean = wizardMod.reconcileDropdownChoices(
+      [{ text: "Elf", id: "e", bundle: { statModifiers: [], featureGrants: [], extra: 1 } }], "e",
+      [{ name: "Elf", bundle: { statModifiers: [], featureGrants: [], extra: 1 } }], [], (p) => p, cloneFn
+    );
+    assert(clean.changed === false, "reconcile no-op when current");
+    // Pre-subrace shapes upgrade; anything else stays verbatim.
+    const legacyMap = new Map([["Elf", [{ statModifiers: [1], featureGrants: [] }]]]);
+    const upgraded = wizardMod.reconcileDropdownChoices(
+      [{ text: "Elf", id: "e", bundle: { statModifiers: [1], featureGrants: [] } }], "e",
+      [{ name: "Elf", bundle: { statModifiers: [], featureGrants: [], extra: 1 } }], [], (p) => p, cloneFn, legacyMap
+    );
+    assert(upgraded.changed === true && upgraded.choices[0].bundle.extra === 1, "recorded legacy shape upgrades");
+    const customOld = wizardMod.reconcileDropdownChoices(
+      [{ text: "Elf", id: "e", bundle: { statModifiers: [9], featureGrants: [] } }], "e",
+      [{ name: "Elf", bundle: { statModifiers: [], featureGrants: [], extra: 1 } }], [], (p) => p, cloneFn, legacyMap
+    );
+    assert(customOld.changed === false, "unrecognized old shape preserved");
+  }
   // Fixed trait slots always appear — missing values show defaults.
   {
     const humanLike = mechanics.mechanicsBulletsFor({
