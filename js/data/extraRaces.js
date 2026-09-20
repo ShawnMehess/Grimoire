@@ -1,4 +1,6 @@
-// extraRaces.js — hand-authored core PHB races missing from defaultContent.js.
+// extraRaces.js — hand-authored core PHB races missing from defaultContent.js,
+// plus the MotM-era genasi (Earth/Fire/Water) matching the compiled Air
+// Genasi's conventions (floating ASI marker, text-only spell traits).
 //
 // DEFAULT_CONTENT.raceEntries (compiled from Shawn's races-mechanics.json)
 // covers 13 entries but omits the five most-picked core races: Human,
@@ -16,8 +18,8 @@
 // attach on select, and save/load strip+hydrate them like defaults.
 //
 // Known limits (flagged, not guessed):
-// - Elf subraces (High/Wood/Drow) are a "track by hand" note — no
-//   subrace picker yet.
+// - Elf base carries no traits of its own — everything comes from its
+//   elf-subrace picker (High/Wood/Drow), each a full kit.
 // - Half-Elf's two +1s are a real pick-2 pairing group (same treatment
 //   the ASI choice groups already use).
 // - Tiefling Infernal Legacy spells arrive via spellsKnown addItem at
@@ -78,6 +80,14 @@ function darkvision() {
   return { name: "Darkvision", description: "You can see in dim light within 60 feet as if it were bright light, and in darkness as if it were dim light (no color in darkness).", minLevel: 1 };
 }
 
+// Freeform +2/+1-or-three-+1s marker (see patchFreeformAsi in
+// contentFixups.js): the MotM-era races (genasi here, plus the
+// compiled Aarakocra/Aasimar/Air Genasi/Yuan-ti) leave exact splits
+// to the player instead of fixing them.
+function freeformAsi() {
+  return { name: "Ability Score Increase", description: "Ability Score Increase: plus_2_plus_1_or_three_plus_1s (pick by hand, not a selectable list here yet)", minLevel: 1 };
+}
+
 export const RACE_EXTRA_ENTRIES = [
   {
     name: "Human",
@@ -91,24 +101,98 @@ export const RACE_EXTRA_ENTRIES = [
   },
   {
     name: "Elf",
+    // Base elves carry no traits or bonuses of their own — everything
+    // comes from the chosen subrace (High, Wood, or Drow) below.
     bundle: {
-      statModifiers: [
-        { targetFieldId: "dexScore", op: "add", value: 2 },
-        { targetFieldId: "perceptionProf", op: "grant" },
-        { targetFieldId: "languages", op: "grantTag", value: "Common" },
-        { targetFieldId: "languages", op: "grantTag", value: "Elvish" },
-      ],
+      statModifiers: [],
       dropdownAccess: [],
-      featureGrants: [
-        darkvision(),
-        { name: "Keen Senses", description: "You have proficiency in the Perception skill.", minLevel: 1 },
-        { name: "Fey Ancestry", description: "You have advantage on saving throws against being charmed, and magic can't put you to sleep.", minLevel: 1 },
-        { name: "Trance", description: "Elves don't need to sleep. You meditate for 4 hours instead (still considered a long rest).", minLevel: 1 },
-        { name: "Elven Subrace", description: "Choose a subrace with your DM (High, Wood, or Drow) — it grants extra traits. Track your subrace pick by hand for now; there is no subrace picker yet.", minLevel: 1 },
-        speedFeature(30),
-      ],
+      featureGrants: [],
       resourceGrants: [],
-      choiceGroups: [],
+      choiceGroups: [
+        {
+          id: "elf-subrace", label: "Elven Subrace", subrace: true, minLevel: 1, minSelections: 1, maxSelections: 1,
+          options: [
+            {
+              id: "elf-subrace-high", name: "High Elf", description: "",
+              statModifiers: [
+                { targetFieldId: "dexScore", op: "add", value: 2, minLevel: null },
+                { targetFieldId: "intScore", op: "add", value: 1, minLevel: null },
+                { targetFieldId: "perceptionProf", op: "grant", minLevel: null },
+                { targetFieldId: "languages", op: "grantTag", value: "Common" },
+                { targetFieldId: "languages", op: "grantTag", value: "Elvish" },
+                { targetFieldId: "weaponProf", op: "grantTag", value: "Longsword" },
+                { targetFieldId: "weaponProf", op: "grantTag", value: "Shortsword" },
+                { targetFieldId: "weaponProf", op: "grantTag", value: "Shortbow" },
+                { targetFieldId: "weaponProf", op: "grantTag", value: "Longbow" },
+              ],
+              featureGrants: [
+                darkvision(),
+                { name: "Keen Senses", description: "You have proficiency in the Perception skill.", minLevel: null },
+                { name: "Fey Ancestry", description: "You have advantage on saving throws against being charmed, and magic can't put you to sleep.", minLevel: null },
+                { name: "Trance", description: "Elves don't need to sleep. You meditate for 4 hours instead (still considered a long rest).", minLevel: null },
+                { name: "Elf Weapon Training", description: "Proficiency with the longsword, shortsword, shortbow, and longbow.", minLevel: null },
+                { name: "Cantrip", description: "You know one cantrip of your choice from the wizard spell list (pick below); Intelligence is your spellcasting ability for it.", minLevel: null },
+                { name: "Extra Language", description: "You can speak, read, and write one extra language of your choice.", minLevel: null },
+                speedFeature(30),
+              ],
+              resourceGrants: [],
+            },
+            {
+              id: "elf-subrace-wood", name: "Wood Elf", description: "",
+              statModifiers: [
+                { targetFieldId: "dexScore", op: "add", value: 2, minLevel: null },
+                { targetFieldId: "wisScore", op: "add", value: 1, minLevel: null },
+                { targetFieldId: "perceptionProf", op: "grant", minLevel: null },
+                { targetFieldId: "speed", op: "add", value: 5, minLevel: null },
+                { targetFieldId: "languages", op: "grantTag", value: "Common" },
+                { targetFieldId: "languages", op: "grantTag", value: "Elvish" },
+                { targetFieldId: "weaponProf", op: "grantTag", value: "Longsword" },
+                { targetFieldId: "weaponProf", op: "grantTag", value: "Shortsword" },
+                { targetFieldId: "weaponProf", op: "grantTag", value: "Shortbow" },
+                { targetFieldId: "weaponProf", op: "grantTag", value: "Longbow" },
+              ],
+              featureGrants: [
+                darkvision(),
+                { name: "Keen Senses", description: "You have proficiency in the Perception skill.", minLevel: null },
+                { name: "Fey Ancestry", description: "You have advantage on saving throws against being charmed, and magic can't put you to sleep.", minLevel: null },
+                { name: "Trance", description: "Elves don't need to sleep. You meditate for 4 hours instead (still considered a long rest).", minLevel: null },
+                { name: "Elf Weapon Training", description: "Proficiency with the longsword, shortsword, shortbow, and longbow.", minLevel: null },
+                { name: "Fleet of Foot", description: "Your base walking speed increases to 35 feet (+5 applied here).", minLevel: null },
+                { name: "Mask of the Wild", description: "You can attempt to hide even when only lightly obscured by foliage, rain, snow, mist, or other natural phenomena.", minLevel: null },
+                speedFeature(30),
+              ],
+              resourceGrants: [],
+            },
+            {
+              id: "elf-subrace-drow", name: "Drow", description: "",
+              statModifiers: [
+                { targetFieldId: "dexScore", op: "add", value: 2, minLevel: null },
+                { targetFieldId: "chaScore", op: "add", value: 1, minLevel: null },
+                { targetFieldId: "perceptionProf", op: "grant", minLevel: null },
+                { targetFieldId: "languages", op: "grantTag", value: "Common" },
+                { targetFieldId: "languages", op: "grantTag", value: "Elvish" },
+                { targetFieldId: "weaponProf", op: "grantTag", value: "Rapier" },
+                { targetFieldId: "weaponProf", op: "grantTag", value: "Shortsword" },
+                { targetFieldId: "weaponProf", op: "grantTag", value: "Hand Crossbow" },
+                { targetFieldId: "spellsKnown", op: "addItem", value: "Dancing Lights", minLevel: null },
+                { targetFieldId: "spellsKnown", op: "addItem", value: "Faerie Fire", minLevel: 3 },
+                { targetFieldId: "spellsKnown", op: "addItem", value: "Darkness", minLevel: 5 },
+              ],
+              featureGrants: [
+                { name: "Senses", description: "Darkvision 120 ft.", minLevel: null },
+                { name: "Keen Senses", description: "You have proficiency in the Perception skill.", minLevel: null },
+                { name: "Fey Ancestry", description: "You have advantage on saving throws against being charmed, and magic can't put you to sleep.", minLevel: null },
+                { name: "Trance", description: "Elves don't need to sleep. You meditate for 4 hours instead (still considered a long rest).", minLevel: null },
+                { name: "Drow Weapon Training", description: "Proficiency with rapiers, shortswords, and hand crossbows.", minLevel: null },
+                { name: "Sunlight Sensitivity", description: "Disadvantage on attack rolls and Wisdom (Perception) checks relying on sight when you, the target, or the thing you perceive is in direct sunlight.", minLevel: null },
+                { name: "Drow Magic", description: "Dancing Lights cantrip; Faerie Fire once per long rest at 3rd level; Darkness once per long rest at 5th. Charisma is your spellcasting ability.", minLevel: null },
+                speedFeature(30),
+              ],
+              resourceGrants: [],
+            },
+          ],
+        },
+      ],
     },
   },
   {
@@ -200,6 +284,60 @@ export const RACE_EXTRA_ENTRIES = [
       choiceGroups: [],
     },
   },
+  {
+    name: "Earth Genasi",
+    bundle: {
+      statModifiers: [
+        { targetFieldId: "languages", op: "grantTag", value: "Common" },
+      ],
+      dropdownAccess: [],
+      featureGrants: [
+        freeformAsi(),
+        { name: "Earth Walk", description: "You can move across difficult terrain without expending extra movement if you are using your walking speed on the ground or a floor.", minLevel: 1 },
+        { name: "Merge with Stone", description: "You know the Blade Ward cantrip, and can cast it as a bonus action a number of times equal to your proficiency bonus (regained on a long rest). At 5th level you can cast Pass without Trace once per long rest without material components. Intelligence, Wisdom, or Charisma is your spellcasting ability for these (choose).", minLevel: 1 },
+        { name: "Senses", description: "Darkvision 60 ft.", minLevel: 1 },
+        speedFeature(30),
+      ],
+      resourceGrants: [],
+      choiceGroups: [],
+    },
+  },
+  {
+    name: "Fire Genasi",
+    bundle: {
+      statModifiers: [
+        { targetFieldId: "languages", op: "grantTag", value: "Common" },
+      ],
+      dropdownAccess: [],
+      featureGrants: [
+        freeformAsi(),
+        { name: "Senses", description: "Darkvision 60 ft., seeing darkness in shades of red.", minLevel: 1 },
+        { name: "Resistances", description: "Fire", minLevel: 1 },
+        { name: "Reach to the Blaze", description: "You know the Produce Flame cantrip. At 3rd level you can cast Burning Hands once per long rest; at 5th level you can also cast Flame Blade once per long rest. Constitution is your spellcasting ability for these.", minLevel: 1 },
+        speedFeature(30),
+      ],
+      resourceGrants: [],
+      choiceGroups: [],
+    },
+  },
+  {
+    name: "Water Genasi",
+    bundle: {
+      statModifiers: [
+        { targetFieldId: "languages", op: "grantTag", value: "Common" },
+      ],
+      dropdownAccess: [],
+      featureGrants: [
+        freeformAsi(),
+        { name: "Resistances", description: "Acid", minLevel: 1 },
+        { name: "Amphibious", description: "You can breathe air and water.", minLevel: 1 },
+        { name: "Call to the Wave", description: "You know the Acid Splash cantrip. At 3rd level you can cast Create or Destroy Water as a 2nd-level spell once per long rest; at 5th level you can also cast Water Walk once per long rest. Intelligence, Wisdom, or Charisma is your spellcasting ability for these (choose).", minLevel: 1 },
+        speedFeature(30),
+      ],
+      resourceGrants: [],
+      choiceGroups: [],
+    },
+  },
 ];
 
 // Flavor rows for the baked-in Races reference catalog, in the exact
@@ -215,10 +353,13 @@ const EMPTY_DIFF = {
 
 export const RACE_EXTRA_CATALOG_ENTRIES = [
   { name: "Human", description: "Versatile and ambitious. +1 to every ability score, one extra language of your choice." },
-  { name: "Elf", description: "Graceful and long-lived. +2 Dexterity, Darkvision, Keen Senses (Perception), Fey Ancestry, Trance. Pick a subrace (High/Wood/Drow) with your DM." },
+  { name: "Elf", description: "Graceful and long-lived. Pick a subrace — High, Wood, or Drow — for all traits and bonuses." },
   { name: "Half-Elf", description: "Diplomatic wanderers. +2 Charisma, +1 to two other abilities, two skills of your choice, Darkvision, Fey Ancestry, one extra language." },
   { name: "Half-Orc", description: "Strong tribal warriors. +2 Strength, +1 Constitution, Darkvision, Menacing (Intimidation), Relentless Endurance, Savage Attacks." },
   { name: "Tiefling", description: "Infernal heritage. +2 Charisma, +1 Intelligence, Darkvision, fire resistance, Infernal Legacy (Thaumaturgy, Hellish Rebuke, Darkness)." },
+  { name: "Earth Genasi", description: "Stone-blooded planetouched. Dao grit, darkvision, earth walk, stone magic — immovable once decided." },
+  { name: "Fire Genasi", description: "Efreet-sparked planetouched. Hot-tempered and flamboyant — fire resistance, darkvision, and a destructive touch." },
+  { name: "Water Genasi", description: "Marid-blooded planetouched. Easy, wandering tide-speakers — acid resistance, amphibious, wave magic." },
 ].map(({ name, description }) => ({
   id: null, name, description, imageData: null,
   archetypeDiff: JSON.parse(JSON.stringify(EMPTY_DIFF)),

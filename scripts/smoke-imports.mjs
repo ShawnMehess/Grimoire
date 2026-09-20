@@ -528,6 +528,20 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   assert(lock.choiceGroups.filter((g) => g.id.startsWith("warlock-invocations-")).length === 7, "Warlock invocation tiers");
   const elf = FIXED_RACE_ENTRIES.find((e) => e.name === "Elf").bundle;
   assert(group(elf, "elf-subrace")?.options.length === 3, "Elf subrace picker");
+  assert(elf.statModifiers.length === 0 && elf.featureGrants.length === 0, "Elf base carries no traits (all in subraces)");
+  const dwarfBase = FIXED_RACE_ENTRIES.find((e) => e.name === "Dwarf").bundle;
+  assert(dwarfBase.statModifiers.length === 0 && dwarfBase.featureGrants.length === 0, "Dwarf base carries no traits (all in subraces)");
+  assert(group(dwarfBase, "dwarf-subrace")?.options.map((o) => o.name).join(",") === "Hill Dwarf,Mountain Dwarf,Duergar", "Dwarf subrace picker");
+  assert(!FIXED_RACE_ENTRIES.some((e) => ["Hill Dwarf", "Mountain Dwarf", "Duergar"].includes(e.name)), "superseded dwarf races leave the race list");
+  // Race categories cover every starter race exactly once, alphabetical within.
+  {
+    const { RACE_CATEGORIES } = await import("../js/data/raceCategories.js");
+    const covered = RACE_CATEGORIES.flatMap((c) => c.races);
+    const allRaces = FIXED_RACE_ENTRIES.map((e) => e.name);
+    assert(covered.length === allRaces.length && allRaces.every((n) => covered.includes(n)), "race categories cover every race");
+    assert(new Set(covered).size === covered.length, "race categories have no duplicates");
+    assert(RACE_CATEGORIES.every((c) => JSON.stringify(c.races) === JSON.stringify([...c.races].sort((a, b) => a.localeCompare(b)))), "race categories alphabetical");
+  }
   const aarakocra = FIXED_RACE_ENTRIES.find((e) => e.name === "Aarakocra").bundle;
   assert(aarakocra.choiceGroups.some((g) => g.options.length === 35), "Aarakocra ASI pairs+triples");
   const mi = featMod.FEAT_BUNDLES.find((b) => b.name === "Magic Initiate");
@@ -564,6 +578,54 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   assert(sections[1].items[0] === "+2 DEX", "mechanicsBullets score");
   assert(sections[2].items[0] === "perceptionProf", "mechanicsBullets prof fallback without vocab");
   assert(sections[3].items.some((i) => i.startsWith("Trance")), "mechanicsBullets innate");
+  assert(mechanics.featureBit({ name: "Senses", description: "Darkvision 60 ft." }) === "Darkvision: 60 feet", "featureBit senses spelling");
+  assert(mechanics.featureBit({ name: "Darkvision", description: "You can see in dim light within 60 feet as if it were bright light." }) === "Darkvision: 60 feet", "featureBit feet wording");
+  // Darkvision + resistances land in Racial Traits (both spellings),
+  // traits run Speed → Darkvision → Resistances, scores run STR-first.
+  {
+    const dwarfLike = mechanics.mechanicsBulletsFor({
+      statModifiers: [
+        { targetFieldId: "wisScore", op: "add", value: 1 },
+        { targetFieldId: "conScore", op: "add", value: 2 },
+      ],
+      featureGrants: [
+        { name: "Resistances", description: "Poison", minLevel: 1 },
+        { name: "Speed", description: "25 ft. walking", minLevel: 1 },
+        { name: "Senses", description: "Darkvision 60 ft.", minLevel: 1 },
+        { name: "Stonecunning", description: "Double proficiency on stonework history checks.", minLevel: 1 },
+      ],
+    }, 1, { abilityIds: ["str", "dex", "con", "int", "wis", "cha"] });
+    assert(dwarfLike[0].items.slice(0, 3).join(" | ") === "Speed: 25 feet | Darkvision: 60 feet | Resistances: Poison", "mechanicsBullets trait order");
+    assert(dwarfLike[1].items.join(" | ") === "+2 CON | +1 WIS", "mechanicsBullets score order");
+    assert(dwarfLike[2].items.some((i) => i.startsWith("Stonecunning")), "mechanicsBullets innate keeps the rest");
+  }
+  // Merged language picker: one list, combined budget, per-group storage.
+  {
+    const groups = [
+      { key: "creation:Race:X:g1", minSelections: 1, maxSelections: 1, options: [{ id: "a", name: "Elvish", statModifiers: [{ targetFieldId: "languages", op: "grantTag", value: "Elvish" }] }, { id: "b", name: "Orc", statModifiers: [] }] },
+      { key: "creation:Background:Y:g2", minSelections: 2, maxSelections: 2, options: [{ id: "c", name: "Elvish", statModifiers: [] }, { id: "d", name: "Draconic", statModifiers: [] }] },
+    ];
+    const merged = wizardMod.mergeLanguageGroups(groups, ["Common", "Elvish", "Orc", "Draconic"], new Set(["tag:languages:Elvish"]));
+    assert(JSON.stringify(merged.languages) === JSON.stringify(["Elvish", "Orc", "Draconic"]), "mergeLanguageGroups vocab order");
+    assert(merged.total === 3, "mergeLanguageGroups combined budget");
+    assert(merged.required === 2, "mergeLanguageGroups owned overlap relief");
+    const stored = wizardMod.distributeLanguagePicks(groups, ["Orc", "Draconic"]);
+    assert(JSON.stringify(stored["creation:Race:X:g1"]) === JSON.stringify(["b"]), "distributeLanguagePicks fills first group");
+    assert(JSON.stringify(stored["creation:Background:Y:g2"]) === JSON.stringify(["d"]), "distributeLanguagePicks spills into second group");
+  }
+  // Fixed trait slots always appear — missing values show defaults.
+  {
+    const humanLike = mechanics.mechanicsBulletsFor({
+      statModifiers: [],
+      featureGrants: [{ name: "Speed", description: "30 ft. walking", minLevel: 1 }],
+    }, 1, { abilityIds: ["str", "dex", "con", "int", "wis", "cha"] });
+    assert(humanLike[0].items.join(" | ") === "Speed: 30 feet | Darkvision: none | Resistances: none", "mechanicsBullets trait defaults");
+  }
+  // Sentence-snipper never starts mid-string or mid-word.
+  {
+    assert(mechanics.briefDescription("When you score a critical hit with a melee weapon attack, you can roll one of the weapon's damage dice one additional time and add it to the extra damage of the critical hit.", 120).startsWith("When you"), "briefDescription anchored at start");
+    assert(mechanics.briefDescription("Know the Shocking Grasp cantrip.; Cast Feather Fall once per long rest.; Cast Levitate once per long rest.", 120).startsWith("Know the"), "briefDescription semicolons stay anchored");
+  }
   assert(mechanics.mechanicsBulletsFor(null, 1).length === 0, "mechanicsBullets null-safe");
   assert(mechanics.briefDescription("First. Second.", 200) === "First.", "briefDescription");
   assert(mechanics.briefDescription("A very long single sentence with no ending in sight at all whatsoever", 20).endsWith("…"), "briefDescription word-cut fallback");
@@ -653,9 +715,11 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   }
   {
     const { resolveStartingEquipmentPick, goldOptionIdFor, CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT } = await import("../js/data/startingEquipment.js");
-    const fighter = resolveStartingEquipmentPick("Fighter", "Sailor", "fighter-a");
-    assert(fighter.items.includes("Chain mail") && fighter.gp === 10, "starting package + bg gold");
-    const gold = resolveStartingEquipmentPick("Fighter", "Sailor", goldOptionIdFor("Fighter"));
+    const fighter = resolveStartingEquipmentPick("Fighter", "Sailor", { picks: { armor: "chain-mail", weapon: "sword-board", ranged: "light-crossbow", pack: "dungeoneers-pack" } });
+    assert(fighter.items.includes("Chain mail") && fighter.items.includes("Shield") && fighter.gp === 10, "starting package + bg gold");
+    const legacy = resolveStartingEquipmentPick("Fighter", "Sailor", "fighter-a");
+    assert(legacy.items.includes("Chain mail") && legacy.items.includes("Longsword") && legacy.gp === 10, "legacy flattened pick resolves");
+    const gold = resolveStartingEquipmentPick("Fighter", "Sailor", { gold: true });
     assert(gold.items.length === BG_STARTING_EQUIPMENT.Sailor.items.length && gold.gp === CLASS_STARTING_EQUIPMENT.Fighter.gold.gp + 10, "gold instead");
     const empty = resolveStartingEquipmentPick("", "", null);
     assert(empty.items.length === 0 && empty.gp === 0, "starting equipment empty-safe");
@@ -697,7 +761,7 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   assert(SPELL_CATALOG.tabs.some((t) => t.id === "cantrips") && SPELL_CATALOG.tabs.some((t) => t.id === "level9"), "SPELL_CATALOG tabs");
   assert(WEAPONS_ARMOR_CATALOG.tabs.length >= 1 && GEAR_CATALOG.tabs.length >= 1, "equipment catalogs");
   const { RACE_EXTRA_ENTRIES } = await import("../js/data/extraRaces.js");
-  assert(RACE_EXTRA_ENTRIES.length === 5, "RACE_EXTRA_ENTRIES count");
+  assert(RACE_EXTRA_ENTRIES.length === 8, "RACE_EXTRA_ENTRIES count");
 }
 
 // Multiclass pure layer: level splits, prereqs, slots, stripping.

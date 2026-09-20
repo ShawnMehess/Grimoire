@@ -64,14 +64,55 @@ export function collapseBits(bits) {
 export function featureBit(grant) {
   const name = grant.name || "";
   if (/^speed$/i.test(name.trim())) {
-    const match = /(\d+\s*ft\.?)/i.exec(grant.description || "");
-    if (match) return `Speed: ${match[1].replace(/\.$/, "").replace(/\s*ft$/i, " feet")}`;
+    const range = rangeText(grant.description);
+    if (range) return `Speed: ${range}`;
   }
-  if (/darkvision/i.test(name.trim())) {
-    const match = /(\d+\s*ft\.?)/i.exec(grant.description || "");
-    if (match) return `Darkvision: ${match[1].replace(/\.$/, "").replace(/\s*ft$/i, " feet")}`;
+  // The compiled race data spells darkvision "Senses" (every such
+  // grant describes a darkvision range) while the hand-written races
+  // say "Darkvision" outright — both render as Darkvision here.
+  if (/darkvision/i.test(name.trim()) || (isSensesGrant(name) && /darkvision/i.test(grant.description || ""))) {
+    const range = rangeText(grant.description);
+    if (range) return `Darkvision: ${range}`;
+    if (isSensesGrant(name)) return "Darkvision";
   }
   return name;
+}
+
+/** First "<number> <unit>" range in a description, normalized to
+ *  "<number> feet" — accepts "ft", "ft.", "foot", and "feet" ("within
+ *  60 feet" and "60 ft." both yield "60 feet"). Null when no range. */
+function rangeText(description) {
+  const match = /(\d+)\s*(ft\.?|feet|foot)\b/i.exec(description || "");
+  if (!match) return null;
+  return `${match[1]} feet`;
+}
+
+/** Grants named exactly "Senses" (optionally "(override)") are the
+ *  compiled data's spelling of darkvision. Anchored so "Keen Senses"
+ *  and similar proficiency-style grants never match. */
+function isSensesGrant(name) {
+  return /^senses(\s*\(override\))?$/i.test((name || "").trim());
+}
+
+/** Darkvision by either spelling: "Darkvision…" or a "Senses" grant
+ *  describing a darkvision range. */
+function isDarkvisionGrant(grant) {
+  const name = (grant?.name || "").trim();
+  if (/darkvision/i.test(name)) return true;
+  return isSensesGrant(name) && /darkvision/i.test(grant?.description || "");
+}
+
+/** Damage resistances and save resilience, both spellings: the
+ *  compiled "Resistances" plus "Hellish/Magic Resistance",
+ *  "Dwarven/Duergar/Poison Resilience", "Gnome Cunning",
+ *  "Fey Ancestry", and "Brave" (all "this race resists harm").
+ *  Deliberately NOT Lucky, Halfling Nimbleness, Savage Attacks, or
+ *  Relentless Endurance (rerolls, movement, crits, death-cheats),
+ *  nor Sunlight Sensitivity (a drawback, not a resistance). */
+function isResistanceGrant(grant) {
+  const name = (grant?.name || "").trim();
+  return /resist/i.test(name) || /resili/i.test(name)
+    || /^(gnome cunning|fey ancestry|brave)$/i.test(name);
 }
 
 function activeAtLevel(items, level) {
@@ -150,11 +191,13 @@ const TAG_FIELD_LABELS = {
 /** First sentence of a longer text, capped — keeps picker bullets brief
  *  without trailing off mid-thought: a sentence boundary inside the
  *  cap wins; otherwise the whole first sentence (up to 2× cap) rather
- *  than a word-cut fragment. */
+ *  than a word-cut fragment. The match is anchored at the start, so a
+ *  text with no early boundary (e.g. clauses joined by semicolons)
+ *  can never produce a mid-string or mid-word fragment. */
 export function briefDescription(text, max = 140) {
   const flat = String(text || "").replace(/\s+/g, " ").trim();
   if (!flat) return "";
-  const m = flat.match(new RegExp(`(.{1,${max}}?[.!?])(\\s|$)`));
+  const m = flat.match(new RegExp(`^(.{1,${max}}?[.!?])(\\s|$)`));
   if (m) return m[1].trim();
   const firstEnd = flat.search(/[.!?](\s|$)/);
   if (firstEnd !== -1 && firstEnd + 1 <= max * 2) return flat.slice(0, firstEnd + 1).trim();
@@ -172,17 +215,36 @@ function isProfGrant(mod) {
   return mod.op === "grant" && /Prof$/.test(mod.targetFieldId || "") && !/Score$/.test(mod.targetFieldId || "");
 }
 
+/** Canonical ability order for the Ability Score Increases list —
+ *  STR, DEX, CON, INT, WIS, CHA. Abilities with no boost are omitted,
+ *  never blank-filled. */
+const SCORE_DISPLAY_ORDER = ["str", "dex", "con", "int", "wis", "cha"];
+
 /** Categorized, bulleted mechanics for a picker row — the structured
  *  replacement for the one-line mechanicsPreviewFor on Race/Class/
  *  Background/Subclass rows. Fixed category order (Racial Traits →
  *  Ability Score Increases → Proficiencies → Innate Abilities); a
  *  category with nothing in it is omitted outright.
+ *  Inside Racial Traits the order is fixed too — Speed, then
+ *  Darkvision, then Resistances, then any remaining traits (numeric
+ *  modifiers and proficiency tag groups, in data order) — so every
+ *  race reads the same way. Those three always appear: a race with no
+ *  value for one shows the standard default instead (Speed: 30 feet,
+ *  Darkvision: none, Resistances: none). A superseded Darkvision
+ *  ("Senses (override)") replaces the base one rather than listing
+ *  twice. Ability Score Increases always run
+ *  STR → DEX → CON → INT → WIS → CHA, omitting unboosted abilities.
+ *  With the `backgroundDisplay` dep, proficiency tag grants (tools,
+ *  languages, armor, weapons) list under Innate Abilities instead of
+ *  Racial Traits, and the Racial Traits section is omitted — backgrounds
+ *  have no innate speed/senses/resistances of their own, so the section
+ *  would only ever restate proficiencies.
  *  Returns [{ title, items: [string] }]. Only grants at or below
  *  `level` are listed (default Infinity = everything, for contexts
  *  with no level yet); label and detail always join with a colon. */
 export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   if (!bundle) return [];
-  const { abilityIds = [], abilities = [], skills = [], resolveLabel = null } = deps;
+  const { abilityIds = [], abilities = [], skills = [], resolveLabel = null, backgroundDisplay = false } = deps;
   const summarize = (m) => statModifierSummary(m, { abilityIds, abilities, skills, resolveLabel });
   const tagLabel = (fieldId) => TAG_FIELD_LABELS[fieldId]
     || (typeof resolveLabel === "function" && resolveLabel(fieldId))
@@ -190,8 +252,11 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   const levelTag = (minLevel) => (Number.isFinite(minLevel) && minLevel > 1 ? ` (level ${minLevel})` : "");
   const atLevel = (item) => !item.minLevel || item.minLevel <= level;
 
-  const traits = [];
-  const scores = [];
+  const otherTraits = [];
+  const speedBits = [];
+  const darkvisionBits = [];
+  const resistanceBits = [];
+  const scoreMods = [];
   const profs = [];
   const innate = [];
 
@@ -201,29 +266,67 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
       if (!tagsByField.has(mod.targetFieldId)) tagsByField.set(mod.targetFieldId, []);
       if (mod.value) tagsByField.get(mod.targetFieldId).push(mod.value);
     } else if (abilityIdFor(mod, abilityIds)) {
-      scores.push(summarize(mod));
+      scoreMods.push(mod);
     } else if (isProfGrant(mod)) {
       profs.push(summarize(mod));
     } else if (mod.op === "addItem") {
       innate.push(`Learn the ${mod.value} spell${levelTag(mod.minLevel)}`);
     } else if (["add", "subtract", "multiply", "set"].includes(mod.op)) {
-      traits.push(`${summarize(mod)}${levelTag(mod.minLevel)}`);
+      otherTraits.push(`${summarize(mod)}${levelTag(mod.minLevel)}`);
     }
   }
   for (const [fieldId, values] of tagsByField) {
     const unique = [...new Set(values)];
-    if (unique.length) traits.push(`${tagLabel(fieldId)}: ${unique.join(", ")}`);
+    if (!unique.length) continue;
+    const line = `${tagLabel(fieldId)}: ${unique.join(", ")}`;
+    // Background rows show proficiencies as innate abilities, never
+    // as racial traits (see backgroundDisplay above).
+    if (backgroundDisplay) innate.push(line);
+    else otherTraits.push(line);
   }
   for (const grant of (bundle.featureGrants || []).filter(atLevel)) {
     const name = (grant.name || "").trim();
     if (!name) continue;
-    if (/^speed$/i.test(name) || /darkvision/i.test(name)) {
-      traits.push(`${featureBit(grant)}${levelTag(grant.minLevel)}`);
+    if (/^speed$/i.test(name)) {
+      speedBits.push(`${featureBit(grant)}${levelTag(grant.minLevel)}`);
+    } else if (isDarkvisionGrant(grant)) {
+      darkvisionBits.push(`${featureBit(grant)}${levelTag(grant.minLevel)}`);
+    } else if (isResistanceGrant(grant)) {
+      const why = briefDescription(grant.description, 120);
+      resistanceBits.push(`${name}${why ? `: ${why}` : ""}${levelTag(grant.minLevel)}`);
     } else {
       const why = briefDescription(grant.description, 120);
       innate.push(`${name}${why ? `: ${why}` : ""}${levelTag(grant.minLevel)}`);
     }
   }
+  // A "(override)" Darkvision replaces the base range rather than
+  // listing alongside it (today only Duergar has both). The three
+  // fixed slots always appear — a race with no value shows the
+  // standard default (30 ft. walking speed, no darkvision, no
+  // resistances) instead of skipping the line.
+  if (speedBits.length === 0) speedBits.push("Speed: 30 feet");
+  if (darkvisionBits.length === 0) darkvisionBits.push("Darkvision: none");
+  if (resistanceBits.length === 0) resistanceBits.push("Resistances: none");
+  const traits = [
+    ...speedBits,
+    ...(darkvisionBits.length > 1 ? darkvisionBits.slice(-1) : darkvisionBits),
+    ...resistanceBits,
+    ...otherTraits,
+  ];
+
+  const scoreRank = (mod) => {
+    const id = abilityIdFor(mod, abilityIds);
+    const canonical = SCORE_DISPLAY_ORDER.indexOf(id);
+    if (canonical !== -1) return canonical;
+    const fromDeps = (abilityIds || []).indexOf(id);
+    return fromDeps !== -1
+      ? SCORE_DISPLAY_ORDER.length + fromDeps
+      : SCORE_DISPLAY_ORDER.length + (abilityIds || []).length;
+  };
+  const scores = scoreMods
+    .map((mod, i) => ({ mod, i }))
+    .sort((a, b) => scoreRank(a.mod) - scoreRank(b.mod) || a.i - b.i)
+    .map(({ mod }) => summarize(mod));
 
   const out = [];
   if (traits.length) out.push({ title: "Racial Traits", items: traits });

@@ -55,7 +55,7 @@
 //     large images will fail to save — there's a warning on upload,
 //     but no compression/resizing yet.
 
-import { createStarterLayout, createBlock, createField, findNode, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS, ARMOR_PROFICIENCIES, WEAPON_PROFICIENCIES, TOOL_PROFICIENCIES, VEHICLE_PROFICIENCIES } from "../data/blockModel.js";
+import { createStarterLayout, createBlock, createField, findNode, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS, ARMOR_PROFICIENCIES, WEAPON_PROFICIENCIES, TOOL_PROFICIENCIES, VEHICLE_PROFICIENCIES, LANGUAGES } from "../data/blockModel.js";
 import { contentHeight } from "./gridEngine.js";
 import { computeAllFormulas, evaluateFormulaNode, formatComputedValue } from "../data/formula.js";
 import { openFormulaEditor } from "./formulaEditor.js";
@@ -72,6 +72,7 @@ import { SPELL_CATALOG, WEAPONS_ARMOR_CATALOG, GEAR_CATALOG } from "../data/cont
 import { RACE_EXTRA_CATALOG_ENTRIES } from "../data/extraRaces.js";
 import { flavorFor } from "../data/pickerFlavor.js";
 import { portraitArtFor } from "../data/portraitArt.js";
+import { RACE_CATEGORIES } from "../data/raceCategories.js";
 import { SHEET_THEMES, applySheetTheme, normalizeThemeId, normalizeThemeMode } from "../data/themes.js";
 import { CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT, goldOptionIdFor, slugId, resolveStartingEquipmentPick } from "../data/startingEquipment.js";
 import { ABILITIES, SKILLS } from "../data/schema.js";
@@ -220,6 +221,8 @@ import {
 import {
   creationChoiceGroupsForState,
   creationFixedBundlesFor,
+  mergeLanguageGroups,
+  distributeLanguagePicks,
   ownedSkillIdsFromBundles,
   optionIsOwned,
   groupPicksSatisfied,
@@ -278,6 +281,7 @@ import {
   renderRowListStepInto,
   renderPreferencesStepInto,
   renderChoicePageStepInto,
+  renderMergedLanguagePickerInto,
   renderSpellsStepInto,
   renderInnateAbilitiesStepInto,
   renderAbilitiesStepInto,
@@ -413,6 +417,48 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // existing characters back into the wizard.
   if (character.setupComplete === undefined) character.setupComplete = true;
   normalizeTabs();
+  healLegacyDwarfSubrace();
+
+  /** Characters created before Hill/Mountain/Duergar became Dwarf
+   *  subraces still hold the old race name (which no longer exists as
+   *  a race choice): point them at Dwarf plus the matching subrace
+   *  pick, so nothing is lost. Runs once per sheet open; silent
+   *  (statusEl doesn't exist yet this early). */
+  function healLegacyDwarfSubrace() {
+    const LEGACY_SUBRACE_OPTION = {
+      "Hill Dwarf": "dwarf-subrace-hill-dwarf",
+      "Mountain Dwarf": "dwarf-subrace-mountain-dwarf",
+      "Duergar": "dwarf-subrace-duergar",
+    };
+    const legacy = LEGACY_SUBRACE_OPTION[character.rules?.species];
+    if (!legacy) return;
+    const raceField = findStarterField("race", "Race");
+    const dwarfChoice = raceField?.choices?.find((c) => c.text === "Dwarf" && c.bundle);
+    if (!raceField || !dwarfChoice) return;
+    raceField.selected = dwarfChoice.id;
+    const group = (dwarfChoice.bundle?.choiceGroups || []).find((g) => g.id === "dwarf-subrace");
+    if (group) {
+      // Same key shapes the pickers use: the live creation key while
+      // the setup wizard is still open, otherwise the sheet
+      // dropdown's real key (ids are per-character, hence computed
+      // here rather than hardcoded).
+      const key = character.setupComplete === false
+        ? `creation:Race:Dwarf:${group.id}`
+        : `${raceField.id}:${dwarfChoice.id}:${group.id}`;
+      character.rules.choices = character.rules.choices || {};
+      if (!character.rules.choices[key]) character.rules.choices[key] = [legacy];
+    }
+    character.rules.species = "Dwarf";
+    if (store.saveCharacterFields) {
+      store.saveCharacterFields(character.id, { rules: character.rules }).catch((err) => {
+        console.error("Failed to migrate dwarf subrace:", err);
+      });
+    } else if (store.saveCharacterField) {
+      store.saveCharacterField(character.id, "rules", character.rules).catch((err) => {
+        console.error("Failed to migrate dwarf subrace:", err);
+      });
+    }
+  }
 
   let editMode = false;
   let activeTabId = (!character.setupComplete && character.sheetTabs.find(tab => tab.kind === "rules")?.id) || character.sheetTabs[0].id;
@@ -2716,6 +2762,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       abilities: ABILITIES,
       skills: SKILLS,
       resolveLabel: (id) => resolveFieldById(id)?.label,
+      backgroundDisplay: (category || "").toLowerCase() === "background",
     });
   }
 
@@ -2738,9 +2785,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   }
 
   /** Every language the character already knows at Setup time:
-   *  Common (always) plus fixed grants and picks so far. Shown above
-   *  the pickers even when there's nothing left to choose, so the page
-   *  never reads empty. */
+   *  Common (always) plus fixed grants and picks so far — including
+   *  picks from non-language groups (e.g. a subrace granting Elvish).
+   *  Shown above the pickers even when there's nothing left to choose,
+   *  so the page never reads empty. */
   function knownLanguagesFor(state) {
     const seen = new Set();
     const known = [];
@@ -2768,6 +2816,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         if (opt?.name) take(opt.name, false);
       });
     });
+    // Language tags granted by picks outside language groups (subrace
+    // options chief among them) are known too — just changeable, so
+    // they show unlocked rather than locked.
+    grantedLanguageNames().picked.forEach((name) => take(name, false));
     return known;
   }
 
@@ -2925,6 +2977,83 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       group.key
     );
     return groupPicksSatisfied(group, character.rules?.choices?.[group.key], owned);
+  }
+
+  /** Languages granted outside the language pickers: fixed bundle
+   *  grants (plus Common, always) and language tags on selected
+   *  options of non-language groups (subrace options chief among
+   *  them). Returns { fixed: [...], picked: [...] } — fixed shows
+   *  locked, picked shows locked here but stays editable at its own
+   *  picker. */
+  function grantedLanguageNames() {
+    const fixed = new Set(["Common"]);
+    const picked = new Set();
+    const isLanguageField = (id) => /language/i.test(id || "")
+      || /language/i.test(resolveFieldById(id)?.label || "");
+    creationFixedBundles(state).forEach((bundle) => {
+      (bundle?.statModifiers || []).forEach((mod) => {
+        if (mod.op === "grantTag" && mod.value && isLanguageField(mod.targetFieldId)) fixed.add(mod.value);
+      });
+    });
+    creationChoiceGroupsFor(state)
+      .filter((g) => sharedCategorizeChoiceGroup(g) !== "languages")
+      .forEach((group) => {
+        const all = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+        ((character.rules.choices || {})[group.key] || []).forEach((id) => {
+          const opt = all.find((o) => o.id === id);
+          (opt?.statModifiers || []).forEach((mod) => {
+            if (mod.op === "grantTag" && mod.value && isLanguageField(mod.targetFieldId)) picked.add(mod.value);
+          });
+        });
+      });
+    return { fixed: [...fixed], picked: [...picked] };
+  }
+  /** Merged extra-languages model for the Languages step: one list
+   *  (the full vocabulary, identical for every character) with
+   *  default-known languages locked, everything else pickable up to
+   *  the combined budget. Picks distribute back onto the per-group
+   *  choice keys, so the Known Languages summary, review lines, and
+   *  compute all read them unchanged. */
+  function languageStepData() {
+    const groups = creationGroupsByCategory.languages;
+    const { fixed, picked } = grantedLanguageNames();
+    const fixedOwned = new Set();
+    creationFixedBundles(state).forEach((bundle) => {
+      (bundle?.statModifiers || []).forEach((mod) => {
+        if (mod.op === "grantTag" && mod.value && /language/i.test(mod.targetFieldId || "")) {
+          fixedOwned.add(`tag:${mod.targetFieldId}:${mod.value}`);
+        }
+      });
+    });
+    // Languages granted by non-language picks (subraces) relieve the
+    // budget exactly like fixed grants — same tokens the options use.
+    creationChoiceGroupsFor(state)
+      .filter((g) => sharedCategorizeChoiceGroup(g) !== "languages")
+      .forEach((group) => {
+        const all = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+        ((character.rules.choices || {})[group.key] || []).forEach((id) => {
+          const opt = all.find((o) => o.id === id);
+          (opt?.statModifiers || []).forEach((mod) => {
+            if (mod.op === "grantTag" && mod.value) fixedOwned.add(`tag:${mod.targetFieldId}:${mod.value}`);
+          });
+        });
+      });
+    const grantedNames = [...fixed, ...picked.filter((n) => !fixed.map((f) => f.toLowerCase()).includes(n.toLowerCase()))];
+    const grantedLower = new Set(grantedNames.map((n) => n.toLowerCase()));
+    const merged = mergeLanguageGroups(groups, LANGUAGES, fixedOwned);
+    const pickedNames = [];
+    const seenPicked = new Set();
+    groups.forEach((group) => {
+      const options = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+      ((character.rules.choices || {})[group.key] || []).forEach((id) => {
+        const opt = options.find((o) => o.id === id);
+        if (opt?.name && !grantedLower.has(opt.name.toLowerCase()) && !seenPicked.has(opt.name)) {
+          seenPicked.add(opt.name);
+          pickedNames.push(opt.name);
+        }
+      });
+    });
+    return { groups, merged, grantedNames, pickedNames };
   }
 
   /** Fixed feature grants from the staged Race/Class/Subclass/
@@ -3139,52 +3268,97 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     else pickWrap.remove();
   }
 
-  /** Starting Equipment tab: class package variants (or the gold)
-   *  plus the background's fixed package for reference. The pick is
-   *  stored on rules.startingEquipment and applied once at Finish
-   *  Setup (items to Inventory, gold to GP). */
+  /** Equipment tab: background package first (fixed, automatic),
+   *  then one pick per class equipment row (PHB either/or rows, not
+   *  exclusive whole-kit paths), or the gold instead — plus the free-
+   *  form weapon/armor/tool proficiency pickers. Picks live on
+   *  rules.startingEquipment and apply once at Finish Setup (items to
+   *  Inventory, gold to GP). */
   function renderStartingEquipmentStepInto(container, state, saveRules) {
+    const bg = BG_STARTING_EQUIPMENT[state.background];
+    if (bg && state.background) {
+      const bgHead = document.createElement("p");
+      bgHead.className = "wizard__section-label";
+      bgHead.textContent = `Background equipment — ${state.background} (fixed, added automatically)`;
+      container.append(bgHead);
+      const note = document.createElement("p");
+      note.className = "leveling-tab__intro";
+      note.textContent = `${bg.items.join(", ")}${bg.gp ? `, plus ${bg.gp} gp` : ""}.`;
+      container.append(note);
+    }
     const entry = CLASS_STARTING_EQUIPMENT[state.className];
     if (!entry) {
       const note = document.createElement("p");
       note.className = "leveling-tab__intro";
-      note.textContent = "Pick a class first — its starting equipment packages will show up here.";
+      note.textContent = "Pick a class first — its starting equipment choices will show up here.";
       container.append(note);
     } else {
-      const current = character.rules.startingEquipment?.classOptionId || null;
-      const allOptions = [
-        ...entry.options.map((opt) => ({ id: opt.id, label: opt.label, detail: opt.items.join(" · ") })),
-        { id: goldOptionIdFor(state.className), label: `Take ${entry.gold.gp} gp instead`, detail: `Fixed average of your starting wealth roll (${entry.gold.formula}). Use this to buy gear yourself.` },
-      ];
-      allOptions.forEach((opt) => {
-        const row = document.createElement("label");
-        row.className = "level-guide__choice-option";
-        const input = document.createElement("input");
-        input.type = "radio";
-        input.name = "starting-equipment";
-        input.value = opt.id;
-        input.checked = current === opt.id;
-        input.addEventListener("change", () => {
-          character.rules.startingEquipment = { classOptionId: opt.id };
-          saveRules();
-          refreshWizardNav();
+      const stored = character.rules.startingEquipment || {};
+      const picks = { ...(stored.picks || {}) };
+      const goldId = goldOptionIdFor(state.className);
+      const classHead = document.createElement("p");
+      classHead.className = "wizard__section-label";
+      classHead.textContent = `Class equipment — ${state.className}`;
+      container.append(classHead);
+      (entry.decisions || []).forEach((decision) => {
+        const group = document.createElement("div");
+        group.className = "wizard__subsection";
+        const label = document.createElement("p");
+        label.className = "wizard__section-label";
+        label.textContent = decision.label;
+        group.append(label);
+        decision.options.forEach((opt) => {
+          const row = document.createElement("label");
+          row.className = "level-guide__choice-option";
+          const input = document.createElement("input");
+          input.type = "radio";
+          input.name = `starting-equipment-${decision.id}`;
+          input.value = opt.id;
+          input.checked = picks[decision.id] === opt.id;
+          input.addEventListener("change", () => {
+            character.rules.startingEquipment = {
+              picks: { ...(character.rules.startingEquipment?.picks || {}), [decision.id]: opt.id },
+            };
+            saveRules();
+            refreshWizardNav();
+          });
+          const text = document.createElement("span");
+          text.textContent = opt.label;
+          row.append(input, text);
+          const detail = document.createElement("span");
+          detail.className = "level-guide__choice-description";
+          detail.textContent = opt.items.join(" · ");
+          row.append(detail);
+          group.append(row);
         });
-        const text = document.createElement("span");
-        text.textContent = opt.label;
-        row.append(input, text);
-        const detail = document.createElement("span");
-        detail.className = "level-guide__choice-description";
-        detail.textContent = opt.detail;
-        row.append(detail);
-        container.append(row);
+        container.append(group);
       });
-    }
-    const bg = BG_STARTING_EQUIPMENT[state.background];
-    if (bg && state.background) {
-      const note = document.createElement("p");
-      note.className = "leveling-tab__intro";
-      note.textContent = `Your background also grants (added automatically): ${bg.items.join(", ")}${bg.gp ? `, plus ${bg.gp} gp` : ""}.`;
-      container.append(note);
+      if ((entry.fixed || []).length) {
+        const note = document.createElement("p");
+        note.className = "leveling-tab__intro";
+        note.textContent = `Also included automatically: ${entry.fixed.join(", ")}.`;
+        container.append(note);
+      }
+      const row = document.createElement("label");
+      row.className = "level-guide__choice-option";
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "starting-equipment-gold";
+      input.value = goldId;
+      input.checked = stored.gold === true;
+      input.addEventListener("change", () => {
+        character.rules.startingEquipment = { gold: true };
+        saveRules();
+        refreshWizardNav();
+      });
+      const text = document.createElement("span");
+      text.textContent = `Take ${entry.gold.gp} gp instead`;
+      row.append(input, text);
+      const detail = document.createElement("span");
+      detail.className = "level-guide__choice-description";
+      detail.textContent = `Fixed average of your starting wealth roll (${entry.gold.formula}). Use this to buy gear yourself.`;
+      row.append(detail);
+      container.append(row);
     }
   }
 
@@ -3197,7 +3371,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const itemsField = findStarterField(null, "Items");
     const gpField = findStarterField(null, "GP");
     const { items, gp } = resolveStartingEquipmentPick(
-      character.rules.className, character.rules.background, se.classOptionId
+      character.rules.className, character.rules.background, se
     );
     if (itemsField) items.forEach((item) => appendUniqueTextListItem(itemsField, item));
     if (gpField && gp > 0) {
@@ -3462,9 +3636,20 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       character.rules[key] = value;
       character.rules = normalizeRulesState(character.rules);
       cleanStaleSubclass(character.rules, (className) => liveSubclassData(className));
+      if (key === "species") cleanStaleLineageFeat();
       saveRules();
       renderPageGrid();
     };
+
+    /** A race-granted feat (today: Custom Lineage) lives in
+     *  rules.feats with source "lineage" — switching species drops it
+     *  so a stale feat can't outlive the race that granted it (the new
+     *  race's own feat, if any, gets picked fresh on the Feats page). */
+    function cleanStaleLineageFeat() {
+      const feats = character.rules.feats || [];
+      if (!feats.some((f) => f.source === "lineage")) return;
+      character.rules.feats = feats.filter((f) => f.source !== "lineage");
+    }
 
     function wizardFieldOptionNames(fieldId, fieldLabel) {
       return wizardFieldOptionNamesIn((id, label) => findStarterField(id, label), fieldId, fieldLabel);
@@ -3501,9 +3686,27 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     // Languages/Equipment/Feats/Proficiencies pages — see
     // creationChoiceGroupsFor and categorizeChoiceGroup above.
     const creationGroups = creationChoiceGroupsFor(state);
-    const creationGroupsByCategory = bucketGroupsByCategory(creationGroups, CREATION_CHOICE_CATEGORIES, categorizeChoiceGroup);
+    const creationGroupsByCategory = bucketGroupsByCategory(creationGroups.filter((g) => !g.subrace), CREATION_CHOICE_CATEGORIES, categorizeChoiceGroup);
+    // The race bundle's pick-1 subrace group (Elf/Dwarf) renders nested
+    // under its race — the same pattern as subclasses under their
+    // class — never as a standalone choice page, so it stays out of
+    // the buckets above while remaining a first-class pick everywhere
+    // else (review lines, owned sets, compute).
+    function subraceGroupFor(raceName) {
+      return creationGroups.find((g) => g.subrace && g.source === raceName) || null;
+    }
     function wizardUnavailableMessage() {
       return wizardUnavailableMessageFor(state);
+    }
+    /** Whether the staged race grants a feat of its own (today:
+     *  Custom Lineage's "Feat" trait) — when it does, the Feats page
+     *  offers a real feat picker instead of staying disabled. */
+    function lineageFeatOffered() {
+      const bundle = creationFixedBundles(state)[0];
+      return ((bundle || {}).featureGrants || []).some((g) => /^feat$/i.test((g.name || "").trim()));
+    }
+    function lineageFeatPick() {
+      return (character.rules.feats || []).find((f) => f.source === "lineage") || null;
     }
 
     const steps = [
@@ -3573,7 +3776,12 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         id: "identity",
         title: "Identity",
         description: "Name your character, set starting level (usually 1), and pick a species. Species grants ability bonuses, speed, and traits you'll use all game.",
-        isComplete: () => Boolean((character.name || "").trim()) && Boolean(state.species),
+        isComplete: () => {
+          if (!((character.name || "").trim()) || !state.species) return false;
+          const sub = subraceGroupFor(state.species);
+          if (!sub) return true;
+          return groupPicksSatisfied(sub, state.choices?.[sub.key]);
+        },
         render(container) {
           renderIdentityStepInto(container, state, {
             characterName: character.name,
@@ -3592,6 +3800,33 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
             selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { ...opts, collapsible: true }),
             debounceFn: (fn, ms) => debounce(fn, ms),
+            raceCategories: RACE_CATEGORIES,
+            subraceGroupFn: (raceName) => {
+              const group = subraceGroupFor(raceName);
+              if (!group) return null;
+              return { group, pickedIds: state.choices?.[group.key] || [] };
+            },
+            subraceMechanicsFn: (raceName, subName) => {
+              const group = subraceGroupFor(raceName);
+              const option = group?.options.find((o) => o.name === subName);
+              if (!option) return [];
+              return sharedMechanicsBulletsFor(
+                { statModifiers: option.statModifiers, featureGrants: option.featureGrants },
+                state.level,
+                {
+                  abilityIds: ABILITY_IDS,
+                  abilities: ABILITIES,
+                  skills: SKILLS,
+                  resolveLabel: (id) => resolveFieldById(id)?.label,
+                }
+              );
+            },
+            selectSubraceFn: (group, optionId) => {
+              character.rules.choices = character.rules.choices || {};
+              character.rules.choices[group.key] = [optionId];
+              saveRules();
+              renderPageGrid();
+            },
           });
         },
       },
@@ -3620,6 +3855,31 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             subclassDataFn: (name) => liveSubclassData(name),
             updateFn: (key, value) => update(key, value),
             selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { ...opts, collapsible: true }),
+          });
+        },
+      },
+      {
+        id: "background",
+        title: "Background",
+        description: "Pick where your character comes from. It grants skill and tool proficiencies (bonuses on those rolls) plus starting gear.",
+        isComplete: () => Boolean(state.background),
+        render(container) {
+          renderRowListStepInto(container, state, {
+            optionNamesFn: (rulesetId, category) => rulesetOptionNames(rulesetId, category, wizardFieldOptionNames("background", "Background")),
+            fallbackNames: [],
+            keywords: ["background"],
+            category: "Background",
+            selectedKey: "background",
+            inputLabel: "Background",
+            inputPlaceholder: "No Background options found for this ruleset yet — type it in for now",
+            updateKey: "background",
+            updateFn: (key, value) => update(key, value),
+            fieldFn: (c, label, control) => field(c, label, control),
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { ...opts, collapsible: true }),
+            catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
+            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
+            summarizeFn: (m) => statModifierSummary(m),
+            mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
           });
         },
       },
@@ -3654,31 +3914,6 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         },
       },
       {
-        id: "background",
-        title: "Background",
-        description: "Pick where your character comes from. It grants skill and tool proficiencies (bonuses on those rolls) plus starting gear.",
-        isComplete: () => Boolean(state.background),
-        render(container) {
-          renderRowListStepInto(container, state, {
-            optionNamesFn: (rulesetId, category) => rulesetOptionNames(rulesetId, category, wizardFieldOptionNames("background", "Background")),
-            fallbackNames: [],
-            keywords: ["background"],
-            category: "Background",
-            selectedKey: "background",
-            inputLabel: "Background",
-            inputPlaceholder: "No Background options found for this ruleset yet — type it in for now",
-            updateKey: "background",
-            updateFn: (key, value) => update(key, value),
-            fieldFn: (c, label, control) => field(c, label, control),
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { ...opts, collapsible: true }),
-            catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
-            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
-            summarizeFn: (m) => statModifierSummary(m),
-            mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
-          });
-        },
-      },
-      {
         id: "spells",
         title: "Spells & Abilities",
         description: "Make any spell or ability picks your race/class offers, then choose starting spells if your class casts. Limits match your class and level.",
@@ -3699,45 +3934,114 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       {
         id: "languages",
         title: "Languages",
-        description: "Choose extra languages from your race, class, and background. Common is free and never uses picks — languages matter for talking to creatures in play.",
+        description: "Common is free and never uses picks — languages matter for talking to creatures in play.",
         isApplicable: () => creationGroupsByCategory.languages.length > 0,
         unavailableMessage: wizardUnavailableMessage,
-        isComplete: () => creationGroupsByCategory.languages.every((g) => creationGroupSatisfied(g, state)),
+        isComplete: () => {
+          const { pickedNames, merged } = languageStepData();
+          return pickedNames.length >= merged.required;
+        },
         render(container) {
           renderKnownLanguagesInto(container, state);
           const pickWrap = document.createElement("div");
           pickWrap.className = "wizard__subsection";
           container.append(pickWrap);
-          // Same renderer as every other choice page, but picks rebuild
-          // the page so the summary above stays truthful.
-          renderChoiceGroups(pickWrap, creationGroupsByCategory.languages, character.rules.choices, "creation-choice",
-            () => { saveRules(); renderPageGrid(); },
-            (excludeKey) => ownedSkillIdsFrom(creationFixedBundles(state), creationChoiceGroupsFor(state), excludeKey));
+          // One merged list (same options for everyone): defaults show
+          // locked, the rest share a single picked/total budget, and
+          // picks rebuild the page so the summary above stays truthful.
+          const { groups, merged, grantedNames, pickedNames } = languageStepData();
+          const orderOf = new Map(merged.languages.map((name, i) => [name, i]));
+          renderMergedLanguagePickerInto(pickWrap, {
+            languages: merged.languages,
+            picked: pickedNames,
+            granted: grantedNames,
+            total: merged.total,
+            onToggle: (name) => {
+              const next = pickedNames.includes(name)
+                ? pickedNames.filter((n) => n !== name)
+                : (pickedNames.length < merged.total
+                  ? [...pickedNames, name].sort((a, b) => (orderOf.get(a) ?? 0) - (orderOf.get(b) ?? 0))
+                  : pickedNames);
+              const patch = distributeLanguagePicks(groups, next);
+              character.rules.choices = character.rules.choices || {};
+              Object.entries(patch).forEach(([key, ids]) => { character.rules.choices[key] = ids; });
+              saveRules();
+              renderPageGrid();
+            },
+          });
         },
       },
       {
         id: "equipment",
-        title: "Starting Equipment",
-        description: "Take your class's gear package or gold to shop instead. Background gear is fixed and included automatically — gear is what you actually use in play.",
+        title: "Equipment",
+        description: "Choose each piece of starting gear (or take gold instead), then any extra weapon, armor, and tool training. Background gear is fixed and included automatically — gear is what you actually use in play.",
         isComplete: () => {
-          if (!state.className || !CLASS_STARTING_EQUIPMENT[state.className]) return true;
-          return Boolean(character.rules.startingEquipment?.classOptionId);
+          const entry = CLASS_STARTING_EQUIPMENT[state.className];
+          if (!state.className || !entry) return true;
+          const se = character.rules.startingEquipment || {};
+          if (se.gold) return true;
+          if (se.picks) {
+            return (entry.decisions || []).every((d) => se.picks[d.id]
+              && d.options.some((o) => o.id === se.picks[d.id]));
+          }
+          // Legacy flattened picks count as decided (they resolve
+          // verbatim); touching anything converts to the new shape.
+          return Boolean(se.classOptionId);
         },
-        render(container) { renderStartingEquipmentStepInto(container, state, saveRules); },
+        render(container) {
+          renderStartingEquipmentStepInto(container, state, saveRules);
+          const equipHead = document.createElement("p");
+          equipHead.className = "wizard__section-label";
+          equipHead.textContent = "Weapons, Armor & Tools";
+          container.append(equipHead);
+          const equipWrap = document.createElement("div");
+          equipWrap.className = "wizard__subsection";
+          container.append(equipWrap);
+          renderEquipmentProficienciesStepInto(equipWrap, state, saveRules);
+        },
       },
       {
         id: "feats",
         title: "Feats",
         description: "Pick feats granted by your race or background. Feats are permanent talents that bend the rules in your favor.",
-        isApplicable: () => creationGroupsByCategory.feats.length > 0,
+        isApplicable: () => creationGroupsByCategory.feats.length > 0 || lineageFeatOffered(),
         unavailableMessage: wizardUnavailableMessage,
-        isComplete: () => creationGroupsByCategory.feats.every((g) => creationGroupSatisfied(g, state)),
-        render(container) { renderChoicePageStepInto(container, creationGroupsByCategory.feats, saveRules, (c, groups, save) => renderCreationChoiceGroups(c, groups, save, state)); },
+        isComplete: () => creationGroupsByCategory.feats.every((g) => creationGroupSatisfied(g, state))
+          && (!lineageFeatOffered() || Boolean(lineageFeatPick())),
+        render(container) {
+          if (creationGroupsByCategory.feats.length) renderChoicePageStepInto(container, creationGroupsByCategory.feats, saveRules, (c, groups, save) => renderCreationChoiceGroups(c, groups, save, state));
+          if (lineageFeatOffered()) {
+            const head = document.createElement("p");
+            head.className = "wizard__section-label";
+            head.textContent = `Racial feat — ${state.species}`;
+            container.append(head);
+            const pickWrap = document.createElement("div");
+            pickWrap.className = "wizard__subsection";
+            container.append(pickWrap);
+            // Same single-pick rows as the level-up ASI feat picker:
+            // choosing replaces the previous racial feat (there is
+            // ever at most one), and the pick flows into rules.feats
+            // so every feat-aware path (choice groups, sheet mods,
+            // review) treats it like any other feat.
+            renderSelectableRows(pickWrap, rulesetOptionNames(state.rulesetId, "Feat"), {
+              selectedName: lineageFeatPick()?.name,
+              getInfo: (name) => catalogEntryInfo(["feat"], name),
+              onSelect: (name) => {
+                character.rules.feats = [
+                  ...(character.rules.feats || []).filter((f) => f.source !== "lineage"),
+                  { name, level: state.level, source: "lineage" },
+                ];
+                saveRules();
+                renderPageGrid();
+              },
+            });
+          }
+        },
       },
       {
         id: "proficiencies",
         title: "Proficiencies",
-        description: "Choose skill, tool, and save proficiencies from your race, class, and background — then any extra weapon, armor, and tool training. Already-granted ones show locked.",
+        description: "Choose skill, save, and tool proficiencies offered by your race, class, and background. Already-granted ones show locked. Free-form weapon, armor, and tool training lives on the Equipment tab.",
         isComplete: () => creationGroupsByCategory.proficiencies.every((g) => creationGroupSatisfied(g, state)),
         render(container) {
           if (creationGroupsByCategory.proficiencies.length > 0) {
@@ -3750,14 +4054,6 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             container.append(skillWrap);
             renderChoicePageStepInto(skillWrap, creationGroupsByCategory.proficiencies, saveRules, (c, groups, save) => renderCreationChoiceGroups(c, groups, save, state));
           }
-          const equipHead = document.createElement("p");
-          equipHead.className = "wizard__section-label";
-          equipHead.textContent = "Weapons, Armor & Tools";
-          container.append(equipHead);
-          const equipWrap = document.createElement("div");
-          equipWrap.className = "wizard__subsection";
-          container.append(equipWrap);
-          renderEquipmentProficienciesStepInto(equipWrap, state, saveRules);
         },
       },
       {
@@ -3790,10 +4086,19 @@ export function renderCustomSheet(root, character, store, opts = {}) {
           const spellsField = findStarterField("spellsKnown", "Spells Known");
           const se = character.rules.startingEquipment;
           const seEntry = CLASS_STARTING_EQUIPMENT[state.className];
-          const seOpt = seEntry?.options.find((o) => o.id === se?.classOptionId);
           const equipBits = [];
-          if (seOpt) equipBits.push(`${state.className} package: ${seOpt.label}`);
-          else if (se?.classOptionId && seEntry) equipBits.push(`${state.className} package: ${seEntry.gold.gp} gp instead`);
+          if (seEntry) {
+            if (se?.gold || se?.classOptionId === goldOptionIdFor(state.className)) {
+              equipBits.push(`${state.className} package: ${seEntry.gold.gp} gp instead`);
+            } else if (se?.picks) {
+              const labels = (seEntry.decisions || [])
+                .map((d) => d.options.find((o) => o.id === se.picks[d.id])?.label)
+                .filter(Boolean);
+              if (labels.length) equipBits.push(`${state.className} package: ${labels.join(" · ")}`);
+            } else if (se?.classOptionId) {
+              equipBits.push(`${state.className} package: previously saved choice`);
+            }
+          }
           if (state.background && BG_STARTING_EQUIPMENT[state.background]) {
             equipBits.push(`${state.background} package: fixed, applied automatically`);
           }
@@ -3807,7 +4112,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             hpMethod: character.rules.hpMethod,
             choiceLines: reviewChoiceLinesFor(allGroups, character.rules.choices || {}),
             spellsPicked: [...(spellsField?.items || [])],
-            equipmentLine: equipBits.length ? `Starting Equipment: ${equipBits.join(" · ")}` : null,
+            equipmentLine: equipBits.length ? `Equipment: ${equipBits.join(" · ")}` : null,
             featNames: (character.rules.feats || []).map((f) => f.name).filter(Boolean),
             syncFn: () => syncRulesToSheet(resolved),
           });
@@ -4945,11 +5250,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const num = (id) => (Number.isFinite(formulaValues[id]) ? formulaValues[id] : 0);
     const se = character.rules.startingEquipment;
     let items = [];
-    try {
-      items = resolveStartingEquipmentPick(
-        character.rules.className, character.rules.background, se?.classOptionId
-      ).items || [];
-    } catch {
+try {
+  items = resolveStartingEquipmentPick(
+    character.rules.className, character.rules.background, se
+  ).items || [];
+} catch {
       items = [];
     }
     const spellsField = findStarterField("spellsKnown", "Spells Known");

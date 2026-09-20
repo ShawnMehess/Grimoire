@@ -37,6 +37,9 @@ export const RACE_FLAVOR = {
   "Mountain Dwarf": "Armored masters of war and craft. Disciplined and proud — mountain holds respect strength shown, not claimed.",
   Duergar: "Hardened gray dwarves of the Underdark. Grim survivors shaped by slavery — distrustful, disciplined, and relentless.",
   Gnome: "Curious tinkerers and tricksters. Cheerful obsessives who collect knowledge and jokes in equal measure.",
+  "Earth Genasi": "Steadfast as bedrock. Stubborn, self-reliant isolates — slow to act, impossible to move once they do.",
+  "Fire Genasi": "Quick to flare, quick to forgive. Proud show-offs with tempers to match their element.",
+  "Water Genasi": "Go where the tide takes them. Calm, independent drifters — at home on any shore, bound to none.",
   Halfling: "Lucky, warm homebodies with wanderlust. Unassuming and brave — underestimated by everyone, once.",
   "Yuan-ti": "Serpent-blooded schemers. Cold, patient, and unreadable — even allies wonder what they're really after.",
   Human: "Ambitious and adaptable. Short-lived, so they build fast — the diplomats, empire-makers, and wild cards of every realm.",
@@ -44,6 +47,9 @@ export const RACE_FLAVOR = {
   "Half-Elf": "Caught between two worlds. Natural diplomats and wanderers — welcome everywhere, at home nowhere.",
   "Half-Orc": "Strong outsiders proving themselves daily. Fierce, blunt, and fiercely loyal once trust is earned.",
   Tiefling: "Infernal-blooded and side-eyed since birth. Defiant survivors — mistrust made many a tiefling self-reliant and sharp.",
+  "High Elf": "Scholarly elven aristocracy. A wizard cantrip, an extra language, and centuries of haughty poise.",
+  "Wood Elf": "Wildwood runners. Fast, stealthy, and at home under leaves — the fleet feet of the elven peoples.",
+  Drow: "Underdark exiles with starlight magic. Superior darkvision and inborn spells — sunlight is their bane.",
 };
 
 export const BG_FLAVOR = {

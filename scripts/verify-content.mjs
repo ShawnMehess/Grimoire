@@ -429,7 +429,7 @@ function featListWith(namesAndLevels) {
   if (!(champ?.choiceGroups || []).some((g) => g.id === "champion-fighting-style")) fail("Champion: fighting-style picker missing");
 
   // Free-form racial ASIs: 15 pairs + 20 triples.
-  for (const n of ["Aarakocra", "Aasimar", "Air Genasi", "Yuan-ti"]) {
+  for (const n of ["Aarakocra", "Aasimar", "Air Genasi", "Earth Genasi", "Fire Genasi", "Water Genasi", "Yuan-ti"]) {
     const g = (race(n)?.choiceGroups || []).find((g) => g.id.endsWith("-asi"));
     if (!g || g.options.length !== 35) fail(`${n}: ASI picker missing (want 35 options, got ${g?.options.length ?? 0})`);
     if ((race(n)?.featureGrants || []).some((f) => /plus_2_plus_1_or_three_plus_1s/.test(f.description || ""))) {
@@ -492,17 +492,25 @@ function featListWith(namesAndLevels) {
 
 // --- 6d. Starting equipment data ---------------------------------------------
 {
-  const { CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT } = await import("../js/data/startingEquipment.js");
+  const { CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT, resolveStartingEquipmentPick } = await import("../js/data/startingEquipment.js");
   const classes = DEFAULT_CONTENT.classEntries.map((e) => e.name);
   const missing = classes.filter((c) => !CLASS_STARTING_EQUIPMENT[c]);
   if (missing.length) fail(`classes without starting packages: ${missing.join(", ")}`);
   for (const [name, entry] of Object.entries(CLASS_STARTING_EQUIPMENT)) {
-    if (!entry.options?.length) fail(`${name}: no package options`);
     if (!Number.isFinite(entry.gold?.gp) || entry.gold.gp <= 0) fail(`${name}: no gold fallback`);
-    for (const opt of (entry.options || [])) {
-      if (!opt.id || !opt.label || !(opt.items || []).length) fail(`${name}: malformed package option`);
+    if (!Array.isArray(entry.decisions) || !entry.decisions.length) fail(`${name}: no equipment decisions`);
+    for (const d of (entry.decisions || [])) {
+      if (!d.id || !d.label || !Array.isArray(d.options) || d.options.length < 2) fail(`${name}: misshapen decision ${d.id}`);
+      for (const opt of (d.options || [])) {
+        if (!opt.id || !opt.label || !(opt.items || []).length) fail(`${name}: malformed decision option`);
+      }
     }
   }
+  // Spot-check resolution: decisions combine, gold bypasses, legacy still resolves.
+  const probe = resolveStartingEquipmentPick("Fighter", "Sailor", { picks: { armor: "chain-mail", weapon: "sword-board", ranged: "light-crossbow", pack: "dungeoneers-pack" } });
+  if (!probe.items.includes("Chain mail") || !probe.items.includes("Shield")) fail("Fighter decisions do not resolve");
+  const legacyProbe = resolveStartingEquipmentPick("Fighter", "Sailor", "fighter-a");
+  if (!legacyProbe.items.includes("Longsword")) fail("legacy equipment pick stopped resolving");
   const bgs = DEFAULT_CONTENT.bgEntries.map((e) => e.name);
   const missingBg = bgs.filter((b) => !BG_STARTING_EQUIPMENT[b]);
   if (missingBg.length) fail(`backgrounds without starting packages: ${missingBg.join(", ")}`);
@@ -510,7 +518,7 @@ function featListWith(namesAndLevels) {
   const { FIXED_RACE_ENTRIES } = await import("../js/data/contentFixups.js");
   const unflavored = [...classes, ...FIXED_RACE_ENTRIES.map((e) => e.name), ...bgs].filter((n) => !flavorFor(n));
   if (unflavored.length) fail(`missing flavor blurbs: ${unflavored.join(", ")}`);
-  console.log("equipment: 12 class packages + gold, 9 background packages, flavor blurbs complete");
+  console.log(`equipment: ${Object.keys(CLASS_STARTING_EQUIPMENT).length} class decision packages + gold, 9 background packages, flavor blurbs complete`);
 }
 
 // --- 6e. Meta tags -----------------------------------------------------------

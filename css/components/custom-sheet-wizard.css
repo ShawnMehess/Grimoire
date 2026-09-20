@@ -293,6 +293,12 @@
   font-family: var(--font-display);
   font-size: var(--text-lg);
   color: var(--color-text-faint);
+  /* One shared frame for every picker portrait (races, subraces,
+     classes, subclasses, backgrounds): a strong outer border with a
+     muted accent hairline just outside it. Theme-aware via tokens. */
+  border: 2px solid var(--color-border-strong);
+  outline: 1px solid var(--color-accent-muted);
+  outline-offset: 1px;
 }
 
 .choice-row__portrait img {
@@ -624,11 +630,59 @@
 }
 .choice-row__mechanics-list {
   margin: 0 0 var(--space-1);
-  padding-left: 1.25em;
+  padding-left: 1.5em;
   font-size: var(--text-sm);
+  /* Base styles reset list markers globally — restore real bullets
+     here so every mechanics item reads as a list item. Outside
+     markers hang left of the text block, giving wrapped lines a
+     hanging indent for free. */
+  list-style: disc outside;
 }
 .choice-row__mechanics-list li {
   margin-bottom: 2px;
+  padding-left: 0.25em;
+}
+.choice-row__mechanics-list li::marker {
+  color: var(--color-text-faint);
+}
+
+/* Three-level race picker (Identity step): category → race → subrace. */
+.race-category {
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.race-category__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-raised);
+}
+.race-category__name {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+}
+.race-category__description {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.race-category__toggle {
+  flex: 0 0 auto;
+}
+.race-category__members {
+  padding: 2px var(--space-3) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+.race-category__body {
+  padding: 0 var(--space-3) var(--space-3);
+}
+.race-category__body[hidden] {
+  display: none;
 }
 .choice-row__mechanics-meta {
   font-size: var(--text-xs);

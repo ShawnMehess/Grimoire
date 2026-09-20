@@ -129,6 +129,63 @@ export function groupPicksSatisfied(group, selectedIds = [], owned = new Set()) 
   return counted >= Math.max(0, (group.minSelections || 0) - freebies);
 }
 
+/** Merges several language choice groups into one picker: every
+ *  distinct offered language (vocabulary order first, stragglers
+ *  alphabetical after), the combined pick budget, and the combined
+ *  requirement — each group's minSelections minus its options that
+ *  would grant something already owned, mirroring
+ *  groupPicksSatisfied per group. Pure. */
+export function mergeLanguageGroups(groups, vocabulary = [], owned = new Set()) {
+  const seen = new Set();
+  const offered = [];
+  (groups || []).forEach((group) => {
+    [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))].forEach((o) => {
+      if (o.name && !seen.has(o.name)) {
+        seen.add(o.name);
+        offered.push(o.name);
+      }
+    });
+  });
+  const vocab = (vocabulary || []).filter((n) => seen.has(n));
+  const rest = offered.filter((n) => !(vocabulary || []).includes(n)).sort((a, b) => a.localeCompare(b));
+  let total = 0;
+  let required = 0;
+  (groups || []).forEach((group) => {
+    const locked = new Set(group.lockedOptionIds || []);
+    const options = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+    total += Math.max(0, group.maxSelections || 0);
+    const freebies = options.filter((o) => !locked.has(o.id) && optionIsOwned(o, owned)).length;
+    required += Math.max(0, (group.minSelections || 0) - freebies);
+  });
+  return { languages: [...vocab, ...rest], total, required };
+}
+
+/** Distributes a merged language pick set back onto the per-group
+ *  choice keys every compute path already reads (so no downstream
+ *  code changes): each language lands in the first group (in order)
+ *  that offers it with budget left, locked defaults ride along on
+ *  every group. Returns { [groupKey]: [optionIds] }. Pure. */
+export function distributeLanguagePicks(groups, pickedNames) {
+  const remaining = [...(pickedNames || [])];
+  const out = {};
+  (groups || []).forEach((group) => {
+    const locked = [...(group.lockedOptionIds || [])];
+    const mine = [...locked];
+    const options = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+    const budget = Math.max(0, group.maxSelections || 0);
+    let used = 0;
+    for (let i = 0; i < remaining.length && used < budget;) {
+      const opt = options.find((o) => o.name === remaining[i] && !mine.includes(o.id));
+      if (!opt) { i += 1; continue; }
+      mine.push(opt.id);
+      remaining.splice(i, 1);
+      used += 1;
+    }
+    out[group.key] = mine;
+  });
+  return out;
+}
+
 export function canPickMore({ selectedCount, maxSelections, isRadio }) {
   if (isRadio) return true;
   return selectedCount < maxSelections;
@@ -880,7 +937,18 @@ export function renderSelectableRowsInto(container, names, { selectedName, onSel
         ul.className = "choice-row__mechanics-list";
         for (const item of section.items) {
           const li = document.createElement("li");
-          li.textContent = item;
+          // Bold lead topic ("Speed", "Darkvision", …) with the detail
+          // in regular weight — split on the first ": " only, so
+          // colons inside descriptions never break the shape. Items
+          // without a topic stay plain text.
+          const colon = item.indexOf(": ");
+          if (colon > 0) {
+            const topic = document.createElement("strong");
+            topic.textContent = item.slice(0, colon);
+            li.append(topic, document.createTextNode(item.slice(colon + 1)));
+          } else {
+            li.textContent = item;
+          }
           ul.append(li);
         }
         details.append(ul);

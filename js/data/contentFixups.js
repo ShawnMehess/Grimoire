@@ -335,64 +335,99 @@ function patchFreeformAsi(bundle, prefix) {
   return bundle;
 }
 
-function patchElf(bundle) {
-  if ((bundle.choiceGroups || []).some((g) => g.id === "elf-subrace")) return bundle;
-  bundle.choiceGroups.push({
-    id: "elf-subrace", label: "Elven Subrace", minLevel: 1, minSelections: 1, maxSelections: 1,
-    options: [
-      {
-        id: "elf-subrace-high", name: "High Elf", description: "",
-        statModifiers: [
-          { targetFieldId: "intScore", op: "add", value: 1, minLevel: null },
-          { targetFieldId: "weaponProf", op: "grantTag", value: "Longsword" },
-          { targetFieldId: "weaponProf", op: "grantTag", value: "Shortsword" },
-          { targetFieldId: "weaponProf", op: "grantTag", value: "Shortbow" },
-          { targetFieldId: "weaponProf", op: "grantTag", value: "Longbow" },
-          { targetFieldId: "languages", op: "grantTag", value: "Common" },
-        ],
-        featureGrants: [
-          { name: "Elf Weapon Training", description: "Proficiency with the longsword, shortsword, shortbow, and longbow.", minLevel: null },
-          { name: "Cantrip", description: "You know one cantrip of your choice from the wizard spell list (pick below); Intelligence is your spellcasting ability for it.", minLevel: null },
-          { name: "Extra Language", description: "You can speak, read, and write one extra language of your choice.", minLevel: null },
-        ],
-        resourceGrants: [],
-      },
-      {
-        id: "elf-subrace-wood", name: "Wood Elf", description: "",
-        statModifiers: [
-          { targetFieldId: "wisScore", op: "add", value: 1, minLevel: null },
-          { targetFieldId: "speed", op: "add", value: 5, minLevel: null },
-          { targetFieldId: "weaponProf", op: "grantTag", value: "Longsword" },
-          { targetFieldId: "weaponProf", op: "grantTag", value: "Shortsword" },
-          { targetFieldId: "weaponProf", op: "grantTag", value: "Shortbow" },
-          { targetFieldId: "weaponProf", op: "grantTag", value: "Longbow" },
-        ],
-        featureGrants: [
-          { name: "Elf Weapon Training", description: "Proficiency with the longsword, shortsword, shortbow, and longbow.", minLevel: null },
-          { name: "Fleet of Foot", description: "Your base walking speed increases to 35 feet (+5 applied here).", minLevel: null },
-          { name: "Mask of the Wild", description: "You can attempt to hide even when only lightly obscured by foliage, rain, snow, mist, or other natural phenomena.", minLevel: null },
-        ],
-        resourceGrants: [],
-      },
-      {
-        id: "elf-subrace-drow", name: "Drow", description: "",
-        statModifiers: [
-          { targetFieldId: "chaScore", op: "add", value: 1, minLevel: null },
-          { targetFieldId: "spellsKnown", op: "addItem", value: "Dancing Lights", minLevel: null },
-          { targetFieldId: "spellsKnown", op: "addItem", value: "Faerie Fire", minLevel: 3 },
-          { targetFieldId: "spellsKnown", op: "addItem", value: "Darkness", minLevel: 5 },
-        ],
-        featureGrants: [
-          { name: "Superior Darkvision", description: "Your darkvision has a radius of 120 feet.", minLevel: null },
-          { name: "Sunlight Sensitivity", description: "Disadvantage on attack rolls and Wisdom (Perception) checks relying on sight when you, the target, or the thing you perceive is in direct sunlight.", minLevel: null },
-          { name: "Drow Magic", description: "Dancing Lights cantrip; Faerie Fire once per long rest at 3rd level; Darkness once per long rest at 5th. Charisma is your spellcasting ability.", minLevel: null },
-        ],
-        resourceGrants: [],
-      },
-    ],
-  });
-  return bundle;
+// --- Dwarven subraces ---------------------------------------------------------------
+// Base Dwarves carry no traits or bonuses of their own — Hill,
+// Mountain, and Duergar each arrive as a full kit, with the shared
+// dwarven traits (Constitution, darkvision, poison resilience,
+// stonecunning, weapon training, languages, unslowed speed)
+// duplicated onto every option, the same way elven base traits live
+// on each elf-subrace option in extraRaces.js.
+const DWARF_SHARED_STATS = [
+  { targetFieldId: "conScore", op: "add", value: 2, minLevel: null },
+  { targetFieldId: "languages", op: "grantTag", value: "Common" },
+  { targetFieldId: "languages", op: "grantTag", value: "Dwarvish" },
+  { targetFieldId: "weaponProf", op: "grantTag", value: "Battleaxe" },
+  { targetFieldId: "weaponProf", op: "grantTag", value: "Handaxe" },
+  { targetFieldId: "weaponProf", op: "grantTag", value: "Light Hammer" },
+  { targetFieldId: "weaponProf", op: "grantTag", value: "Warhammer" },
+];
+const DWARF_SHARED_FEATS = [
+  { name: "Dwarven Resilience", description: "Advantage on saving throw against poison damage.", minLevel: null },
+  { name: "Stonecunning", description: "Double proficiency bonus on history checks related to stonework origin.", minLevel: null },
+  { name: "Speed", description: "25 ft. walking (heavy armor doesn't slow you down)", minLevel: null },
+  { name: "Senses", description: "Darkvision 60 ft.", minLevel: null },
+  { name: "Resistances", description: "Poison", minLevel: null },
+];
+
+function dwarfSubraceOption(id, name, extraStats, extraFeats) {
+  return {
+    id, name, description: "",
+    statModifiers: [...clone(DWARF_SHARED_STATS), ...extraStats],
+    featureGrants: [...clone(DWARF_SHARED_FEATS), ...extraFeats],
+    resourceGrants: [],
+  };
 }
+
+/** Rebuilds the compiled Dwarf entry as a traitless base whose whole
+ *  kit comes from its dwarf-subrace picker (Hill/Mountain/Duergar). */
+function dwarfBaseEntry(entry) {
+  return {
+    ...entry,
+    bundle: {
+      statModifiers: [],
+      dropdownAccess: [],
+      featureGrants: [],
+      resourceGrants: [],
+      choiceGroups: [
+        {
+          id: "dwarf-subrace", label: "Dwarven Subrace", subrace: true, minLevel: 1, minSelections: 1, maxSelections: 1,
+          options: [
+            dwarfSubraceOption(
+              "dwarf-subrace-hill-dwarf", "Hill Dwarf",
+              [{ targetFieldId: "wisScore", op: "add", value: 1, minLevel: null }],
+              [{ name: "Dwarven Toughness", description: "Max HP increases by 1 per level.", minLevel: null }]
+            ),
+            dwarfSubraceOption(
+              "dwarf-subrace-mountain-dwarf", "Mountain Dwarf",
+              [
+                { targetFieldId: "strScore", op: "add", value: 2, minLevel: null },
+                { targetFieldId: "armorProf", op: "grantTag", value: "Light Armor" },
+                { targetFieldId: "armorProf", op: "grantTag", value: "Medium Armor" },
+              ],
+              []
+            ),
+            {
+              id: "dwarf-subrace-duergar", name: "Duergar", description: "",
+              statModifiers: [
+                ...clone(DWARF_SHARED_STATS),
+                { targetFieldId: "strScore", op: "add", value: 1, minLevel: null },
+              ],
+              // Superior darkvision replaces (not joins) the shared 60
+              // ft. — only the override is listed.
+              featureGrants: [
+                { name: "Dwarven Resilience", description: "Advantage on saving throw against poison damage.", minLevel: null },
+                { name: "Stonecunning", description: "Double proficiency bonus on history checks related to stonework origin.", minLevel: null },
+                { name: "Speed", description: "25 ft. walking (heavy armor doesn't slow you down)", minLevel: null },
+                { name: "Senses", description: "Darkvision 120 ft.", minLevel: null },
+                { name: "Resistances", description: "Poison", minLevel: null },
+                { name: "Duergar Resilience", description: "Advantage on saving throw against illusion or charm or paralyzed.", minLevel: null },
+                { name: "Duergar Magic", description: "Cast Enlarge Reduce starting at level 3 once per long rest.; Cast Invisibility starting at level 5 once per long rest.", minLevel: null },
+                { name: "Sunlight Sensitivity", description: "Disadvantage on attack roll, perception sight in direct sunlight.", minLevel: null },
+              ],
+              resourceGrants: [],
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+// Standalone Hill/Mountain/Duergar races are superseded by the Dwarf
+// base's subrace picker above — they leave the race list (existing
+// characters holding one are migrated to Dwarf + the matching pick on
+// sheet open; see healLegacyDwarfSubrace in customSheet.js).
+const SUPERSEDED_DWARF_RACES = new Set(["Hill Dwarf", "Mountain Dwarf", "Duergar"]);
 
 // --- Subclass patches ---------------------------------------------------------------
 function patchHunterConclave(bundle) {
@@ -516,20 +551,30 @@ function patchRaceEntry(entry) {
   const out = { ...entry, bundle: clone(entry.bundle) };
   out.bundle.choiceGroups = [...(out.bundle.choiceGroups || [])];
   out.bundle.featureGrants = [...(out.bundle.featureGrants || [])];
-  if (["Aarakocra", "Aasimar", "Air Genasi", "Yuan-ti"].includes(entry.name)) {
+  if (["Aarakocra", "Aasimar", "Air Genasi", "Earth Genasi", "Fire Genasi", "Water Genasi", "Yuan-ti"].includes(entry.name)) {
     patchFreeformAsi(out.bundle, entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
   }
   return out;
 }
 
+// Hand-written races whose bundles carry the freeform ASI marker
+// (see freeformAsi() in extraRaces.js) — same picker the compiled
+// MotM-era races get via patchRaceEntry above.
+const FREEFORM_ASI_EXTRAS = new Set(["Earth Genasi", "Fire Genasi", "Water Genasi"]);
+
 export const FIXED_RACE_ENTRIES = [
-  ...DEFAULT_CONTENT.raceEntries.map(patchRaceEntry),
+  ...DEFAULT_CONTENT.raceEntries
+    .map(patchRaceEntry)
+    .filter((entry) => !SUPERSEDED_DWARF_RACES.has(entry.name))
+    .map((entry) => (entry.name === "Dwarf" ? dwarfBaseEntry(entry) : entry)),
+  // Extra races arrive with full subrace pickers already attached (see
+  // extraRaces.js); the freeform-ASI ones still need their picker.
   ...RACE_EXTRA_ENTRIES.map((entry) => {
-    // Extra races are already hand-written; only Elf needs its subraces.
-    if (entry.name !== "Elf") return entry;
+    if (!FREEFORM_ASI_EXTRAS.has(entry.name)) return entry;
     const out = { ...entry, bundle: clone(entry.bundle) };
     out.bundle.choiceGroups = [...(out.bundle.choiceGroups || [])];
-    patchElf(out.bundle);
+    out.bundle.featureGrants = [...(out.bundle.featureGrants || [])];
+    patchFreeformAsi(out.bundle, entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
     return out;
   }),
 ];

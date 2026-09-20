@@ -190,6 +190,12 @@ export function renderRulesetStepInto(container, state, deps) {
 
 export function renderIdentityStepInto(container, state, deps) {
   const { characterName, nameInputSetFn, saveNameFn, updateFn, fieldFn, optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn, selectableRowsFn, debounceFn } = deps;
+  const {
+    raceCategories = null,
+    subraceGroupFn = null,
+    subraceMechanicsFn = null,
+    selectSubraceFn = null,
+  } = deps;
   const nameField = document.createElement("input");
   nameField.type = "text";
   nameField.className = "input-group__control";
@@ -216,12 +222,21 @@ export function renderIdentityStepInto(container, state, deps) {
 
   const liveNames = optionNamesFn(state.rulesetId, "Race");
   if (liveNames.length) {
-    selectableRowsFn(container, liveNames, {
-      selectedName: state.species,
-      getInfo: (name) => catalogInfoFn(["race", "species"], name),
-      getMechanicsList: (name) => (mechanicsListFn ? mechanicsListFn("Race", name) : null),
-      onSelect: (name) => updateFn("species", name),
-    });
+    if (raceCategories?.length) {
+      renderCategorizedRaceListInto(container, state, {
+        categories: raceCategories,
+        liveNames,
+        selectableRowsFn, catalogInfoFn, mechanicsListFn,
+        subraceGroupFn, subraceMechanicsFn, selectSubraceFn,
+      });
+    } else {
+      selectableRowsFn(container, liveNames, {
+        selectedName: state.species,
+        getInfo: (name) => catalogInfoFn(["race", "species"], name),
+        getMechanicsList: (name) => (mechanicsListFn ? mechanicsListFn("Race", name) : null),
+        onSelect: (name) => updateFn("species", name),
+      });
+    }
   } else {
     const input = document.createElement("input");
     input.type = "text"; input.className = "input-group__control";
@@ -230,6 +245,100 @@ export function renderIdentityStepInto(container, state, deps) {
     input.addEventListener("change", () => updateFn("species", input.value));
     fieldFn(container, "Race/Species", input);
   }
+}
+
+// Expanded race categories persist across re-renders (same reasoning
+// as expandedChoiceRows in sheetWizard.js) — plus whichever category
+// holds the current pick, which starts open on a fresh view.
+const expandedRaceCategories = new Set();
+
+/** Three-level race picker: category → race → subrace. Each category
+ *  shows its description plus an alphabetized member row; expanding
+ *  reveals the race rows (standard selectable rows with portraits and
+ *  mechanics), and the selected race reveals its subrace rows nested
+ *  underneath — the same nested pattern the Class step uses for
+ *  subclasses. Subrace picks write through selectSubraceFn into the
+ *  race bundle's pick-1 subrace choice group, so every compute path
+ *  (sheet mods, features, spells, review) sees them with no extra
+ *  wiring. All bodies render up front (same total work as the old flat
+ *  list); toggling only flips visibility, never re-renders. */
+export function renderCategorizedRaceListInto(container, state, deps) {
+  const {
+    categories, liveNames, selectableRowsFn, catalogInfoFn, mechanicsListFn,
+    updateFn, subraceGroupFn, subraceMechanicsFn, selectSubraceFn,
+  } = deps;
+  const available = new Set(liveNames || []);
+  if (expandedRaceCategories.size === 0 && state.species) {
+    const current = (categories || []).find((c) => (c.races || []).includes(state.species));
+    if (current) expandedRaceCategories.add(current.id);
+  }
+  (categories || []).forEach((cat) => {
+    const members = (cat.races || []).filter((name) => available.has(name));
+    if (!members.length) return;
+    const section = document.createElement("section");
+    section.className = "race-category";
+    const head = document.createElement("div");
+    head.className = "race-category__head";
+    const titles = document.createElement("div");
+    titles.className = "race-category__titles";
+    const name = document.createElement("div");
+    name.className = "race-category__name";
+    name.textContent = cat.name;
+    const desc = document.createElement("div");
+    desc.className = "race-category__description";
+    desc.textContent = cat.description || "";
+    titles.append(name, desc);
+    head.append(titles);
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "btn race-category__toggle";
+    const body = document.createElement("div");
+    body.className = "race-category__body";
+    const paintToggle = () => {
+      const open = expandedRaceCategories.has(cat.id);
+      body.hidden = !open;
+      toggle.textContent = open ? "▾ Collapse" : "▸ Expand";
+      toggle.setAttribute("aria-expanded", String(open));
+    };
+    toggle.addEventListener("click", () => {
+      if (expandedRaceCategories.has(cat.id)) expandedRaceCategories.delete(cat.id);
+      else expandedRaceCategories.add(cat.id);
+      paintToggle();
+    });
+    head.append(toggle);
+    section.append(head);
+    const memberRow = document.createElement("div");
+    memberRow.className = "race-category__members";
+    memberRow.textContent = members.join(" · ");
+    section.append(memberRow);
+    selectableRowsFn(body, members, {
+      selectedName: state.species,
+      getInfo: (n) => catalogInfoFn(["race", "species"], n),
+      getMechanicsList: (n) => (mechanicsListFn ? mechanicsListFn("Race", n) : null),
+      onSelect: (n) => updateFn("species", n),
+      afterRow: (raceName, rowEl) => {
+        if (raceName !== state.species) return;
+        const sub = subraceGroupFn ? subraceGroupFn(raceName) : null;
+        if (!sub?.group?.options?.length) return;
+        const picked = sub.group.options.find((o) => (sub.pickedIds || []).includes(o.id));
+        const holder = document.createElement("div");
+        selectableRowsFn(holder, sub.group.options.map((o) => o.name), {
+          selectedName: picked ? picked.name : "",
+          getInfo: (n) => catalogInfoFn(["subrace"], n),
+          getMechanicsList: (n) => (subraceMechanicsFn ? subraceMechanicsFn(raceName, n) : null),
+          onSelect: (n) => {
+            const opt = sub.group.options.find((o) => o.name === n);
+            if (opt && selectSubraceFn) selectSubraceFn(sub.group, opt.id);
+          },
+          nested: true,
+        });
+        if (holder.firstElementChild) rowEl.after(holder.firstElementChild);
+      },
+    });
+    section.append(body);
+    container.append(section);
+    paintToggle();
+  });
 }
 
 export function renderClassStepInto(container, state, deps) {
@@ -307,6 +416,49 @@ export function renderPreferencesStepInto(container, state, deps) {
     getInfo: (label) => ({ description: hpOptions.find((opt) => opt.label === label)?.description || "" }),
     onSelect: (label) => updateFn("hpMethod", hpOptions.find((opt) => opt.label === label)?.value),
   });
+}
+
+/** One merged extra-languages picker across every source (race,
+ *  class, background): the full vocabulary in one list — the same
+ *  options for every character — with default-known languages
+ *  (Common plus fixed grants) pre-checked and locked. The legend
+ *  reads "Extra Languages (picked/total)" with no per-source
+ *  explanation; picks distribute back onto the per-group choice keys
+ *  via onToggle, so all downstream readers work unchanged. */
+export function renderMergedLanguagePickerInto(container, deps) {
+  const { languages, picked, granted, total, onToggle } = deps;
+  const pickedSet = new Set(picked || []);
+  const grantedSet = new Set(granted || []);
+  const group = document.createElement("fieldset");
+  group.className = "level-guide__choices";
+  const legend = document.createElement("legend");
+  legend.textContent = `Extra Languages (${pickedSet.size}/${total})`;
+  group.append(legend);
+  (languages || []).forEach((name) => {
+    const row = document.createElement("label");
+    row.className = "level-guide__choice-option";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = name;
+    const isGranted = grantedSet.has(name);
+    const isChecked = isGranted || pickedSet.has(name);
+    input.checked = isChecked;
+    if (isGranted) {
+      input.disabled = true;
+      row.classList.add("level-guide__choice-option--locked");
+      row.title = name === "Common"
+        ? "Known by everyone — free, never uses picks"
+        : "Granted by your race, class, or background — already known";
+    } else if (!isChecked && pickedSet.size >= total) {
+      input.disabled = true;
+    }
+    input.addEventListener("change", () => onToggle(name));
+    const text = document.createElement("span");
+    text.textContent = name;
+    row.append(input, text);
+    group.append(row);
+  });
+  container.append(group);
 }
 
 export function renderChoicePageStepInto(container, groups, saveRules, renderChoiceGroupsFn) {
