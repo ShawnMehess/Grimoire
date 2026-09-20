@@ -754,6 +754,8 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
     assert(subs.subclasses.includes("Swashbuckler") && Number.isFinite(subs.subclassLevel), "subclassesAcrossRulesets union");
     assert(!dnd.subclassesAcrossRulesets("Rogue", ["phb"]).subclasses.includes("Swashbuckler"), "content gating: phb-only excludes xanathar subclasses");
     assert(dnd.subclassesAcrossRulesets("Rogue", ["phb"]).subclasses.includes("Thief"), "content gating: phb keeps its own subclasses");
+    assert(!dnd.subclassesAcrossRulesets("Cleric", ["phb"]).subclasses.includes("Peace Domain"), "content gating: phb-only excludes tasha subclasses");
+    assert(dnd.subclassesAcrossRulesets("Cleric", ["phb", "tashas"]).subclasses.includes("Peace Domain"), "content gating: tashas pack adds its subclasses");
     assert(dnd.subclassesAcrossRulesets("Nope", ["phb"]).subclasses.length === 0, "subclassesAcrossRulesets miss");
     // Legacy saves migrate to the new system + content packs.
     assert(JSON.stringify(rules.includedRulesetIds({ rulesetId: "homebrew" })) === '["phb"]', "includedRulesetIds legacy → phb");

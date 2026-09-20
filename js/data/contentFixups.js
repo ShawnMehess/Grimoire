@@ -280,6 +280,49 @@ const CLASS_PATCHERS = {
   Warlock: patchWarlock,
 };
 
+// --- Artificer infusions (TCE, 16 total) --------------------------------------
+// Summaries below are short paraphrases of what each infusion does (item
+// type, attunement, level prerequisite), matching the tone of the other
+// hand-written pickers here — not the book's full prose. Level-gated
+// infusions stay selectable with a "Requires Nth level" note, the same
+// way warlock invocation prerequisites are handled above.
+const ARTIFICER_INFUSIONS = [
+  ["Enhanced Arcane Focus", "A rod, staff, or wand (requires attunement). +1 to spell attacks; ignore half cover. Improves to +2 at 10th level."],
+  ["Enhanced Defense", "A suit of armor or a shield. +1 to AC while wearing/wielding it. Improves to +2 at 10th level."],
+  ["Enhanced Weapon", "A simple or martial weapon. +1 to attack and damage rolls. Improves to +2 at 10th level."],
+  ["Homunculus Servant", "A gem or crystal worth 100+ gp. Creates a flying scout companion that can channel your touch-range spells."],
+  ["Mind Sharpener", "A suit of armor or robes (requires attunement). 4 charges; use a reaction to turn a failed concentration save into a success."],
+  ["Returning Weapon", "A simple or martial weapon with the thrown property. +1 to attack and damage; returns to your hand after the attack."],
+  ["Replicate Magic Item", "Learn this multiple times (each pick is a different item). Replicate a common magic item from the leveled tables — record which item on the pick."],
+  ["Radiant Weapon", "Requires 6th level. A simple or martial weapon (requires attunement). +1; bonus-action light plus a reaction blind (4 charges)."],
+  ["Repeating Shot", "A simple or martial weapon with the ammunition property (requires attunement). +1 to ranged attacks; ignores loading; conjures its own ammunition."],
+  ["Repulsion Shield", "Requires 6th level. A shield (requires attunement). +1 to AC; reaction push when hit (4 charges)."],
+  ["Resistant Armor", "Requires 6th level. A suit of armor (requires attunement). Resistance to one damage type of your choice; swap on level-up."],
+  ["Spell-Refueling Ring", "Requires 6th level. A ring (requires attunement). Bonus action to regain one expended 3rd-level-or-lower slot; once per dawn."],
+  ["Boots of the Winding Path", "Requires 6th level. Boots (requires attunement). Bonus action to teleport back to where you stood last turn."],
+  ["Helm of Awareness", "Requires 10th level. A helmet (requires attunement). Advantage on initiative; you can't be surprised while conscious."],
+  ["Armor of Magical Strength", "A suit of armor (requires attunement). 6 charges; add your Int modifier to a failed Strength check or save."],
+  ["Arcane Propulsion Armor", "Requires 14th level. A suit of armor (requires attunement). Gauntlets strike at range and return; +5 walking speed; replaces missing limbs."],
+];
+
+function artificerInfusionGroup(index, minLevel, count) {
+  return {
+    id: `artificer-infusions-${index}`, label: `Infusions Known — pick ${count} (level ${minLevel}+)`, minLevel,
+    minSelections: count, maxSelections: count,
+    options: ARTIFICER_INFUSIONS.map(([n, d]) => textOption(`artificer-infusions-${index}`, n, `${d} (Recorded here — each infusion lives in one object at a time; see Infuse Item.)`)),
+  };
+}
+
+// Artisan's tools for the Artificer's free "one of your choice" tool
+// proficiency (thieves' + tinker's tools are fixed grants below).
+const ARTIFICER_ARTISAN_TOOLS = [
+  "Alchemist's Supplies", "Brewer's Supplies", "Calligrapher's Supplies",
+  "Carpenter's Tools", "Cartographer's Tools", "Cobbler's Tools",
+  "Cook's Utensils", "Glassblower's Tools", "Jeweler's Tools",
+  "Leatherworker's Tools", "Mason's Tools", "Painter's Supplies",
+  "Potter's Tools", "Smith's Tools", "Weaver's Tools", "Woodcarver's Tools",
+];
+
 // --- Race patches -----------------------------------------------------------------
 function patchFreeformAsi(bundle, prefix) {
   const levels = takeNotes(bundle, (g) => /plus_2_plus_1_or_three_plus_1s/.test(g.description || ""));
@@ -386,7 +429,88 @@ function patchClassEntry(entry) {
   return out;
 }
 
-export const FIXED_CLASS_ENTRIES = DEFAULT_CONTENT.classEntries.map(patchClassEntry);
+export const FIXED_CLASS_ENTRIES = [
+  ...DEFAULT_CONTENT.classEntries.map(patchClassEntry),
+  // Artificer (TCE) — the compiled sources never covered this class,
+  // so it lives here with the other hand-written gaps: saves, armor/
+  // weapon/tool proficiencies, subclass access to its four specialists,
+  // level-gated class features, infusion pickers, tracked resources,
+  // and pick-2 skill + pick-1 artisan-tool groups.
+  {
+    name: "Artificer",
+    subclassLevel: 3,
+    caster: "half",
+    bundle: {
+      statModifiers: [
+        { targetFieldId: "conSaveProf", op: "grant" },
+        { targetFieldId: "intSaveProf", op: "grant" },
+        { targetFieldId: "armorProf", op: "grantTag", value: "Light Armor" },
+        { targetFieldId: "armorProf", op: "grantTag", value: "Medium Armor" },
+        { targetFieldId: "armorProf", op: "grantTag", value: "Shields" },
+        { targetFieldId: "weaponProf", op: "grantTag", value: "All Simple Weapons" },
+        { targetFieldId: "toolProf", op: "grantTag", value: "Thieves' Tools" },
+        { targetFieldId: "toolProf", op: "grantTag", value: "Tinker's Tools" },
+      ],
+      dropdownAccess: [{ targetFieldId: "subclass", allowedChoiceIds: ["subclass-artificer-alchemist", "subclass-artificer-armorer", "subclass-artificer-artillerist", "subclass-artificer-battle-smith"], minLevel: 3 }],
+      featureGrants: [
+        { name: "Hit Die", description: "d8", minLevel: 1 },
+        { name: "Hit Points at 1st Level", description: "8 + your Constitution modifier", minLevel: 1 },
+        { name: "Firearm Proficiency (optional)", description: "If your campaign uses firearms and your artificer has been exposed to them, you are proficient with them.", minLevel: 1 },
+        { name: "Magical Tinkering", description: "Touch a Tiny nonmagical object to give it light, a recorded message, an odor/sound, or a static visual effect (Int mod objects max).", minLevel: 1 },
+        { name: "Spellcasting", description: "Prepare Int mod + half artificer level spells (min 1); cast through thieves' tools or artisan's tools (infused items count as a focus after 2nd level). Ritual casting for prepared ritual spells.", minLevel: 1 },
+        { name: "Infuse Item", description: "After a long rest, imbue mundane items with learned infusions (4 known, 2 infused at 2nd level, growing with level). Each infusion in one object; one infusion per object.", minLevel: 2 },
+        { name: "Artificer Specialist", description: "Choose Alchemist, Armorer, Artillerist, or Battle Smith.", minLevel: 3 },
+        { name: "The Right Tool for the Job", description: "With tools in hand, magically create one set of artisan's tools in 1 hour (vanishes when reused).", minLevel: 3 },
+        { name: "Ability Score Improvement", description: "Increase one ability score by 2, two ability scores by 1 each, or take a feat instead.", minLevel: 4 },
+        { name: "Artificer Specialist feature", description: "Your specialist subclass grants additional features at 5th level (and again at 9th and 15th).", minLevel: 5 },
+        { name: "Ability Score Improvement", description: "Increase one ability score by 2, two ability scores by 1 each, or take a feat instead.", minLevel: 8 },
+        { name: "Tool Expertise", description: "Doubled proficiency bonus on checks using a tool you're proficient with.", minLevel: 6 },
+        { name: "Flash of Genius", description: "As a reaction, add your Int modifier to an ability check or save you or a creature within 30 ft makes (Int mod uses per long rest).", minLevel: 7 },
+        { name: "Artificer Specialist feature", description: "Your specialist subclass grants additional features at 9th level (and again at 15th).", minLevel: 9 },
+        { name: "Ability Score Improvement", description: "Increase one ability score by 2, two ability scores by 1 each, or take a feat instead.", minLevel: 12 },
+        { name: "Magic Item Adept", description: "Attune to up to 4 magic items; craft common/uncommon items in 1/4 time for 1/2 gold.", minLevel: 10 },
+        { name: "Spell-Storing Item", description: "After a long rest, store a 1st/2nd-level artificer spell (1 action) in a weapon or focus; usable 2 x Int mod times (min twice).", minLevel: 11 },
+        { name: "Magic Item Savant", description: "Attune to up to 5 magic items; ignore class/race/spell/level requirements.", minLevel: 14 },
+        { name: "Artificer Specialist feature", description: "Your specialist subclass grants its final features at 15th level.", minLevel: 15 },
+        { name: "Ability Score Improvement", description: "Increase one ability score by 2, two ability scores by 1 each, or take a feat instead.", minLevel: 16 },
+        { name: "Magic Item Master", description: "Attune to up to 6 magic items.", minLevel: 18 },
+        { name: "Ability Score Improvement", description: "Increase one ability score by 2, two ability scores by 1 each, or take a feat instead.", minLevel: 19 },
+        { name: "Soul of Artifice", description: "+1 to all saves per attuned item; use a reaction to end an infusion and drop to 1 HP instead of 0.", minLevel: 20 },
+      ],
+      resourceGrants: [
+        { id: "artificer-flash-of-genius-7", name: "Flash of Genius", maximumFormula: { type: "expr", text: "max(1, {{intMod}})" }, minLevel: 7, reset: "long rest" },
+        { id: "artificer-spell-storing-item-11", name: "Spell-Storing Item", maximumFormula: { type: "expr", text: "max(2, 2 * {{intMod}})" }, minLevel: 11, reset: "long rest" },
+      ],
+      choiceGroups: [
+        {
+          id: "class-skills", label: "Artificer Skill Proficiencies", minLevel: 1, minSelections: 2, maxSelections: 2,
+          options: [
+            { id: "class-skill-arcana", name: "Arcana", statModifiers: [{ targetFieldId: "arcanaProf", op: "grant" }] },
+            { id: "class-skill-history", name: "History", statModifiers: [{ targetFieldId: "historyProf", op: "grant" }] },
+            { id: "class-skill-investigation", name: "Investigation", statModifiers: [{ targetFieldId: "investigationProf", op: "grant" }] },
+            { id: "class-skill-medicine", name: "Medicine", statModifiers: [{ targetFieldId: "medicineProf", op: "grant" }] },
+            { id: "class-skill-nature", name: "Nature", statModifiers: [{ targetFieldId: "natureProf", op: "grant" }] },
+            { id: "class-skill-perception", name: "Perception", statModifiers: [{ targetFieldId: "perceptionProf", op: "grant" }] },
+            { id: "class-skill-sleight-of-hand", name: "Sleight of Hand", statModifiers: [{ targetFieldId: "sleightOfHandProf", op: "grant" }] },
+          ],
+        },
+        {
+          id: "artificer-toolProf-0", label: "Artificer Tool Proficiency: one artisan's tool of your choice", minLevel: 1, minSelections: 1, maxSelections: 1,
+          options: ARTIFICER_ARTISAN_TOOLS.map((name) => ({
+            id: `artificer-toolProf-0-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+            name,
+            statModifiers: [{ targetFieldId: "toolProf", op: "grantTag", value: name }],
+          })),
+        },
+        artificerInfusionGroup(0, 2, 4),
+        artificerInfusionGroup(1, 6, 2),
+        artificerInfusionGroup(2, 10, 2),
+        artificerInfusionGroup(3, 14, 2),
+        artificerInfusionGroup(4, 18, 2),
+      ],
+    },
+  },
+];
 
 function patchRaceEntry(entry) {
   const out = { ...entry, bundle: clone(entry.bundle) };

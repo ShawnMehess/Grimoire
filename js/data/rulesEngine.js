@@ -28,13 +28,15 @@ export function spellLimitFor(className, level, abilityScores) {
   };
 }
 
-// Multiclass ability prerequisites (2014 PHB): to take a level in a
+// Multiclass ability prerequisites (2014 PHB + TCE): to take a level in a
 // new class you need 13+ in its listed score(s) — Fighters need
 // Strength OR Dexterity, while Monk/Paladin/Ranger need BOTH of
-// theirs — and the same for your current class to leave it. Checked
+// theirs — and the same for your current class to leave it. The
+// Artificer (TCE) needs Intelligence 13 in both directions. Checked
 // against effective scores (base + fixed racial bonuses) at the
 // level-up guide. Unknown/homebrew classes never gate.
 export const MULTICLASS_PREREQS = {
+  Artificer: { all: ["int"] },
   Barbarian: { all: ["str"] },
   Bard: { all: ["cha"] },
   Cleric: { all: ["wis"] },

@@ -114,6 +114,13 @@ export const CLASS_STARTING_EQUIPMENT = {
       { id: "wizard-b", label: "Dagger + explorer's pack", items: ["Dagger", "Arcane focus", "Spellbook", ...pack("Explorer's Pack")] },
     ],
   },
+  Artificer: {
+    gold: { gp: 125, formula: "5d4 × 10 gp" },
+    options: [
+      { id: "artificer-a", label: "Studded leather + crossbow + tools", items: ["Any two simple weapons (your choice)", "Light crossbow", "20 crossbow bolts", "Studded leather armor", "Thieves' tools", "Artisan's tools (your choice)", ...pack("Dungeoneer's Pack")] },
+      { id: "artificer-b", label: "Scale mail + explorer's pack", items: ["Any two simple weapons (your choice)", "Light crossbow", "20 crossbow bolts", "Scale mail", "Thieves' tools", "Artisan's tools (your choice)", ...pack("Explorer's Pack")] },
+    ],
+  },
 };
 
 export function slugId(s) {

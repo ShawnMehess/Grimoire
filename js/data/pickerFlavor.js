@@ -22,6 +22,7 @@ export const CLASS_FLAVOR = {
   Sorcerer: "Instinctive arcane blaster. Few spells known, but metamagic bends them — best for players who want explosive, flexible casting.",
   Warlock: "Pact-bound caster with endlessly renewable tricks. Eldritch Blast plus invocations on a short-rest rhythm — best for players who like a dark bargain.",
   Wizard: "The prepared scholar of magic. The biggest spellbook in the game — best for players who love planning, utility, and always having the right spell.",
+  Artificer: "Magical inventor and tinkerer. Infuse gear, brew elixirs or pilot arcane armor — best for players who want tools, pets, and gadgets over raw spellpower.",
 };
 
 export const RACE_FLAVOR = {

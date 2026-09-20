@@ -5095,7 +5095,7 @@ export const SUBCLASS_SUPPLEMENT = [
         {
           "id": "beast-master-conclave-3-primal-companion-optional",
           "name": "Primal Companion (Optional)",
-          "description": "Beast Master Conclave — 3rd-level feature.",
+          "description": "TCE alternative to Ranger's Companion (3rd level). You magically summon a primal beast drawing on your bond with nature (choose Beast of the Land, Sea, or Sky; pick a fitting animal kind with primal markings). In combat it acts on your turn: it moves/reacts freely but only Dodges unless you use a bonus action to command another action (or sacrifice one Attack to command it to Attack). If incapacitated, it acts freely. If it died within the last hour, touch it + expend a 1st+ spell slot to revive it (1 minute, full HP). At the end of a long rest you may summon a different beast (old one vanishes); it also vanishes if you die. LAND (Medium): AC 13+PB, HP 5+5xlevel (d8s), 40 ft/climb 40, Str 14 Dex 14 Con 15 Int 8 Wis 14 Cha 11, darkvision 60, Primal Bond (+PB to checks/saves), Charge (+1d6 + Str save vs prone after 20-ft straight move), Maul (spell attack, 1d8+2+PB slashing). SEA (Medium): AC 13+PB, HP 5+5xlevel (d8s), 5 ft/swim 60, same abilities, Amphibious, Primal Bond, Binding Strike (spell attack, 1d6+2+PB piercing/bludgeoning + grapple, escape DC = spell save). SKY (Small): AC 13+PB, HP 4+4xlevel (d6s), 10 ft/fly 60, Str 6 Dex 16 Con 13 Int 8 Wis 14 Cha 11, Flyby, Primal Bond, Shred (spell attack, 1d4+3+PB slashing).",
           "minLevel": 3
         },
         {

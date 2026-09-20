@@ -93,6 +93,11 @@ const TASHA_CLASSES = [
   { name: "Wizard", subclassLevel: 2, caster: "full", subclasses: ["Bladesinging", "Order of Scribes"] },
 ];
 
+// The Tasha's subclass names as a set, so the PHB pack stays PHB-only
+// too: those names are attributed to (and offered by) the Tasha's
+// pack alone, and only surface when that pack is checked.
+const TASHA_SUBCLASS_NAMES = new Set((TASHA_CLASSES || []).flatMap((row) => row.subclasses || []));
+
 export const CONTENT_PACKS = [
   {
     id: "phb",
@@ -101,9 +106,9 @@ export const CONTENT_PACKS = [
     description: "The core 2014 rules: all twelve classes with their Player's Handbook subclasses, plus the base races, backgrounds, feats, spells, and equipment.",
     classes: PHB_CLASSES.map((row) => ({
       ...row,
-      // Xanathar's subclasses are attributed to the Xanathar's pack;
-      // they appear here only in the merged (all-packs) view.
-      subclasses: (row.subclasses || []).filter((name) => !XGE_SUBCLASS_NAMES.has(name)),
+      // Xanathar's and Tasha's subclasses are attributed to their own
+      // packs; they appear here only in the merged (all-packs) view.
+      subclasses: (row.subclasses || []).filter((name) => !XGE_SUBCLASS_NAMES.has(name) && !TASHA_SUBCLASS_NAMES.has(name)),
     })),
   },
   {
@@ -360,7 +365,40 @@ const FULL_CASTER_SLOTS = DEFAULT_CONTENT.fullCasterSlots;
 const HALF_CASTER_SLOTS = DEFAULT_CONTENT.halfCasterSlots;
 const WARLOCK_SLOTS = DEFAULT_CONTENT.warlockSlots;
 
+// Artificer (TCE) spell slots by class level (slots1..slots5). Unlike
+// Paladin/Ranger (the HALF_CASTER_SLOTS table, which starts at 2nd
+// level), the Artificer casts from 1st level and tops out at 5th-level
+// slots — confirmed against the TCE class table via two independent
+// transcriptions (dndmc.wikidot.com/artificer and
+// mactheowl.github.io/DMservices/class_aritifcer.html).
+const ARTIFICER_SLOTS = {
+  1: [2, 0, 0, 0, 0],
+  2: [2, 0, 0, 0, 0],
+  3: [3, 0, 0, 0, 0],
+  4: [3, 0, 0, 0, 0],
+  5: [4, 2, 0, 0, 0],
+  6: [4, 2, 0, 0, 0],
+  7: [4, 3, 0, 0, 0],
+  8: [4, 3, 0, 0, 0],
+  9: [4, 3, 2, 0, 0],
+  10: [4, 3, 2, 0, 0],
+  11: [4, 3, 3, 0, 0],
+  12: [4, 3, 3, 0, 0],
+  13: [4, 3, 3, 1, 0],
+  14: [4, 3, 3, 1, 0],
+  15: [4, 3, 3, 2, 0],
+  16: [4, 3, 3, 2, 0],
+  17: [4, 3, 3, 3, 1],
+  18: [4, 3, 3, 3, 1],
+  19: [4, 3, 3, 3, 2],
+  20: [4, 3, 3, 3, 2],
+};
+
 function slotsFor(entry, level) {
+  if (entry.name === "Artificer") {
+    const row = ARTIFICER_SLOTS[level] || [];
+    return row.map((count, i) => ({ fieldId: `slots${i + 1}`, options: count }));
+  }
   if (entry.caster === "full") {
     const row = FULL_CASTER_SLOTS[level] || [];
     return row.map((count, i) => ({ fieldId: `slots${i + 1}`, options: count }));
@@ -470,6 +508,8 @@ const CANTRIPS_KNOWN = {
   Bard: lvl => (lvl >= 10 ? 4 : lvl >= 4 ? 3 : 2),
   Sorcerer: lvl => (lvl >= 10 ? 6 : lvl >= 4 ? 5 : 4),
   Warlock: lvl => (lvl >= 10 ? 4 : lvl >= 4 ? 3 : 2),
+  // Artificer (TCE): 2 cantrips at 1st, a 3rd at 10th, a 4th at 14th.
+  Artificer: lvl => (lvl >= 14 ? 4 : lvl >= 10 ? 3 : 2),
 };
 
 const SPELLS_KNOWN_TABLE = {
@@ -496,8 +536,8 @@ export function getSpellcastingInfo(className) {
     cantrips: cantripsFn ? (lvl) => cantripsFn(lvl) : null,
     known: knownTable ? (lvl) => knownTable[Math.min(20, Math.max(1, lvl)) - 1] : null,
     // Prepared casters (Cleric/Druid/Wizard: ability mod + level;
-    // Paladin: ability mod + half level, min 1).
-    prepared: (lvl, mod) => Math.max(1, mod + (className === "Paladin" ? Math.floor(lvl / 2) : lvl)),
+    // Paladin/Artificer: ability mod + half level (rounded down), min 1).
+    prepared: (lvl, mod) => Math.max(1, mod + ((className === "Paladin" || className === "Artificer") ? Math.floor(lvl / 2) : lvl)),
   };
 }
 
