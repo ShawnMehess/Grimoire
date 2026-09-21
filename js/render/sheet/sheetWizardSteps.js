@@ -923,7 +923,7 @@ export function renderGuideSubclassStepInto(container, pending, subclassChoices,
         pending.subclass = name;
         if (gridFn) gridFn();
       },
-      collapsible: true,
+      collapsible: false,
     });
     return;
   }

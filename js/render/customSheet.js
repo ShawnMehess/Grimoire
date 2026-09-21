@@ -3846,7 +3846,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             summarizeFn: (m) => statModifierSummary(m),
             // Races with subraces show no Details of their own — the
             // subrace rows underneath carry all of it.
-            mechanicsListFn: (category, name) => (subraceGroupFor(name)?.group
+            mechanicsListFn: (category, name) => (subraceGroupFor(name)
               ? []
               : mechanicsListFor(category, name, state.level)),
             selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: true, ...opts }),
@@ -3904,7 +3904,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
             subclassDataFn: (name) => liveSubclassData(name),
             updateFn: (key, value) => update(key, value),
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { ...opts, collapsible: true }),
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: true, ...opts }),
           });
         },
       },
@@ -3925,7 +3925,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             updateKey: "background",
             updateFn: (key, value) => update(key, value),
             fieldFn: (c, label, control) => field(c, label, control),
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { ...opts, collapsible: true }),
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: true, ...opts }),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
@@ -4418,7 +4418,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         isComplete: () => Boolean(pending.subclass),
         render(container) {
           renderGuideSubclassStepInto(container, pending, plan.subclassChoices, {
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: true, ...opts }),
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: false, ...opts }),
             getInfo: (name) => catalogEntryInfo(["subclass"], name),
             getMechanicsList: (name) => {
               const bundle = SUBCLASS_BUNDLE_MAP.get(normSubclassKey(name));

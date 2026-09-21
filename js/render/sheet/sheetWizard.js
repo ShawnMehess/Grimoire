@@ -970,7 +970,20 @@ export function renderSelectableRowsInto(container, names, { selectedName, onSel
     row.tabIndex = 0;
     row.setAttribute("role", "button");
     row.setAttribute("aria-pressed", String(selected));
-    row.addEventListener("click", () => onSelect(name));
+    // Toggle expansion on row click, but still allow selection
+    row.addEventListener("click", (e) => {
+      // Don't toggle if clicking on the collapse button
+      if (e.target.closest(".choice-row__collapse-btn")) return;
+      const expanded = expandedChoiceRows.has(name);
+      if (expanded) {
+        expandedChoiceRows.delete(name);
+      } else {
+        // Keep other rows expanded - only collapse if clicking the collapse button
+        expandedChoiceRows.add(name);
+      }
+      // Only call onSelect for non-expanded rows or when explicitly selecting
+      if (!expandedChoiceRows.has(name)) onSelect(name);
+    });
     row.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(name); }
     });
@@ -1038,22 +1051,21 @@ export function renderSelectableRowsInto(container, names, { selectedName, onSel
       if (collapsible) {
         const expanded = expandedChoiceRows.has(name);
         details.hidden = !expanded;
-        const expander = document.createElement("button");
-        expander.type = "button";
-        expander.className = "btn choice-row__expander";
-        expander.textContent = expanded ? "▾ Details" : "▸ Details";
-        expander.setAttribute("aria-expanded", String(expanded));
-        expander.addEventListener("click", (e) => {
+        // Collapse button at bottom of expanded content (replaces expander button)
+        const collapseBtn = document.createElement("button");
+        collapseBtn.type = "button";
+        collapseBtn.className = "btn choice-row__collapse-btn";
+        collapseBtn.textContent = "Collapse";
+        collapseBtn.setAttribute("aria-expanded", String(expanded));
+        collapseBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          const next = details.hidden;
-          details.hidden = !next;
+          const next = !details.hidden;
+          details.hidden = next;
           if (next) expandedChoiceRows.add(name);
           else expandedChoiceRows.delete(name);
-          expander.textContent = next ? "▾ Details" : "▸ Details";
-          expander.setAttribute("aria-expanded", String(next));
+          collapseBtn.setAttribute("aria-expanded", String(next));
         });
-        expander.addEventListener("keydown", (e) => e.stopPropagation());
-        body.append(expander);
+        body.append(collapseBtn);
       }
       body.append(details);
     }

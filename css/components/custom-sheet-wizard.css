@@ -299,6 +299,46 @@
   border: 2px solid var(--color-border-strong);
   outline: 1px solid var(--color-accent-muted);
   outline-offset: 1px;
+  /* Portrait switching animation */
+  transition: width var(--transition-normal), height var(--transition-normal), border-radius var(--transition-normal);
+}
+
+/* Portrait switching: square when collapsed, full-body when expanded */
+.choice-row:not(.choice-row--expanded) .choice-row__portrait {
+  width: 96px;
+  height: 96px;
+  border-radius: var(--radius-sm);
+}
+
+.choice-row--expanded .choice-row__portrait {
+  width: 160px;
+  height: 240px;
+  border-radius: var(--radius-md);
+}
+
+/* Expanded state for the row */
+.choice-row--expanded {
+  /* Expanded state styling */
+}
+
+.choice-row__details {
+  margin-top: var(--space-1);
+  /* Animation for expand/collapse */
+  overflow: hidden;
+  transition: max-height var(--transition-normal), opacity var(--transition-normal), margin-top var(--transition-normal), margin-bottom var(--transition-normal);
+}
+
+/* Collapse button at bottom of expanded content */
+.choice-row__collapse-btn {
+  margin-top: var(--space-2);
+  align-self: flex-start;
+}
+
+/* Expand All / Collapse All controls */
+.choice-row-list__collapse-controls {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
 }
 
 .choice-row__portrait img {
