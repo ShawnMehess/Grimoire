@@ -727,6 +727,7 @@ export function renderGuideLevelClassStepInto(container, pending, deps) {
   const {
     primaryName, primaryLevel, entries, level, allClassNames,
     eligibilityFn, subclassForFn, removeFn, confirmFn, onChangeFn,
+    classInfoFn = null,
   } = deps;
   const pick = (value) => {
     pending.className = value;
@@ -734,7 +735,7 @@ export function renderGuideLevelClassStepInto(container, pending, deps) {
     pending.subclass = subclassForFn(value === "__new" ? pending.newClassName : value) || "";
     if (onChangeFn) onChangeFn();
   };
-  const row = (value, label, sub) => {
+  const row = (value, label, sub, infoKey) => {
     const rowEl = document.createElement("label");
     rowEl.className = "level-guide__choice-option";
     const input = document.createElement("input");
@@ -751,6 +752,27 @@ export function renderGuideLevelClassStepInto(container, pending, deps) {
       note.className = "level-guide__choice-description";
       note.textContent = sub;
       rowEl.append(note);
+    }
+    // Flavor blurb plus what the class gains at the level it would
+    // reach — the same "what does this actually do" context creator
+    // rows carry, so multiclass options can be compared at a glance.
+    const info = classInfoFn ? classInfoFn(infoKey !== undefined ? infoKey : value) : null;
+    if (info && (info.flavor || info.gainsLine)) {
+      const infoEl = document.createElement("div");
+      infoEl.className = "level-guide__choice-info";
+      if (info.flavor) {
+        const flavor = document.createElement("div");
+        flavor.className = "level-guide__choice-flavor";
+        flavor.textContent = info.flavor;
+        infoEl.append(flavor);
+      }
+      if (info.gainsLine) {
+        const gains = document.createElement("div");
+        gains.className = "level-guide__choice-gains";
+        gains.textContent = info.gainsLine;
+        infoEl.append(gains);
+      }
+      rowEl.append(infoEl);
     }
     container.append(rowEl);
     return rowEl;
@@ -886,7 +908,25 @@ export function validateLevelApply({ hpGain, contentGroups, pendingChoices, need
   return null;
 }
 
-export function renderGuideSubclassStepInto(container, pending, subclassChoices) {
+export function renderGuideSubclassStepInto(container, pending, subclassChoices, deps = {}) {
+  const { selectableRowsFn = null, getInfo = null, getMechanicsList = null, gridFn = null } = deps;
+  // Rich rows (portrait, description, mechanics) when the caller wires
+  // them, like every creator picker; otherwise the legacy bare
+  // dropdown. Either way a pick refreshes wizard gating — the shell
+  // only re-checks completeness on re-render otherwise.
+  if (selectableRowsFn) {
+    selectableRowsFn(container, subclassChoices, {
+      selectedName: pending.subclass || "",
+      getInfo,
+      getMechanicsList,
+      onSelect: (name) => {
+        pending.subclass = name;
+        if (gridFn) gridFn();
+      },
+      collapsible: true,
+    });
+    return;
+  }
   const group = document.createElement("label");
   group.className = "level-guide__field";
   group.textContent = "Subclass";
@@ -936,6 +976,7 @@ export function renderGuideAsiStepInto(container, pending, deps) {
           selectedName: pending.featChoice,
           getInfo: (name) => catalogInfoFn(["feat"], name),
           onSelect: (name) => { pending.featChoice = name; gridFn(); },
+          collapsible: true,
         });
       } else {
         const featGroup = document.createElement("label");
@@ -973,17 +1014,19 @@ export function renderGuideAsiStepInto(container, pending, deps) {
 }
 
 export function renderGuideFeaturesStepInto(container, features) {
+  // Same bulleted bold-topic rows as the creator pickers so new
+  // features read identically everywhere they appear.
+  const ul = document.createElement("ul");
+  ul.className = "choice-row__mechanics-list";
   features.forEach((feature) => {
-    const block = document.createElement("div");
-    block.className = "level-guide__choices";
+    const li = document.createElement("li");
     const name = document.createElement("strong");
     name.textContent = feature.name;
-    const desc = document.createElement("p");
-    desc.className = "level-guide__choice-description";
-    desc.textContent = feature.description || "";
-    block.append(name, desc);
-    container.append(block);
+    if (feature.description) li.append(name, document.createTextNode(` — ${feature.description}`));
+    else li.append(name);
+    ul.append(li);
   });
+  container.append(ul);
 }
 
 export function renderGuideHpStepInto(container, pending, { conScore, dieSize, method }) {

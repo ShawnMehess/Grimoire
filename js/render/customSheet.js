@@ -65,7 +65,7 @@ import { openCatalogBrowser } from "./catalogBrowser.js";
 import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets, listContentPacks, getContentPack, defaultContentPackIds, hitDieFor, multiclassSlotsFor, classNamesIn, subclassesAcrossRulesets, contentIdMatches } from "../data/dnd5e.js";
 import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor, classLevelsFor, meetsMulticlassPrereq, effectiveScoresFor, multiclassPrereqReason, includedRulesetIds, primaryRulesetId } from "../data/rulesEngine.js";
 import { SUBCLASS_SUPPLEMENT } from "../data/subclassContent.js";
-import { stripSecondaryClassBundle, FIXED_RACE_ENTRIES, SUPERSEDED_RACE_NAMES, legacyRaceBundles } from "../data/contentFixups.js";
+import { stripSecondaryClassBundle, FIXED_RACE_ENTRIES, SUPERSEDED_RACE_NAMES, legacyRaceBundles, SUBCLASS_BUNDLE_MAP, normSubclassKey } from "../data/contentFixups.js";
 import { DEFAULT_CONTENT } from "../data/defaultContent.js";
 import { FEAT_BUNDLES, FEAT_CATALOG, FEAT_NAMES } from "../data/featBundles.js";
 import { SPELL_CATALOG, WEAPONS_ARMOR_CATALOG, GEAR_CATALOG } from "../data/contentCatalogs.js";
@@ -175,8 +175,9 @@ import {
   openFieldTypeMenuInto,
 } from "./sheet/sheetFields.js";
 import {
-  levelFromMap,
-  activeChoiceGroupsFor,
+levelFromMap,
+activeChoiceGroupsFor,
+normalizeChoiceGroup,
   applyStatModifiers as applySharedStatModifiers,
   computeSheetValuesIn,
   computeRadioOptionCountsIn,
@@ -4075,6 +4076,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             renderSelectableRows(pickWrap, rulesetOptionNames(state.rulesetId, "Feat"), {
               selectedName: lineageFeatPick()?.name,
               getInfo: (name) => catalogEntryInfo(["feat"], name),
+              collapsible: true,
               onSelect: (name) => {
                 character.rules.feats = [
                   ...(character.rules.feats || []).filter((f) => f.source !== "lineage"),
@@ -4231,13 +4233,60 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         { selectedSubclass, level: newClassLevel, liveSubclasses: liveSubclassData(levelClass) }
       )
       : null;
-    const contentGroups = level == null ? [] : activeRuleChoiceGroups(flattenGlobalFields(), formulaValues)
-      // Equipment-proficiency pickers live on their own creation-tab
-      // page (and stay editable afterward right on the sheet's
-      // taglists) — they aren't per-level offers, so the level-up
-      // Choices step leaves them out. Their picks still apply via
-      // activeRuleChoiceGroups at compute time.
-      .filter((group) => group.minLevel <= level && !group.key.startsWith("equipprof:"));
+    const contentGroups = [
+      ...(level == null ? [] : activeRuleChoiceGroups(flattenGlobalFields(), formulaValues)
+        // Equipment-proficiency pickers live on their own creation-tab
+        // page (and stay editable afterward right on the sheet's
+        // taglists) — they aren't per-level offers, so the level-up
+        // Choices step leaves them out. Their picks still apply via
+        // activeRuleChoiceGroups at compute time.
+        .filter((group) => group.minLevel <= level && !group.key.startsWith("equipprof:"))),
+      ...pendingGroupsForLevel(),
+    ];
+
+    /** Choice groups from not-yet-applied picks ride along too: a
+     *  brand-new multiclass's class groups and a newly chosen
+     *  subclass's groups would otherwise never be offered before
+     *  Apply. Keys match the post-apply real keys exactly
+     *  (multiclass:<Class> for secondaries, the sheet Subclass
+     *  dropdown's key for the primary), so picks carry over without
+     *  re-prompting; minLevel gating mirrors the sheet's own
+     *  filtering. */
+    function pendingGroupsForLevel() {
+      const out = [];
+      if (takingNewClass && pending.newClassName) {
+        const raw = bundleFor("Class", pending.newClassName, includedRulesetIdsFor());
+        const bundle = raw ? stripSecondaryClassBundle(raw) : null;
+        (bundle?.choiceGroups || []).forEach((group, index) => {
+          if (group.minLevel && 1 < group.minLevel) return;
+          out.push({
+            ...normalizeChoiceGroup(group, index, `multiclass:${pending.newClassName}`),
+            source: pending.newClassName,
+          });
+        });
+      }
+      if (plan?.needsSubclass && pending.subclass) {
+        const subBundle = SUBCLASS_BUNDLE_MAP.get(normSubclassKey(pending.subclass));
+        let prefix = null;
+        if (isSecondary || takingNewClass) {
+          prefix = `multiclass:${levelClass}`;
+        } else {
+          const subclassField = findStarterField("subclass", "Subclass");
+          const choice = (subclassField?.choices || []).find((c) => c.text === pending.subclass);
+          if (choice) prefix = `${subclassField.id}:${choice.id}`;
+        }
+        if (prefix) {
+          (subBundle?.choiceGroups || []).forEach((group, index) => {
+            if (group.minLevel && newClassLevel < group.minLevel) return;
+            out.push({
+              ...normalizeChoiceGroup(group, index, prefix),
+              source: pending.subclass,
+            });
+          });
+        }
+      }
+      return out;
+    }
     const newFeatures = level == null || !levelClass ? [] : classFeatureGrantsAtLevel(levelClass, newClassLevel);
     const needsAsi = level != null && levelClass ? classGrantsAsiAtLevel(levelClass, newClassLevel) : false;
     if (!plan && contentGroups.length === 0) return null;
@@ -4312,6 +4361,24 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       if (name === primaryName) return selectedChoiceName("subclass", "Subclass");
       return entries.find((e) => e.name === name)?.subclass || "";
     };
+    /** Flavor plus what the class gains at the level taking it would
+     *  reach — the same "what does this actually do" context creator
+     *  rows carry, so staying vs. dipping can be compared at a glance.
+     *  "__new" resolves to the pending new-class pick, if any. */
+    function classLevelInfo(name) {
+      const resolved = name === "__new" ? pending.newClassName : name;
+      if (!resolved) return null;
+      const atLevel = resolved === primaryName
+        ? (level ?? 1)
+        : ((entries.find((e) => e.name === resolved)?.levels || 0) + 1);
+      const gains = classFeatureGrantsAtLevel(resolved, atLevel)
+        .map((g) => g.name)
+        .filter(Boolean);
+      return {
+        flavor: flavorFor(resolved),
+        gainsLine: gains.length ? `Gains at ${resolved} ${atLevel}: ${gains.join(", ")}` : null,
+      };
+    }
     if ((level ?? 1) >= 2 && primaryName) {
       steps.push({
         id: "levelclass",
@@ -4327,6 +4394,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             allClassNames: classNamesIn(includedRulesetIdsFor()),
             eligibilityFn: (name) => multiclassPrereqFor(name),
             subclassForFn: (name) => subclassForLevelClass(name),
+            classInfoFn: (name) => classLevelInfo(name),
             removeFn: (name) => {
               character.rules.multiclass = (character.rules.multiclass || []).filter((e) => e.name !== name);
               character.rules = normalizeRulesState(character.rules);
@@ -4349,7 +4417,25 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         description: `${levelClass} chooses a subclass at this level. Pick one below — this can't easily be undone once you apply this level's changes, so make sure it's the one you want.`,
         isComplete: () => Boolean(pending.subclass),
         render(container) {
-          renderGuideSubclassStepInto(container, pending, plan.subclassChoices);
+          renderGuideSubclassStepInto(container, pending, plan.subclassChoices, {
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: true, ...opts }),
+            getInfo: (name) => catalogEntryInfo(["subclass"], name),
+            getMechanicsList: (name) => {
+              const bundle = SUBCLASS_BUNDLE_MAP.get(normSubclassKey(name));
+              if (!bundle) return [];
+              return sharedMechanicsBulletsFor(
+                { statModifiers: bundle.statModifiers, featureGrants: bundle.featureGrants },
+                newClassLevel,
+                {
+                  abilityIds: ABILITY_IDS,
+                  abilities: ABILITIES,
+                  skills: SKILLS,
+                  resolveLabel: (id) => resolveFieldById(id)?.label,
+                }
+              );
+            },
+            gridFn: () => renderPageGrid(),
+          });
         },
       });
     }

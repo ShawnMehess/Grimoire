@@ -645,6 +645,17 @@
 .choice-row__mechanics-list li::marker {
   color: var(--color-text-faint);
 }
+
+/* Level-up guide: per-option context under Class-step radios —
+ * same muted register as the choice descriptions beside them. */
+.level-guide__choice-info {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.level-guide__choice-gains {
+  color: var(--color-accent, var(--color-text-muted));
+}
 .choice-row__mechanics-meta {
   font-size: var(--text-xs);
   color: var(--color-accent-hover);
