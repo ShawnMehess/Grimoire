@@ -970,36 +970,39 @@ export function renderSelectableRowsInto(container, names, { selectedName, onSel
     row.tabIndex = 0;
     row.setAttribute("role", "button");
     row.setAttribute("aria-pressed", String(selected));
-    // Clicking a row selects it and expands its details — collapsing
-    // is the Collapse button's job alone, so a click never hides
-    // what was just picked.
-    row.addEventListener("click", (e) => {
-      // The Collapse button handles its own clicks (with
-      // stopPropagation) — anything else on the row selects.
-      if (e.target.closest(".choice-row__collapse-btn")) return;
-      expandedChoiceRows.add(name);
+    // First click selects the row and expands its details; clicking
+    // the open, selected row again collapses it and de-selects
+    // (onSelect(null)). Collapsing is otherwise the Collapse
+    // button's job alone, so a click never hides what was just picked.
+    const toggleRow = () => {
       const detailsEl = row.querySelector(".choice-row__details");
-      if (detailsEl) detailsEl.hidden = false;
       const collapseEl = row.querySelector(".choice-row__collapse-btn");
+      if (name === selectedName && expandedChoiceRows.has(name)) {
+        expandedChoiceRows.delete(name);
+        if (detailsEl) detailsEl.hidden = true;
+        if (collapseEl) {
+          collapseEl.hidden = true;
+          collapseEl.setAttribute("aria-expanded", "false");
+        }
+        onSelect(null);
+        return;
+      }
+      expandedChoiceRows.add(name);
+      if (detailsEl) detailsEl.hidden = false;
       if (collapseEl) {
         collapseEl.hidden = false;
         collapseEl.setAttribute("aria-expanded", "true");
       }
       onSelect(name);
+    };
+    row.addEventListener("click", (e) => {
+      // The Collapse button handles its own clicks (with
+      // stopPropagation) — anything else on the row toggles.
+      if (e.target.closest(".choice-row__collapse-btn")) return;
+      toggleRow();
     });
     row.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        expandedChoiceRows.add(name);
-        const detailsEl = row.querySelector(".choice-row__details");
-        if (detailsEl) detailsEl.hidden = false;
-        const collapseEl = row.querySelector(".choice-row__collapse-btn");
-        if (collapseEl) {
-          collapseEl.hidden = false;
-          collapseEl.setAttribute("aria-expanded", "true");
-        }
-        onSelect(name);
-      }
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleRow(); }
     });
     const portrait = document.createElement("div");
     portrait.className = "choice-row__portrait";

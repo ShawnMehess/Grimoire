@@ -222,10 +222,11 @@ const SCORE_DISPLAY_ORDER = ["str", "dex", "con", "int", "wis", "cha"];
 
 /** Categorized, bulleted mechanics for a picker row — the structured
  *  replacement for the one-line mechanicsPreviewFor on Race/Class/
- *  Background/Subclass rows. Fixed category order (Racial Traits →
+ *  Background/Subclass rows. Fixed category order (traits →
  *  Ability Score Increases → Proficiencies → Innate Abilities); a
- *  category with nothing in it is omitted outright.
- *  Inside Racial Traits the order is fixed too — Speed, then
+ *  category with nothing in it is omitted outright. The traits section
+ *  is titled "Racial Traits", or "Class Traits" with the `classDisplay`
+ *  dep. Inside Racial Traits the order is fixed too — Speed, then
  *  Darkvision, then Resistances, then any remaining traits (numeric
  *  modifiers and proficiency tag groups, in data order) — so every
  *  race reads the same way. Those three always appear: a race with no
@@ -239,12 +240,18 @@ const SCORE_DISPLAY_ORDER = ["str", "dex", "con", "int", "wis", "cha"];
  *  Racial Traits, and the Racial Traits section is omitted — backgrounds
  *  have no innate speed/senses/resistances of their own, so the section
  *  would only ever restate proficiencies.
+ *  With the `classDisplay` dep, Speed/Darkvision/Resistances (and their
+ *  defaults) are omitted outright — every class shares them, so they
+ *  carry no information — as are spell lists ("Learn the X spell"
+ *  grants and Spellcasting/Pact Magic features, which the Spells step
+ *  covers). "Hit Die" and "Hit Points at 1st Level" lead the traits
+ *  instead, since that's what a class picker most needs at a glance.
  *  Returns [{ title, items: [string] }]. Only grants at or below
  *  `level` are listed (default Infinity = everything, for contexts
  *  with no level yet); label and detail always join with a colon. */
 export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   if (!bundle) return [];
-  const { abilityIds = [], abilities = [], skills = [], resolveLabel = null, backgroundDisplay = false } = deps;
+  const { abilityIds = [], abilities = [], skills = [], resolveLabel = null, backgroundDisplay = false, classDisplay = false } = deps;
   const summarize = (m) => statModifierSummary(m, { abilityIds, abilities, skills, resolveLabel });
   const tagLabel = (fieldId) => TAG_FIELD_LABELS[fieldId]
     || (typeof resolveLabel === "function" && resolveLabel(fieldId))
@@ -253,6 +260,7 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   const atLevel = (item) => !item.minLevel || item.minLevel <= level;
 
   const otherTraits = [];
+  const hitBits = [];
   const speedBits = [];
   const darkvisionBits = [];
   const resistanceBits = [];
@@ -270,7 +278,9 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     } else if (isProfGrant(mod)) {
       profs.push(summarize(mod));
     } else if (mod.op === "addItem") {
-      innate.push(`Learn the ${mod.value} spell${levelTag(mod.minLevel)}`);
+      // Class rows skip spell access entirely (see classDisplay) —
+      // the Spells step, not the picker row, covers it.
+      if (!classDisplay) innate.push(`Learn the ${mod.value} spell${levelTag(mod.minLevel)}`);
     } else if (["add", "subtract", "multiply", "set"].includes(mod.op)) {
       otherTraits.push(`${summarize(mod)}${levelTag(mod.minLevel)}`);
     }
@@ -287,6 +297,11 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   for (const grant of (bundle.featureGrants || []).filter(atLevel)) {
     const name = (grant.name || "").trim();
     if (!name) continue;
+    // Class rows skip shared movement/senses/resistances and spell
+    // access (see classDisplay) — hit lines are collected below for
+    // the head of Class Traits instead.
+    if (classDisplay && (/^speed$/i.test(name) || isDarkvisionGrant(grant) || isResistanceGrant(grant))) continue;
+    if (classDisplay && /spellcasting|pact magic|spell lists?|spells known|spell slots|ritual casting/i.test(name)) continue;
     if (/^speed$/i.test(name)) {
       speedBits.push(`${featureBit(grant)}${levelTag(grant.minLevel)}`);
     } else if (isDarkvisionGrant(grant)) {
@@ -294,6 +309,9 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     } else if (isResistanceGrant(grant)) {
       const why = briefDescription(grant.description, 120);
       resistanceBits.push(`${name}${why ? `: ${why}` : ""}${levelTag(grant.minLevel)}`);
+    } else if (classDisplay && /^hit (die|points)/i.test(name)) {
+      const why = briefDescription(grant.description, 120);
+      hitBits.push(`${name}${why ? `: ${why}` : ""}${levelTag(grant.minLevel)}`);
     } else {
       const why = briefDescription(grant.description, 120);
       innate.push(`${name}${why ? `: ${why}` : ""}${levelTag(grant.minLevel)}`);
@@ -301,13 +319,17 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   }
   // A "(override)" Darkvision replaces the base range rather than
   // listing alongside it (today only Duergar has both). The three
-  // fixed slots always appear — a race with no value shows the
-  // standard default (30 ft. walking speed, no darkvision, no
-  // resistances) instead of skipping the line.
-  if (speedBits.length === 0) speedBits.push("Speed: 30 feet");
-  if (darkvisionBits.length === 0) darkvisionBits.push("Darkvision: none");
-  if (resistanceBits.length === 0) resistanceBits.push("Resistances: none");
+  // fixed slots always appear outside classDisplay — a race with no
+  // value shows the standard default (30 ft. walking speed, no
+  // darkvision, no resistances) instead of skipping the line. Class
+  // rows lead with hit lines instead (see classDisplay above).
+  if (!classDisplay) {
+    if (speedBits.length === 0) speedBits.push("Speed: 30 feet");
+    if (darkvisionBits.length === 0) darkvisionBits.push("Darkvision: none");
+    if (resistanceBits.length === 0) resistanceBits.push("Resistances: none");
+  }
   const traits = [
+    ...hitBits,
     ...speedBits,
     ...(darkvisionBits.length > 1 ? darkvisionBits.slice(-1) : darkvisionBits),
     ...resistanceBits,
@@ -329,7 +351,7 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     .map(({ mod }) => summarize(mod));
 
   const out = [];
-  if (traits.length) out.push({ title: "Racial Traits", items: traits });
+  if (traits.length) out.push({ title: classDisplay ? "Class Traits" : "Racial Traits", items: traits });
   if (scores.length) out.push({ title: "Ability Score Increases", items: scores });
   if (profs.length) out.push({ title: "Proficiencies", items: [profs.join(", ")] });
   if (innate.length) out.push({ title: "Innate Abilities", items: innate });

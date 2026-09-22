@@ -2800,7 +2800,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
   /** Categorized bulleted mechanics for a Race/Class/Subclass/
    *  Background picker row (replaces the one-line preview): fixed
-   *  order, empty categories omitted. */
+   *  order, empty categories omitted. Classes render in Class Traits
+   *  display (no shared speed/senses/resistances or spell lists; hit
+   *  lines lead) — see mechanicsBulletsFor. */
   function mechanicsListFor(category, name, level) {
     return sharedMechanicsBulletsFor(bundleFor(category, name, includedRulesetIdsFor()), level, {
       abilityIds: ABILITY_IDS,
@@ -2808,6 +2810,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       skills: SKILLS,
       resolveLabel: (id) => resolveFieldById(id)?.label,
       backgroundDisplay: (category || "").toLowerCase() === "background",
+      classDisplay: (category || "").toLowerCase() === "class",
     });
   }
 
@@ -3850,7 +3853,8 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             mechanicsListFn: (category, name) => (subraceGroupFor(name)
               ? []
               : mechanicsListFor(category, name, state.level)),
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: true, ...opts }),
+            // Details always shown, no expand/collapse buttons.
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: false, ...opts }),
             debounceFn: (fn, ms) => debounce(fn, ms),
             subraceGroupFn: (raceName) => {
               const group = subraceGroupFor(raceName);
@@ -3905,7 +3909,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
             subclassDataFn: (name) => liveSubclassData(name),
             updateFn: (key, value) => update(key, value),
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: true, ...opts }),
+            // Details always shown, no expand/collapse buttons — the
+            // nested subclass list inherits this too, matching the
+            // button-free nested subrace list.
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: false, ...opts }),
           });
         },
       },
@@ -3926,7 +3933,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             updateKey: "background",
             updateFn: (key, value) => update(key, value),
             fieldFn: (c, label, control) => field(c, label, control),
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: true, ...opts }),
+            // Details always shown, no expand/collapse buttons — same
+            // as the race and class tables.
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: false, ...opts }),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),

@@ -776,19 +776,12 @@
   background: transparent;
 }
 
-/* Ruleset checklist (Character Setup page 1): same row look as the
-   Race/Class pickers, with a real checkbox per source. */
+/* Ruleset picker (Character Setup page 1): same row look as the
+   Race/Class pickers — the row itself is the control and the
+   highlight is the selection state, with no native radios/checkboxes. */
 .ruleset-list .choice-row {
   cursor: pointer;
   align-items: flex-start;
-}
-.ruleset-list .choice-row input[type="checkbox"] {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  accent-color: var(--color-accent);
-  cursor: pointer;
 }
 
 /* Locked-by-default picks (e.g. Common): same dim + accent treatment

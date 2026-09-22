@@ -86,17 +86,20 @@ export function renderRulesetStepInto(container, state, deps) {
   } else {
     const list = document.createElement("div");
     list.className = "choice-row-list ruleset-list";
+    list.setAttribute("role", "radiogroup");
     systems.forEach((entry) => {
       const checked = entry.id === primary;
-      const row = document.createElement("label");
+      // No native radio: like every other picker, the row itself is
+      // the control and the highlight is the selection state.
+      const row = document.createElement("div");
       row.className = "choice-row" + (checked ? " choice-row--selected" : "");
-      const input = document.createElement("input");
-      input.type = "radio";
-      input.name = "ruleset";
-      input.checked = checked;
-      input.setAttribute("aria-label", entry.name);
-      input.addEventListener("change", () => {
-        if (input.checked) setPrimaryFn(entry.id);
+      row.tabIndex = 0;
+      row.setAttribute("role", "radio");
+      row.setAttribute("aria-checked", String(checked));
+      const pick = () => setPrimaryFn(entry.id);
+      row.addEventListener("click", pick);
+      row.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); }
       });
       const body = document.createElement("div");
       body.className = "choice-row__body";
@@ -116,13 +119,13 @@ export function renderRulesetStepInto(container, state, deps) {
         badge.textContent = "Ruleset — used for level-up math";
         body.append(badge);
       }
-      row.append(input, body);
+      row.append(body);
       list.append(row);
     });
     container.append(list);
   }
 
-  // Content books for the primary ruleset: one checkbox per pack.
+  // Content books for the primary ruleset: one toggle row per pack.
   // Auto-select the only book, or the system's default books when
   // nothing is chosen yet. A lone book stays locked on.
   const packs = listContentPacksFn(primary);
@@ -149,21 +152,29 @@ export function renderRulesetStepInto(container, state, deps) {
   list.className = "choice-row-list ruleset-list";
   packs.forEach((pack) => {
     const checked = ids.includes(pack.id);
-    const row = document.createElement("label");
+    // No native checkbox: the row toggles and the highlight is the
+    // state, like every other picker. A lone book is locked on.
+    const row = document.createElement("div");
     row.className = "choice-row" + (checked ? " choice-row--selected" : "");
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = checked;
-    if (locked) input.disabled = true;
-    input.setAttribute("aria-label", pack.name);
-    input.addEventListener("change", () => {
-      const next = input.checked
-        ? [...ids, pack.id]
-        : ids.filter((id) => id !== pack.id);
-      // Keep pack order regardless of the order boxes were ticked in.
-      const ordered = packs.map((p) => p.id).filter((id) => next.includes(id));
-      updateIdsFn(ordered);
-    });
+    row.setAttribute("role", "checkbox");
+    row.setAttribute("aria-checked", String(checked));
+    if (locked) {
+      row.setAttribute("aria-disabled", "true");
+    } else {
+      row.tabIndex = 0;
+      const toggle = () => {
+        const next = checked
+          ? ids.filter((id) => id !== pack.id)
+          : [...ids, pack.id];
+        // Keep pack order regardless of the order rows were toggled in.
+        const ordered = packs.map((p) => p.id).filter((id) => next.includes(id));
+        updateIdsFn(ordered);
+      };
+      row.addEventListener("click", toggle);
+      row.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+      });
+    }
     const body = document.createElement("div");
     body.className = "choice-row__body";
     const label = document.createElement("div");
@@ -182,7 +193,7 @@ export function renderRulesetStepInto(container, state, deps) {
       badge.textContent = "Only book — always on";
       body.append(badge);
     }
-    row.append(input, body);
+    row.append(body);
     list.append(row);
   });
   container.append(list);
@@ -816,6 +827,10 @@ export function renderGuideLevelClassStepInto(container, pending, deps) {
         },
         getMechanicsList,
         onSelect: (name) => {
+          // Deselect (second click on the open row) keeps the pending
+          // pick — collapsing must never silently change the level's
+          // target class out from under the rest of the guide.
+          if (!name) return;
           const eligible = eligibilityFn ? eligibilityFn(name) : { ok: true, reason: "" };
           if (!eligible.ok) return;
           pending.className = "__new";

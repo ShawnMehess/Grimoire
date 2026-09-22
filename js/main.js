@@ -9,6 +9,7 @@ const { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, crea
 import { createBlankCharacter } from "./data/schema.js";
 import { renderCustomSheet } from "./render/customSheet.js";
 import { computeAllFormulas } from "./data/formula.js";
+import { applySheetTheme } from "./data/themes.js";
 
 const appRoot = document.getElementById("app-main");
 const authArea = document.getElementById("auth-area");
@@ -217,6 +218,11 @@ function findSubraceName(character, allFields) {
 }
 
 async function renderCharacterList() {
+  // Sheets apply their own theme on open and leave it on the root —
+  // reset to the default (Standard/dark, the blue theme new sheets
+  // use) so the vault never inherits the last-opened sheet's look
+  // or the unthemed orange base palette.
+  applySheetTheme("standard", "dark");
   backBtn.style.display = "none";
   appRoot.innerHTML = "";
 

@@ -690,6 +690,30 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
     }, 1, { abilityIds: ["str", "dex", "con", "int", "wis", "cha"] });
     assert(humanLike[0].items.join(" | ") === "Speed: 30 feet | Darkvision: none | Resistances: none", "mechanicsBullets trait defaults");
   }
+  // Class Traits display: hit lines lead, shared speed/senses/
+  // resistances and spell lists are omitted, section renamed.
+  {
+    const cls = mechanics.mechanicsBulletsFor({
+      statModifiers: [
+        { targetFieldId: "spellsKnown", op: "addItem", value: "Fireball", minLevel: null },
+      ],
+      featureGrants: [
+        { name: "Speed", description: "30 ft. walking", minLevel: 1 },
+        { name: "Hit Die", description: "d10", minLevel: 1 },
+        { name: "Hit Points at 1st Level", description: "10 + your Constitution modifier", minLevel: 1 },
+        { name: "Darkvision", description: "60 ft.", minLevel: 1 },
+        { name: "Resistances", description: "Fire", minLevel: 1 },
+        { name: "Spellcasting", description: "You know many spells.", minLevel: 1 },
+        { name: "Rage", description: "Fight harder.", minLevel: 1 },
+      ],
+    }, 1, { abilityIds: ["str"], classDisplay: true });
+    assert(cls[0].title === "Class Traits", "classDisplay title");
+    assert(cls[0].items[0].startsWith("Hit Die") && cls[0].items[1].startsWith("Hit Points"), "classDisplay hit lines first");
+    assert(!cls[0].items.some((i) => /Speed|Darkvision|Resistances/.test(i)), "classDisplay drops shared senses lines");
+    const flat = cls.flatMap((s) => s.items).join(" | ");
+    assert(!/Fireball|Spellcasting/.test(flat), "classDisplay drops spell lists");
+    assert(/Rage/.test(flat), "classDisplay keeps other class features");
+  }
   // Sentence-snipper never starts mid-string or mid-word.
   {
     assert(mechanics.briefDescription("When you score a critical hit with a melee weapon attack, you can roll one of the weapon's damage dice one additional time and add it to the extra damage of the critical hit.", 120).startsWith("When you"), "briefDescription anchored at start");
