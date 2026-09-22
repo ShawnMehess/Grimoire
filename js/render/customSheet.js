@@ -234,8 +234,7 @@ import {
   findSpellCatalog,
   renderStepWizardInto,
   rulesetOptionNamesIn,
-  renderSelectableRowsInto,
-  renderMultiSelectableRowsInto,
+  renderPickerTableInto,
   renderChoiceGroupsInto,
   renderCrossCategoryChoiceInto,
   renderFlatChoiceOptionsInto,
@@ -2814,22 +2813,21 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     });
   }
 
-  /** Shared row-list UI for the wizard's Race/Class/Subclass/
-   *  Background pickers (and reused for catalog browsing elsewhere) —
-   *  a portrait (or a placeholder initial when none is on file), a
+  /** The one picker-table component this sheet renders through — a
+   *  portrait (or a placeholder initial when none is on file), a
    *  name, and a description per row, with the entire row clickable
-   *  and an obvious selected state. `afterRow(name, rowEl)` lets a
-   *  caller inject content right after a particular row — the Class
-   *  step uses this to expand a nested subclass list under whichever
-   *  class is currently selected. `nested` marks a row (or list) as
-   *  belonging to such a sub-list, for the "clearly part of, but
-   *  distinct from, its parent" styling. `getMechanics(name)` is
-   *  optional — when given, its returned string (see
-   *  mechanicsPreviewFor below) renders as a third line under the
-   *  description, so "what does this actually do" is visible before
-   *  picking, not just its flavor text. */
-  function renderSelectableRows(container, names, opts = {}) {
-    return renderSelectableRowsInto(container, names, opts);
+   *  and an obvious selected state. Every Race/Class/Subclass/
+   *  Background/Feat picker and the Spells Known check-off list
+   *  funnels through here (single-select by default, `mode: "multi"`
+   *  for check-offs), so one change restyles or re-behaviors every
+   *  table together. Per-table traits and section names arrive via
+   *  each caller's getMechanicsList/getInfo — see
+   *  renderPickerTableInto. `afterRow(name, rowEl)` lets a caller
+   *  inject content right after a particular row — the Class step
+   *  uses this to expand a nested subclass list under whichever
+   *  class is currently selected. */
+  function renderPickerRows(container, names, opts = {}) {
+    return renderPickerTableInto(container, names, opts);
   }
 
   /** Languages granted outside the language pickers: fixed bundle
@@ -3179,10 +3177,6 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     return renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange);
   }
 
-  function renderMultiSelectableRows(container, names, opts = {}) {
-    return renderMultiSelectableRowsInto(container, names, opts);
-  }
-
   // A Catalog whose name mentions "spell" is treated as the spell
   // list — same best-effort keyword match as catalogEntryInfo, since
   // there's no stored link. Its tabs, per the default Spell List
@@ -3228,7 +3222,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       appendUniqueFn: (field, name) => appendUniqueTextListItem(field, name),
       saveFn: () => saveWithStatus("layout", character.layout),
       gridFn: () => renderPageGrid(),
-      multiRowsFn: (c, names, opts) => renderMultiSelectableRows(c, names, opts),
+      multiRowsFn: (c, names, opts) => renderPickerRows(c, names, { ...opts, mode: "multi" }),
     });
   }
 
@@ -3854,7 +3848,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
               ? []
               : mechanicsListFor(category, name, state.level)),
             // Details always shown, no expand/collapse buttons.
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: false, ...opts }),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, { collapsible: false, ...opts }),
             debounceFn: (fn, ms) => debounce(fn, ms),
             subraceGroupFn: (raceName) => {
               const group = subraceGroupFor(raceName);
@@ -3912,7 +3906,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             // Details always shown, no expand/collapse buttons — the
             // nested subclass list inherits this too, matching the
             // button-free nested subrace list.
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: false, ...opts }),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, { collapsible: false, ...opts }),
           });
         },
       },
@@ -3935,7 +3929,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             fieldFn: (c, label, control) => field(c, label, control),
             // Details always shown, no expand/collapse buttons — same
             // as the race and class tables.
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: false, ...opts }),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, { collapsible: false, ...opts }),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
@@ -4083,14 +4077,16 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             // ever at most one), and the pick flows into rules.feats
             // so every feat-aware path (choice groups, sheet mods,
             // review) treats it like any other feat.
-            renderSelectableRows(pickWrap, rulesetOptionNames(state.rulesetId, "Feat"), {
+            renderPickerRows(pickWrap, rulesetOptionNames(state.rulesetId, "Feat"), {
               selectedName: lineageFeatPick()?.name,
               getInfo: (name) => catalogEntryInfo(["feat"], name),
               collapsible: true,
               onSelect: (name) => {
+                // De-select (second click on the open row) drops the
+                // lineage feat rather than recording a blank one.
                 character.rules.feats = [
                   ...(character.rules.feats || []).filter((f) => f.source !== "lineage"),
-                  { name, level: state.level, source: "lineage" },
+                  ...(name ? [{ name, level: state.level, source: "lineage" }] : []),
                 ];
                 saveRules();
                 renderPageGrid();
@@ -4133,7 +4129,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             hpOptions: HP_METHOD_OPTIONS,
             currentMethod: character.rules.hpMethod || "average",
             updateFn: (key, value) => update(key, value),
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, opts),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
           });
           const innateHead = document.createElement("p");
           innateHead.className = "wizard__section-label";
@@ -4405,7 +4401,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             eligibilityFn: (name) => multiclassPrereqFor(name),
             subclassForFn: (name) => subclassForLevelClass(name),
             classInfoFn: (name) => classLevelInfo(name),
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: true, ...opts }),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, { collapsible: true, ...opts }),
             getInfo: (name) => catalogEntryInfo(["class"], name),
             getMechanicsList: (name) => {
               // What the class gains at the level taking it would
@@ -4437,7 +4433,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         isComplete: () => Boolean(pending.subclass),
         render(container) {
           renderGuideSubclassStepInto(container, pending, plan.subclassChoices, {
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: false, ...opts }),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, { collapsible: false, ...opts }),
             getInfo: (name) => catalogEntryInfo(["subclass"], name),
             getMechanicsList: (name) => {
               const bundle = SUBCLASS_BUNDLE_MAP.get(normSubclassKey(name));
@@ -4476,7 +4472,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             takenFeats: (character.rules?.feats || []).map((f) => f.name),
             featNamesFn: (rulesetId) => rulesetOptionNames(rulesetId, "Feat"),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
-            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, opts),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
             gridFn: () => renderPageGrid(),
             abilityScores: character.rules?.abilityScores,
             modifierFn: (score) => sharedAbilityModifier(score),

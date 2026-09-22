@@ -935,7 +935,45 @@ export function setChoiceRowExpanded(name, expanded) {
   else expandedChoiceRows.delete(name);
 }
 
-export function renderSelectableRowsInto(container, names, { selectedName, onSelect, getInfo, getMechanics, getMechanicsList, afterRow, nested = false, collapsible = false } = {}) {
+/** The generic picker table — the ONE row-list object every picker
+ *  renders through (Race, Class, Subclass, Background, Feats, Spells
+ *  Known, …). Two modes share the row look, portrait, description,
+ *  and details styling:
+ *    single (default) — pick one name; a second click on the open,
+ *      selected row collapses it and de-selects (onSelect(null)).
+ *    multi — check off a Set of names (onToggle), for lists like
+ *      Spells Known; rows carry data-name and optional mechanics
+ *      meta/effect + tag chips via getInfo.
+ *  Per-table differences are configuration, not code: each table
+ *  passes its own names plus its own trait sections and category
+ *  names through getMechanicsList/getMechanics (Class Traits vs.
+ *  Racial Traits, spell meta lines, … — see mechanicsBulletsFor),
+ *  its own getInfo flavor/portraits, and its own onSelect/onToggle.
+ *  Selection, expansion, collapse, and the Expand All / Collapse All
+ *  bar live here alone — changing this function changes every table
+ *  together, so the tables cannot drift apart. `afterRow` lets a
+ *  caller inject content after a particular row (nested subrace /
+ *  subclass lists, remove buttons); `nested` marks a sub-list's rows
+ *  for the "part of, but distinct from, its parent" styling. */
+export function renderPickerTableInto(container, names, opts = {}) {
+  const { mode = "single" } = opts;
+  if (mode === "multi") return renderMultiPickerRows(container, names, opts);
+  return renderSinglePickerRows(container, names, opts);
+}
+
+/** Single-select table — legacy name, delegates to the generic
+ *  picker table. Prefer renderPickerTableInto for new callers. */
+export function renderSelectableRowsInto(container, names, opts = {}) {
+  return renderPickerTableInto(container, names, { ...opts, mode: "single" });
+}
+
+/** Multi-select table — legacy name, delegates to the generic
+ *  picker table. Prefer renderPickerTableInto for new callers. */
+export function renderMultiSelectableRowsInto(container, names, opts = {}) {
+  return renderPickerTableInto(container, names, { ...opts, mode: "multi" });
+}
+
+function renderSinglePickerRows(container, names, { selectedName, onSelect, getInfo, getMechanics, getMechanicsList, afterRow, nested = false, collapsible = false } = {}) {
   const list = document.createElement("div");
   list.className = "choice-row-list" + (nested ? " choice-row-list--nested" : "");
   if (collapsible && names.length) {
@@ -1096,15 +1134,16 @@ export function renderSelectableRowsInto(container, names, { selectedName, onSel
   return list;
 }
 
-/** Multi-select sibling of renderSelectableRows — same row/portrait/
- *  description look (shares its CSS classes), but toggles membership
- *  in a Set instead of picking one name, for pickers like "which
- *  spells do you know" where more than one can be checked at once.
- *  Rows carry data-name so callers (spell-cap tooltip) can anchor
- *  feedback to the clicked row; getInfo may additionally return
- *  `mechanics` ({ meta, effect }) rendered as mechanical lines under
- *  the flavor description. */
-export function renderMultiSelectableRowsInto(container, names, { selectedSet, onToggle, getInfo } = {}) {
+/** Multi-select rows — internal half of the generic picker table
+ *  (see renderPickerTableInto); exported under its legacy name above.
+ *  Same row/portrait/description look as single-select, but toggles
+ *  membership in a Set instead of picking one name, for pickers like
+ *  "which spells do you know" where more than one can be checked at
+ *  once. Rows carry data-name so callers (spell-cap tooltip) can
+ *  anchor feedback to the clicked row; getInfo may additionally
+ *  return `mechanics` ({ meta, effect }) rendered as mechanical lines
+ *  under the flavor description. */
+function renderMultiPickerRows(container, names, { selectedSet, onToggle, getInfo } = {}) {
   const list = document.createElement("div");
   list.className = "choice-row-list";
   names.forEach((name) => {
