@@ -296,6 +296,7 @@ import {
   rollHpOnce,
   averageHpOnce,
   levelReviewSummary,
+  levelReviewSectionsFor,
   validateLevelApply,
   renderGuideSubclassStepInto,
   renderGuideLevelClassStepInto,
@@ -4395,6 +4396,15 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             eligibilityFn: (name) => multiclassPrereqFor(name),
             subclassForFn: (name) => subclassForLevelClass(name),
             classInfoFn: (name) => classLevelInfo(name),
+            selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, { collapsible: true, ...opts }),
+            getInfo: (name) => catalogEntryInfo(["class"], name),
+            getMechanicsList: (name) => {
+              // What the class gains at the level taking it would
+              // reach — same context the creator rows carry.
+              const atLevel = name === primaryName ? (level ?? 1)
+                : ((entries.find((e) => e.name === name)?.levels || 0) + 1);
+              return mechanicsListFor("Class", name, atLevel);
+            },
             removeFn: (name) => {
               character.rules.multiclass = (character.rules.multiclass || []).filter((e) => e.name !== name);
               character.rules = normalizeRulesState(character.rules);
@@ -4459,6 +4469,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
             selectableRowsFn: (c, names, opts) => renderSelectableRows(c, names, opts),
             gridFn: () => renderPageGrid(),
+            abilityScores: character.rules?.abilityScores,
+            modifierFn: (score) => sharedAbilityModifier(score),
+            formatFn: (mod) => sharedFormatModifier(mod),
           });
         },
       });
@@ -4536,19 +4549,47 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       title: "Review & Apply",
       description: "Here's a summary of this level's changes. If everything looks right, hit Apply — this writes your HP, subclass, ability score increase, and notes to the sheet and can't easily be undone.",
       render(container) {
-        const summary = document.createElement("p");
-        summary.className = "level-guide__summary";
-        summary.textContent = levelReviewSummary({
-          hp: pending.hp,
-          subclass: pending.subclass,
+        // Full creator-style review: one line per fact (class, race,
+        // background, HP, subclass, ASI/feat, slots) plus every
+        // pending choice-group pick, so nothing decided earlier in
+        // the guide is invisible at Apply time.
+        const effectiveSubclass = pending.subclass
+          || (isSecondary ? entryForLevelClass?.subclass : selectedSubclass)
+          || "";
+        const dieSize = hitDieFor(levelClass);
+        const hpMethod = character.rules?.hpMethod || "average";
+        const conMod = conModFromScore(character.rules?.abilityScores?.con);
+        const sections = levelReviewSectionsFor({
+          classLine: levelClass ? `${levelClass} ${newClassLevel}` : "",
+          race: selectedChoiceName("race", "Race"),
+          background: selectedChoiceName("background", "Background"),
+          hp: (pending.hp || "").trim(),
+          hpDetail: levelClass ? `d${dieSize} ${hpMethod} ${sharedFormatModifier(conMod)} CON` : "",
+          subclass: effectiveSubclass,
           needsAsi,
           asiMode: pending.asiMode,
           featChoice: pending.featChoice,
           asiAbilities: [pending.asiAbility1, pending.asiAbility2],
           slots,
-          classLabel: entries.length || takingNewClass ? `${levelClass} ${newClassLevel}` : null,
+          choiceLines: reviewChoiceLinesFor(contentGroups, pending.choices || {}),
+          notes: pending.notes,
         });
-        container.append(summary);
+        const rows = document.createElement("div");
+        rows.className = "wizard__review-rows";
+        if (!sections.length) {
+          const empty = document.createElement("p");
+          empty.className = "level-guide__summary";
+          empty.textContent = "Nothing chosen yet.";
+          rows.append(empty);
+        } else {
+          sections.forEach((line) => {
+            const row = document.createElement("p");
+            row.className = "wizard__review-row";
+            row.textContent = line;
+            rows.append(row);
+          });
+        }
+        container.append(rows);
         container.append(feedback);
 
         const applyBtn = document.createElement("button");

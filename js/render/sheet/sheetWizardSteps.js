@@ -723,11 +723,22 @@ export function initPendingLevelState(pendingState, levelKey, { subclass, choice
  *  a "new class" radio revealing a prereq-gated dropdown. All state
  *  lives on `pending` (className/newClassName); `onChangeFn`
  *  re-renders so plan, steps, and gating follow the pick. */
+/** Splits the level-up Class step's options into taken classes
+ *  (primary + existing secondaries, in that order) and not-yet-taken
+ *  classes. Pure — the renderer maps these onto rich rows. */
+export function levelClassOptionsFor({ primaryName, entries = [], allClassNames = [], level = 1 }) {
+  const taken = [primaryName, ...(entries || []).map((e) => e.name)].filter(Boolean);
+  const takenSet = new Set(taken);
+  const untaken = (allClassNames || []).filter((n) => !takenSet.has(n));
+  return { taken, untaken, canMulticlass: (level ?? 1) >= 2 && Boolean(primaryName) };
+}
+
 export function renderGuideLevelClassStepInto(container, pending, deps) {
   const {
     primaryName, primaryLevel, entries, level, allClassNames,
     eligibilityFn, subclassForFn, removeFn, confirmFn, onChangeFn,
     classInfoFn = null,
+    selectableRowsFn = null, getInfo = null, getMechanicsList = null,
   } = deps;
   const pick = (value) => {
     pending.className = value;
@@ -735,6 +746,90 @@ export function renderGuideLevelClassStepInto(container, pending, deps) {
     pending.subclass = subclassForFn(value === "__new" ? pending.newClassName : value) || "";
     if (onChangeFn) onChangeFn();
   };
+  const withNote = (info, note) => {
+    if (!note) return info;
+    const base = info || {};
+    return { ...base, description: [base.description, note].filter(Boolean).join(" ") };
+  };
+  // Rich creator-style rows (portrait, description, collapsible
+  // mechanics) when the caller wires them — the same look as the
+  // creator's Class step, so staying vs. dipping can be compared at
+  // a glance. Multiclass structure is unchanged: taken classes pick
+  // directly, untaken ones flow through "__new" + newClassName, and
+  // ineligible dips stay visible (with their requirement noted) but
+  // don't select — the row still expands for reading.
+  if (selectableRowsFn) {
+    const { taken, untaken, canMulticlass } = levelClassOptionsFor({ primaryName, entries, allClassNames, level });
+    const takenNoteFor = (name) => {
+      if (name === primaryName) return `Primary class — taking this level reaches ${primaryName} ${level ?? 1}.`;
+      const entry = (entries || []).find((e) => e.name === name);
+      if (!entry) return null;
+      return `Secondary class at ${entry.levels}${entry.subclass ? ` (${entry.subclass})` : ""} — taking this level reaches ${name} ${entry.levels + 1}.`;
+    };
+    const takenLabel = document.createElement("p");
+    takenLabel.className = "wizard__section-label";
+    takenLabel.textContent = "Your classes";
+    container.append(takenLabel);
+    selectableRowsFn(container, taken, {
+      selectedName: pending.className === "__new" ? "" : pending.className,
+      getInfo: (name) => withNote(getInfo ? getInfo(name) : null, takenNoteFor(name)),
+      getMechanicsList,
+      onSelect: (name) => pick(name),
+      afterRow: (name, rowEl) => {
+        const entry = (entries || []).find((e) => e.name === name);
+        if (!entry) return;
+        const drop = document.createElement("button");
+        drop.type = "button";
+        drop.className = "btn formula-toolbar__btn";
+        drop.textContent = "✕";
+        drop.title = `Remove ${name} levels (features recompute without them)`;
+        drop.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (confirmFn && !confirmFn(`Drop all ${name} levels? Its features and spells will stop applying.`)) return;
+          if (removeFn) removeFn(name);
+          if (pending.className === name) {
+            pending.className = primaryName;
+            pending.newClassName = "";
+            pending.subclass = subclassForFn(primaryName) || "";
+          }
+          if (onChangeFn) onChangeFn();
+        });
+        rowEl.append(drop);
+      },
+    });
+    if (canMulticlass && untaken.length) {
+      const newLabel = document.createElement("p");
+      newLabel.className = "wizard__section-label";
+      newLabel.textContent = "Start a new class…";
+      container.append(newLabel);
+      const newIntro = document.createElement("p");
+      newIntro.className = "leveling-tab__intro";
+      newIntro.textContent = "Multiclassing needs 13+ in the right abilities (checked below) and can't start before level 2.";
+      container.append(newIntro);
+      selectableRowsFn(container, untaken, {
+        selectedName: pending.className === "__new" ? (pending.newClassName || "") : "",
+        getInfo: (name) => {
+          const eligible = eligibilityFn ? eligibilityFn(name) : { ok: true, reason: "" };
+          return withNote(getInfo ? getInfo(name) : null,
+            eligible.ok ? null : `Requires ${eligible.reason} — raise abilities first.`);
+        },
+        getMechanicsList,
+        onSelect: (name) => {
+          const eligible = eligibilityFn ? eligibilityFn(name) : { ok: true, reason: "" };
+          if (!eligible.ok) return;
+          pending.className = "__new";
+          pending.newClassName = name;
+          pending.subclass = "";
+          if (onChangeFn) onChangeFn();
+        },
+        // No Expand All/Collapse All of its own — one control bar per
+        // step is enough (same pattern as nested subrace rows).
+        collapsible: false,
+      });
+    }
+    return;
+  }
   const row = (value, label, sub, infoKey) => {
     const rowEl = document.createElement("label");
     rowEl.className = "level-guide__choice-option";
@@ -876,6 +971,30 @@ export function averageHpOnce(dieSize, conMod) {
   return Math.max(1, Math.floor(dieSize / 2) + 1 + conMod);
 }
 
+/** Full Review & Apply lines for the leveling guide — the same
+ *  one-line-per-fact shape as the creator's review step, so the level
+ *  summary reads identically everywhere it appears. Pending
+ *  choice-group picks ride along as `choiceLines` (see
+ *  reviewChoiceLinesFor), so nothing decided earlier in the guide is
+ *  invisible at Apply time. Pure. */
+export function levelReviewSectionsFor({ classLine = "", race = "", background = "", hp = "", hpDetail = "", subclass = "", needsAsi = false, asiMode = "", featChoice = "", asiAbilities = [], slots = "", choiceLines = [], notes = "" }) {
+  const sections = [];
+  if (classLine) sections.push(`Class: ${classLine}`);
+  if (race) sections.push(`Race: ${race}`);
+  if (background) sections.push(`Background: ${background}`);
+  if (hp) sections.push(`HP: +${hp}${hpDetail ? ` (${hpDetail})` : ""}`);
+  if (subclass) sections.push(`Subclass: ${subclass}`);
+  if (needsAsi) {
+    sections.push(asiMode === "feat"
+      ? `Feat: ${(featChoice || "").trim() || "not chosen yet"}`
+      : `ASI: ${asiAbilities.filter(Boolean).map((id) => String(id).toUpperCase()).join(", ") || "not chosen yet"}`);
+  }
+  if (slots) sections.push(`Spell Slots: ${slots}`);
+  (choiceLines || []).forEach((line) => { if (line) sections.push(line); });
+  if ((notes || "").trim()) sections.push(`Notes: ${notes.trim()}`);
+  return sections;
+}
+
 export function levelReviewSummary({ hp, subclass, needsAsi, asiMode, featChoice, asiAbilities = [], slots, classLabel }) {
   const parts = [`HP +${hp || "?"}`];
   if (classLabel) parts.unshift(classLabel);
@@ -945,7 +1064,16 @@ export function renderGuideSubclassStepInto(container, pending, subclassChoices,
 }
 
 export function renderGuideAsiStepInto(container, pending, deps) {
-  const { abilityIds, rulesetId, takenFeats, featNamesFn, catalogInfoFn, selectableRowsFn, gridFn } = deps;
+  const { abilityIds, rulesetId, takenFeats, featNamesFn, catalogInfoFn, selectableRowsFn, gridFn, abilityScores = null, modifierFn = null, formatFn = null } = deps;
+  // Ability options carry their live score + modifier (like the
+  // creator's ability rows), so the pick isn't blind. Optional deps —
+  // bare "STR" labels when unwired (tests, fallbacks).
+  const abilityLabelFor = (id) => {
+    const upper = String(id).toUpperCase();
+    if (!abilityScores || typeof modifierFn !== "function" || typeof formatFn !== "function") return upper;
+    const score = Number(abilityScores[id]) || 10;
+    return `${upper} (${score}, ${formatFn(modifierFn(score))})`;
+  };
   const modeGroup = document.createElement("label");
   modeGroup.className = "level-guide__field";
   modeGroup.textContent = "This level's ASI";
@@ -1000,7 +1128,7 @@ export function renderGuideAsiStepInto(container, pending, deps) {
       const abilitySelect = document.createElement("select");
       abilitySelect.className = "input-group__control";
       const blank = document.createElement("option"); blank.value = ""; blank.textContent = "Choose"; abilitySelect.append(blank);
-      abilityIds.forEach((id) => { const option = document.createElement("option"); option.value = id; option.textContent = id.toUpperCase(); abilitySelect.append(option); });
+      abilityIds.forEach((id) => { const option = document.createElement("option"); option.value = id; option.textContent = abilityLabelFor(id); abilitySelect.append(option); });
       abilitySelect.value = i === 0 ? pending.asiAbility1 : pending.asiAbility2;
       abilitySelect.addEventListener("change", () => { if (i === 0) pending.asiAbility1 = abilitySelect.value; else pending.asiAbility2 = abilitySelect.value; });
       abilityGroup.append(abilitySelect);
@@ -1035,6 +1163,18 @@ export function renderGuideHpStepInto(container, pending, { conScore, dieSize, m
     if (method === "average") pending.hp = String(averageHpOnce(dieSize, conMod));
     else if (method === "roll") pending.hp = String(rollHpOnce(dieSize, conMod));
   }
+
+  // Show the HP math the same way the ability-scores step shows point
+  // buy — the number should never look made up.
+  const mathNote = document.createElement("p");
+  mathNote.className = "leveling-tab__intro";
+  if (method === "average") {
+    const avg = Math.floor(dieSize / 2) + 1;
+    mathNote.textContent = `Fixed average: ${avg} (d${dieSize} ÷ 2, rounded up) ${conMod >= 0 ? "+" : ""}${conMod} CON = ${avg + conMod} HP`;
+  } else {
+    mathNote.textContent = `Roll 1d${dieSize} ${conMod >= 0 ? "+" : ""}${conMod} CON modifier = 1–${dieSize + conMod} HP (then type the result)`;
+  }
+  container.append(mathNote);
 
   const hpGroup = document.createElement("label");
   hpGroup.className = "level-guide__field";

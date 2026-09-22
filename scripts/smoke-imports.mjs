@@ -339,6 +339,28 @@ assert(wizardStepsMod.checkLevelPrereqs({ needsSubclass: false, missingSlots: []
   const entry = wizardStepsMod.buildLevelUpEntry({ level: 2, hpGain: 7, subclassName: "", slots: "", featureEntry: "F", asiSummary: "", appliedRulesetId: "x", prev: {} });
   assert(entry.hp === "+7", "buildLevelUpEntry");
 }
+{
+  // Level-up Class step options: taken first, untaken after, no overlap.
+  const opts = wizardStepsMod.levelClassOptionsFor({ primaryName: "Fighter", entries: [{ name: "Rogue", levels: 1 }], allClassNames: ["Fighter", "Rogue", "Wizard"], level: 5 });
+  assert(JSON.stringify(opts.taken) === '["Fighter","Rogue"]', "levelClassOptionsFor taken order");
+  assert(JSON.stringify(opts.untaken) === '["Wizard"]', "levelClassOptionsFor untaken excludes taken");
+  assert(opts.canMulticlass === true, "levelClassOptionsFor canMulticlass at 5");
+  assert(wizardStepsMod.levelClassOptionsFor({ primaryName: "Fighter", entries: [], allClassNames: ["Wizard"], level: 1 }).canMulticlass === false, "levelClassOptionsFor no multiclass at 1");
+}
+{
+  // Review & Apply sections: identity, HP detail, pending picks, notes.
+  const sections = wizardStepsMod.levelReviewSectionsFor({
+    classLine: "Fighter 5", race: "Elf", background: "", hp: "6", hpDetail: "d10 average +2 CON",
+    subclass: "Champion", needsAsi: true, asiMode: "feat", featChoice: "", asiAbilities: [],
+    slots: "", choiceLines: ["Skills: Arcana"], notes: "took the oath",
+  });
+  assert(sections.includes("Class: Fighter 5") && sections.includes("Race: Elf"), "levelReviewSectionsFor identity");
+  assert(!sections.some((s) => s.startsWith("Background:")), "levelReviewSectionsFor skips empty background");
+  assert(sections.includes("HP: +6 (d10 average +2 CON)"), "levelReviewSectionsFor hp detail");
+  assert(sections.includes("Feat: not chosen yet"), "levelReviewSectionsFor feat placeholder");
+  assert(sections.includes("Skills: Arcana") && sections.includes("Notes: took the oath"), "levelReviewSectionsFor picks+notes");
+  assert(wizardStepsMod.levelReviewSectionsFor({}).length === 0, "levelReviewSectionsFor empty");
+}
 
 const historyMod = await import("../js/render/sheet/sheetHistory.js");
 assert(historyMod.shouldPushNewStep({ stackEmpty: true, now: 1000, lastMutationAt: 0 }) === true, "shouldPushNewStep empty");
