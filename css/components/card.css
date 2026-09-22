@@ -83,6 +83,9 @@
 
 .character-card__info {
   padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
 
 .character-card__name {
@@ -94,12 +97,32 @@
   white-space: nowrap;
 }
 
-.character-card__meta {
+/* One fact per line (Level / Race / subrace / Class / subclass).
+ * The block always reserves five lines so every card is the same
+ * height whether or not a subrace/subclass is picked, and fewer
+ * lines sit vertically centered in the reserved space. */
+.character-card__meta-lines {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  min-height: calc(5 * 1.4em);
+}
+
+.character-card__meta-line {
   font-size: var(--text-sm);
   color: var(--color-text);
+  line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Sub rows nest under their parent: indented, muted, with a true
+ * hanging indent so wrapped names stay aligned under the indent. */
+.character-card__meta-line--sub {
+  padding-left: 1.2em;
+  text-indent: -0.7em;
+  color: var(--color-text-muted);
 }
 .character-card__meta--empty {
   font-size: var(--text-xs);

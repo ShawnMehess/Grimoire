@@ -952,12 +952,12 @@ export function renderSelectableRowsInto(container, names, { selectedName, onSel
     expandAll.addEventListener("click", () => {
       names.forEach((name) => expandedChoiceRows.add(name));
       list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = false; });
-      list.querySelectorAll(".choice-row__expander").forEach((b) => { b.textContent = "▾ Details"; b.setAttribute("aria-expanded", "true"); });
+      list.querySelectorAll(".choice-row__collapse-btn").forEach((b) => { b.hidden = false; b.setAttribute("aria-expanded", "true"); });
     });
     collapseAll.addEventListener("click", () => {
       names.forEach((name) => expandedChoiceRows.delete(name));
       list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = true; });
-      list.querySelectorAll(".choice-row__expander").forEach((b) => { b.textContent = "▸ Details"; b.setAttribute("aria-expanded", "false"); });
+      list.querySelectorAll(".choice-row__collapse-btn").forEach((b) => { b.hidden = true; b.setAttribute("aria-expanded", "false"); });
     });
     controls.append(expandAll, collapseAll);
     container.append(controls);
@@ -970,22 +970,36 @@ export function renderSelectableRowsInto(container, names, { selectedName, onSel
     row.tabIndex = 0;
     row.setAttribute("role", "button");
     row.setAttribute("aria-pressed", String(selected));
-    // Toggle expansion on row click, but still allow selection
+    // Clicking a row selects it and expands its details — collapsing
+    // is the Collapse button's job alone, so a click never hides
+    // what was just picked.
     row.addEventListener("click", (e) => {
-      // Don't toggle if clicking on the collapse button
+      // The Collapse button handles its own clicks (with
+      // stopPropagation) — anything else on the row selects.
       if (e.target.closest(".choice-row__collapse-btn")) return;
-      const expanded = expandedChoiceRows.has(name);
-      if (expanded) {
-        expandedChoiceRows.delete(name);
-      } else {
-        // Keep other rows expanded - only collapse if clicking the collapse button
-        expandedChoiceRows.add(name);
+      expandedChoiceRows.add(name);
+      const detailsEl = row.querySelector(".choice-row__details");
+      if (detailsEl) detailsEl.hidden = false;
+      const collapseEl = row.querySelector(".choice-row__collapse-btn");
+      if (collapseEl) {
+        collapseEl.hidden = false;
+        collapseEl.setAttribute("aria-expanded", "true");
       }
-      // Only call onSelect for non-expanded rows or when explicitly selecting
-      if (!expandedChoiceRows.has(name)) onSelect(name);
+      onSelect(name);
     });
     row.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(name); }
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        expandedChoiceRows.add(name);
+        const detailsEl = row.querySelector(".choice-row__details");
+        if (detailsEl) detailsEl.hidden = false;
+        const collapseEl = row.querySelector(".choice-row__collapse-btn");
+        if (collapseEl) {
+          collapseEl.hidden = false;
+          collapseEl.setAttribute("aria-expanded", "true");
+        }
+        onSelect(name);
+      }
     });
     const portrait = document.createElement("div");
     portrait.className = "choice-row__portrait";
@@ -1051,19 +1065,21 @@ export function renderSelectableRowsInto(container, names, { selectedName, onSel
       if (collapsible) {
         const expanded = expandedChoiceRows.has(name);
         details.hidden = !expanded;
-        // Collapse button at bottom of expanded content (replaces expander button)
+        // Collapse button lives at the bottom of the expanded content
+        // and only exists while expanded — it collapses, never
+        // expands, so it stays hidden on collapsed rows.
         const collapseBtn = document.createElement("button");
         collapseBtn.type = "button";
-        collapseBtn.className = "btn choice-row__collapse-btn";
+        collapseBtn.className = "choice-row__collapse-btn";
         collapseBtn.textContent = "Collapse";
         collapseBtn.setAttribute("aria-expanded", String(expanded));
+        collapseBtn.hidden = !expanded;
         collapseBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          const next = !details.hidden;
-          details.hidden = next;
-          if (next) expandedChoiceRows.add(name);
-          else expandedChoiceRows.delete(name);
-          collapseBtn.setAttribute("aria-expanded", String(next));
+          expandedChoiceRows.delete(name);
+          details.hidden = true;
+          collapseBtn.hidden = true;
+          collapseBtn.setAttribute("aria-expanded", "false");
         });
         body.append(collapseBtn);
       }

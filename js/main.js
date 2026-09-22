@@ -148,14 +148,15 @@ function findAvatarImageData(character) {
   return match ? match.imageData : null;
 }
 
-/** Builds the character card's meta line: Level, Race, and Class up
- *  front, then whichever extra fields were dragged into the
+/** Builds the character card's meta lines: Level, Race, and Class each
+ *  on their own line, with a picked subrace/subclass on an indented row
+ *  below its parent — then whichever extra fields were dragged into the
  *  identity-card-fields drop zone on that character's own sheet.
  *  Core values come from guided rules state, falling back to the
  *  sheet's own Race/Class/Level fields (older or hand-built sheets)
  *  — name is the only thing about a character that isn't just
- *  "whatever field you chose to show here". */
-function buildCardMeta(character) {
+ *  "whatever field you chose to show here". Returns [{ text, sub }]. */
+function buildCardMetaLines(character) {
   const rules = character.rules || {};
   const allFields = flattenAllFields(character);
   const formulaValues = computeAllFormulas(allFields);
@@ -169,18 +170,50 @@ function buildCardMeta(character) {
     if (v === undefined || v === null || String(v).trim() === "" || !Number.isFinite(Number(v))) return null;
     return `Level ${Number(v)}`;
   };
-  const core = [
-    asLevel(rules.level) || asLevel(displayValueForField(byLabel("level"), formulaValues)),
-    rules.species || dropdownText("race") || dropdownText("species"),
-    rules.className || dropdownText("class"),
-  ].filter(Boolean);
+  const lines = [];
+  const level = asLevel(rules.level) || asLevel(displayValueForField(byLabel("level"), formulaValues));
+  if (level) lines.push({ text: level });
+  const race = rules.species || dropdownText("race") || dropdownText("species");
+  if (race) lines.push({ text: race });
+  const subrace = findSubraceName(character, allFields);
+  if (subrace) lines.push({ text: subrace, sub: true });
+  const cls = rules.className || dropdownText("class");
+  if (cls) lines.push({ text: cls });
+  const subclass = rules.subclass || dropdownText("subclass");
+  if (subclass) lines.push({ text: subclass, sub: true });
   const ids = Array.isArray(character.cardFieldIds) ? character.cardFieldIds : [];
-  const extra = ids
+  ids
     .map((id) => allFields.find((f) => f.id === id))
     .map((f) => displayValueForField(f, formulaValues))
-    .filter(Boolean);
-  const parts = [...core, ...extra];
-  return parts.length ? parts.join(" • ") : "—";
+    .filter(Boolean)
+    .forEach((text) => lines.push({ text }));
+  return lines;
+}
+
+/** The picked subrace name (e.g. "High Elf"), if the sheet's Race
+ *  dropdown carries a subrace choice group with a saved pick. Choice
+ *  keys are `${fieldId}:${choiceId}:${groupId}` (or legacy
+ *  `creation:Race:…` ones) — both end with the group id, so a suffix
+ *  match finds the pick without knowing the exact prefix. */
+function findSubraceName(character, allFields) {
+  const fields = allFields || flattenAllFields(character);
+  const raceField = fields.find((f) => f.fieldType === "dropdown" && /^(race|species)$/i.test((f.label || "").trim()));
+  const selected = raceField?.choices?.find((c) => c.id === raceField.selected);
+  const group = (selected?.bundle?.choiceGroups || [])
+    .find((g) => g.subrace === true || /subrace/i.test(g.id || ""));
+  if (!group) return null;
+  const store = character.rules?.choices || {};
+  let ids = store[group.key];
+  if (!ids && group.id) {
+    const suffix = `:${group.id}`;
+    for (const [key, value] of Object.entries(store)) {
+      if (typeof key === "string" && key.endsWith(suffix)) { ids = value; break; }
+    }
+  }
+  if (!Array.isArray(ids) || ids.length === 0) return null;
+  const options = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+  const names = ids.map((id) => options.find((o) => o.id === id)?.name).filter(Boolean);
+  return names.length ? names.join(" · ") : null;
 }
 
 async function renderCharacterList() {
@@ -301,14 +334,25 @@ async function renderCharacterList() {
       const nameEl = document.createElement("div");
       nameEl.className = "character-card__name";
       nameEl.textContent = c.name || "Unnamed";
-      const metaEl = document.createElement("div");
-      metaEl.className = "character-card__meta";
-      metaEl.textContent = buildCardMeta(c);
-      if (metaEl.textContent === "—") {
-        metaEl.classList.add("character-card__meta--empty");
-        metaEl.title = "Tip: open the sheet and drag fields onto “Card fields” to show them here";
+      const metaWrap = document.createElement("div");
+      metaWrap.className = "character-card__meta-lines";
+      const metaLines = buildCardMetaLines(c);
+      if (metaLines.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "character-card__meta-line character-card__meta--empty";
+        empty.textContent = "—";
+        empty.title = "Tip: open the sheet and drag fields onto “Card fields” to show them here";
+        metaWrap.append(empty);
+      } else {
+        metaLines.forEach(({ text, sub }) => {
+          const line = document.createElement("div");
+          line.className = "character-card__meta-line" + (sub ? " character-card__meta-line--sub" : "");
+          line.textContent = text;
+          line.title = text;
+          metaWrap.append(line);
+        });
       }
-      info.append(nameEl, metaEl);
+      info.append(nameEl, metaWrap);
       card.append(info);
 
       list.append(card);

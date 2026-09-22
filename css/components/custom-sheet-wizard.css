@@ -328,10 +328,23 @@
   transition: max-height var(--transition-normal), opacity var(--transition-normal), margin-top var(--transition-normal), margin-bottom var(--transition-normal);
 }
 
-/* Collapse button at bottom of expanded content */
+/* Per-row Collapse button at the bottom of expanded content —
+ *  deliberately quiet (plain muted text, not a .btn): collapsing is a
+ *  secondary tidying action, while the Expand All / Collapse All bar
+ *  above the list keeps its full button styling. */
 .choice-row__collapse-btn {
   margin-top: var(--space-2);
   align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  cursor: pointer;
+}
+.choice-row__collapse-btn:hover {
+  color: var(--color-text-muted);
+  text-decoration: underline;
 }
 
 /* Expand All / Collapse All controls */
