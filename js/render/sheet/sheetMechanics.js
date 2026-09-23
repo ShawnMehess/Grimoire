@@ -78,6 +78,17 @@ export function featureBit(grant) {
   return name;
 }
 
+/** First character uppercased, everything else untouched — applied
+ *  to the detail half of every "Topic — detail" join so the word
+ *  after an em dash is always capitalized. Digits and already-upper
+ *  text pass through unchanged. */
+export function capitalizeFirst(text) {
+  const s = String(text ?? "");
+  if (!s) return s;
+  const upper = s.charAt(0).toUpperCase();
+  return s.charAt(0) === upper ? s : upper + s.slice(1);
+}
+
 /** First "<number> <unit>" range in a description, normalized to
  *  "<number> feet" — accepts "ft", "ft.", "foot", and "feet" ("within
  *  60 feet" and "60 ft." both yield "60 feet"). Null when no range. */

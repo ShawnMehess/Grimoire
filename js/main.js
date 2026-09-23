@@ -10,6 +10,7 @@ import { createBlankCharacter } from "./data/schema.js";
 import { renderCustomSheet } from "./render/customSheet.js";
 import { computeAllFormulas } from "./data/formula.js";
 import { applySheetTheme } from "./data/themes.js";
+import { el } from "./render/sheet/sheetHelpers.js";
 
 const appRoot = document.getElementById("app-main");
 const authArea = document.getElementById("auth-area");
@@ -226,45 +227,27 @@ async function renderCharacterList() {
   backBtn.style.display = "none";
   appRoot.innerHTML = "";
 
-  const heading = document.createElement("div");
-  heading.className = "page-header";
-  const title = document.createElement("h2");
-  title.textContent = "Your Characters";
-  const newBtn = document.createElement("button");
-  newBtn.className = "btn btn--primary";
-  newBtn.textContent = "+ New Character";
-  newBtn.addEventListener("click", createNewBlankCharacter);
-  heading.append(title, newBtn);
-  appRoot.append(heading);
+  appRoot.append(el("div", { class: "page-header" },
+    el("h2", { text: "Your Characters" }),
+    el("button", { class: "btn btn--primary", text: "+ New Character", onclick: createNewBlankCharacter })));
 
   if (characterStore.isLocal) {
-    const banner = document.createElement("p");
-    banner.className = "leveling-tab__intro";
-    banner.textContent = "Offline mode — characters save in this browser only. Drop ?offline=1 (with a connection) to use the shared backend.";
-    appRoot.append(banner);
+    appRoot.append(el("p", { class: "leveling-tab__intro", text: "Offline mode — Characters save in this browser only. Drop ?offline=1 (with a connection) to use the shared backend." }));
   }
 
   const characters = await listMyCharacters();
 
-  const searchRow = document.createElement("div");
-  searchRow.className = "character-vault__search-row";
-  const searchInput = document.createElement("input");
-  searchInput.type = "search";
-  searchInput.className = "input-group__control character-vault__search";
-  searchInput.placeholder = "Search your characters…";
-  searchRow.append(searchInput);
+  const searchInput = el("input", { type: "search", class: "input-group__control character-vault__search", placeholder: "Search your characters…" });
+  const searchRow = el("div", { class: "character-vault__search-row" }, searchInput);
   // Only worth showing once there's enough in the list to actually
   // need narrowing down — an empty search box above two or three
   // cards is just clutter.
   if (characters.length > 6) appRoot.append(searchRow);
 
-  const list = document.createElement("div");
-  list.className = "character-card-grid";
+  const list = el("div", { class: "character-card-grid" });
   appRoot.append(list);
 
-  const emptyState = document.createElement("p");
-  emptyState.className = "leveling-tab__intro";
-  emptyState.textContent = "No characters match that search.";
+  const emptyState = el("p", { class: "leveling-tab__intro", text: "No characters match that search." });
 
   function renderCards(filterText) {
     list.innerHTML = "";
@@ -280,86 +263,54 @@ async function renderCharacterList() {
     emptyState.remove();
 
     filtered.forEach(c => {
-      const card = document.createElement("div");
-      card.className = "character-card";
-      card.addEventListener("click", () => openCharacter(c.id));
-
-      const portrait = document.createElement("div");
-      portrait.className = "character-card__portrait";
       const avatarData = findAvatarImageData(c);
-      if (avatarData) {
-        const img = document.createElement("img");
-        img.src = avatarData;
-        img.alt = "";
-        portrait.append(img);
-      } else {
-        portrait.append(buildPlaceholderPortraitSvg());
-      }
-      card.append(portrait);
-
-      const actions = document.createElement("div");
-      actions.className = "character-card__actions";
-
-      const duplicateBtn = document.createElement("button");
-      duplicateBtn.type = "button";
-      duplicateBtn.className = "character-card__duplicate";
-      duplicateBtn.textContent = "⧉";
-      duplicateBtn.title = "Duplicate character";
-      duplicateBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        duplicateBtn.disabled = true;
-        try {
-          await duplicateCharacter(c);
-          await renderCharacterList();
-        } catch (err) {
-          console.error("Failed to duplicate character:", err);
-          window.alert("Couldn't duplicate that character — see the console for details.");
-          duplicateBtn.disabled = false;
-        }
+      const duplicateBtn = el("button", {
+        type: "button", class: "character-card__duplicate", text: "⧉",
+        title: "Duplicate character",
+        onclick: async (e) => {
+          e.stopPropagation();
+          duplicateBtn.disabled = true;
+          try {
+            await duplicateCharacter(c);
+            await renderCharacterList();
+          } catch (err) {
+            console.error("Failed to duplicate character:", err);
+            window.alert("Couldn't duplicate that character — see the console for details.");
+            duplicateBtn.disabled = false;
+          }
+        },
       });
-      actions.append(duplicateBtn);
-
-      const deleteBtn = document.createElement("button");
-      deleteBtn.type = "button";
-      deleteBtn.className = "character-card__delete";
-      deleteBtn.textContent = "✕";
-      deleteBtn.title = "Delete character";
-      deleteBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        const confirmed = window.confirm(`Delete "${c.name || "Unnamed"}"? This can't be undone.`);
-        if (!confirmed) return;
-        await deleteCharacter(c.id);
-        renderCharacterList();
+      const deleteBtn = el("button", {
+        type: "button", class: "character-card__delete", text: "✕",
+        title: "Delete character",
+        onclick: async (e) => {
+          e.stopPropagation();
+          const confirmed = window.confirm(`Delete "${c.name || "Unnamed"}"? This can't be undone.`);
+          if (!confirmed) return;
+          await deleteCharacter(c.id);
+          renderCharacterList();
+        },
       });
-      actions.append(deleteBtn);
-
-      card.append(actions);
-
-      const info = document.createElement("div");
-      info.className = "character-card__info";
-      const nameEl = document.createElement("div");
-      nameEl.className = "character-card__name";
-      nameEl.textContent = c.name || "Unnamed";
-      const metaWrap = document.createElement("div");
-      metaWrap.className = "character-card__meta-lines";
       const metaLines = buildCardMetaLines(c);
-      if (metaLines.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "character-card__meta-line character-card__meta--empty";
-        empty.textContent = "—";
-        empty.title = "Tip: open the sheet and drag fields onto “Card fields” to show them here";
-        metaWrap.append(empty);
-      } else {
-        metaLines.forEach(({ text, sub }) => {
-          const line = document.createElement("div");
-          line.className = "character-card__meta-line" + (sub ? " character-card__meta-line--sub" : "");
-          line.textContent = text;
-          line.title = text;
-          metaWrap.append(line);
-        });
-      }
-      info.append(nameEl, metaWrap);
-      card.append(info);
+      const card = el("div", {
+        class: "character-card",
+        onclick: () => openCharacter(c.id),
+      },
+        el("div", { class: "character-card__portrait" },
+          avatarData ? el("img", { src: avatarData, alt: "" }) : buildPlaceholderPortraitSvg()),
+        el("div", { class: "character-card__actions" }, duplicateBtn, deleteBtn),
+        el("div", { class: "character-card__info" },
+          el("div", { class: "character-card__name", text: c.name || "Unnamed" }),
+          el("div", { class: "character-card__meta-lines" },
+            ...(metaLines.length === 0
+              ? [el("div", {
+                class: "character-card__meta-line character-card__meta--empty", text: "—",
+                title: "Tip: open the sheet and drag fields onto “Card fields” to show them here",
+              })]
+              : metaLines.map(({ text, sub }) => el("div", {
+                class: "character-card__meta-line" + (sub ? " character-card__meta-line--sub" : ""),
+                text, title: text,
+              })))));
 
       list.append(card);
     });

@@ -721,6 +721,9 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   }
   assert(mechanics.mechanicsBulletsFor(null, 1).length === 0, "mechanicsBullets null-safe");
   assert(mechanics.briefDescription("First. Second.", 200) === "First.", "briefDescription");
+  assert(mechanics.capitalizeFirst("meditate 4 hours") === "Meditate 4 hours", "capitalizeFirst lower");
+  assert(mechanics.capitalizeFirst("30 feet") === "30 feet", "capitalizeFirst non-letter");
+  assert(mechanics.capitalizeFirst("") === "", "capitalizeFirst empty");
   assert(mechanics.briefDescription("A very long single sentence with no ending in sight at all whatsoever", 20).endsWith("…"), "briefDescription word-cut fallback");
   assert(JSON.stringify(wizardMod.spellClassesFor({ fieldValues: { classes: "Wizard, Sorcerer" } })) === '["Wizard","Sorcerer"]', "spellClassesFor explicit");
   assert(wizardMod.spellClassesFor({ fieldValues: { effect: "Boom. Spell Lists. Bard, Cleric." } }).join() === "Bard,Cleric", "spellClassesFor parsed");

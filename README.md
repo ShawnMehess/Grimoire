@@ -10,10 +10,7 @@ persistence among friends.
 Abilities/etc. as hardcoded sections). The character sheet is now
 fully custom-built by each user: blocks and fields can be added,
 removed, dragged, resized, restyled, and relabeled freely. The old
-fixed-field system (`js/data/schema.js`, `js/render/formBuilder.js`,
-`js/render/characterSheet.js`) is still in the repo but **no longer
-called from `main.js`** — kept only as a reference/rollback point,
-not because it's still in use.
+fixed-field system was removed once nothing called it.
 
 ### The core idea: one object, not two
 
@@ -95,8 +92,9 @@ size whether you're looking at the page or inside a block. See
 ## Why the OLD system was structured this way
 
 (This section describes the retired fixed-schema sheet — kept for
-context on `schema.js`/`formBuilder.js`/`characterSheet.js`, which are
-no longer wired up but still in the repo.)
+context on `schema.js`, whose blank-character factory is still in
+use. The old `formBuilder.js`/`characterSheet.js`/`rules.js` modules
+were removed once nothing called them.)
 
 The core problem to avoid is the one you hit last time: a single CSS
 file creeping toward 3000 lines because every field on a character
@@ -122,11 +120,8 @@ css/
 js/
 
   data/
-    schema.js        field definitions + blank character factory
-    rules.js          pure D&D math (modifiers, proficiency bonus) — no DOM, no Firebase
+    schema.js        blank character factory
   render/
-    formBuilder.js    schema -> DOM. The only place field markup is created.
-    characterSheet.js orchestrates schema + rules + formBuilder + store for the sheet view
     customSheet.js    composition root for the drag/resize/style sheet builder.
                       Owns session state + store wiring; every DOM structure and
                       every pure computation lives in sheet/ and is called with
@@ -271,17 +266,18 @@ same limitation the 2014 pipeline already has. See the script's file-level
 comment and `default-bundles/README.md` for exactly what is and isn't
 covered.
 
-- **New field on the sheet** → add an entry to `schema.js`. Done.
+- **New field on the sheet** → add it in the sheet builder UI, or extend
+  the field types in `js/data/blockModel.js` + `js/render/sheet/sheetFields.js`.
 - **New field *type* not covered yet** (e.g. a dice-roll button) → add
-  a case to `buildControl()` in `formBuilder.js`, plus one new CSS
+  a builder in `js/render/sheet/sheetFields.js`, plus one new CSS
   file in `css/components/` if it needs its own look.
-- **New D&D rule/calculation** → add a pure function to `rules.js`,
-  call it from `characterSheet.js`.
+- **New D&D rule/calculation** → add a pure function to the matching
+  `js/render/sheet/` or `js/data/` module (explicit deps, no sheet closure).
 - **Inventory / spells / features** → these are arrays on the
-  character document (see `schema.js`). They'll want their own small
-  render module (`render/inventory.js` etc.) following the same
-  pattern as `characterSheet.js` — build list items from data, one
-  `.card` component, no page-specific CSS.
+  character document. They'll want their own small
+  render module following the same pattern as the other `sheet/`
+  modules — build list items from data, reuse the picker-table
+  component, no page-specific CSS.
 
 ## Content pipeline (compiled Foundry data + hand-written core)
 

@@ -29,20 +29,9 @@
 // argument were just left blank) rather than the literal word "x".
 
 import { FUNCTION_NAMES, FUNCTION_PARAMS, validateExpression, validateCondition } from "../data/formula.js";
+import { debounce, deepClone } from "./sheet/sheetHelpers.js";
 
 const COMPARATOR_BUTTONS = ["=", "!=", "<=", "<", ">=", ">", " AND ", " OR ", " XOR "];
-
-function debounce(fn, delayMs) {
-  let handle;
-  return (...args) => {
-    clearTimeout(handle);
-    handle = setTimeout(() => fn(...args), delayMs);
-  };
-}
-
-function deepClone(value) {
-  return value ? JSON.parse(JSON.stringify(value)) : value;
-}
 
 function makeChip(field, checkboxIndex) {
   const chip = document.createElement("span");

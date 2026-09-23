@@ -24,6 +24,8 @@
 //   character levels 1/3/5 — they need the Spell List catalog wired
 //   (see customSheet.js catalogCache) to display.
 
+import { LANGUAGES } from "./schema.js";
+
 const ABILITIES = ["str", "dex", "con", "int", "wis", "cha"];
 const ABILITY_LABEL = { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" };
 
@@ -37,11 +39,6 @@ const SKILLS = [
   ["performance", "Performance"], ["persuasion", "Persuasion"],
   ["religion", "Religion"], ["sleightOfHand", "Sleight of Hand"],
   ["stealth", "Stealth"], ["survival", "Survival"],
-];
-
-const LANGUAGES = [
-  "Common", "Dwarvish", "Elvish", "Giant", "Gnomish", "Goblin", "Halfling", "Orc",
-  "Abyssal", "Celestial", "Deep Speech", "Draconic", "Infernal", "Primordial", "Sylvan", "Undercommon",
 ];
 
 function langOptions(id, count) {

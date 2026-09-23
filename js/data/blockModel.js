@@ -17,7 +17,8 @@
 // equals the container's own width in cells — so "one cell" means the
 // same physical size everywhere on the sheet, nested or not.
 
-import { ABILITIES, SKILLS } from "./schema.js";
+import { ABILITIES, SKILLS, LANGUAGES } from "./schema.js";
+export { LANGUAGES };
 import { DEFAULT_CONTENT } from "./defaultContent.js";
 import { FIXED_CLASS_ENTRIES, FIXED_RACE_ENTRIES, SUBCLASS_BUNDLE_MAP, normSubclassKey } from "./contentFixups.js";
 
@@ -25,11 +26,8 @@ import { FIXED_CLASS_ENTRIES, FIXED_RACE_ENTRIES, SUBCLASS_BUNDLE_MAP, normSubcl
 // gets added to your list" fields below (Languages, Armor/Weapon/Tool
 // Proficiencies). None of this comes from Shawn's uploaded JSON —
 // same story as the spell-slot tables in dnd5e.js — so these are
-// hand-written standard lists, not per-source data.
-export const LANGUAGES = [
-  "Common", "Dwarvish", "Elvish", "Giant", "Gnomish", "Goblin", "Halfling", "Orc",
-  "Abyssal", "Celestial", "Deep Speech", "Draconic", "Infernal", "Primordial", "Sylvan", "Undercommon",
-];
+// hand-written standard lists, not per-source data. LANGUAGES lives
+// in schema.js (shared with extraRaces.js) rather than here.
 export const ARMOR_PROFICIENCIES = ["Light Armor", "Medium Armor", "Heavy Armor", "Shields"];
 export const WEAPON_PROFICIENCIES = [
   "All Simple Weapons", "All Martial Weapons",

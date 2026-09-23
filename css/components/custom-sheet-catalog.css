@@ -95,7 +95,8 @@
   gap: var(--space-2);
 }
 
-.catalog-entry-card__panel {
+.catalog-entry-card__panel,
+.catalog-archetype {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -167,17 +168,7 @@
   white-space: nowrap;
 }
 
-/* --- Item archetypes (catalog-level definition, tab/item overrides) - */
-
-.catalog-archetype {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-raised);
-}
+/* --- Item archetypes (catalog-level definition, tab/item overrides) - (base rule merged with .catalog-entry-card__panel above) */
 
 .catalog-archetype--override {
   background: var(--color-bg-inset);
@@ -211,7 +202,8 @@
 }
 
 .catalog-archetype__row input,
-.catalog-archetype__value-row input {
+.catalog-archetype__value-row input,
+.catalog-archetype__widget-select {
   flex: 1 1 auto;
   min-width: 0;
   box-sizing: border-box;
@@ -228,10 +220,6 @@
   min-width: 0;
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
-}
-
-.catalog-archetype__row-label-input {
-  flex: 1 1 auto;
 }
 
 .catalog-archetype__row--hidden {
@@ -294,18 +282,6 @@
   background: var(--color-accent);
   color: #fff;
   border-color: var(--color-accent);
-}
-
-.catalog-archetype__widget-select {
-  flex: 1 1 auto;
-  min-width: 0;
-  box-sizing: border-box;
-  background: var(--color-bg-inset);
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-sm);
-  color: var(--color-text);
-  padding: 4px var(--space-2);
-  font-size: var(--text-sm);
 }
 
 /* Effects-only targeting cell (see renderEffectsValueCell in

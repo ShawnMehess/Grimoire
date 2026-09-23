@@ -203,17 +203,6 @@
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.modal-box--sheet-template {
-  width: min(420px, calc(100vw - 32px));
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.modal-box--sheet-template h3 {
-  margin: 0;
-}
-
 .modal-copy {
   margin: 0;
   color: var(--color-text-muted);

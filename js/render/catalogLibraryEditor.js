@@ -16,16 +16,8 @@
 // "money" the catalog spends from.
 
 import { positionCollectionMenu } from "./collectionMenuLayout.js";
-
-const MAX_IMAGE_BYTES = 250_000; // same Firestore-doc-size reasoning as elsewhere
-
-function newLocalId() {
-  return `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function deepClone(value) {
-  return value ? JSON.parse(JSON.stringify(value)) : value;
-}
+import { MAX_IMAGE_BYTES } from "./sheet/sheetConstants.js";
+import { deepClone, newLocalId } from "./sheet/sheetHelpers.js";
 
 // --- Effects targeting --------------------------------------------------
 // Only Effects rows get this — who/where an effect applies, kept as a

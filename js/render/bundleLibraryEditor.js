@@ -19,6 +19,7 @@
 // the old narrow fixed-width floating panel.
 
 import { positionCollectionMenu } from "./collectionMenuLayout.js";
+import { deepClone, newLocalId } from "./sheet/sheetHelpers.js";
 import { listContentPacks, listRulesets } from "../data/dnd5e.js";
 
 const MODIFIER_OPS = [
@@ -28,14 +29,6 @@ const MODIFIER_OPS = [
   { value: "set", label: "= Set to" },
   { value: "grant", label: "✓ Grant proficiency" },
 ];
-
-function deepClone(value) {
-  return value ? JSON.parse(JSON.stringify(value)) : value;
-}
-
-function newLocalId() {
-  return `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
 
 function blankLibraryEntry() {
   return {

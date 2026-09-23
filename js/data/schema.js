@@ -45,6 +45,11 @@ export const SKILLS = [
 
 export const SPELL_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
+export const LANGUAGES = [
+  "Common", "Dwarvish", "Elvish", "Giant", "Gnomish", "Goblin", "Halfling", "Orc",
+  "Abyssal", "Celestial", "Deep Speech", "Draconic", "Infernal", "Primordial", "Sylvan", "Undercommon",
+];
+
 // Factory for a brand-new character document. This is the shape that
 // gets written to Firestore, so keep it flat where reasonable —
 // nested objects only where the data is genuinely grouped (abilities,

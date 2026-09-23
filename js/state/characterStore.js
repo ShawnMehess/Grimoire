@@ -1,10 +1,10 @@
 // characterStore.js
 //
 // This is the ONLY file in the app that should import from
-// firebase/firestore or firebase/auth. Everywhere else (formBuilder,
-// characterSheet, etc.) calls these functions and works with plain
-// JS objects — that keeps Firebase swappable and keeps the rendering
-// code testable without a live backend.
+// firebase/firestore or firebase/auth. Everywhere else calls these
+// functions and works with plain JS objects — that keeps Firebase
+// swappable and keeps the rendering code testable without a live
+// backend.
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js";
 import { bundleDedupeKey as sharedBundleDedupeKey } from "./bundleMaps.js";
@@ -15,7 +15,6 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
-  onSnapshot,
   collection,
   query,
   where,
@@ -196,17 +195,6 @@ export async function deleteCharacter(characterId) {
   await deleteDoc(doc(db, CHARACTERS_COLLECTION, characterId));
 }
 
-/**
- * Subscribe to realtime updates for a character (e.g. so a DM and
- * player viewing the same sheet stay in sync). Returns an unsubscribe
- * function.
- */
-export function subscribeToCharacter(characterId, onUpdate) {
-  return onSnapshot(doc(db, CHARACTERS_COLLECTION, characterId), (snap) => {
-    if (snap.exists()) onUpdate(hydrateCharacter({ id: snap.id, ...snap.data() }));
-  });
-}
-
 // --- Sheet templates -------------------------------------------------------
 
 function parseTemplateName(name) {
@@ -255,24 +243,6 @@ async function syncCharacterTemplate(characterId) {
     doc(db, USER_TEMPLATES_COLLECTION, uid, "templates", character.id),
     templatePayload(character, parsed)
   );
-}
-
-export async function listSheetTemplates() {
-  const uid = currentUserId();
-  if (!uid) return [];
-
-  const [globalSnap, personalSnap] = await Promise.all([
-    getDocs(collection(db, PUBLIC_TEMPLATES_COLLECTION)),
-    getDocs(collection(db, USER_TEMPLATES_COLLECTION, uid, "templates")),
-  ]);
-
-  const globals = globalSnap.docs.map(d => ({ id: d.id, scope: "global", ...d.data() }));
-  const personal = personalSnap.docs.map(d => ({ id: d.id, scope: "personal", ...d.data() }));
-
-  return [...globals, ...personal].sort((a, b) => {
-    if (a.scope !== b.scope) return a.scope === "global" ? -1 : 1;
-    return (a.name || "").localeCompare(b.name || "");
-  });
 }
 
 // --- Bundle libraries -------------------------------------------------------

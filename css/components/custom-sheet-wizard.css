@@ -34,11 +34,6 @@
   background: var(--color-bg-inset);
 }
 
-.level-guide__status {
-  color: var(--color-accent-hover);
-  font-size: var(--text-sm);
-}
-
 .level-guide__summary {
   margin: var(--space-2) 0 var(--space-4);
   color: var(--color-text-muted);
@@ -385,10 +380,6 @@
   color: var(--color-accent, var(--color-text-muted));
 }
 
-.wizard__subclass-note {
-  margin: 0 0 var(--space-2) var(--space-6);
-}
-
 .wizard__nav {
   display: flex;
   justify-content: space-between;
@@ -658,18 +649,12 @@
   transition: width var(--transition-normal);
 }
 
-/* Collapsible picker rows (Race/Class/Background tables): per-row
-   expander plus Expand All / Collapse All above the list. Details
-   start collapsed so long mechanics lists don't bury the names. */
+/* Collapsible picker rows: Expand All / Collapse All above the list
+   plus a quiet per-row Collapse button while expanded. */
 .choice-row-list__collapse-controls {
   display: flex;
   gap: var(--space-2);
   margin-bottom: var(--space-2);
-}
-.choice-row__expander {
-  margin-top: var(--space-1);
-  padding: 1px var(--space-2);
-  font-size: var(--text-xs);
 }
 .choice-row__details {
   margin-top: var(--space-1);

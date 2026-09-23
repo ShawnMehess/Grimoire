@@ -85,7 +85,7 @@ import {
   RESIZABLE_FIELD_TYPES,
   CAPTIONLESS_FIELD_TYPES,
 } from "./sheet/sheetConstants.js";
-import { debounce, valuesMatch, mergeTextStyle, clone, newId } from "./sheet/sheetHelpers.js";
+import { debounce, valuesMatch, mergeTextStyle, clone, newId, el } from "./sheet/sheetHelpers.js";
 import {
   CREATION_CHOICE_CATEGORIES as SHARED_CREATION_CHOICE_CATEGORIES,
   categorizeChoiceGroup as sharedCategorizeChoiceGroup,
@@ -161,17 +161,8 @@ import {
   cycleLabelPositionInto,
   buildTextListValueInto,
   buildTagListValueInto,
-  buildTextPreview as sharedBuildTextPreview,
-  buildLabelPreview as sharedBuildLabelPreview,
-  buildTextareaPreview as sharedBuildTextareaPreview,
   openFieldTooltipEditorInto,
   buildCharacterLinkValueInto,
-  buildTextlistPreview as sharedBuildTextlistPreview,
-  buildDropdownPreview as sharedBuildDropdownPreview,
-  buildPicturePreview as sharedBuildPicturePreview,
-  buildCatalogPreview as sharedBuildCatalogPreview,
-  buildFeatureListPreview as sharedBuildFeatureListPreview,
-  buildOptionPreview as sharedBuildOptionPreview,
   openFieldTypeMenuInto,
 } from "./sheet/sheetFields.js";
 import {
@@ -221,6 +212,7 @@ import {
 import {
   creationChoiceGroupsForState,
   creationFixedBundlesFor,
+  groupOptionsOf,
   mergeLanguageGroups,
   distributeLanguagePicks,
   reconcileDropdownChoices,
@@ -708,14 +700,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // back. Available at any width, not just narrow ones, since there's
   // no harm in that.
   let sidebarCollapsed = window.innerWidth <= 860; // starts hidden on narrow screens, matching the @media breakpoint below — desktop is unaffected (false, same as before this existed)
-  const sidebarToggleBtn = document.createElement("button");
-  sidebarToggleBtn.type = "button";
-  sidebarToggleBtn.className = "btn";
-  sidebarToggleBtn.textContent = "☰ Blocks";
-  sidebarToggleBtn.title = "Show/hide the Stat Blocks list";
-  sidebarToggleBtn.addEventListener("click", () => {
-    sidebarCollapsed = !sidebarCollapsed;
-    syncSidebarVisibility();
+  const sidebarToggleBtn = el("button", {
+    type: "button", class: "btn", text: "☰ Blocks", title: "Show/hide the Stat Blocks list",
+    onclick: () => { sidebarCollapsed = !sidebarCollapsed; syncSidebarVisibility(); },
   });
   toolbar.append(sidebarToggleBtn);
 
@@ -747,24 +734,16 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // live one click away in a "Display" dropdown instead of taking up
   // permanent toolbar room — the everyday row stays: mode, undo/redo,
   // blocks toggle, name, card-fields toggle, status.
-  const displayDetails = document.createElement("details");
-  displayDetails.className = "toolbar-display";
-  const displaySummary = document.createElement("summary");
-  displaySummary.className = "btn";
-  displaySummary.textContent = "Display";
-  displaySummary.title = "Visual theme, light/dark, screen/print, printing, layout presets";
-  const displayPanel = document.createElement("div");
-  displayPanel.className = "toolbar-display__panel";
-  displayDetails.append(displaySummary, displayPanel);
+  const displayPanel = el("div", { class: "toolbar-display__panel" });
+  const displayDetails = el("details", { class: "toolbar-display" },
+    el("summary", { class: "btn", text: "Display", title: "Visual theme, light/dark, screen/print, printing, layout presets" }),
+    displayPanel);
   toolbar.append(displayDetails);
 
   function displayRow(labelText, ...controls) {
-    const row = document.createElement("div");
-    row.className = "toolbar-display__row";
-    const lab = document.createElement("span");
-    lab.className = "toolbar-display__label";
-    lab.textContent = labelText;
-    row.append(lab, ...controls);
+    const row = el("div", { class: "toolbar-display__row" },
+      el("span", { class: "toolbar-display__label", text: labelText }),
+      ...controls);
     displayPanel.append(row);
     return row;
   }
@@ -834,15 +813,14 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // Re-run the ruleset auto-sync on demand — e.g. after importing more
   // bundles for a ruleset that's already selected, since selecting the
   // same value again wouldn't fire the <select>'s change event.
-  const rulesetSyncBtn = document.createElement("button");
-  rulesetSyncBtn.type = "button";
-  rulesetSyncBtn.className = "btn formula-toolbar__btn";
-  rulesetSyncBtn.textContent = "↻ Re-apply";
-  rulesetSyncBtn.title = "Re-apply included sources' bundles (after importing more, for example)";
-  rulesetSyncBtn.addEventListener("click", () => {
-    const syncMessage = syncRulesetBundles(includedRulesetIdsFor());
-    renderAll();
-    if (syncMessage) statusEl.textContent = syncMessage;
+  const rulesetSyncBtn = el("button", {
+    type: "button", class: "btn formula-toolbar__btn", text: "↻ Re-apply",
+    title: "Re-apply included sources' bundles (after importing more, for example)",
+    onclick: () => {
+      const syncMessage = syncRulesetBundles(includedRulesetIdsFor());
+      renderAll();
+      if (syncMessage) statusEl.textContent = syncMessage;
+    },
   });
 
   // Display prefs (theme, light/dark, screen/print, print button,
@@ -857,23 +835,15 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   themeSelect.style.maxWidth = "200px";
   themeSelect.title = "Visual theme for this character sheet";
   SHEET_THEMES.forEach((theme) => {
-    const option = document.createElement("option");
-    option.value = theme.id;
-    option.textContent = theme.name;
-    themeSelect.append(option);
+    themeSelect.append(el("option", { value: theme.id, text: theme.name }));
   });
   const effectiveThemeId = () => normalizeThemeId(character.themeId);
   const effectiveThemeMode = () => character.themeMode
     ? normalizeThemeMode(character.themeMode, character.themeId)
     : (character.themeId === "light" || character.sheetMode === "print" ? "light" : "dark");
   themeSelect.value = effectiveThemeId();
-  const lightModeLabel = document.createElement("label");
-  lightModeLabel.className = "theme-mode-toggle";
-  lightModeLabel.title = "Light mode version of this theme";
-  const lightModeCheckbox = document.createElement("input");
-  lightModeCheckbox.type = "checkbox";
-  lightModeCheckbox.checked = effectiveThemeMode() === "light";
-  lightModeLabel.append(lightModeCheckbox, document.createTextNode(" Light"));
+  const lightModeCheckbox = el("input", { type: "checkbox", checked: effectiveThemeMode() === "light" });
+  const lightModeLabel = el("label", { class: "theme-mode-toggle", title: "Light mode version of this theme" }, lightModeCheckbox, " Light");
   const applyAndPersistTheme = () => {
     character.themeId = themeSelect.value;
     character.themeMode = lightModeCheckbox.checked ? "light" : "dark";
@@ -892,10 +862,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   modeSelect.style.maxWidth = "150px";
   modeSelect.title = "How you'll mainly use this sheet — changeable anytime here";
   [["screen", "Use on screen"], ["print", "Print out"]].forEach(([value, label]) => {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    modeSelect.append(option);
+    modeSelect.append(el("option", { value, text: label }));
   });
   modeSelect.value = character.sheetMode || "screen";
   modeSelect.addEventListener("change", () => {
@@ -916,15 +883,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   const layoutSelect = document.createElement("select");
   layoutSelect.className = "input-group__control";
   layoutSelect.title = "Rearrange every tab's blocks with a preset layout (undoable)";
-  const layoutPlaceholder = document.createElement("option");
-  layoutPlaceholder.value = "";
-  layoutPlaceholder.textContent = "Apply a layout…";
-  layoutSelect.append(layoutPlaceholder);
+  layoutSelect.append(el("option", { value: "", text: "Apply a layout…" }));
   LAYOUT_PRESETS.forEach((preset) => {
-    const option = document.createElement("option");
-    option.value = preset.id;
-    option.textContent = preset.name;
-    layoutSelect.append(option);
+    layoutSelect.append(el("option", { value: preset.id, text: preset.name }));
   });
   layoutSelect.addEventListener("change", () => {
     const preset = LAYOUT_PRESETS.find((p) => p.id === layoutSelect.value);
@@ -940,15 +901,12 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   });
   displayRow("Layout", layoutSelect);
 
-  const printBtn = document.createElement("button");
-  printBtn.type = "button";
-  printBtn.className = "btn";
-  printBtn.textContent = "Print";
-  printBtn.title = "Print this character sheet (or save it as PDF)";
-  printBtn.addEventListener("click", () => window.print());
-  const displayActions = document.createElement("div");
-  displayActions.className = "modal-actions";
-  displayActions.append(rulesetSyncBtn, printBtn);
+  const printBtn = el("button", {
+    type: "button", class: "btn", text: "Print",
+    title: "Print this character sheet (or save it as PDF)",
+    onclick: () => window.print(),
+  });
+  const displayActions = el("div", { class: "modal-actions" }, rulesetSyncBtn, printBtn);
   displayPanel.append(displayActions);
 
   // Everything else the character-selection page shows on a card
@@ -959,36 +917,34 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // its value there always reflects whatever's currently on the sheet.
   // Both drop zones live behind a "Card fields" toggle so the everyday
   // toolbar stays short — most days nobody needs them open.
-  const cardZonesWrap = document.createElement("div");
-  cardZonesWrap.className = "toolbar-card-zones";
-  cardZonesWrap.hidden = true;
-  const cardZonesToggle = document.createElement("button");
-  cardZonesToggle.type = "button";
-  cardZonesToggle.className = "btn";
-  cardZonesToggle.textContent = "Card fields";
-  cardZonesToggle.title = "Choose which fields show on the character list (and which one counts as Level)";
-  cardZonesToggle.addEventListener("click", () => {
-    cardZonesWrap.hidden = !cardZonesWrap.hidden;
-    cardZonesToggle.classList.toggle("active", !cardZonesWrap.hidden);
+  const cardZonesWrap = el("div", { class: "toolbar-card-zones", hidden: true });
+  const cardZonesToggle = el("button", {
+    type: "button", class: "btn", text: "Card fields",
+    title: "Choose which fields show on the character list (and which one counts as Level)",
+    onclick: () => {
+      cardZonesWrap.hidden = !cardZonesWrap.hidden;
+      cardZonesToggle.classList.toggle("active", !cardZonesWrap.hidden);
+    },
   });
   toolbar.append(cardZonesToggle);
   if (!character.cardFieldIds) character.cardFieldIds = [];
-  const cardFieldsWrap = document.createElement("div");
-  cardFieldsWrap.className = "identity-card-fields";
-  cardFieldsWrap.addEventListener("dragover", (e) => {
-    if (acceptsFieldDrop(e)) {
+  const cardFieldsWrap = el("div", {
+    class: "identity-card-fields",
+    ondragover: (e) => {
+      if (acceptsFieldDrop(e)) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }
+    },
+    ondrop: (e) => {
+      const parsed = parseFieldDropPayload(e);
+      if (!parsed) return;
       e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
-    }
-  });
-  cardFieldsWrap.addEventListener("drop", (e) => {
-    const parsed = parseFieldDropPayload(e);
-    if (!parsed) return;
-    e.preventDefault();
-    if (character.cardFieldIds.includes(parsed.fieldId)) return;
-    character.cardFieldIds.push(parsed.fieldId);
-    saveWithStatus("cardFieldIds", character.cardFieldIds);
-    renderCardFieldChips();
+      if (character.cardFieldIds.includes(parsed.fieldId)) return;
+      character.cardFieldIds.push(parsed.fieldId);
+      saveWithStatus("cardFieldIds", character.cardFieldIds);
+      renderCardFieldChips();
+    },
   });
 
   function renderCardFieldChips() {
@@ -1022,21 +978,22 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // against when they have a "Min Level" set (see currentLevel,
   // applyBundleModifiers, getAllowedChoiceIds). Single slot, not a
   // chip list: only one field can sensibly BE the character's level.
-  const levelFieldWrap = document.createElement("div");
-  levelFieldWrap.className = "identity-card-fields";
-  levelFieldWrap.addEventListener("dragover", (e) => {
-    if (acceptsFieldDrop(e)) {
+  const levelFieldWrap = el("div", {
+    class: "identity-card-fields",
+    ondragover: (e) => {
+      if (acceptsFieldDrop(e)) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }
+    },
+    ondrop: (e) => {
+      const parsed = parseFieldDropPayload(e);
+      if (!parsed) return;
       e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
-    }
-  });
-  levelFieldWrap.addEventListener("drop", (e) => {
-    const parsed = parseFieldDropPayload(e);
-    if (!parsed) return;
-    e.preventDefault();
-    character.levelFieldId = parsed.fieldId;
-    saveWithStatus("levelFieldId", character.levelFieldId);
-    renderLevelFieldChip();
+      character.levelFieldId = parsed.fieldId;
+      saveWithStatus("levelFieldId", character.levelFieldId);
+      renderLevelFieldChip();
+    },
   });
 
   function renderLevelFieldChip() {
@@ -1153,8 +1110,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
   root.append(toolbar);
 
-  const tabsBar = document.createElement("div");
-  tabsBar.className = "sheet-tabs";
+  const tabsBar = el("div", { class: "sheet-tabs" });
   root.append(tabsBar);
 
   // The Stat Blocks palette belongs to the Customize editor, not
@@ -1185,21 +1141,17 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // width — see MIN_CELL_PX. This also keeps a saved layout's x/y
   // coordinates meaningful across devices: the grid itself never
   // changes column count, only how much of it fits on screen at once.
-  const workbench = document.createElement("div");
-  workbench.className = "sheet-workbench";
+  const workbench = el("div", { class: "sheet-workbench" });
   root.append(workbench);
 
-  const blockFrame = document.createElement("aside");
-  blockFrame.className = "sheet-block-frame" + (sidebarCollapsed ? " is-collapsed" : "");
+  const blockFrame = el("aside", { class: "sheet-block-frame" + (sidebarCollapsed ? " is-collapsed" : "") });
   workbench.append(blockFrame);
   syncSidebarVisibility();
 
-  const scrollWrapper = document.createElement("div");
-  scrollWrapper.className = "page-grid-scroll";
+  const scrollWrapper = el("div", { class: "page-grid-scroll" });
   workbench.append(scrollWrapper);
 
-  const pageGrid = document.createElement("div");
-  pageGrid.className = "page-grid";
+  const pageGrid = el("div", { class: "page-grid" });
   scrollWrapper.append(pageGrid);
   pageGrid.addEventListener("dragover", (e) => {
     if (!editMode) return;
@@ -2296,15 +2248,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   }
 
   function buildBorderToggleButton(node, wrapperEl) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.title = "Toggle border";
-    btn.textContent = "▢";
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      toggleBorderVisibility(node, wrapperEl);
+    return el("button", {
+      type: "button", title: "Toggle border", text: "▢",
+      onclick: (e) => { e.stopPropagation(); toggleBorderVisibility(node, wrapperEl); },
     });
-    return btn;
   }
 
   function effectiveBlock(block) {
@@ -2830,6 +2777,24 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     return renderPickerTableInto(container, names, opts);
   }
 
+  /** Section heading plus its empty body wrapper — the repeated
+   *  "wizard__section-label + wizard__subsection" pair. Returns the
+   *  wrapper for the caller to fill. */
+  function sectionInto(container, text) {
+    container.append(el("p", { class: "wizard__section-label", text }));
+    const wrap = el("div", { class: "wizard__subsection" });
+    container.append(wrap);
+    return wrap;
+  }
+
+  /** Short explanatory paragraph appended to a step. Returns the node
+   *  for callers that set its text conditionally. */
+  function noteInto(container, text = "", className = "leveling-tab__intro") {
+    const note = el("p", { class: className, text });
+    container.append(note);
+    return note;
+  }
+
   /** Languages granted outside the language pickers: fixed bundle
    *  grants (plus Common, always) and language tags on selected
    *  options of non-language groups (subrace options chief among
@@ -2850,7 +2815,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     creationChoiceGroupsFor(st)
       .filter((g) => sharedCategorizeChoiceGroup(g) !== "languages")
       .forEach((group) => {
-        const all = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+        const all = groupOptionsOf(group);
         ((character.rules.choices || {})[group.key] || []).forEach((id) => {
           const opt = all.find((o) => o.id === id);
           (opt?.statModifiers || []).forEach((mod) => {
@@ -2887,7 +2852,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const groups = creationChoiceGroupsFor(state).filter((g) => categorizeChoiceGroup(g) === "languages");
     const store = character.rules.choices || {};
     groups.forEach((group) => {
-      const all = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+      const all = groupOptionsOf(group);
       (store[group.key] || []).forEach((id) => {
         const opt = all.find((o) => o.id === id);
         if (opt?.name) take(opt.name, false);
@@ -2901,21 +2866,14 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   }
 
   function renderKnownLanguagesInto(container, state) {
-    const head = document.createElement("p");
-    head.className = "wizard__section-label";
-    head.textContent = "Known Languages";
-    container.append(head);
-    const chips = document.createElement("div");
-    chips.className = "taglist-chips";
-    knownLanguagesFor(state).forEach(({ name, locked }) => {
-      const chip = document.createElement("span");
-      chip.className = "taglist-chip" + (locked ? " taglist-chip--granted" : "");
-      if (locked && name !== "Common") chip.title = "Granted by your race, class, or background";
-      if (name === "Common") chip.title = "Known by everyone — free, never uses picks";
-      chip.textContent = name;
-      chips.append(chip);
-    });
-    container.append(chips);
+    container.append(el("p", { class: "wizard__section-label", text: "Known Languages" }));
+    container.append(el("div", { class: "taglist-chips" },
+      ...knownLanguagesFor(state).map(({ name, locked }) => el("span", {
+        class: "taglist-chip" + (locked ? " taglist-chip--granted" : ""),
+        title: locked && name !== "Common" ? "Granted by your race, class, or background"
+          : name === "Common" ? "Known by everyone — Free, never uses picks" : null,
+        text: name,
+      }))));
   }
 
   /** Human-readable label for a statModifier's targetFieldId — special-
@@ -3169,14 +3127,6 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     return renderChoiceGroupsInto(container, groups, choicesStore, namePrefix, onChange, ownedResolver);
   }
 
-  function renderCrossCategoryChoice(container, group, choicesStore, rerender, onChange) {
-    return renderCrossCategoryChoiceInto(container, group, choicesStore, rerender, onChange);
-  }
-
-  function renderFlatChoiceOptions(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange) {
-    return renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange);
-  }
-
   // A Catalog whose name mentions "spell" is treated as the spell
   // list — same best-effort keyword match as catalogEntryInfo, since
   // there's no stored link. Its tabs, per the default Spell List
@@ -3239,8 +3189,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     // All pickable groups render in ONE choice-groups call: that
     // renderer clears its container (and re-renders into it on every
     // pick), so per-group calls would wipe each other and the notes.
-    const pickWrap = document.createElement("div");
-    pickWrap.className = "wizard__subsection";
+    const pickWrap = el("div", { class: "wizard__subsection" });
     container.append(pickWrap);
     const pickableGroups = [];
     groups.forEach((group) => {
@@ -3248,14 +3197,12 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       const pickable = group.options.filter((o) => !optionIsOwned(o, owned));
       const granted = group.options.filter((o) => optionIsOwned(o, owned));
       if (!pickable.length) {
-        const note = document.createElement("p");
-        note.className = "leveling-tab__intro";
+        const note = noteInto(container);
         if (granted.length) {
-          note.textContent = `${group.category} — already granted: ${granted.map((o) => o.name).join(", ")}.`;
+          note.textContent = `${group.category} — Already granted: ${granted.map((o) => o.name).join(", ")}.`;
         } else {
           note.textContent = `As a ${who} you have no proficiencies in ${group.category}.`;
         }
-        container.append(note);
         return;
       }
       pickableGroups.push(group);
@@ -3273,88 +3220,57 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   function renderStartingEquipmentStepInto(container, state, saveRules) {
     const bg = BG_STARTING_EQUIPMENT[state.background];
     if (bg && state.background) {
-      const bgHead = document.createElement("p");
-      bgHead.className = "wizard__section-label";
-      bgHead.textContent = `Background equipment — ${state.background} (fixed, added automatically)`;
-      container.append(bgHead);
-      const note = document.createElement("p");
-      note.className = "leveling-tab__intro";
-      note.textContent = `${bg.items.join(", ")}${bg.gp ? `, plus ${bg.gp} gp` : ""}.`;
-      container.append(note);
+      container.append(el("p", { class: "wizard__section-label", text: `Background equipment — ${state.background} (fixed, added automatically)` }));
+      noteInto(container, `${bg.items.join(", ")}${bg.gp ? `, plus ${bg.gp} gp` : ""}.`);
     }
     const entry = CLASS_STARTING_EQUIPMENT[state.className];
     if (!entry) {
-      const note = document.createElement("p");
-      note.className = "leveling-tab__intro";
-      note.textContent = "Pick a class first — its starting equipment choices will show up here.";
-      container.append(note);
+      noteInto(container, "Pick a class first — Its starting equipment choices will show up here.");
     } else {
       const stored = character.rules.startingEquipment || {};
       const picks = { ...(stored.picks || {}) };
       const goldId = goldOptionIdFor(state.className);
-      const classHead = document.createElement("p");
-      classHead.className = "wizard__section-label";
-      classHead.textContent = `Class equipment — ${state.className}`;
-      container.append(classHead);
+      container.append(el("p", { class: "wizard__section-label", text: `Class equipment — ${state.className}` }));
       (entry.decisions || []).forEach((decision) => {
-        const group = document.createElement("div");
-        group.className = "wizard__subsection";
-        const label = document.createElement("p");
-        label.className = "wizard__section-label";
-        label.textContent = decision.label;
-        group.append(label);
+        const group = el("div", { class: "wizard__subsection" },
+          el("p", { class: "wizard__section-label", text: decision.label }));
         decision.options.forEach((opt) => {
-          const row = document.createElement("label");
-          row.className = "level-guide__choice-option";
-          const input = document.createElement("input");
-          input.type = "radio";
-          input.name = `starting-equipment-${decision.id}`;
-          input.value = opt.id;
-          input.checked = picks[decision.id] === opt.id;
-          input.addEventListener("change", () => {
-            character.rules.startingEquipment = {
-              picks: { ...(character.rules.startingEquipment?.picks || {}), [decision.id]: opt.id },
-            };
-            saveRules();
-            refreshWizardNav();
+          const input = el("input", {
+            type: "radio", name: `starting-equipment-${decision.id}`, value: opt.id,
+            checked: picks[decision.id] === opt.id,
+            onchange: () => {
+              character.rules.startingEquipment = {
+                picks: { ...(character.rules.startingEquipment?.picks || {}), [decision.id]: opt.id },
+              };
+              saveRules();
+              refreshWizardNav();
+            },
           });
-          const text = document.createElement("span");
-          text.textContent = opt.label;
-          row.append(input, text);
-          const detail = document.createElement("span");
-          detail.className = "level-guide__choice-description";
-          detail.textContent = opt.items.join(" · ");
-          row.append(detail);
-          group.append(row);
+          group.append(el("label", { class: "level-guide__choice-option" },
+            input,
+            el("span", { text: opt.label }),
+            el("span", { class: "level-guide__choice-description", text: opt.items.join(" · ") })));
         });
         container.append(group);
       });
       if ((entry.fixed || []).length) {
-        const note = document.createElement("p");
-        note.className = "leveling-tab__intro";
-        note.textContent = `Also included automatically: ${entry.fixed.join(", ")}.`;
-        container.append(note);
+        noteInto(container, `Also included automatically: ${entry.fixed.join(", ")}.`);
       }
-      const row = document.createElement("label");
-      row.className = "level-guide__choice-option";
-      const input = document.createElement("input");
-      input.type = "radio";
-      input.name = "starting-equipment-gold";
-      input.value = goldId;
-      input.checked = stored.gold === true;
-      input.addEventListener("change", () => {
-        character.rules.startingEquipment = { gold: true };
-        saveRules();
-        refreshWizardNav();
-      });
-      const text = document.createElement("span");
-      text.textContent = `Take ${entry.gold.gp} gp instead`;
-      row.append(input, text);
-      const detail = document.createElement("span");
-      detail.className = "level-guide__choice-description";
-      detail.textContent = `Fixed average of your starting wealth roll (${entry.gold.formula}). Use this to buy gear yourself.`;
-      row.append(detail);
-      container.append(row);
+      {
+        const input = el("input", {
+          type: "radio", name: "starting-equipment-gold", value: goldId,
+          checked: stored.gold === true,
+          onchange: () => {
+            character.rules.startingEquipment = { gold: true };
+            saveRules();
+            refreshWizardNav();
+          },
+        });
+        container.append(el("label", { class: "level-guide__choice-option" },
+          input,
+          el("span", { text: `Take ${entry.gold.gp} gp instead` }),
+          el("span", { class: "level-guide__choice-description", text: `Fixed average of your starting wealth roll (${entry.gold.formula}). Use this to buy gear yourself.` })));
+      }
     }
   }
 
@@ -3558,34 +3474,21 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     } catch {
       return; // storage blocked — never nag in that case
     }
-    const overlay = document.createElement("div");
-    overlay.className = "modal-overlay";
-    const box = document.createElement("div");
-    box.className = "modal-box coach-note";
-    box.addEventListener("click", (e) => e.stopPropagation());
-    const heading = document.createElement("h3");
-    heading.textContent = "Character ready — three things to know";
-    const list = document.createElement("ul");
-    [
-      "Customize Sheet (toolbar) rearranges anything — drag, resize, restyle. This layout is just the starter.",
-      "The Leveling tab walks you through every level-up when the time comes.",
-      "Hover any number field to roll it, with Advantage/Disadvantage. Touch screens show the dice always.",
-    ].forEach((text) => {
-      const li = document.createElement("li");
-      li.textContent = text;
-      list.append(li);
-    });
-    const row = document.createElement("div");
-    row.className = "modal-actions";
-    const done = document.createElement("button");
-    done.type = "button";
-    done.className = "btn btn--primary";
-    done.textContent = "Got it";
+    const overlay = el("div", { class: "modal-overlay" });
+    const box = el("div", { class: "modal-box coach-note", onclick: (e) => e.stopPropagation() });
+    const heading = el("h3", { text: "Character ready — Three things to know" });
+    const list = el("ul", {},
+      ...[
+        "Customize Sheet (toolbar) rearranges anything — Drag, resize, restyle. This layout is just the starter.",
+        "The Leveling tab walks you through every level-up when the time comes.",
+        "Hover any number field to roll it, with Advantage/Disadvantage. Touch screens show the dice always.",
+      ].map((text) => el("li", { text })));
+    const row = el("div", { class: "modal-actions" });
     const close = () => {
       try { window.localStorage.setItem(key, "1"); } catch { /* private mode — show again next time */ }
       overlay.remove();
     };
-    done.addEventListener("click", close);
+    const done = el("button", { type: "button", class: "btn btn--primary", text: "Got it", onclick: close });
     overlay.addEventListener("click", close);
     row.append(done);
     box.append(heading, list, row);
@@ -3714,7 +3617,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     creationChoiceGroupsFor(state)
       .filter((g) => sharedCategorizeChoiceGroup(g) !== "languages")
       .forEach((group) => {
-        const all = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+        const all = groupOptionsOf(group);
         ((character.rules.choices || {})[group.key] || []).forEach((id) => {
           const opt = all.find((o) => o.id === id);
           (opt?.statModifiers || []).forEach((mod) => {
@@ -3728,7 +3631,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const pickedNames = [];
     const seenPicked = new Set();
     groups.forEach((group) => {
-      const options = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+      const options = groupOptionsOf(group);
       ((character.rules.choices || {})[group.key] || []).forEach((id) => {
         const opt = options.find((o) => o.id === id);
         if (opt?.name && !grantedLower.has(opt.name.toLowerCase()) && !seenPicked.has(opt.name)) {
@@ -3923,7 +3826,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             category: "Background",
             selectedKey: "background",
             inputLabel: "Background",
-            inputPlaceholder: "No Background options found for this ruleset yet — type it in for now",
+            inputPlaceholder: "No Background options found for this ruleset yet — Type it in for now",
             updateKey: "background",
             updateFn: (key, value) => update(key, value),
             fieldFn: (c, label, control) => field(c, label, control),
@@ -3988,7 +3891,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       {
         id: "languages",
         title: "Languages",
-        description: "Common is free and never uses picks — languages matter for talking to creatures in play.",
+        description: "Common is free and never uses picks — Languages matter for talking to creatures in play.",
         isApplicable: () => creationGroupsByCategory.languages.length > 0,
         unavailableMessage: wizardUnavailableMessage,
         isComplete: () => {
@@ -3997,8 +3900,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         },
         render(container) {
           renderKnownLanguagesInto(container, state);
-          const pickWrap = document.createElement("div");
-          pickWrap.className = "wizard__subsection";
+          const pickWrap = el("div", { class: "wizard__subsection" });
           container.append(pickWrap);
           // One merged list (same options for everyone): defaults show
           // locked, the rest share a single picked/total budget, and
@@ -4028,7 +3930,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       {
         id: "equipment",
         title: "Equipment",
-        description: "Choose each piece of starting gear (or take gold instead), then any extra weapon, armor, and tool training. Background gear is fixed and included automatically — gear is what you actually use in play.",
+        description: "Choose each piece of starting gear (or take gold instead), then any extra weapon, armor, and tool training. Background gear is fixed and included automatically — Gear is what you actually use in play.",
         isComplete: () => {
           const entry = CLASS_STARTING_EQUIPMENT[state.className];
           if (!state.className || !entry) return true;
@@ -4044,13 +3946,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         },
         render(container) {
           renderStartingEquipmentStepInto(container, state, saveRules);
-          const equipHead = document.createElement("p");
-          equipHead.className = "wizard__section-label";
-          equipHead.textContent = "Weapons, Armor & Tools";
-          container.append(equipHead);
-          const equipWrap = document.createElement("div");
-          equipWrap.className = "wizard__subsection";
-          container.append(equipWrap);
+          const equipWrap = sectionInto(container, "Weapons, Armor & Tools");
           renderEquipmentProficienciesStepInto(equipWrap, state, saveRules);
         },
       },
@@ -4065,13 +3961,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         render(container) {
           if (creationGroupsByCategory.feats.length) renderChoicePageStepInto(container, creationGroupsByCategory.feats, saveRules, (c, groups, save) => renderCreationChoiceGroups(c, groups, save, state));
           if (lineageFeatOffered()) {
-            const head = document.createElement("p");
-            head.className = "wizard__section-label";
-            head.textContent = `Racial feat — ${state.species}`;
-            container.append(head);
-            const pickWrap = document.createElement("div");
-            pickWrap.className = "wizard__subsection";
-            container.append(pickWrap);
+            const pickWrap = sectionInto(container, `Racial feat — ${state.species}`);
             // Same single-pick rows as the level-up ASI feat picker:
             // choosing replaces the previous racial feat (there is
             // ever at most one), and the pick flows into rules.feats
@@ -4102,13 +3992,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         isComplete: () => creationGroupsByCategory.proficiencies.every((g) => creationGroupSatisfied(g, state)),
         render(container) {
           if (creationGroupsByCategory.proficiencies.length > 0) {
-            const skillHead = document.createElement("p");
-            skillHead.className = "wizard__section-label";
-            skillHead.textContent = "Skills, Tools & Saving Throws";
-            container.append(skillHead);
-            const skillWrap = document.createElement("div");
-            skillWrap.className = "wizard__subsection";
-            container.append(skillWrap);
+            const skillWrap = sectionInto(container, "Skills, Tools & Saving Throws");
             renderChoicePageStepInto(skillWrap, creationGroupsByCategory.proficiencies, saveRules, (c, groups, save) => renderCreationChoiceGroups(c, groups, save, state));
           }
         },
@@ -4118,26 +4002,14 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         title: "Review",
         description: "Set how hit points work on level-up, skim what you get automatically, and check every choice. Then Finish Setup to write it to your sheet.",
         render(container) {
-          const hpHead = document.createElement("p");
-          hpHead.className = "wizard__section-label";
-          hpHead.textContent = "Hit Points on Level-Up";
-          container.append(hpHead);
-          const hpWrap = document.createElement("div");
-          hpWrap.className = "wizard__subsection";
-          container.append(hpWrap);
+          const hpWrap = sectionInto(container, "Hit Points on Level-Up");
           renderPreferencesStepInto(hpWrap, state, {
             hpOptions: HP_METHOD_OPTIONS,
             currentMethod: character.rules.hpMethod || "average",
             updateFn: (key, value) => update(key, value),
             selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
           });
-          const innateHead = document.createElement("p");
-          innateHead.className = "wizard__section-label";
-          innateHead.textContent = "What You Get Automatically";
-          container.append(innateHead);
-          const innateWrap = document.createElement("div");
-          innateWrap.className = "wizard__subsection";
-          container.append(innateWrap);
+          const innateWrap = sectionInto(container, "What You Get Automatically");
           renderInnateAbilitiesStepInto(innateWrap, innateAbilitySections(state));
           const allGroups = [...creationChoiceGroupsFor(state), ...equipmentProficiencyGroups()];
           const spellsField = findStarterField("spellsKnown", "Spells Known");
@@ -4342,8 +4214,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       return [...merged.entries()].map(([fieldId, options]) => ({ fieldId, options }));
     })();
     const slots = slotsSummary({ slotChanges: guideSlotChanges });
-    const feedback = document.createElement("p");
-    feedback.className = "level-guide__feedback";
+    const feedback = el("p", { class: "level-guide__feedback" });
 
     const steps = [];
 
@@ -4514,10 +4385,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         // cap check can't express — unenforced there (documented).
         isComplete: () => (multiclassEntries().length || takingNewClass ? true : spellPicksComplete(levelClass, newClassLevel)),
         render(container) {
-          const note = document.createElement("p");
-          note.className = "level-guide__summary";
-          note.textContent = `This ruleset sets your spell slots to ${slots} at this level.`;
-          container.append(note);
+          noteInto(container, `This ruleset sets your spell slots to ${slots} at this level.`, "level-guide__summary");
           renderSpellPicker(container, { rulesetId: character.rules?.rulesetId || character.rulesetId, className: levelClass, level: newClassLevel });
         },
       });
@@ -4579,28 +4447,14 @@ export function renderCustomSheet(root, character, store, opts = {}) {
           choiceLines: reviewChoiceLinesFor(contentGroups, pending.choices || {}),
           notes: pending.notes,
         });
-        const rows = document.createElement("div");
-        rows.className = "wizard__review-rows";
-        if (!sections.length) {
-          const empty = document.createElement("p");
-          empty.className = "level-guide__summary";
-          empty.textContent = "Nothing chosen yet.";
-          rows.append(empty);
-        } else {
-          sections.forEach((line) => {
-            const row = document.createElement("p");
-            row.className = "wizard__review-row";
-            row.textContent = line;
-            rows.append(row);
-          });
-        }
+        const rows = el("div", { class: "wizard__review-rows" },
+          ...(!sections.length
+            ? [el("p", { class: "level-guide__summary", text: "Nothing chosen yet." })]
+            : sections.map((line) => el("p", { class: "wizard__review-row", text: line }))));
         container.append(rows);
         container.append(feedback);
 
-        const applyBtn = document.createElement("button");
-        applyBtn.type = "button";
-        applyBtn.className = "btn btn--primary";
-        applyBtn.textContent = `Apply Level ${level} Changes`;
+        const applyBtn = el("button", { type: "button", class: "btn btn--primary", text: `Apply Level ${level} Changes` });
         applyBtn.addEventListener("click", async () => {
           const error = validateLevelApply({
             hpGain: Number.parseInt(pending.hp, 10),
@@ -5114,32 +4968,27 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   }
 
   function buildRollTrigger(field) {
-    const trigger = document.createElement("div");
-    trigger.className = "field-roll";
-    const dieBtn = document.createElement("button");
-    dieBtn.type = "button";
-    dieBtn.className = "field-roll__die";
-    dieBtn.title = `Roll d${ROLL_SIDES} + ${field.label || "field"}`;
-    dieBtn.textContent = "🎲";
-    dieBtn.setAttribute("aria-label", `Roll d${ROLL_SIDES}`);
-    const advBtn = document.createElement("button");
-    advBtn.type = "button";
-    advBtn.className = "field-roll__mode";
-    advBtn.title = `Roll d${ROLL_SIDES} with advantage (higher of two)`;
-    advBtn.innerHTML = `<span class="field-roll__full">Advantage</span><span class="field-roll__short">Adv.</span>`;
-    const disBtn = document.createElement("button");
-    disBtn.type = "button";
-    disBtn.className = "field-roll__mode";
-    disBtn.title = `Roll d${ROLL_SIDES} with disadvantage (lower of two)`;
-    disBtn.innerHTML = `<span class="field-roll__full">Disadvantage</span><span class="field-roll__short">Disadv.</span>`;
     // The field sits inside a draggable grid node — a click on these
     // buttons is a roll, never the start of a drag or a text edit.
-    trigger.addEventListener("pointerdown", (e) => e.stopPropagation());
-    dieBtn.addEventListener("click", (e) => { e.stopPropagation(); openFieldRollDialog(field, "normal"); });
-    advBtn.addEventListener("click", (e) => { e.stopPropagation(); openFieldRollDialog(field, "advantage"); });
-    disBtn.addEventListener("click", (e) => { e.stopPropagation(); openFieldRollDialog(field, "disadvantage"); });
-    trigger.append(dieBtn, advBtn, disBtn);
-    return trigger;
+    const roll = (mode) => (e) => { e.stopPropagation(); openFieldRollDialog(field, mode); };
+    return el("div", { class: "field-roll", onpointerdown: (e) => e.stopPropagation() },
+      el("button", {
+        type: "button", class: "field-roll__die", text: "🎲",
+        title: `Roll d${ROLL_SIDES} + ${field.label || "field"}`,
+        "aria-label": `Roll d${ROLL_SIDES}`, onclick: roll("normal"),
+      }),
+      el("button", {
+        type: "button", class: "field-roll__mode",
+        title: `Roll d${ROLL_SIDES} with advantage (higher of two)`,
+        html: `<span class="field-roll__full">Advantage</span><span class="field-roll__short">Adv.</span>`,
+        onclick: roll("advantage"),
+      }),
+      el("button", {
+        type: "button", class: "field-roll__mode",
+        title: `Roll d${ROLL_SIDES} with disadvantage (lower of two)`,
+        html: `<span class="field-roll__full">Disadvantage</span><span class="field-roll__short">Disadv.</span>`,
+        onclick: roll("disadvantage"),
+      }));
   }
 
   /** Wraps a text field's value element with hover-only d20 controls
@@ -5154,9 +5003,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       parseFn: (html) => floatFromRichText(html || ""),
     });
     if (!relevant) return valueEl;
-    const wrap = document.createElement("div");
-    wrap.className = "field-roll-wrap";
-    wrap.append(valueEl, buildRollTrigger(field));
+    const wrap = el("div", { class: "field-roll-wrap" }, valueEl, buildRollTrigger(field));
     return wrap;
   }
 
@@ -5268,16 +5115,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
   function populateDropdownSelect(select, field) {
     select.innerHTML = "";
-    const blank = document.createElement("option");
-    blank.value = "";
-    blank.textContent = "—";
-    select.append(blank);
+    select.append(el("option", { value: "", text: "—" }));
     const allowed = getAllowedChoiceIds(field, flattenGlobalFields());
     dropdownVisibleChoices(field.choices || [], allowed).forEach((choice) => {
-      const opt = document.createElement("option");
-      opt.value = choice.id;
-      opt.textContent = choice.text;
-      select.append(opt);
+      select.append(el("option", { value: choice.id, text: choice.text }));
     });
     select.value = field.selected || "";
   }
@@ -5414,15 +5255,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     // and racial natural weapons — always as editable text, never
     // auto-managed, so anything it suggests can be fixed by hand.
     if (field.fieldType === "textlist" && field.id === "attacks") {
-      const suggestBtn = document.createElement("button");
-      suggestBtn.type = "button";
-      suggestBtn.title = "Suggest attack lines from your weapons, attack cantrips, and natural weapons (skips what's already listed)";
-      suggestBtn.textContent = "⚔";
-      suggestBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        suggestAttacksForField(field);
-      });
-      bar.append(suggestBtn);
+      bar.append(el("button", {
+        type: "button", text: "⚔",
+        title: "Suggest attack lines from your weapons, attack cantrips, and natural weapons (skips what's already listed)",
+        onclick: (e) => { e.stopPropagation(); suggestAttacksForField(field); },
+      }));
     }
     return bar;
   }
@@ -5788,46 +5625,6 @@ try {
       setOpenPopup: (v) => { toolbarWithOpenPopup = v; },
       personIconMarkup: personIconSvgMarkup(),
     });
-  }
-
-  /** A small, non-interactive preview of an empty text field — used in
-   *  the field-type picker so each option shows what it'll look like. */
-  function buildTextPreview() {
-    return sharedBuildTextPreview();
-  }
-
-  function buildLabelPreview() {
-    return sharedBuildLabelPreview();
-  }
-
-  function buildTextareaPreview() {
-    return sharedBuildTextareaPreview();
-  }
-
-  function buildTextlistPreview() {
-    return sharedBuildTextlistPreview();
-  }
-
-  function buildDropdownPreview() {
-    return sharedBuildDropdownPreview();
-  }
-
-  function buildPicturePreview() {
-    return sharedBuildPicturePreview(personIconSvgMarkup());
-  }
-
-  function buildCatalogPreview() {
-    return sharedBuildCatalogPreview();
-  }
-
-  function buildFeatureListPreview() {
-    return sharedBuildFeatureListPreview();
-  }
-
-  /** A small, non-interactive preview of `count` empty radio buttons
-   *  or checkboxes in a row — same purpose as buildTextPreview above. */
-  function buildOptionPreview(kind, count) {
-    return sharedBuildOptionPreview(kind, count);
   }
 
   // --- Boot + responsive re-render ---------------------------------------

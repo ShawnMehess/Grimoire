@@ -1294,16 +1294,7 @@
   fill: currentColor;
 }
 
-.field-type-preview-catalog {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  color: var(--color-text-muted);
-  font-size: 12px;
-}
-
+.field-type-preview-catalog,
 .field-type-preview-characterlink {
   display: inline-flex;
   align-items: center;

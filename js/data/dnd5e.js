@@ -237,13 +237,6 @@ function mergedClassNamesFor(rulesetId) {
   return out;
 }
 
-/** Canonical content-pack id for a stored source tag: legacy ruleset
- *  ids ("homebrew" → "phb", "xanathar" → "xanathar") and all current
- *  ids pass through unchanged. Pure. */
-export function canonicalContentId(id) {
-  return LEGACY_RULESET_MIGRATION[id]?.canonicalContentPackId || id;
-}
-
 /** Rewrites a legacy { rulesetId, rulesetIds } pair to the new shapes:
  *  rulesetId becomes the game-system id and contentPackIds the books
  *  it should list. A legacy primary bundles several books (the old
@@ -283,9 +276,8 @@ export function contentPackIdsFor(value = {}) {
 
 /** Content-packs matching a match site: expands a system id to its
  *  books and canonicalizes legacy tags, so a bundle tagged "homebrew"
- *  (or, with canonicalContentId, "phb") matches whenever PHB is
- *  included, and a bundle tagged to the whole system matches any of
- *  its books. Pure. */
+ *  matches whenever PHB is included, and a bundle tagged to the whole
+ *  system matches any of its books. Pure. */
 export function contentIdMatches(entryRulesetId, idOrIds) {
   const ids = (Array.isArray(idOrIds) ? idOrIds : [idOrIds]).filter(Boolean);
   const wanted = new Set();

@@ -11,8 +11,6 @@
 // Deliberate differences from characterStore.js:
 // - Auth is a fixed local identity ("Local Player"); signIn resolves
 //   immediately, signOutUser returns to the signed-out screen.
-// - subscribeToCharacter polls via the "storage" event (cross-tab
-//   updates) — same unsubscribe shape, no realtime network.
 // - Templates / bundle libraries / catalogs are personal-only;
 //   "global" scope reads as empty and writes fall back to personal.
 // - isCurrentUserAdmin() is always true: locally you own everything,
@@ -159,19 +157,6 @@ export async function deleteCharacter(characterId) {
   persistCharacters(map);
 }
 
-/** Cross-tab updates via the storage event; same unsubscribe shape as
- *  the Firestore onSnapshot version. Same-tab writes don't fire
- *  storage events, so (like Firestore's local echo) callers still see
- *  their own writes through their normal save path. */
-export function subscribeToCharacter(characterId, onUpdate) {
-  const handler = (event) => {
-    if (event.key !== LS_KEYS.characters) return;
-    loadCharacter(characterId).then((doc) => { if (doc) onUpdate(doc); });
-  };
-  window.addEventListener("storage", handler);
-  return () => window.removeEventListener("storage", handler);
-}
-
 // --- Sheet templates ---------------------------------------------------------
 
 function parseTemplateName(name) {
@@ -203,17 +188,6 @@ async function syncCharacterTemplate(characterId) {
     updatedAt: nowIso(),
   };
   writeJson(LS_KEYS.templates, templates);
-}
-
-export async function listSheetTemplates() {
-  const uid = currentUserId();
-  if (!uid) return [];
-  return Object.values(readJson(LS_KEYS.templates, {}))
-    .filter((t) => !t.ownerId || t.ownerId === uid)
-    .sort((a, b) => {
-      if (a.scope !== b.scope) return a.scope === "global" ? -1 : 1;
-      return (a.name || "").localeCompare(b.name || "");
-    });
 }
 
 // --- Bundle libraries ----------------------------------------------------------

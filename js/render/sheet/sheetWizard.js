@@ -4,7 +4,8 @@
 // DOM rendering stays in customSheet.js for now; all list math,
 // step navigation, and spell-catalog lookups live here testably.
 
-import { briefDescription } from "./sheetMechanics.js";
+import { briefDescription, capitalizeFirst } from "./sheetMechanics.js";
+import { el } from "./sheetHelpers.js";
 import { contentIdMatches } from "../../data/dnd5e.js";
 
 export function isStepApplicable(step) {
@@ -59,6 +60,16 @@ export function creationFixedBundlesFor(state, bundleLookup) {
   ];
 }
 
+/** Every option a choice group offers, flat or cross-category
+ *  shaped — one helper so all readers agree on what "the group's
+ *  options" means. Pure. */
+export function groupOptionsOf(group) {
+  return [
+    ...(group?.options || []),
+    ...((group?.categories || []).flatMap((c) => c.options || [])),
+  ];
+}
+
 export function ownedSkillIdsFromBundles(fixedBundles = [], otherGroups = [], excludeGroupKey, choicesByKey = {}) {
   const owned = new Set();
   const collect = (mods) => {
@@ -71,14 +82,10 @@ export function ownedSkillIdsFromBundles(fixedBundles = [], otherGroups = [], ex
     });
   };
   fixedBundles.forEach((bundle) => collect(bundle?.statModifiers));
-  const groupOptions = (group) => [
-    ...(group.options || []),
-    ...((group.categories || []).flatMap((c) => c.options || [])),
-  ];
   otherGroups.forEach((group) => {
     if (group.key === excludeGroupKey) return;
     const picks = choicesByKey[group.key] || [];
-    groupOptions(group).forEach((option) => {
+    groupOptionsOf(group).forEach((option) => {
       if (!picks.includes(option.id)) return;
       collect(option.statModifiers);
     });
@@ -194,10 +201,7 @@ export function reconcileDropdownChoices(choices, selectedId, canonicalEntries, 
 export function groupPicksSatisfied(group, selectedIds = [], owned = new Set()) {
   if (!group) return true;
   const locked = new Set(group.lockedOptionIds || []);
-  const allOptions = [
-    ...(group.options || []),
-    ...((group.categories || []).flatMap((c) => c.options || [])),
-  ];
+  const allOptions = groupOptionsOf(group);
   const freebies = allOptions.filter((o) => !locked.has(o.id) && optionIsOwned(o, owned)).length;
   const counted = (selectedIds || []).filter((id) => !locked.has(id)).length;
   return counted >= Math.max(0, (group.minSelections || 0) - freebies);
@@ -213,7 +217,7 @@ export function mergeLanguageGroups(groups, vocabulary = [], owned = new Set()) 
   const seen = new Set();
   const offered = [];
   (groups || []).forEach((group) => {
-    [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))].forEach((o) => {
+    groupOptionsOf(group).forEach((o) => {
       if (o.name && !seen.has(o.name)) {
         seen.add(o.name);
         offered.push(o.name);
@@ -226,7 +230,7 @@ export function mergeLanguageGroups(groups, vocabulary = [], owned = new Set()) 
   let required = 0;
   (groups || []).forEach((group) => {
     const locked = new Set(group.lockedOptionIds || []);
-    const options = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+    const options = groupOptionsOf(group);
     total += Math.max(0, group.maxSelections || 0);
     const freebies = options.filter((o) => !locked.has(o.id) && optionIsOwned(o, owned)).length;
     required += Math.max(0, (group.minSelections || 0) - freebies);
@@ -245,7 +249,7 @@ export function distributeLanguagePicks(groups, pickedNames) {
   (groups || []).forEach((group) => {
     const locked = [...(group.lockedOptionIds || [])];
     const mine = [...locked];
-    const options = [...(group.options || []), ...((group.categories || []).flatMap((c) => c.options || []))];
+    const options = groupOptionsOf(group);
     const budget = Math.max(0, group.maxSelections || 0);
     let used = 0;
     for (let i = 0; i < remaining.length && used < budget;) {
@@ -346,10 +350,7 @@ export function reviewChoiceLinesFor(groups = [], choicesStore = {}) {
   for (const group of groups) {
     const picks = choicesStore[group.key] || [];
     if (!picks.length) continue;
-    const allOptions = [
-      ...((group.options || [])),
-      ...((group.categories || []).flatMap((c) => c.options || [])),
-    ];
+    const allOptions = groupOptionsOf(group);
     const names = picks.map((id) => allOptions.find((o) => o.id === id)?.name || id).filter(Boolean);
     if (!names.length) continue;
     const label = (group.label || group.source || "").trim();
@@ -490,7 +491,7 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
       + (pastGate ? " wizard__dot--locked" : "");
     if (pastGate) {
       dot.disabled = true;
-      dot.title = "Finish the current page first — it still needs decisions.";
+      dot.title = "Finish the current page first — It still needs decisions.";
       dots.append(dot);
       return;
     }
@@ -675,8 +676,8 @@ export function canLearnMore(levelNum, limit, cantripCount, spellCount) {
 export function capMessage(levelNum, limit) {
   const cap = levelNum === 0 ? limit.cantrips : limit.spells;
   return levelNum === 0
-    ? `You already know your ${cap} cantrip${cap === 1 ? "" : "s"} for this level — uncheck one first to swap it.`
-    : `You've already ${limit.style === "known" ? "learned" : "prepared"} your ${cap} spell${cap === 1 ? "" : "s"} for this level — uncheck one first to swap it.`;
+    ? `You already know your ${cap} cantrip${cap === 1 ? "" : "s"} for this level — Uncheck one first to swap it.`
+    : `You've already ${limit.style === "known" ? "learned" : "prepared"} your ${cap} spell${cap === 1 ? "" : "s"} for this level — Uncheck one first to swap it.`;
 }
 
 export function ensureSpellListFieldIn(layout, findFn, createFn, syncFn) {
@@ -777,7 +778,7 @@ export function renderSpellPickerInto(container, { rulesetId, className, level }
     updateLimitNote();
     const note = document.createElement("p");
     note.className = "leveling-tab__intro";
-    note.textContent = "No spells found in an imported Spell List catalog yet — import one from the Catalog Libraries manager, or just track spells directly on the sheet's Spells Known list.";
+    note.textContent = "No spells found in an imported Spell List catalog yet — Import one from the Catalog Libraries manager, or just track spells directly on the sheet's Spells Known list.";
     container.append(note);
     return;
   }
@@ -862,7 +863,7 @@ export function renderSpellPickerInto(container, { rulesetId, className, level }
     if (!shown) {
       const note = document.createElement("p");
       note.className = "leveling-tab__intro";
-      note.textContent = "No spells match this filter — pick another tag.";
+      note.textContent = "No spells match this filter — Pick another tag.";
       listWrap.append(note);
     }
   };
@@ -977,37 +978,28 @@ function renderSinglePickerRows(container, names, { selectedName, onSelect, getI
   const list = document.createElement("div");
   list.className = "choice-row-list" + (nested ? " choice-row-list--nested" : "");
   if (collapsible && names.length) {
-    const controls = document.createElement("div");
-    controls.className = "choice-row-list__collapse-controls";
-    const expandAll = document.createElement("button");
-    expandAll.type = "button";
-    expandAll.className = "btn";
-    expandAll.textContent = "Expand All";
-    const collapseAll = document.createElement("button");
-    collapseAll.type = "button";
-    collapseAll.className = "btn";
-    collapseAll.textContent = "Collapse All";
-    expandAll.addEventListener("click", () => {
-      names.forEach((name) => expandedChoiceRows.add(name));
-      list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = false; });
-      list.querySelectorAll(".choice-row__collapse-btn").forEach((b) => { b.hidden = false; b.setAttribute("aria-expanded", "true"); });
-    });
-    collapseAll.addEventListener("click", () => {
-      names.forEach((name) => expandedChoiceRows.delete(name));
-      list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = true; });
-      list.querySelectorAll(".choice-row__collapse-btn").forEach((b) => { b.hidden = true; b.setAttribute("aria-expanded", "false"); });
-    });
-    controls.append(expandAll, collapseAll);
+    const controls = el("div", { class: "choice-row-list__collapse-controls" },
+      el("button", {
+        type: "button", class: "btn", text: "Expand All",
+        onclick: () => {
+          names.forEach((name) => expandedChoiceRows.add(name));
+          list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = false; });
+          list.querySelectorAll(".choice-row__collapse-btn").forEach((b) => { b.hidden = false; b.setAttribute("aria-expanded", "true"); });
+        },
+      }),
+      el("button", {
+        type: "button", class: "btn", text: "Collapse All",
+        onclick: () => {
+          names.forEach((name) => expandedChoiceRows.delete(name));
+          list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = true; });
+          list.querySelectorAll(".choice-row__collapse-btn").forEach((b) => { b.hidden = true; b.setAttribute("aria-expanded", "false"); });
+        },
+      }));
     container.append(controls);
   }
   names.forEach((name) => {
     const info = getInfo ? getInfo(name) : null;
     const selected = name === selectedName;
-    const row = document.createElement("div");
-    row.className = "choice-row" + (nested ? " choice-row--nested" : "") + (selected ? " choice-row--selected" : "");
-    row.tabIndex = 0;
-    row.setAttribute("role", "button");
-    row.setAttribute("aria-pressed", String(selected));
     // First click selects the row and expands its details; clicking
     // the open, selected row again collapses it and de-selects
     // (onSelect(null)). Collapsing is otherwise the Collapse
@@ -1033,73 +1025,49 @@ function renderSinglePickerRows(container, names, { selectedName, onSelect, getI
       }
       onSelect(name);
     };
-    row.addEventListener("click", (e) => {
-      // The Collapse button handles its own clicks (with
-      // stopPropagation) — anything else on the row toggles.
-      if (e.target.closest(".choice-row__collapse-btn")) return;
-      toggleRow();
+    const row = el("div", {
+      class: "choice-row" + (nested ? " choice-row--nested" : "") + (selected ? " choice-row--selected" : ""),
+      tabindex: 0, role: "button", "aria-pressed": String(selected),
+      onclick: (e) => {
+        // The Collapse button handles its own clicks (with
+        // stopPropagation) — anything else on the row toggles.
+        if (e.target.closest(".choice-row__collapse-btn")) return;
+        toggleRow();
+      },
+      onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleRow(); } },
     });
-    row.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleRow(); }
-    });
-    const portrait = document.createElement("div");
-    portrait.className = "choice-row__portrait";
-    if (info?.imageData) {
-      const img = document.createElement("img");
-      img.src = info.imageData;
-      img.alt = "";
-      portrait.append(img);
-    } else {
-      portrait.textContent = (name || "?").charAt(0).toUpperCase();
-    }
-    row.append(portrait);
-    const body = document.createElement("div");
-    body.className = "choice-row__body";
-    const label = document.createElement("div");
-    label.className = "choice-row__label";
-    label.textContent = name;
-    body.append(label);
-    const desc = document.createElement("div");
-    desc.className = "choice-row__description";
-    desc.textContent = info?.description || "No description available yet.";
-    body.append(desc);
-    const details = document.createElement("div");
-    details.className = "choice-row__details";
+    row.append(info?.imageData
+      ? el("div", { class: "choice-row__portrait" }, el("img", { src: info.imageData, alt: "" }))
+      : el("div", { class: "choice-row__portrait", text: (name || "?").charAt(0).toUpperCase() }));
+    const body = el("div", { class: "choice-row__body" },
+      el("div", { class: "choice-row__label", text: name }),
+      el("div", { class: "choice-row__description", text: info?.description || "No description available yet." }));
+    row.append(body);
+    const details = el("div", { class: "choice-row__details" });
     let hasDetails = false;
     if (getMechanicsList) {
       const sections = getMechanicsList(name) || [];
       for (const section of sections) {
         if (!section?.items?.length) continue;
         hasDetails = true;
-        const heading = document.createElement("div");
-        heading.className = "choice-row__mechanics-title";
-        heading.textContent = section.title;
-        details.append(heading);
-        const ul = document.createElement("ul");
-        ul.className = "choice-row__mechanics-list";
-        for (const item of section.items) {
-          const li = document.createElement("li");
-          // Bold lead topic ("Speed", "Darkvision", …) joined to the
-          // detail with an em dash — split on the first ": " only, so
-          // colons inside descriptions never break the shape. Items
-          // without a topic stay plain text.
-          const colon = item.indexOf(": ");
-          if (colon > 0) {
-            const topic = document.createElement("strong");
-            topic.textContent = item.slice(0, colon);
-            li.append(topic, document.createTextNode(` —${item.slice(colon + 1)}`));
-          } else {
-            li.textContent = item;
-          }
-          ul.append(li);
-        }
-        details.append(ul);
+        details.append(
+          el("div", { class: "choice-row__mechanics-title", text: section.title }),
+          el("ul", { class: "choice-row__mechanics-list" },
+            ...section.items.map((item) => {
+              // Bold lead topic ("Speed", "Darkvision", …) joined to the
+              // detail with an em dash — split on the first ": " only, so
+              // colons inside descriptions never break the shape. Items
+              // without a topic stay plain text.
+              const colon = item.indexOf(": ");
+              if (colon <= 0) return el("li", { text: item });
+              return el("li", {},
+                el("strong", { text: item.slice(0, colon) }),
+                // The word after the em dash is always capitalized.
+                document.createTextNode(` — ${capitalizeFirst(item.slice(colon + 2))}`));
+            })));
       }
     } else if (getMechanics) {
-      const mechanics = document.createElement("div");
-      mechanics.className = "choice-row__mechanics";
-      mechanics.textContent = getMechanics(name) || "No mechanical data linked yet.";
-      details.append(mechanics);
+      details.append(el("div", { class: "choice-row__mechanics", text: getMechanics(name) || "No mechanical data linked yet." }));
       hasDetails = true;
     }
     if (hasDetails) {
@@ -1144,65 +1112,38 @@ function renderSinglePickerRows(container, names, { selectedName, onSelect, getI
  *  return `mechanics` ({ meta, effect }) rendered as mechanical lines
  *  under the flavor description. */
 function renderMultiPickerRows(container, names, { selectedSet, onToggle, getInfo } = {}) {
-  const list = document.createElement("div");
-  list.className = "choice-row-list";
+  const list = el("div", { class: "choice-row-list" });
   names.forEach((name) => {
     const info = getInfo ? getInfo(name) : null;
     const selected = selectedSet.has(name);
-    const row = document.createElement("div");
-    row.className = "choice-row" + (selected ? " choice-row--selected" : "");
-    row.dataset.name = name;
-    row.tabIndex = 0;
-    row.setAttribute("role", "checkbox");
-    row.setAttribute("aria-checked", String(selected));
-    row.addEventListener("click", () => onToggle(name));
-    row.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(name); }
+    const row = el("div", {
+      class: "choice-row" + (selected ? " choice-row--selected" : ""),
+      "data-name": name, tabindex: 0, role: "checkbox", "aria-checked": String(selected),
+      onclick: () => onToggle(name),
+      onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(name); } },
     });
-    const portrait = document.createElement("div");
-    portrait.className = "choice-row__portrait";
-    portrait.textContent = selected ? "✓" : (name || "?").charAt(0).toUpperCase();
-    row.append(portrait);
-    const body = document.createElement("div");
-    body.className = "choice-row__body";
-    const label = document.createElement("div");
-    label.className = "choice-row__label";
-    label.textContent = name;
-    body.append(label);
-    // The full effect text below already says what the spell does, so
-    // the short description line would just repeat it — it only shows
-    // as a fallback for entries with no mechanics at all.
-    if (!(info?.mechanics && (info.mechanics.meta || info.mechanics.effect))) {
-      const desc = document.createElement("div");
-      desc.className = "choice-row__description";
-      desc.textContent = info?.description || "No description available yet.";
-      body.append(desc);
-    }
-    if (info?.mechanics && (info.mechanics.meta || info.mechanics.effect)) {
-      if (info.mechanics.meta) {
-        const meta = document.createElement("div");
-        meta.className = "choice-row__mechanics-meta";
-        meta.textContent = info.mechanics.meta;
-        body.append(meta);
-      }
-      if (info.mechanics.effect) {
-        const effect = document.createElement("div");
-        effect.className = "choice-row__mechanics-effect";
-        effect.textContent = info.mechanics.effect;
-        body.append(effect);
-      }
-    }
-    if (Array.isArray(info?.tags) && info.tags.length) {
-      const tags = document.createElement("div");
-      tags.className = "choice-row__tags";
-      [...info.tags].sort((a, b) => String(a).localeCompare(String(b))).forEach((tag) => {
-        const chip = document.createElement("span");
-        chip.className = "choice-row__tag";
-        chip.textContent = String(tag).replace(/(?:^|[\s-]+)\S/g, (c) => c.toUpperCase());
-        tags.append(chip);
-      });
-      body.append(tags);
-    }
+    row.append(el("div", {
+      class: "choice-row__portrait",
+      text: selected ? "✓" : (name || "?").charAt(0).toUpperCase(),
+    }));
+    const body = el("div", { class: "choice-row__body" },
+      el("div", { class: "choice-row__label", text: name }),
+      // The full effect text below already says what the spell does, so
+      // the short description line would just repeat it — it only shows
+      // as a fallback for entries with no mechanics at all.
+      !(info?.mechanics && (info.mechanics.meta || info.mechanics.effect))
+        ? el("div", { class: "choice-row__description", text: info?.description || "No description available yet." })
+        : null,
+      info?.mechanics?.meta ? el("div", { class: "choice-row__mechanics-meta", text: info.mechanics.meta }) : null,
+      info?.mechanics?.effect ? el("div", { class: "choice-row__mechanics-effect", text: info.mechanics.effect }) : null,
+      Array.isArray(info?.tags) && info.tags.length
+        ? el("div", { class: "choice-row__tags" },
+          ...[...info.tags].sort((a, b) => String(a).localeCompare(String(b)))
+            .map((tag) => el("span", {
+              class: "choice-row__tag",
+              text: String(tag).replace(/(?:^|[\s-]+)\S/g, (c) => c.toUpperCase()),
+            })))
+        : null);
     row.append(body);
     list.append(row);
   });

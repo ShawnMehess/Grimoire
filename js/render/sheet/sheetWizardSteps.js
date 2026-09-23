@@ -5,7 +5,8 @@
 // sheet closure); the tab shell keeps `state`/`update`/`field` and
 // passes them in.
 
-import { commonPreviewBits, mechanicsPreviewFor } from "./sheetMechanics.js";
+import { capitalizeFirst, commonPreviewBits, mechanicsPreviewFor } from "./sheetMechanics.js";
+import { el } from "./sheetHelpers.js";
 
 export const ABILITY_DESCRIPTIONS = {
   str: "Physical power: melee attacks, carrying capacity, and Athletics checks.",
@@ -48,10 +49,7 @@ export function renderRulesetStepInto(container, state, deps) {
   } = deps;
   const systems = listRulesetsFn();
   if (systems.length === 0) {
-    const note = document.createElement("p");
-    note.className = "leveling-tab__intro";
-    note.textContent = "No rulesets found.";
-    container.append(note);
+    container.append(el("p", { class: "leveling-tab__intro", text: "No rulesets found." }));
     return;
   }
   // One game system (ruleset) per table; its content comes from the
@@ -67,58 +65,28 @@ export function renderRulesetStepInto(container, state, deps) {
   // The ruleset section: a radio list when more than one system
   // exists, a single selected row otherwise.
   if (systems.length === 1) {
-    const banner = document.createElement("div");
-    banner.className = "choice-row choice-row--selected";
-    const body = document.createElement("div");
-    body.className = "choice-row__body";
-    const label = document.createElement("div");
-    label.className = "choice-row__label";
-    label.textContent = systems[0].name;
-    const desc = document.createElement("div");
-    desc.className = "choice-row__description";
-    desc.textContent = systems[0].description || "Game system for this character.";
-    const badge = document.createElement("div");
-    badge.className = "choice-row__mechanics-meta";
-    badge.textContent = "Ruleset — used for level-up math";
-    body.append(label, desc, badge);
-    banner.append(body);
-    container.append(banner);
+    container.append(el("div", { class: "choice-row choice-row--selected" },
+      el("div", { class: "choice-row__body" },
+        el("div", { class: "choice-row__label", text: systems[0].name }),
+        el("div", { class: "choice-row__description", text: systems[0].description || "Game system for this character." }),
+        el("div", { class: "choice-row__mechanics-meta", text: "Ruleset — Used for level-up math" }))));
   } else {
-    const list = document.createElement("div");
-    list.className = "choice-row-list ruleset-list";
-    list.setAttribute("role", "radiogroup");
+    const list = el("div", { class: "choice-row-list ruleset-list", role: "radiogroup" });
     systems.forEach((entry) => {
       const checked = entry.id === primary;
       // No native radio: like every other picker, the row itself is
       // the control and the highlight is the selection state.
-      const row = document.createElement("div");
-      row.className = "choice-row" + (checked ? " choice-row--selected" : "");
-      row.tabIndex = 0;
-      row.setAttribute("role", "radio");
-      row.setAttribute("aria-checked", String(checked));
       const pick = () => setPrimaryFn(entry.id);
-      row.addEventListener("click", pick);
-      row.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); }
+      const row = el("div", {
+        class: "choice-row" + (checked ? " choice-row--selected" : ""),
+        tabindex: 0, role: "radio", "aria-checked": String(checked),
+        onclick: pick,
+        onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } },
       });
-      const body = document.createElement("div");
-      body.className = "choice-row__body";
-      const label = document.createElement("div");
-      label.className = "choice-row__label";
-      label.textContent = entry.name;
-      body.append(label);
-      if (entry.description) {
-        const d = document.createElement("div");
-        d.className = "choice-row__description";
-        d.textContent = entry.description;
-        body.append(d);
-      }
-      if (checked) {
-        const badge = document.createElement("div");
-        badge.className = "choice-row__mechanics-meta";
-        badge.textContent = "Ruleset — used for level-up math";
-        body.append(badge);
-      }
+      const body = el("div", { class: "choice-row__body" },
+        el("div", { class: "choice-row__label", text: entry.name }),
+        entry.description ? el("div", { class: "choice-row__description", text: entry.description }) : null,
+        checked ? el("div", { class: "choice-row__mechanics-meta", text: "Ruleset — Used for level-up math" }) : null);
       row.append(body);
       list.append(row);
     });
@@ -130,10 +98,7 @@ export function renderRulesetStepInto(container, state, deps) {
   // nothing is chosen yet. A lone book stays locked on.
   const packs = listContentPacksFn(primary);
   if (packs.length === 0) {
-    const note = document.createElement("p");
-    note.className = "leveling-tab__intro";
-    note.textContent = "This ruleset has no content books registered yet.";
-    container.append(note);
+    container.append(el("p", { class: "leveling-tab__intro", text: "This ruleset has no content books registered yet." }));
     return;
   }
   let ids = [...new Set((includedIds || []).filter(Boolean))];
@@ -144,55 +109,33 @@ export function renderRulesetStepInto(container, state, deps) {
     if (ids.length > 0) updateIdsFn(ids, { rerender: false });
   }
   const locked = packs.length === 1;
-  const section = document.createElement("p");
-  section.className = "wizard__section-label";
-  section.textContent = "Content books";
-  container.append(section);
-  const list = document.createElement("div");
-  list.className = "choice-row-list ruleset-list";
+  container.append(el("p", { class: "wizard__section-label", text: "Content books" }));
+  const list = el("div", { class: "choice-row-list ruleset-list" });
   packs.forEach((pack) => {
     const checked = ids.includes(pack.id);
     // No native checkbox: the row toggles and the highlight is the
     // state, like every other picker. A lone book is locked on.
-    const row = document.createElement("div");
-    row.className = "choice-row" + (checked ? " choice-row--selected" : "");
-    row.setAttribute("role", "checkbox");
-    row.setAttribute("aria-checked", String(checked));
-    if (locked) {
-      row.setAttribute("aria-disabled", "true");
-    } else {
-      row.tabIndex = 0;
-      const toggle = () => {
-        const next = checked
-          ? ids.filter((id) => id !== pack.id)
-          : [...ids, pack.id];
-        // Keep pack order regardless of the order rows were toggled in.
-        const ordered = packs.map((p) => p.id).filter((id) => next.includes(id));
-        updateIdsFn(ordered);
-      };
-      row.addEventListener("click", toggle);
-      row.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
-      });
-    }
-    const body = document.createElement("div");
-    body.className = "choice-row__body";
-    const label = document.createElement("div");
-    label.className = "choice-row__label";
-    label.textContent = pack.name;
-    body.append(label);
-    if (pack.description) {
-      const d = document.createElement("div");
-      d.className = "choice-row__description";
-      d.textContent = pack.description;
-      body.append(d);
-    }
-    if (locked) {
-      const badge = document.createElement("div");
-      badge.className = "choice-row__mechanics-meta";
-      badge.textContent = "Only book — always on";
-      body.append(badge);
-    }
+    const toggle = () => {
+      const next = checked
+        ? ids.filter((id) => id !== pack.id)
+        : [...ids, pack.id];
+      // Keep pack order regardless of the order rows were toggled in.
+      const ordered = packs.map((p) => p.id).filter((id) => next.includes(id));
+      updateIdsFn(ordered);
+    };
+    const row = el("div", {
+      class: "choice-row" + (checked ? " choice-row--selected" : ""),
+      role: "checkbox", "aria-checked": String(checked),
+      ...(locked ? { "aria-disabled": "true" } : {
+        tabindex: 0,
+        onclick: toggle,
+        onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } },
+      }),
+    });
+    const body = el("div", { class: "choice-row__body" },
+      el("div", { class: "choice-row__label", text: pack.name }),
+      pack.description ? el("div", { class: "choice-row__description", text: pack.description }) : null,
+      locked ? el("div", { class: "choice-row__mechanics-meta", text: "Only book — Always on" }) : null);
     row.append(body);
     list.append(row);
   });
@@ -206,29 +149,26 @@ export function renderIdentityStepInto(container, state, deps) {
     subraceMechanicsFn = null,
     selectSubraceFn = null,
   } = deps;
-  const nameField = document.createElement("input");
-  nameField.type = "text";
-  nameField.className = "input-group__control";
-  nameField.value = characterName || "";
-  // Debounced on "input" (not "change"/blur) to match the
-  // toolbar's own name field — otherwise a name typed here and
-  // followed immediately by "Next →" (no blur in between)
-  // would be lost.
-  nameField.addEventListener("input", debounceFn(() => {
-    saveNameFn(nameField.value);
-    nameInputSetFn(nameField.value);
-  }, 400));
+  const nameField = el("input", {
+    type: "text", class: "input-group__control", value: characterName || "",
+    // Debounced on "input" (not "change"/blur) to match the
+    // toolbar's own name field — otherwise a name typed here and
+    // followed immediately by "Next →" (no blur in between)
+    // would be lost.
+    oninput: debounceFn(() => {
+      saveNameFn(nameField.value);
+      nameInputSetFn(nameField.value);
+    }, 400),
+  });
   fieldFn(container, "Character Name", nameField);
 
-  const level = document.createElement("input");
-  level.type = "number"; level.min = "1"; level.max = "20"; level.value = String(state.level); level.className = "input-group__control";
-  level.addEventListener("change", () => updateFn("level", level.value));
+  const level = el("input", {
+    type: "number", min: "1", max: "20", value: String(state.level), class: "input-group__control",
+    onchange: () => updateFn("level", level.value),
+  });
   fieldFn(container, "Starting Level", level);
 
-  const raceLabel = document.createElement("p");
-  raceLabel.className = "wizard__section-label";
-  raceLabel.textContent = "Race/Species";
-  container.append(raceLabel);
+  container.append(el("p", { class: "wizard__section-label", text: "Race/Species" }));
 
   const liveNames = optionNamesFn(state.rulesetId, "Race");
   if (liveNames.length) {
@@ -244,7 +184,7 @@ export function renderIdentityStepInto(container, state, deps) {
         const sub = subraceGroupFn ? subraceGroupFn(raceName) : null;
         if (!sub?.group?.options?.length) return;
         const picked = sub.group.options.find((o) => (sub.pickedIds || []).includes(o.id));
-        const holder = document.createElement("div");
+        const holder = el("div");
         selectableRowsFn(holder, sub.group.options.map((o) => o.name), {
           selectedName: picked ? picked.name : "",
           getInfo: (n) => catalogInfoFn(["subrace"], n),
@@ -262,11 +202,12 @@ export function renderIdentityStepInto(container, state, deps) {
       },
     });
   } else {
-    const input = document.createElement("input");
-    input.type = "text"; input.className = "input-group__control";
-    input.placeholder = "No Race options found for this ruleset yet — type it in for now";
-    input.value = state.species || "";
-    input.addEventListener("change", () => updateFn("species", input.value));
+    const input = el("input", {
+      type: "text", class: "input-group__control",
+      placeholder: "No Race options found for this ruleset yet — Type it in for now",
+      value: state.species || "",
+      onchange: () => updateFn("species", input.value),
+    });
     fieldFn(container, "Race/Species", input);
   }
 }
@@ -290,7 +231,7 @@ export function renderClassStepInto(container, state, deps) {
       // own container.append() call doesn't land it at the end of
       // the whole class list — it belongs right under this
       // one selected class's row instead.
-      const holder = document.createElement("div");
+      const holder = el("div");
       selectableRowsFn(holder, subs.subclasses, {
         selectedName: state.subclass,
         getInfo: (n) => catalogInfoFn(["subclass"], n),
@@ -324,21 +265,18 @@ export function renderRowListStepInto(container, state, deps) {
       onSelect: (name) => updateFn(updateKey, name),
     });
   } else {
-    const input = document.createElement("input");
-    input.type = "text"; input.className = "input-group__control";
-    input.placeholder = inputPlaceholder;
-    input.value = state[selectedKey] || "";
-    input.addEventListener("change", () => updateFn(updateKey, input.value));
+    const input = el("input", {
+      type: "text", class: "input-group__control",
+      placeholder: inputPlaceholder, value: state[selectedKey] || "",
+      onchange: () => updateFn(updateKey, input.value),
+    });
     fieldFn(container, inputLabel, input);
   }
 }
 
 export function renderPreferencesStepInto(container, state, deps) {
   const { hpOptions, currentMethod, updateFn, selectableRowsFn } = deps;
-  const hpLabel = document.createElement("p");
-  hpLabel.className = "wizard__preference-label";
-  hpLabel.textContent = "HP on level-up";
-  container.append(hpLabel);
+  container.append(el("p", { class: "wizard__preference-label", text: "HP on level-up" }));
 
   const selected = hpOptions.find((opt) => opt.value === currentMethod);
   selectableRowsFn(container, hpOptions.map((opt) => opt.label), {
@@ -359,17 +297,11 @@ export function renderMergedLanguagePickerInto(container, deps) {
   const { languages, picked, granted, total, onToggle } = deps;
   const pickedSet = new Set(picked || []);
   const grantedSet = new Set(granted || []);
-  const group = document.createElement("fieldset");
-  group.className = "level-guide__choices";
-  const legend = document.createElement("legend");
-  legend.textContent = `Extra Languages (${pickedSet.size}/${total})`;
-  group.append(legend);
+  const group = el("fieldset", { class: "level-guide__choices" },
+    el("legend", { text: `Extra Languages (${pickedSet.size}/${total})` }));
   (languages || []).forEach((name) => {
-    const row = document.createElement("label");
-    row.className = "level-guide__choice-option";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.value = name;
+    const row = el("label", { class: "level-guide__choice-option" });
+    const input = el("input", { type: "checkbox", value: name });
     const isGranted = grantedSet.has(name);
     const isChecked = isGranted || pickedSet.has(name);
     input.checked = isChecked;
@@ -377,15 +309,13 @@ export function renderMergedLanguagePickerInto(container, deps) {
       input.disabled = true;
       row.classList.add("level-guide__choice-option--locked");
       row.title = name === "Common"
-        ? "Known by everyone — free, never uses picks"
-        : "Granted by your race, class, or background — already known";
+        ? "Known by everyone — Free, never uses picks"
+        : "Granted by your race, class, or background — Already known";
     } else if (!isChecked && pickedSet.size >= total) {
       input.disabled = true;
     }
     input.addEventListener("change", () => onToggle(name));
-    const text = document.createElement("span");
-    text.textContent = name;
-    row.append(input, text);
+    row.append(input, el("span", { text: name }));
     group.append(row);
   });
   container.append(group);
@@ -403,29 +333,15 @@ export function renderChoicePageStepInto(container, groups, saveRules, renderCho
 export function renderInnateAbilitiesStepInto(container, sections) {
   const shown = (sections || []).filter((s) => (s.features || []).length);
   if (!shown.length) {
-    const note = document.createElement("p");
-    note.className = "leveling-tab__intro";
-    note.textContent = "No innate abilities from your current Race/Class/Background selections yet — pick those first, then come back.";
-    container.append(note);
+    container.append(el("p", { class: "leveling-tab__intro", text: "No innate abilities from your current Race/Class/Background selections yet — Pick those first, then come back." }));
     return;
   }
   shown.forEach((section) => {
-    const heading = document.createElement("p");
-    heading.className = "wizard__section-label";
-    heading.textContent = section.source;
-    container.append(heading);
+    container.append(el("p", { class: "wizard__section-label", text: section.source }));
     section.features.forEach((feature) => {
-      const block = document.createElement("div");
-      block.className = "level-guide__choices";
-      const name = document.createElement("strong");
-      name.textContent = feature.name || "Unnamed ability";
-      block.append(name);
-      if (feature.description) {
-        const desc = document.createElement("p");
-        desc.className = "level-guide__choice-description";
-        desc.textContent = feature.description;
-        block.append(desc);
-      }
+      const block = el("div", { class: "level-guide__choices" },
+        el("strong", { text: feature.name || "Unnamed ability" }),
+        feature.description ? el("p", { class: "level-guide__choice-description", text: feature.description }) : null);
       container.append(block);
     });
   });
@@ -434,10 +350,7 @@ export function renderInnateAbilitiesStepInto(container, sections) {
 export function renderSpellsStepInto(container, state, deps) {  const { groups, saveRules, choiceGroupsFn, casterInfoFn, spellPickerFn } = deps;
   choiceGroupsFn(container, groups, saveRules);
   if (casterInfoFn(state.rulesetId, state.className)) {
-    const heading = document.createElement("p");
-    heading.className = "wizard__section-label";
-    heading.textContent = "Spells Known";
-    container.append(heading);
+    container.append(el("p", { class: "wizard__section-label", text: "Spells Known" }));
     spellPickerFn(container, { rulesetId: state.rulesetId, className: state.className, level: state.level });
   }
 }
@@ -481,8 +394,7 @@ export function reviewLinesFor({ characterName, rulesetName, species, className,
 }
 
 export function renderReviewStepInto(container, state, deps) {  const { characterName, rulesetName, spellLimit, resources, abilityScores, abilityMethod, hpMethod, choiceLines, spellsPicked, equipmentLine, featNames, syncFn } = deps;
-  const rows = document.createElement("div");
-  rows.className = "wizard__review-rows";
+  const rows = el("div", { class: "wizard__review-rows" });
   const noteLines = reviewLinesFor({
     characterName,
     rulesetName,
@@ -502,25 +414,17 @@ export function renderReviewStepInto(container, state, deps) {  const { characte
     featNames: featNames || [],
   });
   if (noteLines.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "level-guide__summary";
-    empty.textContent = "Nothing chosen yet.";
-    rows.append(empty);
+    rows.append(el("p", { class: "level-guide__summary", text: "Nothing chosen yet." }));
   } else {
-    noteLines.forEach((line) => {
-      const row = document.createElement("p");
-      row.className = "wizard__review-row";
-      row.textContent = line;
-      rows.append(row);
-    });
+    rows.append(...noteLines.map((line) => el("p", { class: "wizard__review-row", text: line })));
   }
   container.append(rows);
 
-  const buttonRow = document.createElement("div");
-  buttonRow.className = "wizard__review-button-row";
-  const sync = document.createElement("button");
-  sync.type = "button"; sync.className = "btn btn--primary wizard__finish-btn"; sync.textContent = "Finish Setup";
-  sync.addEventListener("click", () => syncFn());
+  const buttonRow = el("div", { class: "wizard__review-button-row" });
+  const sync = el("button", {
+    type: "button", class: "btn btn--primary wizard__finish-btn", text: "Finish Setup",
+    onclick: () => syncFn(),
+  });
   buttonRow.append(sync);
   container.append(buttonRow);
 }
@@ -548,28 +452,13 @@ export function pointBuyNoteText(spent, budget) {
 }
 
 export function abilityRowInto(scoresWrap, id, control, description, modifierFn, formatFn) {
-  const row = document.createElement("div");
-  row.className = "wizard__ability-row";
-  const group = document.createElement("label");
-  group.className = "level-guide__field";
-  group.textContent = id.toUpperCase();
-  group.append(control);
-  row.append(group);
-
-  const modGroup = document.createElement("div");
-  modGroup.className = "level-guide__field wizard__ability-modifier";
-  const modLabel = document.createElement("span");
-  modLabel.textContent = "Modifier";
-  modGroup.append(modLabel);
-  const modValue = document.createElement("div");
-  modValue.className = "input-group__control wizard__ability-modifier-value";
-  modGroup.append(modValue);
-  row.append(modGroup);
-
-  const desc = document.createElement("p");
-  desc.className = "wizard__ability-row-description";
-  desc.textContent = description;
-  row.append(desc);
+  const modValue = el("div", { class: "input-group__control wizard__ability-modifier-value" });
+  const row = el("div", { class: "wizard__ability-row" },
+    el("label", { class: "level-guide__field", text: id.toUpperCase() }, control),
+    el("div", { class: "level-guide__field wizard__ability-modifier" },
+      el("span", { text: "Modifier" }),
+      modValue),
+    el("p", { class: "wizard__ability-row-description", text: description }));
   scoresWrap.append(row);
 
   // Returns an updater the caller invokes whenever `control`'s value
@@ -589,34 +478,31 @@ export function renderAbilitiesStepInto(container, deps) {
     costFn, affordableFn, rollFn, modifierFn, formatFn, saveFn,
     onMethodChange,
   } = deps;
-  const intro = document.createElement("p");
-  intro.className = "leveling-tab__intro";
-  intro.textContent = "Set your six ability scores. Switching methods below resets the scores to fit it.";
-  container.append(intro);
+  container.append(el("p", { class: "leveling-tab__intro", text: "Set your six ability scores. Switching methods below resets the scores to fit it." }));
 
-  const methodGroup = document.createElement("label");
-  methodGroup.className = "level-guide__field wizard__ability-method";
-  methodGroup.textContent = "Method";
-  const methodSelect = document.createElement("select");
-  methodSelect.className = "input-group__control";
+  const methodGroup = el("label", { class: "level-guide__field wizard__ability-method", text: "Method" });
+  const methodSelect = el("select", { class: "input-group__control" });
   [["pointbuy", "Point Buy (27 points)"], ["roll", "Random Roll (4d6, drop lowest)"], ["manual", "Manual Entry"]].forEach(([value, label]) => {
-    const option = document.createElement("option"); option.value = value; option.textContent = label; methodSelect.append(option);
+    methodSelect.append(el("option", { value, text: label }));
   });
   methodSelect.value = method || "manual";
   methodGroup.append(methodSelect);
   container.append(methodGroup);
 
-  const scoresWrap = document.createElement("div");
-  scoresWrap.className = "wizard__ability-scores";
+  const scoresWrap = el("div", { class: "wizard__ability-scores" });
   container.append(scoresWrap);
 
   function renderScores() {
     scoresWrap.innerHTML = "";
     const current = methodSelect.value;
+    const scoreInput = (id, minVal, maxVal, onChange) => el("input", {
+      type: "number", min: String(minVal), max: String(maxVal),
+      class: "input-group__control", value: String(scores[id]),
+      onchange: () => onChange(input),
+    });
 
     if (current === "pointbuy") {
-      const note = document.createElement("p");
-      note.className = "leveling-tab__intro wizard__ability-note";
+      const note = el("p", { class: "leveling-tab__intro wizard__ability-note" });
       scoresWrap.append(note);
       const updateNote = () => {
         const spent = abilityIds.reduce((sum, id) => sum + costFn(scores[id]), 0);
@@ -624,37 +510,28 @@ export function renderAbilitiesStepInto(container, deps) {
       };
       abilityIds.forEach((id) => {
         if (scores[id] < min || scores[id] > max) scores[id] = min;
-        const input = document.createElement("input");
-        input.type = "number"; input.min = String(min); input.max = String(max);
-        input.className = "input-group__control";
-        input.value = String(scores[id]);
-        const updateModifier = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn);
-        input.addEventListener("change", () => {
-          let value = clampScoreToRange(input.value, min, min, max);
+        const input = scoreInput(id, min, max, (target) => {
+          let value = clampScoreToRange(target.value, min, min, max);
           // Stop the increase right at whatever's still affordable
           // rather than letting it go over budget — e.g. with only 1
           // point left, typing/stepping to 12 when 11 is the last
           // thing they can afford snaps back to 11, not 12.
           const affordable = affordableFn(id);
           if (value > affordable) value = affordable;
-          input.value = String(value);
+          target.value = String(value);
           scores[id] = value;
           saveFn();
           updateNote();
           updateModifier();
         });
+        const updateModifier = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn);
       });
       updateNote();
     } else if (current === "roll") {
-      const noteRow = document.createElement("div");
-      noteRow.className = "wizard__ability-note";
-      const rollIntro = document.createElement("p");
-      rollIntro.className = "leveling-tab__intro";
-      rollIntro.textContent = "Click Roll All to roll 4d6 (dropping the lowest die) for each score — or edit any value by hand afterward.";
-      noteRow.append(rollIntro);
-      const rollAllBtn = document.createElement("button");
-      rollAllBtn.type = "button"; rollAllBtn.className = "btn"; rollAllBtn.textContent = "Roll All";
-      noteRow.append(rollAllBtn);
+      const rollAllBtn = el("button", { type: "button", class: "btn", text: "Roll All" });
+      const noteRow = el("div", { class: "wizard__ability-note" },
+        el("p", { class: "leveling-tab__intro", text: "Click Roll All to roll 4d6 (dropping the lowest die) for each score — Or edit any value by hand afterward." }),
+        rollAllBtn);
       scoresWrap.append(noteRow);
       const inputs = {};
       const modifierUpdaters = {};
@@ -667,21 +544,15 @@ export function renderAbilitiesStepInto(container, deps) {
         saveFn();
       });
       abilityIds.forEach((id) => {
-        const input = document.createElement("input");
-        input.type = "number"; input.min = "3"; input.max = "18"; input.className = "input-group__control";
-        input.value = String(scores[id]);
+        const input = scoreInput(id, 3, 18, (target) => { scores[id] = Number(target.value) || 10; saveFn(); updateModifier(); });
         const updateModifier = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn);
-        input.addEventListener("change", () => { scores[id] = Number(input.value) || 10; saveFn(); updateModifier(); });
         inputs[id] = input;
         modifierUpdaters[id] = updateModifier;
       });
     } else {
       abilityIds.forEach((id) => {
-        const input = document.createElement("input");
-        input.type = "number"; input.min = "1"; input.max = "30"; input.className = "input-group__control";
-        input.value = String(scores[id]);
+        const input = scoreInput(id, 1, 30, (target) => { scores[id] = Number(target.value) || 10; saveFn(); updateModifier(); });
         const updateModifier = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn);
-        input.addEventListener("change", () => { scores[id] = Number(input.value) || 10; saveFn(); updateModifier(); });
       });
     }
   }
@@ -772,14 +643,12 @@ export function renderGuideLevelClassStepInto(container, pending, deps) {
   if (selectableRowsFn) {
     const { taken, untaken, canMulticlass } = levelClassOptionsFor({ primaryName, entries, allClassNames, level });
     const takenNoteFor = (name) => {
-      if (name === primaryName) return `Primary class — taking this level reaches ${primaryName} ${level ?? 1}.`;
+      if (name === primaryName) return `Primary class — Taking this level reaches ${primaryName} ${level ?? 1}.`;
       const entry = (entries || []).find((e) => e.name === name);
       if (!entry) return null;
-      return `Secondary class at ${entry.levels}${entry.subclass ? ` (${entry.subclass})` : ""} — taking this level reaches ${name} ${entry.levels + 1}.`;
+      return `Secondary class at ${entry.levels}${entry.subclass ? ` (${entry.subclass})` : ""} — Taking this level reaches ${name} ${entry.levels + 1}.`;
     };
-    const takenLabel = document.createElement("p");
-    takenLabel.className = "wizard__section-label";
-    takenLabel.textContent = "Your classes";
+    const takenLabel = el("p", { class: "wizard__section-label", text: "Your classes" });
     container.append(takenLabel);
     selectableRowsFn(container, taken, {
       selectedName: pending.className === "__new" ? "" : pending.className,
@@ -789,41 +658,33 @@ export function renderGuideLevelClassStepInto(container, pending, deps) {
       afterRow: (name, rowEl) => {
         const entry = (entries || []).find((e) => e.name === name);
         if (!entry) return;
-        const drop = document.createElement("button");
-        drop.type = "button";
-        drop.className = "btn formula-toolbar__btn";
-        drop.textContent = "✕";
-        drop.title = `Remove ${name} levels (features recompute without them)`;
-        drop.addEventListener("click", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (confirmFn && !confirmFn(`Drop all ${name} levels? Its features and spells will stop applying.`)) return;
-          if (removeFn) removeFn(name);
-          if (pending.className === name) {
-            pending.className = primaryName;
-            pending.newClassName = "";
-            pending.subclass = subclassForFn(primaryName) || "";
-          }
-          if (onChangeFn) onChangeFn();
-        });
-        rowEl.append(drop);
+        rowEl.append(el("button", {
+          type: "button", class: "btn formula-toolbar__btn", text: "✕",
+          title: `Remove ${name} levels (features recompute without them)`,
+          onclick: (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (confirmFn && !confirmFn(`Drop all ${name} levels? Its features and spells will stop applying.`)) return;
+            if (removeFn) removeFn(name);
+            if (pending.className === name) {
+              pending.className = primaryName;
+              pending.newClassName = "";
+              pending.subclass = subclassForFn(primaryName) || "";
+            }
+            if (onChangeFn) onChangeFn();
+          },
+        }));
       },
     });
     if (canMulticlass && untaken.length) {
-      const newLabel = document.createElement("p");
-      newLabel.className = "wizard__section-label";
-      newLabel.textContent = "Start a new class…";
-      container.append(newLabel);
-      const newIntro = document.createElement("p");
-      newIntro.className = "leveling-tab__intro";
-      newIntro.textContent = "Multiclassing needs 13+ in the right abilities (checked below) and can't start before level 2.";
-      container.append(newIntro);
+      container.append(el("p", { class: "wizard__section-label", text: "Start a new class…" }));
+      container.append(el("p", { class: "leveling-tab__intro", text: "Multiclassing needs 13+ in the right abilities (checked below) and can't start before level 2." }));
       selectableRowsFn(container, untaken, {
         selectedName: pending.className === "__new" ? (pending.newClassName || "") : "",
         getInfo: (name) => {
           const eligible = eligibilityFn ? eligibilityFn(name) : { ok: true, reason: "" };
           return withNote(getInfo ? getInfo(name) : null,
-            eligible.ok ? null : `Requires ${eligible.reason} — raise abilities first.`);
+            eligible.ok ? null : `Requires ${eligible.reason} — Raise abilities first.`);
         },
         getMechanicsList,
         onSelect: (name) => {
@@ -846,89 +707,60 @@ export function renderGuideLevelClassStepInto(container, pending, deps) {
     return;
   }
   const row = (value, label, sub, infoKey) => {
-    const rowEl = document.createElement("label");
-    rowEl.className = "level-guide__choice-option";
-    const input = document.createElement("input");
-    input.type = "radio";
-    input.name = "level-class";
-    input.value = value;
-    input.checked = pending.className === value;
-    input.addEventListener("change", () => pick(value));
-    const text = document.createElement("span");
-    text.textContent = label;
-    rowEl.append(input, text);
-    if (sub) {
-      const note = document.createElement("span");
-      note.className = "level-guide__choice-description";
-      note.textContent = sub;
-      rowEl.append(note);
-    }
+    const input = el("input", {
+      type: "radio", name: "level-class", value,
+      checked: pending.className === value,
+      onchange: () => pick(value),
+    });
+    const rowEl = el("label", { class: "level-guide__choice-option" },
+      input,
+      el("span", { text: label }),
+      sub ? el("span", { class: "level-guide__choice-description", text: sub }) : null);
     // Flavor blurb plus what the class gains at the level it would
     // reach — the same "what does this actually do" context creator
     // rows carry, so multiclass options can be compared at a glance.
     const info = classInfoFn ? classInfoFn(infoKey !== undefined ? infoKey : value) : null;
     if (info && (info.flavor || info.gainsLine)) {
-      const infoEl = document.createElement("div");
-      infoEl.className = "level-guide__choice-info";
-      if (info.flavor) {
-        const flavor = document.createElement("div");
-        flavor.className = "level-guide__choice-flavor";
-        flavor.textContent = info.flavor;
-        infoEl.append(flavor);
-      }
-      if (info.gainsLine) {
-        const gains = document.createElement("div");
-        gains.className = "level-guide__choice-gains";
-        gains.textContent = info.gainsLine;
-        infoEl.append(gains);
-      }
-      rowEl.append(infoEl);
+      rowEl.append(el("div", { class: "level-guide__choice-info" },
+        info.flavor ? el("div", { class: "level-guide__choice-flavor", text: info.flavor }) : null,
+        info.gainsLine ? el("div", { class: "level-guide__choice-gains", text: info.gainsLine }) : null));
     }
     container.append(rowEl);
     return rowEl;
   };
   row(primaryName, `${primaryName} (primary class)`, "Continue as your primary class.");
   entries.forEach((entry) => {
-    const rowEl = row(entry.name, `${entry.name} — now ${entry.levels}${entry.subclass ? ` (${entry.subclass})` : ""}`, null);
-    const drop = document.createElement("button");
-    drop.type = "button";
-    drop.className = "btn formula-toolbar__btn";
-    drop.textContent = "✕";
-    drop.title = `Remove ${entry.name} levels (features recompute without them)`;
-    drop.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (confirmFn && !confirmFn(`Drop all ${entry.name} levels? Its features and spells will stop applying.`)) return;
-      if (removeFn) removeFn(entry.name);
-      if (pending.className === entry.name) {
-        pending.className = primaryName;
-        pending.newClassName = "";
-        pending.subclass = subclassForFn(primaryName) || "";
-      }
-      if (onChangeFn) onChangeFn();
-    });
-    rowEl.append(drop);
+    const rowEl = row(entry.name, `${entry.name} — Now ${entry.levels}${entry.subclass ? ` (${entry.subclass})` : ""}`, null);
+    rowEl.append(el("button", {
+      type: "button", class: "btn formula-toolbar__btn", text: "✕",
+      title: `Remove ${entry.name} levels (features recompute without them)`,
+      onclick: (e) => {
+        e.preventDefault();
+        if (confirmFn && !confirmFn(`Drop all ${entry.name} levels? Its features and spells will stop applying.`)) return;
+        if (removeFn) removeFn(entry.name);
+        if (pending.className === entry.name) {
+          pending.className = primaryName;
+          pending.newClassName = "";
+          pending.subclass = subclassForFn(primaryName) || "";
+        }
+        if (onChangeFn) onChangeFn();
+      },
+    }));
   });
   if ((level ?? 1) >= 2) {
-    const newRow = row("__new", "New class…", "Start multiclassing — needs 13+ in the right abilities (checked below).");
+    const newRow = row("__new", "New class…", "Start multiclassing — Needs 13+ in the right abilities (checked below).");
     if (pending.className === "__new") {
-      const group = document.createElement("label");
-      group.className = "level-guide__field";
-      group.textContent = "New class";
-      const select = document.createElement("select");
-      select.className = "input-group__control";
-      const blank = document.createElement("option");
-      blank.value = "";
-      blank.textContent = "Choose class";
-      select.append(blank);
+      const select = el("select", { class: "input-group__control" });
+      select.append(el("option", { value: "", text: "Choose class" }));
       const taken = new Set([primaryName, ...entries.map((e) => e.name)]);
       allClassNames.forEach((name) => {
         if (taken.has(name)) return;
         const eligible = eligibilityFn ? eligibilityFn(name) : { ok: true, reason: "" };
-        const option = document.createElement("option");
-        option.value = name;
-        option.textContent = eligible.ok ? name : `${name} (${eligible.reason})`;
-        option.disabled = !eligible.ok;
-        select.append(option);
+        select.append(el("option", {
+          value: name,
+          text: eligible.ok ? name : `${name} (${eligible.reason})`,
+          disabled: !eligible.ok,
+        }));
       });
       select.value = pending.newClassName || "";
       select.addEventListener("change", () => {
@@ -936,8 +768,7 @@ export function renderGuideLevelClassStepInto(container, pending, deps) {
         pending.subclass = "";
         if (onChangeFn) onChangeFn();
       });
-      group.append(select);
-      newRow.append(group);
+      newRow.append(el("label", { class: "level-guide__field", text: "New class" }, select));
     }
   }
 }
@@ -953,19 +784,11 @@ export function slotsSummary(plan) {
   return (plan?.slotChanges || []).filter((change) => change.options > 0).map((change) => `${change.options} ${change.label}-level`).join(", ");
 }
 
-export function alreadyAppliedPanel(className, level, rulesetName) {  const panel = document.createElement("section");
-  panel.className = "level-guide";
-  const heading = document.createElement("div");
-  heading.className = "level-guide__heading";
-  const title = document.createElement("h2");
-  title.textContent = `${className || "Character"} Level ${level}`;
-  heading.append(title);
-  panel.append(heading);
-  const complete = document.createElement("p");
-  complete.className = "level-guide__feedback";
-  complete.textContent = `This level was already applied using ${rulesetName}.`;
-  panel.append(complete);
-  return panel;
+export function alreadyAppliedPanel(className, level, rulesetName) {
+  return el("section", { class: "level-guide" },
+    el("div", { class: "level-guide__heading" },
+      el("h2", { text: `${className || "Character"} Level ${level}` })),
+    el("p", { class: "level-guide__feedback", text: `This level was already applied using ${rulesetName}.` }));
 }
 
 // --- Level-up step shells + validation --------------------------------------------------
@@ -1061,21 +884,14 @@ export function renderGuideSubclassStepInto(container, pending, subclassChoices,
     });
     return;
   }
-  const group = document.createElement("label");
-  group.className = "level-guide__field";
-  group.textContent = "Subclass";
-  const select = document.createElement("select");
-  select.className = "input-group__control";
-  const blank = document.createElement("option"); blank.value = ""; blank.textContent = "Choose subclass"; select.append(blank);
+  const select = el("select", { class: "input-group__control" });
+  select.append(el("option", { value: "", text: "Choose subclass" }));
   subclassChoices.forEach((name) => {
-    const option = document.createElement("option");
-    option.value = name; option.textContent = name;
-    select.append(option);
+    select.append(el("option", { value: name, text: name }));
   });
   select.value = pending.subclass || "";
   select.addEventListener("change", () => { pending.subclass = select.value; });
-  group.append(select);
-  container.append(group);
+  container.append(el("label", { class: "level-guide__field", text: "Subclass" }, select));
 }
 
 export function renderGuideAsiStepInto(container, pending, deps) {
@@ -1089,30 +905,22 @@ export function renderGuideAsiStepInto(container, pending, deps) {
     const score = Number(abilityScores[id]) || 10;
     return `${upper} (${score}, ${formatFn(modifierFn(score))})`;
   };
-  const modeGroup = document.createElement("label");
-  modeGroup.className = "level-guide__field";
-  modeGroup.textContent = "This level's ASI";
-  const modeSelect = document.createElement("select");
-  modeSelect.className = "input-group__control";
+  const modeSelect = el("select", { class: "input-group__control" });
   [["single", "+2 to one score"], ["double", "+1 to two scores"], ["feat", "Took a feat instead"]].forEach(([value, label]) => {
-    const option = document.createElement("option"); option.value = value; option.textContent = label; modeSelect.append(option);
+    modeSelect.append(el("option", { value, text: label }));
   });
   modeSelect.value = pending.asiMode;
-  modeGroup.append(modeSelect);
-  container.append(modeGroup);
+  container.append(el("label", { class: "level-guide__field", text: "This level's ASI" }, modeSelect));
 
-  const abilityRow = document.createElement("div");
-  const featWrap = document.createElement("div");
+  const abilityRow = el("div");
+  const featWrap = el("div");
   const renderModeBody = () => {
     abilityRow.innerHTML = "";
     featWrap.innerHTML = "";
     if (modeSelect.value === "feat") {
       const names = featNamesFn(rulesetId);
       if (takenFeats.length) {
-        const takenNote = document.createElement("p");
-        takenNote.className = "leveling-tab__intro";
-        takenNote.textContent = `Already taken: ${takenFeats.join(", ")}.`;
-        featWrap.append(takenNote);
+        featWrap.append(el("p", { class: "leveling-tab__intro", text: `Already taken: ${takenFeats.join(", ")}.` }));
       }
       if (names.length) {
         selectableRowsFn(featWrap, names, {
@@ -1122,32 +930,24 @@ export function renderGuideAsiStepInto(container, pending, deps) {
           collapsible: true,
         });
       } else {
-        const featGroup = document.createElement("label");
-        featGroup.className = "level-guide__field";
-        featGroup.textContent = "Feat";
-        const input = document.createElement("input");
-        input.type = "text"; input.className = "input-group__control";
-        input.placeholder = "No Feat bundles found for this ruleset yet — type it in for now";
-        input.value = pending.featChoice || "";
-        input.addEventListener("change", () => { pending.featChoice = input.value; });
-        featGroup.append(input);
-        featWrap.append(featGroup);
+        const input = el("input", {
+          type: "text", class: "input-group__control",
+          placeholder: "No Feat bundles found for this ruleset yet — Type it in for now",
+          value: pending.featChoice || "",
+          onchange: () => { pending.featChoice = input.value; },
+        });
+        featWrap.append(el("label", { class: "level-guide__field", text: "Feat" }, input));
       }
       return;
     }
     const count = modeSelect.value === "single" ? 1 : 2;
     for (let i = 0; i < count; i++) {
-      const abilityGroup = document.createElement("label");
-      abilityGroup.className = "level-guide__field";
-      abilityGroup.textContent = i === 0 ? "Ability" : "Second ability";
-      const abilitySelect = document.createElement("select");
-      abilitySelect.className = "input-group__control";
-      const blank = document.createElement("option"); blank.value = ""; blank.textContent = "Choose"; abilitySelect.append(blank);
-      abilityIds.forEach((id) => { const option = document.createElement("option"); option.value = id; option.textContent = abilityLabelFor(id); abilitySelect.append(option); });
+      const abilitySelect = el("select", { class: "input-group__control" });
+      abilitySelect.append(el("option", { value: "", text: "Choose" }));
+      abilityIds.forEach((id) => { abilitySelect.append(el("option", { value: id, text: abilityLabelFor(id) })); });
       abilitySelect.value = i === 0 ? pending.asiAbility1 : pending.asiAbility2;
       abilitySelect.addEventListener("change", () => { if (i === 0) pending.asiAbility1 = abilitySelect.value; else pending.asiAbility2 = abilitySelect.value; });
-      abilityGroup.append(abilitySelect);
-      abilityRow.append(abilityGroup);
+      abilityRow.append(el("label", { class: "level-guide__field", text: i === 0 ? "Ability" : "Second ability" }, abilitySelect));
     }
   };
   modeSelect.addEventListener("change", () => { pending.asiMode = modeSelect.value; renderModeBody(); });
@@ -1159,17 +959,10 @@ export function renderGuideAsiStepInto(container, pending, deps) {
 export function renderGuideFeaturesStepInto(container, features) {
   // Same bulleted bold-topic rows as the creator pickers so new
   // features read identically everywhere they appear.
-  const ul = document.createElement("ul");
-  ul.className = "choice-row__mechanics-list";
-  features.forEach((feature) => {
-    const li = document.createElement("li");
-    const name = document.createElement("strong");
-    name.textContent = feature.name;
-    if (feature.description) li.append(name, document.createTextNode(` — ${feature.description}`));
-    else li.append(name);
-    ul.append(li);
-  });
-  container.append(ul);
+  container.append(el("ul", { class: "choice-row__mechanics-list" },
+    ...features.map((feature) => el("li", {},
+      el("strong", { text: feature.name }),
+      feature.description ? document.createTextNode(` — ${capitalizeFirst(feature.description.trimStart())}`) : null))));
 }
 
 export function renderGuideHpStepInto(container, pending, { conScore, dieSize, method }) {
@@ -1181,56 +974,42 @@ export function renderGuideHpStepInto(container, pending, { conScore, dieSize, m
 
   // Show the HP math the same way the ability-scores step shows point
   // buy — the number should never look made up.
-  const mathNote = document.createElement("p");
-  mathNote.className = "leveling-tab__intro";
-  if (method === "average") {
-    const avg = Math.floor(dieSize / 2) + 1;
-    mathNote.textContent = `Fixed average: ${avg} (d${dieSize} ÷ 2, rounded up) ${conMod >= 0 ? "+" : ""}${conMod} CON = ${avg + conMod} HP`;
-  } else {
-    mathNote.textContent = `Roll 1d${dieSize} ${conMod >= 0 ? "+" : ""}${conMod} CON modifier = 1–${dieSize + conMod} HP (then type the result)`;
-  }
-  container.append(mathNote);
+  const avg = method === "average" ? Math.floor(dieSize / 2) + 1 : 0;
+  container.append(el("p", { class: "leveling-tab__intro", text: method === "average"
+    ? `Fixed average: ${avg} (d${dieSize} ÷ 2, rounded up) ${conMod >= 0 ? "+" : ""}${conMod} CON = ${avg + conMod} HP`
+    : `Roll 1d${dieSize} ${conMod >= 0 ? "+" : ""}${conMod} CON modifier = 1–${dieSize + conMod} HP (then type the result)` }));
 
-  const hpGroup = document.createElement("label");
-  hpGroup.className = "level-guide__field";
-  hpGroup.textContent = "HP Gained";
-  const hpInput = document.createElement("input");
-  hpInput.type = "number"; hpInput.min = "1"; hpInput.step = "1"; hpInput.required = true;
-  hpInput.placeholder = "Rolled or average"; hpInput.className = "input-group__control";
-  hpInput.value = pending.hp || "";
-  // Update on every keystroke (not just blur) so page gating sees the
-  // value while it's being typed; Apply-time validation still guards
-  // the actual number.
-  hpInput.addEventListener("input", () => { pending.hp = hpInput.value; });
-  hpInput.addEventListener("change", () => { pending.hp = hpInput.value; });
-  hpGroup.append(hpInput);
-  container.append(hpGroup);
+  const hpInput = el("input", {
+    type: "number", min: "1", step: "1", required: true,
+    placeholder: "Rolled or average", class: "input-group__control",
+    value: pending.hp || "",
+    // Both: page gating reads keystrokes live, validation guards the number.
+    oninput: () => { pending.hp = hpInput.value; },
+    onchange: () => { pending.hp = hpInput.value; },
+  });
+  container.append(el("label", { class: "level-guide__field", text: "HP Gained" }, hpInput));
 
   if (method === "roll") {
-    const rerollBtn = document.createElement("button");
-    rerollBtn.type = "button"; rerollBtn.className = "btn";
-    rerollBtn.textContent = `Reroll (d${dieSize} ${conMod >= 0 ? "+" : ""}${conMod} CON)`;
-    rerollBtn.addEventListener("click", () => { pending.hp = String(rollHpOnce(dieSize, conMod)); hpInput.value = pending.hp; });
+    const rerollBtn = el("button", {
+      type: "button", class: "btn",
+      text: `Reroll (d${dieSize} ${conMod >= 0 ? "+" : ""}${conMod} CON)`,
+      onclick: () => { pending.hp = String(rollHpOnce(dieSize, conMod)); hpInput.value = pending.hp; },
+    });
     container.append(rerollBtn);
   } else {
-    const note = document.createElement("p");
-    note.className = "leveling-tab__intro";
-    note.textContent = method === "average"
-      ? `Prefilled with the fixed average for a d${dieSize} (set in Character Setup) — edit it if this class's hit die is different.`
-      : "Roll at the table and type the result in — change your default under Character Setup → Preferences.";
-    container.append(note);
+    container.append(el("p", { class: "leveling-tab__intro", text: method === "average"
+      ? `Prefilled with the fixed average for a d${dieSize} (set in Character Setup) — Edit it if this class's hit die is different.`
+      : "Roll at the table and type the result in — Change your default under Character Setup → Preferences." }));
   }
 }
 
-export function renderGuideNotesStepInto(container, pending) {  const benefitsGroup = document.createElement("label");
-  benefitsGroup.className = "level-guide__field level-guide__field--wide";
-  benefitsGroup.textContent = "Features and Choices to Record";
-  const benefitsInput = document.createElement("textarea");
-  benefitsInput.placeholder = "Record features, spells, proficiencies, or other choices from your source book.";
-  benefitsInput.value = pending.notes || "";
-  benefitsInput.addEventListener("input", () => { pending.notes = benefitsInput.value; });
-  benefitsGroup.append(benefitsInput);
-  container.append(benefitsGroup);
+export function renderGuideNotesStepInto(container, pending) {
+  const benefitsInput = el("textarea", {
+    placeholder: "Record features, spells, proficiencies, or other choices from your source book.",
+    value: pending.notes || "",
+    oninput: () => { pending.notes = benefitsInput.value; },
+  });
+  container.append(el("label", { class: "level-guide__field level-guide__field--wide", text: "Features and Choices to Record" }, benefitsInput));
 }
 
 // --- Rules-tab shell helpers ------------------------------------------------------------------
@@ -1259,11 +1038,7 @@ export function cleanStaleSubclass(rules, subclassDataFn) {
 }
 
 export function appendFieldGroup(container, label, control) {
-  const group = document.createElement("label");
-  group.className = "level-guide__field";
-  group.textContent = label;
-  group.append(control);
-  container.append(group);
+  container.append(el("label", { class: "level-guide__field", text: label }, control));
 }
 
 // --- Level apply ------------------------------------------------------------------------

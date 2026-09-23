@@ -1,9 +1,9 @@
 /* ==========================================================================
    input-group.css
    ONE pattern for every labeled field on the site: text, number, select,
-   textarea. formBuilder.js only ever emits this markup shape, so this
-   file is the only place field styling lives — no page-specific input
-   rules should ever exist anywhere else.
+   textarea. Field markup (sheetFields.js) only ever emits this shape,
+   so this file is the only place field styling lives — no
+   page-specific input rules should ever exist anywhere else.
    ========================================================================== */
 
 .input-group {
