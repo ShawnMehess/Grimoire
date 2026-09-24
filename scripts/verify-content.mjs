@@ -609,6 +609,122 @@ function applyStatModifiersForTest(fields, vm, cb, tags, levelFor, extra) {
   return applyBundleModifiersIn(fields, vm, cb, tags, 6, [], [], applyStatModifiers, levelFor, extra);
 }
 
+// --- 6h. Phase 3 gaps: multiclass caster caps, elf subraces, Bard secrets --
+{
+  const { spellLimitFor } = await import("../js/data/rulesEngine.js");
+  const {
+    spellsForLevelIn, spellPicksCompleteForClass, availableSpellLevels,
+    magicalSecretsUnlocked, secretsPickedCount, secretsCompleteFor,
+  } = await import("../js/render/sheet/sheetWizard.js");
+  const { FIXED_RACE_ENTRIES } = await import("../js/data/contentFixups.js");
+
+  // (a) Multiclass caster caps: a Cleric 1 / Wizard 1 shares one Spells
+  // Known list, but the Wizard-1 cap counts Wizard-listed spells only.
+  {
+    const wizCantrips = spellsForLevelIn(SPELL_CATALOG, 0, "Wizard").map((s) => s.name);
+    const wizL1 = spellsForLevelIn(SPELL_CATALOG, 1, "Wizard").map((s) => s.name);
+    const clrCantrips = spellsForLevelIn(SPELL_CATALOG, 0, "Cleric").map((s) => s.name);
+    const clrL1 = spellsForLevelIn(SPELL_CATALOG, 1, "Cleric").map((s) => s.name);
+    const wizOnly = (names) => names.filter((n) => ![...clrCantrips, ...clrL1].includes(n));
+    const wizCantripsOnly = wizOnly(wizCantrips);
+    const wizL1Only = wizOnly(wizL1);
+    if (!wizCantripsOnly.length || !wizL1Only.length) fail("multiclass caps: no Wizard-only spells to test against");
+    const limit = spellLimitFor("Wizard", 1, { int: 16 });
+    if (!limit) fail("multiclass caps: no Wizard spell limit");
+    const plan = getLevelUpPlan("dnd5e-2014", "Wizard", 1);
+    const levels = availableSpellLevels(plan);
+    const check = (known) => spellPicksCompleteForClass({
+      knownItems: known, className: "Wizard", limit, availableLevels: levels,
+      spellsForLevelFn: (lvl, name) => spellsForLevelIn(SPELL_CATALOG, lvl, name),
+      levelByNameFn: (n) => {
+        for (const tab of SPELL_CATALOG.tabs) {
+          if ((tab.entries || []).some((e) => e.name === n)) return tab.id === "cantrips" ? 0 : 1;
+        }
+        return null;
+      },
+    });
+    const clericKnown = [...clrCantrips.slice(0, 3), ...clrL1.slice(0, 4)];
+    if (check(clericKnown)) fail("multiclass caps: Cleric spells satisfy the Wizard cap");
+    const wizardKnown = [...wizCantripsOnly.slice(0, limit.cantrips), ...wizL1Only.slice(0, limit.spells)];
+    if (!check(wizardKnown)) fail("multiclass caps: Wizard-listed picks to the caps do not complete");
+    if (!check([...clericKnown, ...wizardKnown])) fail("multiclass caps: Cleric flood blocks Wizard completion");
+    console.log(`multiclass caps: Cleric spells neither satisfy nor block Wizard 1 (limit ${limit.cantrips} cantrips / ${limit.spells} spells)`);
+  }
+
+  // (b) Elf subraces: all three options apply cleanly at level 1.
+  {
+    const elf = FIXED_RACE_ENTRIES.find((e) => e.name === "Elf")?.bundle;
+    const sub = (elf?.choiceGroups || []).find((g) => g.id === "elf-subrace");
+    if (!sub || sub.options.length !== 3) {
+      fail("elf subraces: picker missing");
+    } else {
+      for (const option of sub.options) {
+        const vm = {};
+        try {
+          applyStatModifiers(option.statModifiers, vm, new Set(), new Map(), 1);
+        } catch (err) {
+          fail(`elf subrace ${option.name}: modifiers throw (${err?.message || err})`);
+        }
+        const grants = [...(option.statModifiers || []), ...((option.featureGrants || []).map((f) => ({ name: f.name })))];
+        if (!grants.length) fail(`elf subrace ${option.name}: grants nothing`);
+      }
+      console.log(`elf subraces: ${sub.options.map((o) => o.name).join("/")} all apply at level 1`);
+    }
+  }
+
+  // (c) Bard Magical Secrets: unlock ladder + a full 1-20 Lore Bard build.
+  {
+    const ladder = [
+      ["Bard", "", 1, 0], ["Bard", "", 9, 0], ["Bard", "", 10, 2],
+      ["Bard", "College of Valor", 6, 0],       ["Bard", "College of Lore", 6, 2], ["Bard", "", 14, 4],
+      ["Bard", "College of Lore", 14, 6], ["Bard", "", 18, 6],
+      ["Wizard", "", 20, 0],
+    ];
+    for (const [cls, sub, lvl, want] of ladder) {
+      const got = magicalSecretsUnlocked(cls, sub, lvl);
+      if (got !== want) fail(`secrets unlock: ${cls}/${sub || "-"} ${lvl} → ${got}, want ${want}`);
+    }
+    // Stubs are gone from the patched Bard bundle (the picker replaces them).
+    const { FIXED_CLASS_ENTRIES } = await import("../js/data/contentFixups.js");
+    const bard = FIXED_CLASS_ENTRIES.find((e) => e.name === "Bard")?.bundle;
+    if ((bard?.featureGrants || []).some((f) => /Magical Secrets/.test(f.name || ""))) {
+      fail("secrets: stale Magical Secrets stub note still on the Bard bundle");
+    }
+    // Lore Bard 1-20: unlock totals at 6/10/14/18, completable with
+    // two non-Bard picks per unlock.
+    const fields = freshFields();
+    selectByText(fields, "Class", "Bard");
+    selectByText(fields, "Race", "Half-Elf");
+    selectByText(fields, "Background", "Entertainer");
+    const plan = getLevelUpPlan("dnd5e-2014", "Bard", 20);
+    const sl = plan?.subclassLevel || 3;
+    const choicesStore = {};
+    const bardLevels = availableSpellLevels(getLevelUpPlan("dnd5e-2014", "Bard", 20));
+    const bardNames = new Set();
+    for (const lvl of bardLevels) {
+      for (const s of spellsForLevelIn(SPELL_CATALOG, lvl, "Bard")) bardNames.add(s.name);
+    }
+    const nonBardL1 = spellsForLevelIn(SPELL_CATALOG, 1, null)
+      .map((s) => s.name).filter((n) => !bardNames.has(n));
+    const known = [];
+    let prevUnlocked = 0;
+    for (let level = 1; level <= 20; level++) {
+      if (level === sl) selectByText(fields, "Subclass", "College of Lore");
+      const unlocked = magicalSecretsUnlocked("Bard", level >= sl ? "College of Lore" : "", level);
+      if (unlocked < prevUnlocked) fail(`secrets: unlock total shrank at Bard ${level}`);
+      prevUnlocked = unlocked;
+      while (secretsPickedCount(known, [...bardNames]) < unlocked && nonBardL1.length) {
+        known.push(nonBardL1.shift());
+      }
+      if (!secretsCompleteFor(unlocked, secretsPickedCount(known, [...bardNames]))) {
+        fail(`secrets: Bard ${level} unlocks (${unlocked}) not completable`);
+      }
+      applyLevel(fields, level, choicesStore, []);
+    }
+    console.log(`secrets: Lore Bard 1-20 unlock ladder holds, ${known.length} Secrets picks complete every unlock`);
+  }
+}
+
 // --- 7. Catalogs ------------------------------------------------------------
 {
   const tabIds = SPELL_CATALOG.tabs.map((t) => t.id);
