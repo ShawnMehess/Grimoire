@@ -93,6 +93,38 @@ export function ownedSkillIdsFromBundles(fixedBundles = [], otherGroups = [], ex
   return owned;
 }
 
+/** Express-setup picks for a set of choice groups: recommended names
+ *  first (matched case-insensitively against what each group offers),
+ *  then first-available options up to each group's minimum — locked
+ *  defaults ride along on every group. Groups with no recommendation
+ *  (subraces, feats, tools) fill first-available throughout, so
+ *  Express always lands on a complete page the user then reviews.
+ *  Returns `{ [groupKey]: [optionIds] }`. Pure. */
+export function expressPicksFor(groups = [], preferredNames = []) {
+  const want = new Set(
+    (preferredNames || []).map((n) => String(n || "").trim().toLowerCase()).filter(Boolean)
+  );
+  const out = {};
+  (groups || []).forEach((group) => {
+    const options = groupOptionsOf(group);
+    const need = Math.max(0, Math.min(group.maxSelections ?? 99, group.minSelections ?? 0));
+    const picked = [...(group.lockedOptionIds || [])];
+    const take = (option) => {
+      if (picked.length - (group.lockedOptionIds || []).length >= need) return;
+      if (!option || picked.includes(option.id)) return;
+      picked.push(option.id);
+    };
+    // Recommended names first, in group order…
+    options.forEach((option) => {
+      if (option?.name && want.has(option.name.trim().toLowerCase())) take(option);
+    });
+    // …then first-available until the minimum is met.
+    options.forEach(take);
+    out[group.key] = picked;
+  });
+  return out;
+}
+
 /** Whether one choice option is redundant given an owned set from
  *  ownedSkillIdsFromBundles (a `grant` whose skill id is owned, or a
  *  `grantTag` whose namespaced token is owned). */

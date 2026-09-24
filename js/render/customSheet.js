@@ -75,6 +75,7 @@ import { portraitArtFor } from "../data/portraitArt.js";
 import { SHEET_THEMES, applySheetTheme, normalizeThemeId, normalizeThemeMode } from "../data/themes.js";
 import { CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT, goldOptionIdFor, slugId, resolveStartingEquipmentPick } from "../data/startingEquipment.js";
 import { ABILITIES, SKILLS } from "../data/schema.js";
+import { EXPRESS_CLASS_DEFAULTS } from "../data/expressDefaults.js";
 import {
   PAGE_COLS,
   GAP_PX,
@@ -213,6 +214,7 @@ import {
   creationChoiceGroupsForState,
   creationFixedBundlesFor,
   groupOptionsOf,
+  expressPicksFor,
   sectionsForChoiceGroups,
   sectionsComplete,
   incompleteSectionNames,
@@ -3827,6 +3829,66 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     }
   }
 
+  /** Fills cantrips + leveled spells to the class cap, first-available
+   *  per spell level — the Express spell fill. Respects caps exactly
+   *  like the picker (same limit helpers), never exceeding them. */
+  function fillSpellsToCap() {
+    const limit = spellLimitFor(state.className, state.level, character.rules?.abilityScores);
+    if (!limit) return;
+    const plan = getLevelUpPlan(state.rulesetId, state.className, state.level);
+    const field = ensureSpellListField();
+    if (!field) return;
+    const known = new Set(field.items || []);
+    sharedAvailableSpellLevels(plan).forEach((levelNum) => {
+      spellsForLevel(levelNum, state.className).forEach(({ name }) => {
+        if (!name || known.has(name)) return;
+        const counts = sharedSpellCountByLevel(known, (n) => spellLevelByName(n));
+        if (!sharedCanLearnMore(levelNum, limit, counts.cantrips, counts.spells)) return;
+        appendUniqueTextListItem(field, name);
+        known.add(name);
+      });
+    });
+    saveWithStatus("layout", character.layout);
+  }
+
+  /** Express setup: fills every choice for the picked class with its
+   *  recommended defaults (data in expressDefaults.js, first-available
+   *  everywhere else) and lands on Gear & Review, where dots jump back
+   *  to change anything. Explicitly user-invoked, so it overwrites
+   *  staged group picks with the defaults — per-character sources and
+   *  already-saved sheet fields are untouched until Finish Setup. */
+  function applyExpressDefaults() {
+    const cls = state.className;
+    if (!cls) return;
+    const defaults = EXPRESS_CLASS_DEFAULTS[cls] || {};
+    if (defaults.abilities) {
+      ABILITY_IDS.forEach((id) => {
+        if (Number.isFinite(defaults.abilities[id])) character.rules.abilityScores[id] = defaults.abilities[id];
+      });
+    }
+    const subs = liveSubclassData(cls);
+    if (!state.subclass && subs.subclasses.length && state.level >= subs.subclassLevel) {
+      state.subclass = subs.subclasses[0];
+    }
+    const groups = creationChoiceGroupsFor(state);
+    const picks = expressPicksFor(groups, defaults.skills || []);
+    character.rules.choices = { ...(character.rules.choices || {}), ...picks };
+    const entry = CLASS_STARTING_EQUIPMENT[cls];
+    if (entry && !character.rules.startingEquipment?.applied) {
+      character.rules.startingEquipment = {
+        picks: Object.fromEntries((entry.decisions || []).map((d) => [d.id, d.options[0]?.id])),
+      };
+    }
+    fillSpellsToCap();
+    saveRules();
+    // Land on Gear & Review: the shell resolves the persisted step id
+    // to its index on the next render, bypassing forward-gating (dots
+    // still gate manual forward jumps; backward is always free).
+    creationWizardState.stepId = "gear-review";
+    persistWizardProgressSoon();
+    renderPageGrid();
+  }
+
     function wizardUnavailableMessage() {
       return wizardUnavailableMessageFor(state);
     }
@@ -3975,6 +4037,16 @@ export function renderCustomSheet(root, character, store, opts = {}) {
           return spellPicksComplete(state.className, state.level);
         },
         render(container) {
+          const expressWrap = sectionInto(container, "Express setup");
+          if (!state.className) {
+            noteInto(expressWrap, "In a hurry? Pick a class below and Express fills every choice with its recommended defaults, landing you on Gear & Review.");
+          } else {
+            expressWrap.append(el("button", {
+              type: "button", class: "btn btn--primary", text: `Express: fill ${state.className} defaults & jump to Review`,
+              onclick: () => applyExpressDefaults(),
+            }));
+            noteInto(expressWrap, "Fills ability scores, subclass, choices, equipment, and spells with recommended picks. Review everything at the end — jump back to change anything.");
+          }
           const classFallback = wizardFieldOptionNames("class", "Class");
           renderClassStepInto(container, state, {
             optionNamesFn: (rulesetId, category) => rulesetOptionNames(

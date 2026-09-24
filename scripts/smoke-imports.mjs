@@ -849,6 +849,39 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
     // Resolver form: owned set may differ per group (exclude-own-group readers).
     const ownedFor = (key) => (key === "g3" ? new Set(["athleticsProf"]) : new Set());
     assert(wizard.sectionsComplete(sections, { g1: ["a"], g3: [], g4: ["d"] }, ownedFor) === true, "sectionsComplete resolver-owned freebie");
+    // Express picks: recommended names first, first-available fill to the minimum, locked ride along.
+    {
+      const groups = [{
+        key: "g", minSelections: 2, maxSelections: 3, lockedOptionIds: ["lock"],
+        options: [
+          { id: "lock", name: "Common" },
+          { id: "a", name: "Athletics" },
+          { id: "b", name: "Perception" },
+          { id: "c", name: "Stealth" },
+        ],
+      }];
+      const picks = wizard.expressPicksFor(groups, ["perception", "Nope"]);
+      assert(JSON.stringify(picks.g) === '["lock","b","a"]', "expressPicksFor recommended-first then fill");
+      const bare = wizard.expressPicksFor([{ key: "h", minSelections: 0, options: [{ id: "x", name: "X" }] }], []);
+      assert(JSON.stringify(bare.h) === "[]", "expressPicksFor zero-min picks nothing");
+    }
+    // Express data: every class covered, every spread Point Buy legal, skills real.
+    {
+      const { EXPRESS_CLASS_DEFAULTS } = await import("../js/data/expressDefaults.js");
+      const { SKILLS } = await import("../js/data/schema.js");
+      const { getRuleset } = await import("../js/data/dnd5e.js");
+      const skillNames = new Set(SKILLS.map((s) => s.label.toLowerCase()));
+      const classNames = getRuleset("dnd5e-2014")?.classes.map((c) => c.name) || [];
+      assert(classNames.length === 13, "express prereq: 13 classes");
+      for (const name of classNames) {
+        const def = EXPRESS_CLASS_DEFAULTS[name];
+        assert(def != null, `express defaults cover ${name}`);
+        const scores = Object.values(def.abilities);
+        assert(scores.length === 6 && scores.every((s) => s >= 8 && s <= 15), `express ${name} scores in range`);
+        assert(scores.reduce((sum, s) => sum + rulesMod.pointBuyCost(s, 8), 0) === 27, `express ${name} spread costs 27`);
+        assert(def.skills.length > 0 && def.skills.every((s) => skillNames.has(s.toLowerCase())), `express ${name} skills real`);
+      }
+    }
     // Collapsible "Your choices" sections: expanded by default, memory keyed per step+source.
     assert(wizard.isChoiceSectionCollapsed("basics:Elf") === false, "section expanded by default");
     wizard.setChoiceSectionCollapsed("basics:Elf", true);
