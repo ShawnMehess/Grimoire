@@ -402,63 +402,6 @@ export function sanitizeSourceDefault(stored, systems = [], packsForFn = () => [
   return { primary, included };
 }
 
-/** Merges several language choice groups into one picker: every
- *  distinct offered language (vocabulary order first, stragglers
- *  alphabetical after), the combined pick budget, and the combined
- *  requirement — each group's minSelections minus its options that
- *  would grant something already owned, mirroring
- *  groupPicksSatisfied per group. Pure. */
-export function mergeLanguageGroups(groups, vocabulary = [], owned = new Set()) {
-  const seen = new Set();
-  const offered = [];
-  (groups || []).forEach((group) => {
-    groupOptionsOf(group).forEach((o) => {
-      if (o.name && !seen.has(o.name)) {
-        seen.add(o.name);
-        offered.push(o.name);
-      }
-    });
-  });
-  const vocab = (vocabulary || []).filter((n) => seen.has(n));
-  const rest = offered.filter((n) => !(vocabulary || []).includes(n)).sort((a, b) => a.localeCompare(b));
-  let total = 0;
-  let required = 0;
-  (groups || []).forEach((group) => {
-    const locked = new Set(group.lockedOptionIds || []);
-    const options = groupOptionsOf(group);
-    total += Math.max(0, group.maxSelections || 0);
-    const freebies = options.filter((o) => !locked.has(o.id) && optionIsOwned(o, owned)).length;
-    required += Math.max(0, (group.minSelections || 0) - freebies);
-  });
-  return { languages: [...vocab, ...rest], total, required };
-}
-
-/** Distributes a merged language pick set back onto the per-group
- *  choice keys every compute path already reads (so no downstream
- *  code changes): each language lands in the first group (in order)
- *  that offers it with budget left, locked defaults ride along on
- *  every group. Returns { [groupKey]: [optionIds] }. Pure. */
-export function distributeLanguagePicks(groups, pickedNames) {
-  const remaining = [...(pickedNames || [])];
-  const out = {};
-  (groups || []).forEach((group) => {
-    const locked = [...(group.lockedOptionIds || [])];
-    const mine = [...locked];
-    const options = groupOptionsOf(group);
-    const budget = Math.max(0, group.maxSelections || 0);
-    let used = 0;
-    for (let i = 0; i < remaining.length && used < budget;) {
-      const opt = options.find((o) => o.name === remaining[i] && !mine.includes(o.id));
-      if (!opt) { i += 1; continue; }
-      mine.push(opt.id);
-      remaining.splice(i, 1);
-      used += 1;
-    }
-    out[group.key] = mine;
-  });
-  return out;
-}
-
 export function canPickMore({ selectedCount, maxSelections, isRadio }) {
   if (isRadio) return true;
   return selectedCount < maxSelections;

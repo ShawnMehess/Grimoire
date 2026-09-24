@@ -474,9 +474,6 @@ Loose working files live in `docs/`, not the repo root:
   (read off the level-up plan, single-class Warlocks). Long Rests
   restore all feature uses, clear used spell slots, and heal to full
   HP — all in one undoable commit (see `takeRest` in `customSheet.js`).
-- The merged-language-picker utilities (`mergeLanguageGroups`,
-  `distributeLanguagePicks`) and the standalone spells/languages step
-  renderers (`renderSpellsStepInto`, `renderMergedLanguagePickerInto`)
-  are still exported and test-covered but no longer rendered — the
-  wizard shows per-source sections instead. Delete them if they stay
-  unused.
+- Language picks live in per-source "Your choices" sections, each
+  enforcing its own group's budget — there is no merged cross-source
+  language picker.

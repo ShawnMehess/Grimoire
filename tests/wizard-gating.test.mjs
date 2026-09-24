@@ -32,8 +32,6 @@ import {
   magicalSecretsUnlocked,
   secretsPickedCount,
   secretsCompleteFor,
-  mergeLanguageGroups,
-  distributeLanguagePicks,
   clampStepIndex,
   stepIsComplete,
   firstIncompleteStep,
@@ -317,20 +315,6 @@ describe("library option names and review lines", () => {
       [{ key: "g1", label: "Skills", options: [{ id: "a", name: "Arcana" }] }], { g1: ["a"] });
     assert.deepEqual(lines, ["Skills: Arcana"]);
     assert.deepEqual(reviewChoiceLinesFor([{ key: "g", options: [] }], {}), []);
-  });
-
-  it("merges language groups with a combined budget", () => {
-    const groups = [
-      { key: "creation:Race:X:g1", minSelections: 1, maxSelections: 1, options: [{ id: "a", name: "Elvish", statModifiers: [{ targetFieldId: "languages", op: "grantTag", value: "Elvish" }] }, { id: "b", name: "Orc", statModifiers: [] }] },
-      { key: "creation:Background:Y:g2", minSelections: 2, maxSelections: 2, options: [{ id: "c", name: "Elvish", statModifiers: [] }, { id: "d", name: "Draconic", statModifiers: [] }] },
-    ];
-    const merged = mergeLanguageGroups(groups, ["Common", "Elvish", "Orc", "Draconic"], new Set(["tag:languages:Elvish"]));
-    assert.deepEqual(merged.languages, ["Elvish", "Orc", "Draconic"]);
-    assert.equal(merged.total, 3);
-    assert.equal(merged.required, 2);
-    const stored = distributeLanguagePicks(groups, ["Orc", "Draconic"]);
-    assert.deepEqual(stored["creation:Race:X:g1"], ["b"]);
-    assert.deepEqual(stored["creation:Background:Y:g2"], ["d"]);
   });
 
   it("reviews creation answers", () => {

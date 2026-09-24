@@ -682,20 +682,6 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
     assert(dwarfLike[1].items.join(" | ") === "+2 CON | +1 WIS", "mechanicsBullets score order");
     assert(dwarfLike[2].items.some((i) => i.startsWith("Stonecunning")), "mechanicsBullets innate keeps the rest");
   }
-  // Merged language picker: one list, combined budget, per-group storage.
-  {
-    const groups = [
-      { key: "creation:Race:X:g1", minSelections: 1, maxSelections: 1, options: [{ id: "a", name: "Elvish", statModifiers: [{ targetFieldId: "languages", op: "grantTag", value: "Elvish" }] }, { id: "b", name: "Orc", statModifiers: [] }] },
-      { key: "creation:Background:Y:g2", minSelections: 2, maxSelections: 2, options: [{ id: "c", name: "Elvish", statModifiers: [] }, { id: "d", name: "Draconic", statModifiers: [] }] },
-    ];
-    const merged = wizardMod.mergeLanguageGroups(groups, ["Common", "Elvish", "Orc", "Draconic"], new Set(["tag:languages:Elvish"]));
-    assert(JSON.stringify(merged.languages) === JSON.stringify(["Elvish", "Orc", "Draconic"]), "mergeLanguageGroups vocab order");
-    assert(merged.total === 3, "mergeLanguageGroups combined budget");
-    assert(merged.required === 2, "mergeLanguageGroups owned overlap relief");
-    const stored = wizardMod.distributeLanguagePicks(groups, ["Orc", "Draconic"]);
-    assert(JSON.stringify(stored["creation:Race:X:g1"]) === JSON.stringify(["b"]), "distributeLanguagePicks fills first group");
-    assert(JSON.stringify(stored["creation:Background:Y:g2"]) === JSON.stringify(["d"]), "distributeLanguagePicks spills into second group");
-  }
   // Stale dropdown reconciliation: refresh, prune, append, preserve.
   {
     const canon = [

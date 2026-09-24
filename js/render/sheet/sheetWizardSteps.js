@@ -286,41 +286,6 @@ export function renderPreferencesStepInto(container, state, deps) {
   });
 }
 
-/** One merged extra-languages picker across every source (race,
- *  class, background): the full vocabulary in one list — the same
- *  options for every character — with default-known languages
- *  (Common plus fixed grants) pre-checked and locked. The legend
- *  reads "Extra Languages (picked/total)" with no per-source
- *  explanation; picks distribute back onto the per-group choice keys
- *  via onToggle, so all downstream readers work unchanged. */
-export function renderMergedLanguagePickerInto(container, deps) {
-  const { languages, picked, granted, total, onToggle } = deps;
-  const pickedSet = new Set(picked || []);
-  const grantedSet = new Set(granted || []);
-  const group = el("fieldset", { class: "level-guide__choices" },
-    el("legend", { text: `Extra Languages (${pickedSet.size}/${total})` }));
-  (languages || []).forEach((name) => {
-    const row = el("label", { class: "level-guide__choice-option" });
-    const input = el("input", { type: "checkbox", value: name });
-    const isGranted = grantedSet.has(name);
-    const isChecked = isGranted || pickedSet.has(name);
-    input.checked = isChecked;
-    if (isGranted) {
-      input.disabled = true;
-      row.classList.add("level-guide__choice-option--locked");
-      row.title = name === "Common"
-        ? "Known by everyone — Free, never uses picks"
-        : "Granted by your race, class, or background — Already known";
-    } else if (!isChecked && pickedSet.size >= total) {
-      input.disabled = true;
-    }
-    input.addEventListener("change", () => onToggle(name));
-    row.append(input, el("span", { text: name }));
-    group.append(row);
-  });
-  container.append(group);
-}
-
 export function renderChoicePageStepInto(container, groups, saveRules, renderChoiceGroupsFn) {
   renderChoiceGroupsFn(container, groups, saveRules);
 }
@@ -345,14 +310,6 @@ export function renderInnateAbilitiesStepInto(container, sections) {
       container.append(block);
     });
   });
-}
-
-export function renderSpellsStepInto(container, state, deps) {  const { groups, saveRules, choiceGroupsFn, casterInfoFn, spellPickerFn } = deps;
-  choiceGroupsFn(container, groups, saveRules);
-  if (casterInfoFn(state.rulesetId, state.className)) {
-    container.append(el("p", { class: "wizard__section-label", text: "Spells Known" }));
-    spellPickerFn(container, { rulesetId: state.rulesetId, className: state.className, level: state.level });
-  }
 }
 
 // --- Review step ------------------------------------------------------------------------
