@@ -220,6 +220,8 @@ import {
   setChoiceSectionCollapsed,
   abilityScoreBonusesFrom,
   sanitizeSourceDefault,
+  revalidateStagedPicks,
+  pruneOrphanedChoiceKeys,
   reconcileDropdownChoices,
   ownedSkillIdsFromBundles,
   optionIsOwned,
@@ -3594,6 +3596,40 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       character.rules.feats = feats.filter((f) => f.source !== "lineage");
     }
 
+    /** Revalidates staged creation picks against the currently included
+     *  sources (call after setIncludedRulesetIds): keeps every pick
+     *  still offered, clears orphaned Race/Class/Subclass/Background
+     *  picks plus their choice-group picks, and drops a race-granted
+     *  feat with its race. Returns `{ removed, pruned }` for the
+     *  caller's notice — invalid selections never linger until Finish
+     *  Setup. Adding a source calls nothing here, so adds never clear. */
+    function revalidatePicksAfterSourceChange() {
+      const remaining = includedRulesetIds(state);
+      const validNames = {
+        Race: rulesetOptionNamesIn(bundleLibraryCache, remaining, "Race", wizardFieldOptionNames("race", "Race")),
+        Class: rulesetOptionNamesIn(bundleLibraryCache, remaining, "Class", wizardFieldOptionNames("class", "Class")),
+        Subclass: liveSubclassData(state.className).subclasses,
+        Background: rulesetOptionNamesIn(bundleLibraryCache, remaining, "Background", wizardFieldOptionNames("background", "Background")),
+      };
+      const lineageName = (character.rules.feats || []).find((f) => f.source === "lineage")?.name || null;
+      const { picks, removed } = revalidateStagedPicks(
+        { species: state.species, className: state.className, subclass: state.subclass, background: state.background },
+        validNames
+      );
+      const raceDropped = Boolean(state.species) && !picks.species;
+      state.species = picks.species;
+      state.className = picks.className;
+      state.subclass = picks.subclass;
+      state.background = picks.background;
+      if (raceDropped) {
+        cleanStaleLineageFeat();
+        if (lineageName) removed.push({ category: "Feat", name: lineageName });
+      }
+      const pruned = pruneOrphanedChoiceKeys(character.rules.choices || {}, picks);
+      character.rules.choices = pruned.choices;
+      return { removed, pruned: pruned.pruned };
+    }
+
     function wizardFieldOptionNames(fieldId, fieldLabel) {
       return wizardFieldOptionNamesIn((id, label) => findStarterField(id, label), fieldId, fieldLabel);
     }
@@ -3782,19 +3818,18 @@ export function renderCustomSheet(root, character, store, opts = {}) {
               const prevIds = includedRulesetIds(state);
               const removed = prevIds.filter((id) => !nextIds.includes(id));
               // Adding a book never disturbs existing picks — only
-              // removing one can strand them, so only then confirm +
-              // clear downstream choices.
+              // removing one can orphan them, so only then confirm.
+              // The actual cleanup below keeps every pick still offered
+              // under the remaining books and reports what went away.
               if (removed.length > 0 && (state.species || state.className || state.subclass || state.background)) {
-                if (!window.confirm("Removing a content book can strand your Race, Class, Subclass, and Background choices below if they only come from that book. Continue?")) {
+                if (!window.confirm("Removing a content book clears the Race, Class, Subclass, and Background picks that only come from it. Picks available in the remaining books stay. Continue?")) {
                   renderPageGrid();
                   return;
                 }
-                state.species = "";
-                state.className = "";
-                state.subclass = "";
-                state.background = "";
               }
               setIncludedRulesetIds(nextIds);
+              let revalidated = { removed: [], pruned: 0 };
+              if (removed.length > 0) revalidated = revalidatePicksAfterSourceChange();
               saveRules();
               saveSourceDefault(primaryRulesetId(state), nextIds);
               // Skipped when persisting mid-render (auto-select): the
@@ -3803,7 +3838,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
               if (opts?.rerender === false) return;
               const syncMessage = syncRulesetBundles(nextIds);
               renderPageGrid();
-              if (syncMessage) statusEl.textContent = syncMessage;
+              if (revalidated.removed.length) {
+                statusEl.textContent = `Removed ${revalidated.removed.map((r) => r.name).join(", ")} — not in the remaining sources.`;
+              } else if (syncMessage) statusEl.textContent = syncMessage;
             },
           });
           renderIdentityStepInto(container, state, {

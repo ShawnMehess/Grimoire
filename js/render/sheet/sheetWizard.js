@@ -293,6 +293,68 @@ export function abilityScoreBonusesFrom(entries = [], abilityIds = []) {
   return out;
 }
 
+/** Revalidates staged creation picks after content books are removed:
+ *  keeps every pick still offered under the remaining sources, clears
+ *  only orphaned ones. `picks` is
+ *  `{ species, className, subclass, background }`; `validNames` maps
+ *  `"Race"|"Class"|"Subclass"|"Background"` to the names still
+ *  offered. A subclass belongs to its class — when the class goes,
+ *  the subclass goes with it without needing its own lookup. Returns
+ *  `{ picks, removed }` where `removed` is
+ *  `[{ category, name }]` for the caller's "what was removed" notice.
+ *  Never clears on add (callers only invoke this for removals). Pure. */
+export function revalidateStagedPicks(picks = {}, validNames = {}) {
+  const next = { ...(picks || {}) };
+  const removed = [];
+  const drop = (key, category) => {
+    if (!next[key]) return;
+    const valid = validNames[category] || [];
+    if (!valid.includes(next[key])) {
+      removed.push({ category, name: next[key] });
+      next[key] = "";
+    }
+  };
+  drop("species", "Race");
+  drop("className", "Class");
+  if (!next.className) {
+    if (next.subclass) {
+      removed.push({ category: "Subclass", name: next.subclass });
+      next.subclass = "";
+    }
+  } else {
+    drop("subclass", "Subclass");
+  }
+  drop("background", "Background");
+  return { picks: next, removed };
+}
+
+/** Drops staged choice-group picks whose pick no longer exists:
+ *  `creation:Category:Name:group` keys survive only while `Name` is
+ *  still the staged pick for that category. Feat (`feat:`),
+ *  equipment-proficiency (`equipprof:`), and unknown keys pass
+ *  through untouched. Returns `{ choices, pruned }` (`pruned` counts
+ *  dropped keys for the caller's notice). Pure. */
+export function pruneOrphanedChoiceKeys(choices = {}, picks = {}) {
+  const live = [
+    ["Race", picks?.species],
+    ["Class", picks?.className],
+    ["Subclass", picks?.subclass],
+    ["Background", picks?.background],
+  ]
+    .filter(([, name]) => name)
+    .map(([category, name]) => `creation:${category}:${name}:`);
+  const kept = {};
+  let pruned = 0;
+  for (const [key, value] of Object.entries(choices || {})) {
+    if (key.startsWith("creation:") && !live.some((prefix) => key.startsWith(prefix))) {
+      pruned++;
+      continue;
+    }
+    kept[key] = value;
+  }
+  return { choices: kept, pruned };
+}
+
 /** Validates a persisted source default against the currently known
  *  rulesets: the primary system must still exist, and at least one
  *  stored content book must still belong to it. Returns

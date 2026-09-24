@@ -850,6 +850,30 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
       assert(wizard.sanitizeSourceDefault({ primary: "dnd5e-2014", included: ["nope"] }, systems, packsFor) === null, "sanitizeSourceDefault rejects empty books");
       assert(wizard.sanitizeSourceDefault(null, systems, packsFor) === null, "sanitizeSourceDefault null-safe");
     }
+    // Source-removal revalidation: survivors stay, orphans clear with a report.
+    {
+      const valid = { Race: ["Elf", "Human"], Class: ["Fighter"], Subclass: ["Champion"], Background: ["Sailor"] };
+      const intact = wizard.revalidateStagedPicks(
+        { species: "Elf", className: "Fighter", subclass: "Champion", background: "Sailor" }, valid);
+      assert(intact.removed.length === 0 && intact.picks.species === "Elf", "revalidateStagedPicks keeps survivors");
+      const pruned = wizard.revalidateStagedPicks(
+        { species: "Tabaxi", className: "Artificer", subclass: "Alchemist", background: "Sailor" }, valid);
+      assert(pruned.picks.species === "" && pruned.picks.className === "", "revalidateStagedPicks clears orphans");
+      assert(pruned.picks.subclass === "" && pruned.picks.background === "Sailor", "revalidateStagedPicks subclass follows class");
+      assert(pruned.removed.map((r) => r.name).join() === "Tabaxi,Artificer,Alchemist", "revalidateStagedPicks reports removed");
+      const staleSub = wizard.revalidateStagedPicks(
+        { species: "Elf", className: "Fighter", subclass: "Evoker", background: "Sailor" }, valid);
+      assert(staleSub.picks.subclass === "" && staleSub.picks.className === "Fighter", "revalidateStagedPicks clears stale subclass only");
+      // Orphaned choice keys drop; feat/equipment keys never touched.
+      const keys = wizard.pruneOrphanedChoiceKeys({
+        "creation:Race:Tabaxi:g1": ["o1"],
+        "creation:Class:Fighter:g2": ["o2"],
+        "feat:Resilient:g3": ["o3"],
+        "equipprof:armor": ["o4"],
+      }, { species: "Elf", className: "Fighter", subclass: "", background: "" });
+      assert(JSON.stringify(Object.keys(keys.choices).sort()) === '["creation:Class:Fighter:g2","equipprof:armor","feat:Resilient:g3"]', "pruneOrphanedChoiceKeys drops orphans only");
+      assert(keys.pruned === 1, "pruneOrphanedChoiceKeys counts pruned");
+    }
   }
   assert(wizard.stepIsComplete({}) === true && wizard.stepIsComplete({ isComplete: () => false }) === false, "stepIsComplete");
   assert(wizard.skippedStepTitle({}) === "Skipped — nothing to choose for your current picks.", "skippedStepTitle default");
