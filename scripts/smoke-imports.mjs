@@ -852,6 +852,9 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
     }
   }
   assert(wizard.stepIsComplete({}) === true && wizard.stepIsComplete({ isComplete: () => false }) === false, "stepIsComplete");
+  assert(wizard.skippedStepTitle({}) === "Skipped — nothing to choose for your current picks.", "skippedStepTitle default");
+  assert(wizard.skippedStepTitle({ unavailableMessage: () => "Needs a caster." }) === "Needs a caster.", "skippedStepTitle custom");
+  assert(wizard.skippedStepTitle({ unavailableMessage: () => { throw new Error("x"); } }) === "Skipped — nothing to choose for your current picks.", "skippedStepTitle never throws");
   {
     const groups = [{
       key: "g", label: "Acolyte Languages (choose 2)", minSelections: 2, maxSelections: 2,

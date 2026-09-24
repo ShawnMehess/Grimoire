@@ -504,6 +504,20 @@ export function applicableStepsOf(steps) {
   return steps.filter((step) => isStepApplicable(step));
 }
 
+/** Tooltip for an auto-skipped step's progress dot: the step's own
+ *  reason when it gives one, otherwise the standard "nothing to
+ *  choose" note. Never throws (a broken checker must not trap the
+ *  wizard). Pure. */
+export function skippedStepTitle(step) {
+  try {
+    const own = typeof step?.unavailableMessage === "function" ? step.unavailableMessage() : null;
+    if (own) return own;
+  } catch {
+    /* fall through to the default */
+  }
+  return "Skipped — nothing to choose for your current picks.";
+}
+
 export function clampStepIndex(count, index) {
   if (count === 0) return 0;
   if (index >= count) return count - 1;
@@ -578,9 +592,9 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
     dot.type = "button";
     dot.textContent = step.title;
     if (!isStepApplicable(step)) {
-      dot.className = "wizard__dot wizard__dot--disabled";
+      dot.className = "wizard__dot wizard__dot--disabled wizard__dot--skipped";
       dot.disabled = true;
-      if (step.unavailableMessage) dot.title = step.unavailableMessage();
+      dot.title = skippedStepTitle(step);
       dots.append(dot);
       return;
     }
