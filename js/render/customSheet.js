@@ -654,7 +654,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // openCatalogFieldConfig below).
   // Baked-in reference catalogs (Classes/Races/Backgrounds from
   // DEFAULT_CONTENT) plus the Feats catalog compiled from
-  // New Info/5e-feats.txt (see js/data/featBundles.js) — the ASI step's
+  // docs/New Info/5e-feats.txt (see js/data/featBundles.js) — the ASI step's
   // feat picker shows each feat's prerequisite + full effect text from here.
   let catalogCache = DEFAULT_CONTENT.catalogs.map((cat, i) => ({ id: `default-${i}`, scope: "default", ...cat }));
   // Descriptions for the five hand-added core races (Human/Elf/
@@ -670,7 +670,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     catalogCache = [...catalogCache, { id: "default-feats", scope: "default", ...FEAT_CATALOG }];
   }
   // Spell + equipment reference catalogs compiled from
-  // New Info/5e-spells.txt and 5e-items.txt (see
+  // docs/New Info/5e-spells.txt and 5e-items.txt (see
   // js/data/contentCatalogs.js). The setup/leveling spell picker keys
   // off the catalog whose name mentions "spell"; the equipment
   // catalogs are reference rows for the catalog browser.
@@ -2732,7 +2732,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
   function rulesetOptionNames(rulesetId, category, fallback = []) {
     // Feats are baked in (js/data/featBundles.js, compiled from
-    // New Info/5e-feats.txt), not per-ruleset library entries — so the
+    // docs/New Info/5e-feats.txt), not per-ruleset library entries — so the
     // ASI step's feat picker falls back to the full feat list. A
     // same-named library Feat still wins when one is imported (see
     // rulesetOptionNamesIn: library matches take precedence over fallback).

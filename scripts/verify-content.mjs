@@ -745,7 +745,7 @@ function applyStatModifiersForTest(fields, vm, cb, tags, levelFor, extra) {
   };
   for (const e of DEFAULT_CONTENT.classEntries) scan(e.bundle?.featureGrants);
   for (const s of SUBCLASS_SUPPLEMENT) scan(s.bundle?.featureGrants);
-  console.log(`known hand-tracked gaps: ${notes} feature notes (intentional, see RESCUE-NOTES.md)`);
+  console.log(`known hand-tracked gaps: ${notes} feature notes (intentional, see docs/RESCUE-NOTES.md)`);
 }
 
 if (failures) {

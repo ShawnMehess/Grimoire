@@ -463,7 +463,7 @@ assert(dragMod.nudgeTargets(new Set(["b", "f"]), (id) => (id === "b" ? null : { 
   assert(node.x === 1, "nudgeNode move");
 }
 
-// Feats compiled from New Info/5e-feats.txt — wired to character-object fields.
+// Feats compiled from docs/New Info/5e-feats.txt — wired to character-object fields.
 const featMod = await import("../js/data/featBundles.js");
 assert(Array.isArray(featMod.FEAT_BUNDLES) && featMod.FEAT_BUNDLES.length === 83, "FEAT_BUNDLES count");
 assert(featMod.FEAT_NAMES.includes("Alert") && featMod.FEAT_NAMES.includes("Resilient"), "FEAT_NAMES content");
