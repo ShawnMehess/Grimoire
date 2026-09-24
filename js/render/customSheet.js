@@ -353,6 +353,7 @@ import {
   appendUniqueTextListItemTo,
   selectedChoiceNameIn,
   findStarterFieldIn,
+  missingSetupTargets,
   subclassNamesFromBundleRule,
   pointBuyCost as sharedPointBuyCost,
   maxAffordableScore,
@@ -2111,15 +2112,25 @@ export function renderCustomSheet(root, character, store, opts = {}) {
    *  they won't be re-asserted. Missing items are appended uniquely;
    *  nothing is ever removed here. `level` gates minLevel'd grants
    *  (e.g. Tiefling Darkness at character level 5). */
+  /** Granted list items (oath/domain/circle spells, feat spells, …)
+   *  for `level`. Returns the grants that had nowhere to land
+   *  (`[{ fieldId, items }]`) so Finish Setup can report them instead
+   *  of dropping them silently — callers that don't care (level-up
+   *  paths) simply ignore the return. */
   function syncGrantedListItems(level) {
     const fields = flattenGlobalFields();
     const grants = collectListItemGrantsIn(fields, level, selectedRuleOptions(fields, formulaValues), selectedFeatBundles(), bundleLevelFor, extraSecondaryBundles());
+    const unapplied = [];
     grants.forEach(({ fieldId, items }) => {
-      let target = findStarterField(fieldId, null);
+      let target = findSetupField(fieldId, null);
       if (!target && fieldId === "spellsKnown") target = ensureSpellListField();
-      if (!target || target.fieldType !== "textlist") return;
+      if (!target || target.fieldType !== "textlist") {
+        unapplied.push({ fieldId, items: [...items] });
+        return;
+      }
       items.forEach((item) => appendUniqueTextListItem(target, item));
     });
+    return unapplied;
   }
 
   function computeSheetValues(fields) {
@@ -3281,20 +3292,34 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
   /** Applies the Starting Equipment pick once at Finish Setup:
    *  package items to the Inventory list, gold to GP. Guarded so a
-   *  second finish can't duplicate everything. */
+   *  second finish can't duplicate everything. Returns
+   *  `{ items, gp, missing }` — `missing` names whatever had nowhere
+   *  to land (deleted/renamed target fields) so the caller reports it
+   *  instead of dropping it silently. Appends without touching
+   *  existing entries, so user content is never overwritten. */
   function applyStartingEquipment() {
     const se = character.rules.startingEquipment;
-    if (!se || se.applied) return;
-    const itemsField = findStarterField(null, "Items");
-    const gpField = findStarterField(null, "GP");
+    if (!se || se.applied) return { items: [], gp: 0, missing: [] };
+    const itemsField = findSetupField(null, "Items");
+    const gpField = findSetupField(null, "GP") || detectMoneyFieldByName();
     const { items, gp } = resolveStartingEquipmentPick(
       character.rules.className, character.rules.background, se
     );
-    if (itemsField) items.forEach((item) => appendUniqueTextListItem(itemsField, item));
-    if (gpField && gp > 0) {
-      gpField.value = String((Number.parseInt(gpField.value, 10) || 0) + gp);
+    const missing = [];
+    if (itemsField && itemsField.fieldType === "textlist") {
+      items.forEach((item) => appendUniqueTextListItem(itemsField, item));
+    } else if (items.length) {
+      missing.push({ what: `starting equipment (${items.join(", ")})`, reason: "no Items list on the sheet" });
+    }
+    if (gp > 0) {
+      if (gpField) {
+        gpField.value = String((Number.parseInt(gpField.value, 10) || 0) + gp);
+      } else {
+        missing.push({ what: `${gp} gp starting gold`, reason: "no GP field on the sheet" });
+      }
     }
     character.rules.startingEquipment = { ...se, applied: true };
+    return { items, gp, missing };
   }
 
   /** "Pick a ruleset and the sheet just works" — walks every dropdown
@@ -3358,6 +3383,15 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     return findStarterFieldIn(flattenGlobalFields(), id, label);
   }
 
+  /** Setup/finish field lookup across every tab (not just the global
+   *  one): a target field moved to another tab still receives its
+   *  picks, spells, and equipment. Id match wins, so a renamed field
+   *  still resolves; a deleted one returns null for the caller to
+   *  report rather than silently skip. */
+  function findSetupField(id, label) {
+    return findStarterField(id, label) || findStarterFieldIn(flattenAllFieldsAcrossTabs(), id, label);
+  }
+
   // Older starter sheets only had slot fields through fifth level. When a
   // compatible standard Spellcasting block is present, extend it in place
   // rather than making a high-level full caster rebuild their sheet.
@@ -3396,25 +3430,46 @@ export function renderCustomSheet(root, character, store, opts = {}) {
    *  why these are two separate representations of "what class is
    *  this" in the first place. */
   async function syncRulesToSheet(resolved) {
-    const classField = findStarterField("class", "Class");
-    const speciesField = findStarterField("species", "Species") || findStarterField("race", "Race");
-    const backgroundField = findStarterField("background", "Background");
-    const levelField = findStarterField("level", "Level");
-    const subclassField = findStarterField("subclass", "Subclass");
-    const choose = (target, value) => {
+    // Customized-sheet audit first: every target field Finish Setup
+    // writes (level, scores, slot trackers) is checked across all tabs
+    // — renamed fields resolve by id, moved ones by the all-tabs
+    // search, and deleted ones land here as issues instead of failing
+    // silently. Dropdown picks below are select-or-create (a missing
+    // choice is added to its dropdown), so only a wholly missing
+    // dropdown is reported for those.
+    const issues = [];
+    const staticTargets = [
+      { id: "level", label: "Level", what: "Level" },
+      ...ABILITY_IDS.map((id) => ({ id: `${id}Score`, label: id.toUpperCase(), what: `ability score ${id.toUpperCase()}` })),
+      ...(resolved.plan?.slotChanges || []).map((change) => ({ id: change.fieldId, label: change.label, what: `spell-slot tracker "${change.label}"` })),
+    ];
+    missingSetupTargets(flattenAllFieldsAcrossTabs(), staticTargets).forEach((t) => {
+      issues.push(`No ${t.what} field on the sheet — left unset.`);
+    });
+    const classField = findSetupField("class", "Class");
+    const speciesField = findSetupField("species", "Species") || findSetupField("race", "Race");
+    const backgroundField = findSetupField("background", "Background");
+    const levelField = findSetupField("level", "Level");
+    const subclassField = findSetupField("subclass", "Subclass");
+    const choose = (target, value, what) => {
+      if (!value) return;
+      if (!target) {
+        issues.push(`${what} pick "${value}" had no dropdown to land in.`);
+        return;
+      }
       chooseTargetValue(target, value, newId);
     };
-    choose(classField, character.rules.className);
-    choose(speciesField, character.rules.species);
-    choose(backgroundField, character.rules.background);
-    choose(subclassField, character.rules.subclass);
+    choose(classField, character.rules.className, "Class");
+    choose(speciesField, character.rules.species, "Race");
+    choose(backgroundField, character.rules.background, "Background");
+    choose(subclassField, character.rules.subclass, "Subclass");
     if (levelField) levelField.value = String(character.rules.level);
     ABILITY_IDS.forEach((id) => {
-      const target = findStarterField(`${id}Score`, id.toUpperCase());
+      const target = findSetupField(`${id}Score`, id.toUpperCase());
       if (target) target.value = String(character.rules.abilityScores[id]);
     });
     (resolved.plan?.slotChanges || []).forEach((change) => {
-      const target = findStarterField(change.fieldId, change.label);
+      const target = findSetupField(change.fieldId, change.label);
       if (target) { target.options = change.options; syncOptionWidth(target); }
     });
     // The Setup wizard's own "Choices" steps save picks under a
@@ -3442,9 +3497,13 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     });
     // Granted spells from the chosen race/subclass (e.g. Tiefling
     // Thaumaturgy, Light Domain bonus spells) land in Spells Known now.
-    syncGrantedListItems(character.rules.level);
+    syncGrantedListItems(character.rules.level).forEach(({ fieldId, items }) => {
+      issues.push(`${items.length} granted ${fieldId === "spellsKnown" ? "spell(s)" : "item(s)"} (${items.join(", ")}) had no list to land in.`);
+    });
     // Starting equipment pick (once — guarded against double-finish).
-    applyStartingEquipment();
+    applyStartingEquipment().missing.forEach(({ what, reason }) => {
+      issues.push(`No ${what} applied: ${reason}.`);
+    });
     mirrorFirstTabLayout();
     // This is what actually finishes character creation: once synced,
     // there's nothing left for the Character-setup tab to do, so it's
@@ -3458,7 +3517,15 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     // Keep the top-level mirror in sync with the canonical rules copy.
     character.rulesetId = character.rules.rulesetId;
     await store.saveCharacterFields(character.id, { rules: character.rules, rulesetId: character.rules.rulesetId, layout: character.layout, sheetTabs: character.sheetTabs, setupComplete: true, creationStepId: null });
-    statusEl.textContent = "Saved";
+    // Setup always completes (every applicable write above was
+    // attempted) — but a customized sheet may be missing targets, and
+    // those are reported loudly here, never dropped silently.
+    if (issues.length) {
+      statusEl.textContent = `Saved with ${issues.length} issue(s) — see notice.`;
+      showToastIn(root, `Setup finished, but ${issues.length} thing(s) need attention: ${issues.join(" ")}`, { isError: true });
+    } else {
+      statusEl.textContent = "Saved";
+    }
     renderAll();
     // The toolbar inputs were built once at open (possibly before any
     // name/ruleset was picked) and renderAll doesn't rebuild them —

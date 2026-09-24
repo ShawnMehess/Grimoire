@@ -54,6 +54,15 @@ export function findStarterFieldIn(globalFields = [], id, label) {
     || null;
 }
 
+/** Which of the fields a setup sync needs are absent from a
+ *  customized sheet: `targets` is `[{ id, label, what }]` (id match
+ *  wins, so a renamed field still resolves; a deleted one is
+ *  reported). Returns the missing targets unchanged. Pure — the
+ *  caller decides whether to create or report each one. */
+export function missingSetupTargets(fields = [], targets = []) {
+  return (targets || []).filter(({ id, label }) => !findStarterFieldIn(fields || [], id, label));
+}
+
 export function subclassNamesFromBundleRule(classChoice, subclassField) {
   const rule = classChoice?.bundle?.dropdownAccess?.find((r) => r.targetFieldId === subclassField?.id);
   if (!rule || !subclassField) return null;

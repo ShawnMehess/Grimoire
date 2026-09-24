@@ -248,11 +248,13 @@ assert(bundlesMod.syncResultMessage(2, true).startsWith("Wired up 2"), "syncResu
   bundlesMod.chooseTargetValue(target, "Druid", () => "n");
   assert(target.selected === "c1", "chooseTargetValue existing");
 }
-{
-  const target = { id: "f", choices: [], selected: null };
-  bundlesMod.chooseTargetValue(target, "New", () => "n");
-  assert(target.selected === "n" && target.choices.length === 1, "chooseTargetValue creates");
-}
+  {
+    const target = { id: "f", choices: [], selected: null };
+    bundlesMod.chooseTargetValue(target, "New", () => "n");
+    assert(target.selected === "n" && target.choices.length === 1, "chooseTargetValue creates");
+    assert(bundlesMod.chooseTargetValue(null, "New", () => "n") === null, "chooseTargetValue null-safe");
+    assert(bundlesMod.chooseTargetValue(target, "", () => "n") === null, "chooseTargetValue empty-safe");
+  }
 {
   const target = { id: "f", selected: "c", choices: [{ id: "c", bundle: { choiceGroups: [{ id: "g" }] } }] };
   const choices = { "creation:Class:X:g": ["o"] };
@@ -478,6 +480,30 @@ assert(featMod.FEAT_CATALOG.tabs[0].entries.length === 83, "FEAT_CATALOG entries
 
 const rulesMod = await import("../js/render/sheet/sheetRules.js");
 assert(rulesMod.findMoneyFieldByNameIn([{ fieldType: "text", label: "GP" }])?.label === "GP", "findMoneyFieldByNameIn");
+// Finish Setup vs. customized sheets: id match wins (renamed labels
+// still resolve), label is the fallback, deletion reports.
+assert(rulesMod.findStarterFieldIn([{ id: "a", label: "X" }], "a", "Y")?.label === "X", "findStarterFieldIn id wins over label");
+assert(rulesMod.findStarterFieldIn([{ id: "b", label: "Y" }], "a", "Y")?.id === "b", "findStarterFieldIn label fallback");
+assert(rulesMod.findStarterFieldIn([{ id: "b", label: "Y" }], "a", "Z") === null, "findStarterFieldIn miss");
+{
+  // A customized sheet: GP renamed (same id), Items moved (in the
+  // list), Level deleted. Only the deleted target reports.
+  const fields = [
+    { id: "gp-1", fieldType: "text", label: "Gold" },
+    { id: "items-9", fieldType: "textlist", label: "Items", items: ["Rope"] },
+  ];
+  const targets = [
+    { id: "level", label: "Level", what: "Level" },
+    { id: "gp-1", label: "GP", what: "gold" },
+    { id: "nope", label: "Items", what: "items" },
+  ];
+  const missing = rulesMod.missingSetupTargets(fields, targets);
+  assert(missing.length === 1 && missing[0].what === "Level", "missingSetupTargets reports only deleted");
+  assert(rulesMod.missingSetupTargets(fields, []) !== null && rulesMod.missingSetupTargets(null, targets).length === 3, "missingSetupTargets empty-safe");
+  assert(rulesMod.appendUniqueTextListItemTo({ fieldType: "text", items: [] }, "x") === false, "appendUnique rejects non-textlist");
+  assert(rulesMod.appendUniqueTextListItemTo({ fieldType: "textlist", items: ["x"] }, "x") === false, "appendUnique rejects duplicate");
+  assert(rulesMod.appendUniqueTextListItemTo({ fieldType: "textlist", items: [] }, "x") === true, "appendUnique appends");
+}
 assert(rulesMod.shouldAutoRegisterMoney(null, { fieldType: "text", label: "gp" }) === true, "shouldAutoRegisterMoney");
 assert(rulesMod.floatFromRichText("<b>12</b>") === 12, "floatFromRichText");
 assert(rulesMod.intFromRichText("<b>12</b>") === 12, "intFromRichText");
