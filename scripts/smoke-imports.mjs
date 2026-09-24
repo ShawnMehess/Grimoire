@@ -312,8 +312,11 @@ assert(wizardMod.limitNoteText(1, 2, { cantrips: 2, spells: 5, style: "known" })
 assert(wizardMod.canLearnMore(0, { cantrips: 2, spells: 5 }, 2, 0) === false, "canLearnMore capped");
 
 const wizardStepsMod = await import("../js/render/sheet/sheetWizardSteps.js");
-assert(wizardStepsMod.clampScoreToRange("99", 8, 8, 15) === 15, "clampScoreToRange max");
-assert(wizardStepsMod.pointBuyNoteText(10, 27) === "Points spent: 10/27", "pointBuyNoteText");
+  assert(wizardStepsMod.clampScoreToRange("99", 8, 8, 15) === 15, "clampScoreToRange max");
+  assert(wizardStepsMod.pointBuyNoteText(10, 27) === "Points spent: 10/27", "pointBuyNoteText");
+  assert(wizardStepsMod.abilityBonusNoteText(15, 2, ["Elf"]) === "+2 from Elf → 17 total", "abilityBonusNoteText basic");
+  assert(wizardStepsMod.abilityBonusNoteText(10, 0, []) === "", "abilityBonusNoteText no bonus");
+  assert(wizardStepsMod.abilityBonusNoteText(10, 1, []) === "+1 → 11 total", "abilityBonusNoteText sourceless");
 assert(wizardStepsMod.wizardUnavailableMessageFor({ level: 1, species: "", className: "", subclass: "" }).includes("level 1"), "wizardUnavailableMessageFor");
 assert(wizardStepsMod.reviewLinesFor({ characterName: "N", level: 1, resources: [] }).includes("Name: N"), "reviewLinesFor");
 {
@@ -797,6 +800,57 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   assert(wizard.groupPicksSatisfied({ minSelections: 1, lockedOptionIds: ["c"], options: [{ id: "c" }] }, ["c"], new Set()) === false, "groupPicksSatisfied locked does not consume budget");
   assert(wizard.groupPicksSatisfied({ minSelections: 1, lockedOptionIds: ["c"], options: [{ id: "c" }, { id: "x" }] }, ["c", "x"], new Set()) === true, "groupPicksSatisfied one real pick satisfies");
   assert(wizard.groupPicksSatisfied({ minSelections: 1, options: [{ id: "a", statModifiers: [{ op: "grant", targetFieldId: "s" }] }] }, [], owned) === true, "groupPicksSatisfied owned freebie");
+  {
+    // "Your choices" sections: bucketed by originating pick, gated per
+    // section so a merged step blocks Next until every section is done.
+    const groups = [
+      { key: "g1", source: "Elf", minSelections: 1, options: [{ id: "a", name: "Elvish" }] },
+      { key: "g2", source: "Elf", minSelections: 0, options: [{ id: "b", name: "Trance" }] },
+      { key: "g3", source: "Fighter", minSelections: 1, options: [{ id: "c", name: "Athletics", statModifiers: [{ op: "grant", targetFieldId: "athleticsProf" }] }] },
+      { key: "g4", minSelections: 1, options: [{ id: "d", name: "Mystery" }] },
+    ];
+    const sections = wizard.sectionsForChoiceGroups(groups);
+    assert(JSON.stringify(sections.map((s) => s.source)) === '["Elf","Fighter","Other"]', "sectionsForChoiceGroups sources in order");
+    assert(sections[0].groups.length === 2 && sections[2].groups.length === 1, "sectionsForChoiceGroups buckets");
+    assert(JSON.stringify(wizard.sectionsForChoiceGroups([])) === "[]", "sectionsForChoiceGroups empty");
+    const store = { g1: ["a"], g2: [], g3: [], g4: ["d"] };
+    assert(wizard.sectionGroupsSatisfied(sections[0].groups, store) === true, "sectionGroupsSatisfied complete section");
+    assert(wizard.sectionGroupsSatisfied(sections[1].groups, store) === false, "sectionGroupsSatisfied incomplete section");
+    assert(wizard.sectionsComplete(sections, store) === false, "sectionsComplete ANDs across sections");
+    assert(wizard.sectionsComplete(sections, { ...store, g3: ["c"] }) === true, "sectionsComplete all done");
+    assert(JSON.stringify(wizard.incompleteSectionNames(sections, store)) === '["Fighter"]', "incompleteSectionNames lists only open sections");
+    assert(JSON.stringify(wizard.incompleteSectionNames(sections, { ...store, g3: ["c"] })) === "[]", "incompleteSectionNames empty when done");
+    // Resolver form: owned set may differ per group (exclude-own-group readers).
+    const ownedFor = (key) => (key === "g3" ? new Set(["athleticsProf"]) : new Set());
+    assert(wizard.sectionsComplete(sections, { g1: ["a"], g3: [], g4: ["d"] }, ownedFor) === true, "sectionsComplete resolver-owned freebie");
+    // Collapsible "Your choices" sections: expanded by default, memory keyed per step+source.
+    assert(wizard.isChoiceSectionCollapsed("basics:Elf") === false, "section expanded by default");
+    wizard.setChoiceSectionCollapsed("basics:Elf", true);
+    assert(wizard.isChoiceSectionCollapsed("basics:Elf") === true, "section collapse remembered");
+    wizard.setChoiceSectionCollapsed("basics:Elf", false);
+    assert(wizard.isChoiceSectionCollapsed("basics:Elf") === false, "section expand remembered");
+    // Staged ability bonuses: add-ops to score fields sum per ability with sources.
+    {
+      const entries = [
+        { source: "Elf", bundle: { statModifiers: [{ op: "add", targetFieldId: "dexScore", value: 2 }, { op: "grantTag", targetFieldId: "languages", value: "Elvish" }] } },
+        { source: "Fighter", bundle: { statModifiers: [{ op: "add", targetFieldId: "strScore", value: 1 }, { op: "add", targetFieldId: "other", value: 5 }] } },
+        { source: "", bundle: null },
+      ];
+      const bonuses = wizard.abilityScoreBonusesFrom(entries, ["str", "dex", "con"]);
+      assert(bonuses.dex.bonus === 2 && bonuses.dex.sources.join() === "Elf", "abilityScoreBonusesFrom dex");
+      assert(bonuses.str.bonus === 1 && bonuses.con.bonus === 0 && bonuses.con.sources.length === 0, "abilityScoreBonusesFrom str/con");
+    }
+    // Source defaults: usable only when the system still exists with at least one known book.
+    {
+      const systems = [{ id: "dnd5e-2014" }];
+      const packsFor = (id) => (id === "dnd5e-2014" ? [{ id: "phb" }, { id: "xanathar" }] : []);
+      assert(wizard.sanitizeSourceDefault({ primary: "dnd5e-2014", included: ["phb", "xanathar"] }, systems, packsFor)?.included.join() === "phb,xanathar", "sanitizeSourceDefault keeps known");
+      assert(wizard.sanitizeSourceDefault({ primary: "dnd5e-2014", included: ["phb", "nope"] }, systems, packsFor)?.included.join() === "phb", "sanitizeSourceDefault drops unknown books");
+      assert(wizard.sanitizeSourceDefault({ primary: "gone", included: ["phb"] }, systems, packsFor) === null, "sanitizeSourceDefault rejects unknown system");
+      assert(wizard.sanitizeSourceDefault({ primary: "dnd5e-2014", included: ["nope"] }, systems, packsFor) === null, "sanitizeSourceDefault rejects empty books");
+      assert(wizard.sanitizeSourceDefault(null, systems, packsFor) === null, "sanitizeSourceDefault null-safe");
+    }
+  }
   assert(wizard.stepIsComplete({}) === true && wizard.stepIsComplete({ isComplete: () => false }) === false, "stepIsComplete");
   {
     const groups = [{

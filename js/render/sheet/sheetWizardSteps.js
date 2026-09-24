@@ -451,14 +451,27 @@ export function pointBuyNoteText(spent, budget) {
   return `Points spent: ${spent}/${budget}`;
 }
 
-export function abilityRowInto(scoresWrap, id, control, description, modifierFn, formatFn) {
+/** One ability's staged bonus as a display line, e.g. base 15 + 2
+ *  from Elf → "+2 from Elf → 17 total". Empty string when there is
+ *  no bonus (the row then shows nothing extra). Pure. */
+export function abilityBonusNoteText(base, bonus, sources = []) {
+  if (!bonus) return "";
+  const total = (Number(base) || 0) + bonus;
+  const sign = bonus > 0 ? `+${bonus}` : `${bonus}`;
+  const who = (sources || []).length ? ` from ${(sources || []).join(", ")}` : "";
+  return `${sign}${who} → ${total} total`;
+}
+
+export function abilityRowInto(scoresWrap, id, control, description, modifierFn, formatFn, bonusTextFn = null) {
   const modValue = el("div", { class: "input-group__control wizard__ability-modifier-value" });
+  const bonusNote = bonusTextFn ? el("p", { class: "wizard__ability-row-description wizard__ability-bonus" }) : null;
   const row = el("div", { class: "wizard__ability-row" },
     el("label", { class: "level-guide__field", text: id.toUpperCase() }, control),
     el("div", { class: "level-guide__field wizard__ability-modifier" },
       el("span", { text: "Modifier" }),
       modValue),
-    el("p", { class: "wizard__ability-row-description", text: description }));
+    el("p", { class: "wizard__ability-row-description", text: description }),
+    bonusNote);
   scoresWrap.append(row);
 
   // Returns an updater the caller invokes whenever `control`'s value
@@ -466,7 +479,12 @@ export function abilityRowInto(scoresWrap, id, control, description, modifierFn,
   // the modifier directly.
   const updateModifier = () => {
     const score = Number(control.value);
-    modValue.textContent = formatFn(modifierFn(Number.isFinite(score) ? score : 10));
+    const base = Number.isFinite(score) ? score : 10;
+    modValue.textContent = formatFn(modifierFn(base));
+    if (bonusNote) {
+      bonusNote.textContent = bonusTextFn(id, base);
+      bonusNote.hidden = !bonusNote.textContent;
+    }
   };
   updateModifier();
   return updateModifier;
@@ -477,8 +495,16 @@ export function renderAbilitiesStepInto(container, deps) {
     abilityIds, descriptions, scores, method, budget, min, max,
     costFn, affordableFn, rollFn, modifierFn, formatFn, saveFn,
     onMethodChange,
+    // Optional staged bonuses ({ [id]: { bonus, sources } }, see
+    // abilityScoreBonusesFrom): shown per row as "+2 from Elf → 17
+    // total" so granted bonuses never surprise. Absent means no
+    // bonuses on file — rows render exactly as before.
+    bonuses = null,
   } = deps;
   container.append(el("p", { class: "leveling-tab__intro", text: "Set your six ability scores. Switching methods below resets the scores to fit it." }));
+  const bonusTextFn = bonuses
+    ? (id, base) => abilityBonusNoteText(base, bonuses[id]?.bonus || 0, bonuses[id]?.sources || [])
+    : null;
 
   const methodGroup = el("label", { class: "level-guide__field wizard__ability-method", text: "Method" });
   const methodSelect = el("select", { class: "input-group__control" });
@@ -524,7 +550,7 @@ export function renderAbilitiesStepInto(container, deps) {
           updateNote();
           updateModifier();
         });
-        const updateModifier = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn);
+        const updateModifier = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn);
       });
       updateNote();
     } else if (current === "roll") {
@@ -545,14 +571,14 @@ export function renderAbilitiesStepInto(container, deps) {
       });
       abilityIds.forEach((id) => {
         const input = scoreInput(id, 3, 18, (target) => { scores[id] = Number(target.value) || 10; saveFn(); updateModifier(); });
-        const updateModifier = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn);
+        const updateModifier = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn);
         inputs[id] = input;
         modifierUpdaters[id] = updateModifier;
       });
     } else {
       abilityIds.forEach((id) => {
         const input = scoreInput(id, 1, 30, (target) => { scores[id] = Number(target.value) || 10; saveFn(); updateModifier(); });
-        const updateModifier = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn);
+        const updateModifier = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn);
       });
     }
   }

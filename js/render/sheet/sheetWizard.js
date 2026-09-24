@@ -207,6 +207,107 @@ export function groupPicksSatisfied(group, selectedIds = [], owned = new Set()) 
   return counted >= Math.max(0, (group.minSelections || 0) - freebies);
 }
 
+/** Groups choice groups into "Your choices" sections by originating
+ *  pick (the group's `source`, i.e. the race/class/subclass/background
+ *  name that granted it), in first-appearance order. Groups with no
+ *  source land in a trailing "Other" section so nothing silently
+ *  vanishes from a merged step. Each section is
+ *  `{ source, groups }` — the renderer puts one collapsible section
+ *  per entry directly under its pick. Pure. */
+export function sectionsForChoiceGroups(groups = []) {
+  const bySource = new Map();
+  for (const group of groups || []) {
+    const source = (group?.source || "").trim() || "Other";
+    if (!bySource.has(source)) bySource.set(source, []);
+    bySource.get(source).push(group);
+  }
+  return [...bySource.entries()].map(([source, sectionGroups]) => ({ source, groups: sectionGroups }));
+}
+
+/** Whether every group in one section is satisfied. `ownedFor` is
+ *  either a fixed owned Set (shared across groups) or a resolver
+ *  `(groupKey) => Set` for callers whose owned set excludes the group
+ *  being checked (see ownedSkillIdsFromBundles' excludeGroupKey).
+ *  Pure — gating for one "Your choices" section. */
+export function sectionGroupsSatisfied(groups = [], choicesStore = {}, ownedFor = null) {
+  const ownedOf = typeof ownedFor === "function"
+    ? ownedFor
+    : () => (ownedFor instanceof Set ? ownedFor : new Set());
+  return (groups || []).every((group) =>
+    groupPicksSatisfied(group, choicesStore?.[group.key] || [], ownedOf(group.key)));
+}
+
+/** Whether every section in a merged step is satisfied — a merged
+ *  step blocks Next until each of its sections is complete, not just
+ *  until the page as a whole looks done. Pure. */
+export function sectionsComplete(sections = [], choicesStore = {}, ownedFor = null) {
+  return (sections || []).every((section) =>
+    sectionGroupsSatisfied(section?.groups || [], choicesStore, ownedFor));
+}
+
+/** Sources of the sections still needing picks (in order) — for the
+ *  "still to choose" hint on a merged step. Empty when complete.
+ *  Pure. */
+export function incompleteSectionNames(sections = [], choicesStore = {}, ownedFor = null) {
+  return (sections || [])
+    .filter((section) => !sectionGroupsSatisfied(section?.groups || [], choicesStore, ownedFor))
+    .map((section) => section?.source || "Other");
+}
+
+/** Collapsed memory for "Your choices" sections, keyed by
+ *  `${stepId}:${source}`. Choice sections rebuild on cross-step
+ *  changes (full re-render), which would otherwise expand whatever
+ *  the player just collapsed — same pattern as expandedChoiceRows.
+ *  Not a Map of booleans: absent means expanded, the default. */
+const collapsedChoiceSections = new Set();
+
+export function isChoiceSectionCollapsed(key) {
+  return collapsedChoiceSections.has(key || "");
+}
+
+export function setChoiceSectionCollapsed(key, collapsed) {
+  if (collapsed) collapsedChoiceSections.add(key || "");
+  else collapsedChoiceSections.delete(key || "");
+}
+
+/** Ability-score bonuses granted by staged picks (race bonuses
+ *  chief among them), for display on the Ability Scores step so the
+ *  applied total never surprises. `entries` is
+ *  `[{ source, bundle }]` (e.g. Race/Class/Subclass/Background with
+ *  their staged bundles); only `add`-op modifiers targeting
+ *  `${abilityId}Score` count. Returns
+ *  `{ [abilityId]: { bonus, sources } }` — zero-bonus abilities map
+ *  to `{ bonus: 0, sources: [] }`. Pure. */
+export function abilityScoreBonusesFrom(entries = [], abilityIds = []) {
+  const out = {};
+  (abilityIds || []).forEach((id) => { out[id] = { bonus: 0, sources: [] }; });
+  (entries || []).forEach(({ source, bundle }) => {
+    (bundle?.statModifiers || []).forEach((mod) => {
+      if (mod?.op !== "add" || !Number.isFinite(mod.value) || !mod.value) return;
+      const id = (abilityIds || []).find((aid) => mod.targetFieldId === `${aid}Score`);
+      if (!id) return;
+      out[id].bonus += mod.value;
+      if (source && !out[id].sources.includes(source)) out[id].sources.push(source);
+    });
+  });
+  return out;
+}
+
+/** Validates a persisted source default against the currently known
+ *  rulesets: the primary system must still exist, and at least one
+ *  stored content book must still belong to it. Returns
+ *  `{ primary, included }` (books in stored order, unknown ones
+ *  dropped) or null when nothing usable survives. Pure — storage
+ *  access stays with the caller. */
+export function sanitizeSourceDefault(stored, systems = [], packsForFn = () => []) {
+  const primary = stored?.primary;
+  if (!primary || !(systems || []).some((s) => s?.id === primary)) return null;
+  const packIds = new Set(((packsForFn(primary) || []).map((p) => p?.id).filter(Boolean)));
+  const included = [...new Set(stored?.included || [])].filter((id) => packIds.has(id));
+  if (!included.length) return null;
+  return { primary, included };
+}
+
 /** Merges several language choice groups into one picker: every
  *  distinct offered language (vocabulary order first, stragglers
  *  alphabetical after), the combined pick budget, and the combined
