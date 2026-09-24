@@ -216,6 +216,9 @@ import {
   groupOptionsOf,
   expressPicksFor,
   spellPicksCompleteForClass,
+  magicalSecretsUnlocked,
+  secretsPickedCount,
+  secretsCompleteFor,
   sectionsForChoiceGroups,
   sectionsComplete,
   incompleteSectionNames,
@@ -3195,6 +3198,72 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     });
   }
 
+  /** Names firmly on the Bard list (explicitly Bard-tagged, not merely
+   *  unlisted-everywhere entries) across `levels` — shared by the
+   *  Magical Secrets picker and its completeness count so both agree
+   *  on what counts as a Secret. */
+  function firmBardSpellNames(levels) {
+    const set = new Set();
+    (levels || []).forEach((lvl) => spellsForLevel(lvl, "Bard").forEach((s) => {
+      if (s?.name && (s.classList || []).some((c) => String(c).toLowerCase() === "bard")) set.add(s.name);
+    }));
+    return set;
+  }
+
+  /** Whether a Bard's Magical Secrets picks are done at `classLevel`
+   *  (other classes trivially pass). Counts Spells Known entries
+   *  outside the firm Bard list against the unlock total — lenient by
+   *  design (a racial spell counts too), so the step completes rather
+   *  than traps. */
+  function secretsSatisfiedFor(className, classLevel, subclassName) {
+    const unlocked = magicalSecretsUnlocked(className, subclassName, classLevel);
+    if (!unlocked) return true;
+    const plan = getLevelUpPlan(character.rules?.rulesetId || character.rulesetId, "Bard", Math.max(1, classLevel));
+    const levels = sharedAvailableSpellLevels(plan);
+    const picked = secretsPickedCount(
+      findSetupField("spellsKnown", "Spells Known")?.items || [],
+      [...firmBardSpellNames(levels)]
+    );
+    return secretsCompleteFor(unlocked, picked);
+  }
+
+  /** Magical Secrets picker section (Bard 10/14/18, Lore 6): an
+   *  any-class multi-picker over the Bard's available spell levels
+   *  (Bard-listed spells excluded — those belong to the class picker),
+   *  capped at the still-unpicked unlock total through the shared
+   *  spell picker, writing straight to Spells Known. Renders nothing
+   *  when no Secrets are unlocked, so non-Bards never see it. */
+  function renderSecretsSectionInto(container, className, classLevel, subclassName) {
+    const unlocked = magicalSecretsUnlocked(className, subclassName, classLevel);
+    if (!unlocked) return;
+    const rulesetId = character.rules?.rulesetId || character.rulesetId;
+    const plan = getLevelUpPlan(rulesetId, "Bard", Math.max(1, classLevel));
+    const levels = sharedAvailableSpellLevels(plan);
+    const bardNames = firmBardSpellNames(levels);
+    const known = findSetupField("spellsKnown", "Spells Known")?.items || [];
+    const picked = secretsPickedCount(known, [...bardNames]);
+    const remaining = Math.max(0, unlocked - picked);
+    container.append(el("p", { class: "wizard__section-label", text: `Magical Secrets — stolen spells (${Math.min(picked, unlocked)}/${unlocked})` }));
+    if (!spellsForLevel(0, null).length && !levels.some((lvl) => lvl > 0 && spellsForLevel(lvl, null).length)) {
+      noteInto(container, "No Spell List catalog imported yet — track Magical Secrets directly on the sheet's Spells Known list.");
+      return;
+    }
+    renderSpellPickerInto(container, { rulesetId, className: "Bard", level: Math.max(1, classLevel) }, {
+      spellcastingInfoFn: (name) => getSpellcastingInfo(name),
+      ensureFieldFn: () => ensureSpellListField(),
+      planFn: (id, name, lvl) => getLevelUpPlan(id, name, lvl),
+      // Secrets are leveled spells from any list — no cantrips, and
+      // only the still-unpicked unlock total (recomputed every render).
+      limitFn: () => ({ cantrips: 0, spells: remaining, style: "known" }),
+      levelByNameFn: (name) => spellLevelByName(name),
+      spellsForLevelFn: (lvl) => spellsForLevel(lvl, null).filter((s) => !bardNames.has(s.name)),
+      appendUniqueFn: (field, name) => appendUniqueTextListItem(field, name),
+      saveFn: () => saveWithStatus("layout", character.layout),
+      gridFn: () => renderPageGrid(),
+      multiRowsFn: (c, names, opts) => renderPickerRows(c, names, { ...opts, mode: "multi" }),
+    });
+  }
+
   /** Equipment Proficiencies tab: one picker per category over the
    *  full vocabulary, with already-granted tags shown locked. A
    *  category with nothing left to choose renders the
@@ -3881,6 +3950,27 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       };
     }
     fillSpellsToCap();
+    // Bard Secrets unlocks fill first-available too, so Express lands
+    // on a complete Class step like every other class.
+    const secretsUnlocked = magicalSecretsUnlocked(cls, state.subclass, state.level);
+    if (secretsUnlocked > 0) {
+      const bardPlan = getLevelUpPlan(state.rulesetId, "Bard", Math.max(1, state.level));
+      const bardLevels = sharedAvailableSpellLevels(bardPlan);
+      const bardNames = firmBardSpellNames(bardLevels);
+      const secretsField = ensureSpellListField();
+      if (secretsField) {
+        const secretsKnown = new Set(secretsField.items || []);
+        let secretsPicked = secretsPickedCount([...secretsKnown], [...bardNames]);
+        for (const lvl of bardLevels) {
+          for (const { name } of spellsForLevel(lvl, null)) {
+            if (secretsPicked >= secretsUnlocked || !name || secretsKnown.has(name) || bardNames.has(name)) continue;
+            appendUniqueTextListItem(secretsField, name);
+            secretsKnown.add(name);
+            secretsPicked++;
+          }
+        }
+      }
+    }
     saveRules();
     // Land on Gear & Review: the shell resolves the persisted step id
     // to its index on the next render, bypassing forward-gating (dots
@@ -4035,7 +4125,8 @@ export function renderCustomSheet(root, character, store, opts = {}) {
           const subs = liveSubclassData(state.className);
           if (subs.subclasses.length && state.level >= subs.subclassLevel && !state.subclass) return false;
           if (!choicesComplete(classChoiceGroups)) return false;
-          return spellPicksComplete(state.className, state.level);
+          if (!spellPicksComplete(state.className, state.level)) return false;
+          return secretsSatisfiedFor(state.className, state.level, state.subclass);
         },
         render(container) {
           const expressWrap = sectionInto(container, "Express setup");
@@ -4071,6 +4162,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             const spellWrap = sectionInto(container, "Spells");
             renderSpellPicker(spellWrap, { rulesetId: state.rulesetId, className: state.className, level: state.level });
           }
+          renderSecretsSectionInto(container, state.className, state.level, state.subclass);
         },
       },
       {
@@ -4581,6 +4673,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         // that class's spells only, so the other class's spells in the
         // shared Spells Known list can neither satisfy nor block them.
         isComplete: () => {
+          if (!secretsSatisfiedFor(levelClass, newClassLevel, pending.subclass || selectedSubclass || "")) return false;
           if (multiclassEntries().length || takingNewClass) {
             return spellPicksCompleteForClass({
               knownItems: findStarterField("spellsKnown", "Spells Known")?.items || [],
@@ -4596,6 +4689,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         render(container) {
           noteInto(container, `This ruleset sets your spell slots to ${slots} at this level.`, "level-guide__summary");
           renderSpellPicker(container, { rulesetId: character.rules?.rulesetId || character.rulesetId, className: levelClass, level: newClassLevel });
+          renderSecretsSectionInto(container, levelClass, newClassLevel, pending.subclass || selectedSubclass || "");
         },
       });
     }

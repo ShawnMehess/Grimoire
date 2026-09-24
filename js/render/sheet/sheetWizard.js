@@ -882,6 +882,48 @@ export function canLearnMore(levelNum, limit, cantripCount, spellCount) {
   return current < cap;
 }
 
+/** Bard Magical Secrets unlocks (2014 PHB): College of Lore learns 2
+ *  extra spells at 6th, every Bard learns 2 more at 10th, 14th, and
+ *  18th — each pick from any class's list. `subclasses` names the
+ *  subclass-name fragments an entry requires (null = every Bard).
+ *  Data, so future rulesets adjust the table, not the wizard. */
+export const MAGICAL_SECRETS_UNLOCKS = [
+  { minLevel: 6, count: 2, subclasses: ["lore"] },
+  { minLevel: 10, count: 2, subclasses: null },
+  { minLevel: 14, count: 2, subclasses: null },
+  { minLevel: 18, count: 2, subclasses: null },
+];
+
+/** Total Magical Secrets picks unlocked for a Bard of `classLevel`
+ *  (0 for any other class). Pure. */
+export function magicalSecretsUnlocked(className, subclassName, classLevel) {
+  if (String(className || "").trim().toLowerCase() !== "bard") return 0;
+  const sub = String(subclassName || "").toLowerCase();
+  let total = 0;
+  for (const unlock of MAGICAL_SECRETS_UNLOCKS) {
+    if ((classLevel ?? 0) < unlock.minLevel) continue;
+    if (unlock.subclasses && !unlock.subclasses.some((s) => sub.includes(s))) continue;
+    total += unlock.count;
+  }
+  return total;
+}
+
+/** How many of the known spells look like Secrets picks: anything in
+ *  Spells Known outside the Bard's own lists. Deliberately lenient
+ *  (a racial or feat spell counts too) so the Secrets step completes
+ *  rather than traps — the picker, not this count, is the mechanism.
+ *  Pure. */
+export function secretsPickedCount(knownItems = [], bardSpellNames = []) {
+  const bard = new Set(bardSpellNames || []);
+  return (knownItems || []).filter((name) => !bard.has(name)).length;
+}
+
+/** Whether the Secrets picks are done: none unlocked, or at least
+ *  the unlocked total picked. Pure. */
+export function secretsCompleteFor(unlocked, picked) {
+  return (picked ?? 0) >= (unlocked ?? 0);
+}
+
 /** Spell-pick completeness for ONE class sharing a sheet-wide Spells
  *  Known list (multiclass level-ups): only spells on that class's own
  *  lists count toward its caps, so another class's spells can neither

@@ -15,10 +15,10 @@
 // imports — so canonical-comparison stays exact. dnd5e.js keeps using
 // the raw entries (it only reads names/slots/subclass lists).
 //
-// What stays a note on purpose (free choice from hundreds of spells
-// needs a picker UI that doesn't exist — record picks in Spells Known
-// via the spell browser instead):
-// - Bard Magical Secrets, Warlock Mystic Arcanum.
+// What stays a note on purpose (a free spell of choice with no
+// bounded picker — record it in Spells Known via the spell browser):
+// - Warlock Mystic Arcanum. (Bard Magical Secrets used to be here too;
+//   it now has a real picker — see MAGICAL_SECRETS_UNLOCKS.)
 
 import { DEFAULT_CONTENT } from "./defaultContent.js";
 import { SUBCLASS_SUPPLEMENT } from "./subclassContent.js";
@@ -227,8 +227,12 @@ function patchBard(bundle) {
       options: skillExpertiseOptions("bard"),
     });
   });
-  // Magical Secrets intentionally stays a note (free pick from every
-  // class's list — record chosen spells in Spells Known via the browser).
+  // Magical Secrets stubs are removed (not replaced with a choice
+  // group — hundreds of spell options would bloat every save). The
+  // picker lives in the wizard instead: MAGICAL_SECRETS_UNLOCKS in
+  // sheetWizard.js plus the Magical Secrets section on the Bard's
+  // spell steps, writing straight to Spells Known.
+  takeNotes(bundle, (g) => /Magical Secrets/.test(g.name || ""));
   return bundle;
 }
 

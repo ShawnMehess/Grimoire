@@ -327,6 +327,18 @@ assert(wizardMod.canLearnMore(0, { cantrips: 2, spells: 5 }, 2, 0) === false, "c
   assert(wizardMod.spellPicksCompleteForClass({ ...base, knownItems: ["Sacred Flame", "Cure Wounds", "Fire Bolt", "Magic Missile", "Light", "Spare"] }) === true, "other-class flood neither satisfies nor blocks");
   assert(wizardMod.spellPicksCompleteForClass({ ...base, knownItems: [], limit: null }) === true, "per-class null limit complete");
   assert(wizardMod.spellPicksCompleteForClass({ ...base, knownItems: [], spellsForLevelFn: () => [] }) === true, "per-class empty catalog complete");
+  // Bard Magical Secrets unlocks (2014 PHB): Lore 6, all Bards 10/14/18.
+  assert(wizardMod.magicalSecretsUnlocked("Bard", "", 9) === 0, "secrets none before 10");
+  assert(wizardMod.magicalSecretsUnlocked("Bard", "", 10) === 2, "secrets two at 10");
+  assert(wizardMod.magicalSecretsUnlocked("Bard", "College of Lore", 6) === 2, "secrets lore at 6");
+  assert(wizardMod.magicalSecretsUnlocked("Bard", "College of Valor", 6) === 0, "secrets non-lore nothing at 6");
+  assert(wizardMod.magicalSecretsUnlocked("Bard", "College of Lore", 18) === 8, "secrets lore total at 18");
+  assert(wizardMod.magicalSecretsUnlocked("Bard", "", 18) === 6, "secrets total at 18");
+  assert(wizardMod.magicalSecretsUnlocked("Wizard", "", 20) === 0, "secrets bards only");
+  assert(wizardMod.magicalSecretsUnlocked("bard", "", 10) === 2, "secrets case-insensitive");
+  assert(wizardMod.secretsPickedCount(["Fireball", "Cure Wounds"], ["Cure Wounds"]) === 1, "secretsPickedCount non-bard only");
+  assert(wizardMod.secretsCompleteFor(2, 2) === true && wizardMod.secretsCompleteFor(2, 1) === false, "secretsCompleteFor");
+  assert(wizardMod.secretsCompleteFor(0, 0) === true, "secretsCompleteFor nothing unlocked");
 }
 
 const wizardStepsMod = await import("../js/render/sheet/sheetWizardSteps.js");
