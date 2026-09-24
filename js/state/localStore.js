@@ -157,6 +157,37 @@ export async function deleteCharacter(characterId) {
   persistCharacters(map);
 }
 
+// --- Character images -------------------------------------------------------
+//
+// Same export names as characterStore.js so renderers stay
+// backend-agnostic. Offline has no Storage: uploads keep the data URL
+// (local documents never hit the Firestore cap), deletes are no-ops,
+// and the next online load migrates data URLs it finds.
+
+/** Offline pass-through: keeps the data URL (no path). */
+export async function uploadCharacterImage(characterId, dataUrl) {
+  void characterId;
+  return { path: null, url: dataUrl };
+}
+
+/** No stored object offline — nothing to resolve. */
+export async function characterImageUrl(path) {
+  void path;
+  return null;
+}
+
+/** No stored object offline — nothing to delete. */
+export async function deleteCharacterImage(path) {
+  void path;
+  return false;
+}
+
+/** No stored objects offline — nothing to wipe. */
+export async function deleteCharacterImagesFor(characterId) {
+  void characterId;
+  return false;
+}
+
 // --- Sheet templates ---------------------------------------------------------
 
 function parseTemplateName(name) {

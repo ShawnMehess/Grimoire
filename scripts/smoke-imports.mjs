@@ -834,6 +834,65 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   assert(flavorFor("Nope") === null, "flavorFor miss");
 }
 
+// Character images: pure slot walk + Storage paths (backends stay thin).
+{
+  const images = await import("../js/state/characterImages.js");
+  assert(images.isDataUrlImage("data:image/png;base64,xx") === true, "isDataUrlImage data");
+  assert(images.isDataUrlImage("https://x/y.jpg") === false, "isDataUrlImage hosted");
+  assert(images.isDataUrlImage(null) === false, "isDataUrlImage null-safe");
+  assert(images.storagePathFor("abc", "data:image/png;base64,xx", () => "n1") === "characterImages/abc/n1.png", "storagePathFor png ext");
+  assert(images.storagePathFor("a/b?c", "data:image/svg+xml;base64,xx", () => "n2").startsWith("characterImages/abc/"), "storagePrefixFor sanitizes");
+  assert(images.storagePathFor("abc", "https://x/y.jpg", () => "n3") === "characterImages/abc/n3.jpeg", "storagePathFor default ext");
+  {
+    // One data-URL picture, one hosted background, one data-URL
+    // background override, one imageless picture: three slots, and
+    // set() swaps data+ref together.
+    const doc = {
+      layout: [{
+        kind: "block", style: { bgImage: "https://x/bg.jpg", bgImageRef: "characterImages/abc/bg.jpg" },
+        children: [
+          { kind: "field", fieldType: "picture", imageData: "data:image/jpeg;base64,AA" },
+          { kind: "field", fieldType: "picture", imageData: null },
+          { kind: "field", fieldType: "text", value: "hi" },
+        ],
+      }],
+      sheetTabs: [{ layout: [{
+        kind: "block", style: {},
+        styleOverrides: { bgImage: "data:image/png;base64,BB" },
+        children: [],
+      }] }],
+    };
+    const slots = [];
+    images.forEachStoredImage(doc, (slot) => slots.push({ kind: slot.kind, ...slot.get() }));
+    assert(slots.length === 4, "forEachStoredImage visits every image slot");
+    assert(slots.filter((s) => images.isDataUrlImage(s.data)).length === 2, "forEachStoredImage finds data URLs");
+    assert(slots.find((s) => s.kind === "background" && s.ref === "characterImages/abc/bg.jpg") != null, "forEachStoredImage keeps refs");
+    let dataUrlCount = 0;
+    images.forEachStoredImage(doc, (slot) => {
+      if (images.isDataUrlImage(slot.get().data)) {
+        slot.set("https://cdn/x.jpg", "characterImages/abc/x.jpg");
+        dataUrlCount++;
+      }
+    });
+    assert(dataUrlCount === 2, "forEachStoredImage migrates data URLs");
+    let remaining = 0;
+    images.forEachStoredImage(doc, (slot) => { if (images.isDataUrlImage(slot.get().data)) remaining++; });
+    assert(remaining === 0, "forEachStoredImage no data URLs left");
+  }
+  // Backend wiring (source check — characterStore imports Firebase CDN
+  // modules Node cannot load, so this asserts the wiring by content).
+  const { readFileSync } = await import("node:fs");
+  const storeSrc = readFileSync(new URL("../js/state/characterStore.js", import.meta.url), "utf8");
+  for (const token of ["firebase-storage.js", "uploadCharacterImage", "deleteCharacterImagesFor", "migrateDataUrlImages", "forEachStoredImage"]) {
+    assert(storeSrc.includes(token), `characterStore wires ${token}`);
+  }
+  const localSrc = readFileSync(new URL("../js/state/localStore.js", import.meta.url), "utf8");
+  for (const token of ["uploadCharacterImage", "deleteCharacterImage", "deleteCharacterImagesFor", "characterImageUrl"]) {
+    assert(localSrc.includes(token), `localStore mirrors ${token}`);
+  }
+  assert(!localSrc.includes("firebase-storage"), "localStore stays Firebase-free");
+}
+
 // Spell mechanics lines + choice review lines + gating helpers.
 {
   const wizard = await import("../js/render/sheet/sheetWizard.js");

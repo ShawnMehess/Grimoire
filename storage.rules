@@ -1,0 +1,30 @@
+rules_version = '2';
+
+// Firebase Storage rules for character images (picture fields +
+// background images — see js/state/characterImages.js for the shapes,
+// js/state/characterStore.js for uploads/deletes/migration).
+//
+// Layout mirrors firestore.rules: any signed-in friend can READ an
+// image (a shared sheet's portraits must load for the whole table),
+// but only the character's owner can WRITE or DELETE under that
+// character's prefix. Deploy alongside firestore.rules:
+//
+//   firebase deploy --only storage
+// (or paste into the Firebase console Storage rules editor;
+// requires the Blaze plan for cross-service get() — the owner check
+// below reads the character document).
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /characterImages/{characterId}/{imageId} {
+      function characterOwner() {
+        return get(/databases/(default)/documents/characters/$(characterId)).data.ownerId;
+      }
+
+      allow read: if request.auth != null;
+
+      allow write, delete: if request.auth != null
+                           && characterOwner() == request.auth.uid;
+    }
+  }
+}

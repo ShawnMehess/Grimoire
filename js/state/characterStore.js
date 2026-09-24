@@ -8,6 +8,7 @@
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js";
 import { bundleDedupeKey as sharedBundleDedupeKey } from "./bundleMaps.js";
+import { isDataUrlImage, storagePathFor, storagePrefixFor, forEachStoredImage } from "./characterImages.js";
 import {
   getFirestore,
   doc,
@@ -32,6 +33,14 @@ import {
   GoogleAuthProvider,
   signOut,
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-auth.js";
+import {
+  getStorage,
+  ref as storageRef,
+  uploadString,
+  getDownloadURL,
+  deleteObject,
+  listAll,
+} from "https://www.gstatic.com/firebasejs/12.12.0/firebase-storage.js";
 
 // Same project as the earlier Grimoire/DiceAndData attempt.
 const firebaseConfig = {
@@ -46,6 +55,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
 // Firefox's Private Browsing mode blocks/cripples IndexedDB, which is
 // what Firebase Auth's default persistence uses. The auth SDK's own
@@ -144,9 +154,140 @@ export async function isCurrentUserAdmin() {
 // file for the why. Imported here for the CRUD functions below.
 import { stripBundlesFromPatch, hydrateCharacter } from "./bundleMaps.js";
 
+// --- Character images (Firebase Storage) --------------------------------------
+//
+// Picture fields and background images used to live on the character
+// document as data URLs, pushing documents toward Firestore's 1MB cap.
+// New and replaced images upload here instead: the document keeps the
+// renderable download URL plus the Storage path sidecar (`imageRef` /
+// `bgImageRef`) for deletes and re-resolution — see
+// ./characterImages.js for the shared shapes. Renderers only read the
+// URL, so they work unchanged; offline keeps data URLs (localStore.js
+// pass-through) and migrates on the next online load.
+
+const downloadUrlCache = new Map();
+
+function newImageId() {
+  return crypto.randomUUID ? crypto.randomUUID() : `img-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+/** Uploads one data-URL image for a character. Returns
+ *  `{ path, url }`; non-data URLs pass through untouched (nothing to
+ *  upload). Upload failures reject for the caller to fall back to the
+ *  data URL. */
+export async function uploadCharacterImage(characterId, dataUrl) {
+  if (!isDataUrlImage(dataUrl)) return { path: null, url: dataUrl };
+  const path = storagePathFor(characterId, dataUrl, newImageId);
+  const ref = storageRef(storage, path);
+  await uploadString(ref, dataUrl, "data_url");
+  const url = await getDownloadURL(ref);
+  downloadUrlCache.set(path, url);
+  return { path, url };
+}
+
+/** Download URL for a stored path (memory-cached per session). */
+export async function characterImageUrl(path) {
+  if (!path) return null;
+  if (downloadUrlCache.has(path)) return downloadUrlCache.get(path);
+  const url = await getDownloadURL(storageRef(storage, path));
+  downloadUrlCache.set(path, url);
+  return url;
+}
+
+/** Deletes one stored image (best-effort: false, never throws). */
+export async function deleteCharacterImage(path) {
+  if (!path) return false;
+  downloadUrlCache.delete(path);
+  try {
+    await deleteObject(storageRef(storage, path));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Deletes every stored image under a character's prefix (best-effort:
+ *  false, never throws) — called from deleteCharacter below. */
+export async function deleteCharacterImagesFor(characterId) {
+  try {
+    const res = await listAll(storageRef(storage, storagePrefixFor(characterId)));
+    await Promise.all(res.items.map((item) => deleteObject(item).catch(() => {})));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Uploads every data-URL image still on the document and swaps the
+ *  slots to `{ url, path }`. Returns true when any slot changed (the
+ *  caller saves the migrated document back). Failed uploads keep
+ *  their data URLs and retry on a later load. */
+async function migrateDataUrlImages(characterId, data) {
+  const jobs = [];
+  forEachStoredImage(data, (slot) => {
+    const { data: value } = slot.get();
+    if (isDataUrlImage(value)) jobs.push({ slot, value });
+  });
+  if (!jobs.length) return false;
+  let changed = false;
+  for (const { slot, value } of jobs) {
+    try {
+      const { path, url } = await uploadCharacterImage(characterId, value);
+      slot.set(url, path);
+      changed = true;
+    } catch (err) {
+      console.warn("Image migration skipped:", err);
+    }
+  }
+  return changed;
+}
+
+/** Fills stored paths missing a usable URL (best-effort, memory-only
+ *  — never persisted): covers documents whose URL was lost without
+ *  its path. Anything unresolvable (offline, deleted) is left alone
+ *  so loads never fail for images. */
+async function resolveMissingImageData(data) {
+  const jobs = [];
+  forEachStoredImage(data, (slot) => {
+    const { data: value, ref } = slot.get();
+    if (ref && typeof value !== "string") jobs.push({ slot, ref });
+  });
+  for (const { slot, ref } of jobs) {
+    try {
+      slot.set(await characterImageUrl(ref), ref);
+    } catch {
+      /* leave the slot as-is */
+    }
+  }
+}
+
 export async function loadCharacter(characterId) {
   const snap = await getDoc(doc(db, CHARACTERS_COLLECTION, characterId));
-  return snap.exists() ? hydrateCharacter({ id: snap.id, ...snap.data() }) : null;
+  if (!snap.exists()) return null;
+  const data = { id: snap.id, ...snap.data() };
+  let migrated = false;
+  try {
+    migrated = await migrateDataUrlImages(characterId, data);
+  } catch (err) {
+    console.warn("Image migration skipped:", err);
+  }
+  try {
+    await resolveMissingImageData(data);
+  } catch {
+    /* images never block a load */
+  }
+  const hydrated = hydrateCharacter(data);
+  if (migrated) {
+    try {
+      await setDoc(doc(db, CHARACTERS_COLLECTION, characterId), {
+        ...stripBundlesFromPatch({ layout: data.layout, sheetTabs: data.sheetTabs }),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    } catch (err) {
+      console.warn("Migrated images could not be saved back:", err);
+    }
+  }
+  return hydrated;
 }
 
 export async function listMyCharacters() {
@@ -193,6 +334,7 @@ export async function saveCharacterFields(characterId, patch) {
 
 export async function deleteCharacter(characterId) {
   await deleteDoc(doc(db, CHARACTERS_COLLECTION, characterId));
+  deleteCharacterImagesFor(characterId).catch(() => {});
 }
 
 // --- Sheet templates -------------------------------------------------------

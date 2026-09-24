@@ -105,3 +105,23 @@ export async function loadCatalog(scope, id) {
 export function currentUserId() {
   return "demo-user";
 }
+
+export async function uploadCharacterImage(characterId, dataUrl) {
+  void characterId;
+  return { path: null, url: dataUrl };
+}
+
+export async function deleteCharacterImage(path) {
+  void path;
+  return false;
+}
+
+export async function deleteCharacterImagesFor(characterId) {
+  void characterId;
+  return false;
+}
+
+export async function characterImageUrl(path) {
+  void path;
+  return null;
+}

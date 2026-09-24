@@ -568,10 +568,16 @@ export function findImageFile(files) {
  *
  *    buildPictureValueInto(field, {
  *      readFileFn, commitFn, clearAvatarsFn, placeholderFn, iconMarkup,
+ *      setImageFn?,
  *    })
- */
+ *
+ *  `readFileFn(file, onLoaded)` may call `onLoaded(url, ref)` twice —
+ *  once with the instant data-URL preview, once with the hosted
+ *  Storage URL + path — and `setImageFn(field, url, ref)` (default:
+ *  plain `imageData` assignment) applies both, so callers that
+ *  persist a Storage sidecar (`imageRef`) only override the default. */
 export function buildPictureValueInto(field, deps) {
-  const { readFileFn, commitFn, clearAvatarsFn, placeholderFn, iconMarkup } = deps;
+  const { readFileFn, commitFn, clearAvatarsFn, placeholderFn, iconMarkup, setImageFn = (f, url) => { f.imageData = url; } } = deps;
   const wrap = document.createElement("div");
   wrap.className = "field-value field-value--picture";
   wrap.addEventListener("pointerdown", (e) => e.stopPropagation());
@@ -595,9 +601,9 @@ export function buildPictureValueInto(field, deps) {
   fileInput.addEventListener("change", () => {
     const file = fileInput.files[0];
     if (!file) return;
-    readFileFn(file, (dataUrl) => {
+    readFileFn(file, (url, ref) => {
       commitFn(() => {
-        field.imageData = dataUrl;
+        setImageFn(field, url, ref);
       });
     });
   });
@@ -620,9 +626,9 @@ export function buildPictureValueInto(field, deps) {
     e.stopPropagation(); // this field is handling it — don't let the
       // page-grid's own "drop an image to create a new picture
       // block" handler also fire for the same drop
-    readFileFn(file, (dataUrl) => {
+    readFileFn(file, (url, ref) => {
       commitFn(() => {
-        field.imageData = dataUrl;
+        setImageFn(field, url, ref);
       });
     });
   });

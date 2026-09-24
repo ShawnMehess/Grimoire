@@ -1191,13 +1191,17 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     // stops it from bubbling here) auto-builds a new block just for it.
     if (imageFile) {
       readImageFile(imageFile, (dataUrl) => {
+        const size = DEFAULT_FIELD_SIZE.picture;
+        const block = createBlock({ name: "New Block", x, y, w: size.w, h: size.h + BLOCK_HEADER_ROWS });
+        const field = createField({ fieldType: "picture", label: "Stat", x: 0, y: 0, w: size.w, h: size.h });
         commitMutation(() => {
-          const size = DEFAULT_FIELD_SIZE.picture;
-          const block = createBlock({ name: "New Block", x, y, w: size.w, h: size.h + BLOCK_HEADER_ROWS });
-          const field = createField({ fieldType: "picture", label: "Stat", x: 0, y: 0, w: size.w, h: size.h });
           field.imageData = dataUrl;
           block.children.push(field);
           currentLayout().push(block);
+        });
+        uploadImageInBackground(dataUrl, (url, ref) => {
+          field.imageData = url;
+          if (ref) field.imageRef = ref;
         });
       });
       return;
@@ -5426,11 +5430,30 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     select.value = field.selected || "";
   }
 
-  /** Reads a File as a data URL, with the same "this might not fit in
-   *  a single Firestore document" warning the block-background image
-   *  upload already gives. */
+  /** Uploads a freshly-picked data-URL image to Firebase Storage in
+   *  the background (preview-first: the data URL applies immediately,
+   *  then swaps to the hosted URL + path once uploaded). `apply(url,
+   *  ref)` writes the result. Offline — or when the upload fails —
+   *  the data URL simply stays: the sheet keeps working, and the next
+   *  online load migrates it (see migrateDataUrlImages in
+   *  characterStore.js). */
+  function uploadImageInBackground(dataUrl, apply) {
+    if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) return;
+    if (typeof store.uploadCharacterImage !== "function") return;
+    store.uploadCharacterImage(character.id, dataUrl).then((result) => {
+      if (!result || !result.url || result.url === dataUrl) return;
+      commitMutation(() => apply(result.url, result.path || null));
+    }).catch((err) => {
+      console.warn("Image upload skipped:", err);
+    });
+  }
+
+  /** Reads a File as a data URL. The "might not fit in a single
+   *  Firestore document" warning only applies offline (local backend
+   *  keeps data URLs) — online images upload to Storage, so there is
+   *  effectively no cap to warn about. */
   function readImageFile(file, onLoaded) {
-    readImageFileInto(file, MAX_IMAGE_BYTES, (msg) => showToast(msg), onLoaded);
+    readImageFileInto(file, store.isLocal ? MAX_IMAGE_BYTES : Infinity, (msg) => showToast(msg), onLoaded);
   }
 
   function personIconSvgMarkup() {
@@ -5447,11 +5470,25 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
   function buildPictureValue(field) {
     return buildPictureValueInto(field, {
-      readFileFn: (file, onLoaded) => readImageFile(file, onLoaded),
+      // Preview-first: the data URL applies instantly, then swaps to
+      // the hosted URL + Storage path once the background upload
+      // lands (offline it just stays a data URL).
+      readFileFn: (file, onLoaded) => readImageFile(file, (dataUrl) => {
+        onLoaded(dataUrl, null);
+        uploadImageInBackground(dataUrl, (url, ref) => onLoaded(url, ref));
+      }),
       commitFn: (fn, opts) => commitMutation(fn, opts),
       clearAvatarsFn: (f) => clearOtherAvatars(f),
       placeholderFn: () => buildAvatarPlaceholderSvg(),
       iconMarkup: personIconSvgMarkup(),
+      setImageFn: (f, url, ref) => {
+        f.imageData = url;
+        if (ref) {
+          const stale = f.imageRef;
+          f.imageRef = ref;
+          if (stale && stale !== ref) store.deleteCharacterImage(stale).catch(() => {});
+        }
+      },
     });
   }
 
@@ -5885,12 +5922,35 @@ try {
   function stylePopoverDeps() {
     return {
       forEditing: (n) => styleForEditing(n),
-      setValue: (n, k, v) => setNodeStyleValue(n, k, v),
+      // Background data URLs preview immediately, then swap to the
+      // hosted URL + Storage path once the background upload lands
+      // (offline they just stay data URLs). The ref rides alongside
+      // through setNodeStyleValue so block references keep working;
+      // a replaced Storage object is deleted so swaps don't orphan.
+      setValue: (n, k, v) => {
+        if (k === "bgImage" && typeof v === "string" && v.startsWith("data:image/")) {
+          setNodeStyleValue(n, k, v);
+          uploadImageInBackground(v, (url, ref) => {
+            commitMutation(() => {
+              const holder = n.sourceBlockId ? (n.styleOverrides ?? {}) : (n.style ?? {});
+              const stale = holder.bgImageRef;
+              setNodeStyleValue(n, "bgImage", url);
+              if (ref) setNodeStyleValue(n, "bgImageRef", ref);
+              if (stale && stale !== ref) store.deleteCharacterImage(stale).catch(() => {});
+            });
+          });
+          return;
+        }
+        setNodeStyleValue(n, k, v);
+      },
       commit: (fn, opts) => commitMutation(fn, opts),
       applyStyle: (el, s) => applyNodeStyle(el, s),
       styleChangeFn: (el, n, change) => applyStyleChange(el, n, change),
       toastFn: (msg) => showToast(msg),
-      maxImageBytes: MAX_BG_IMAGE_BYTES,
+      // No effective size cap online (images upload to Storage); the
+      // oversize warning still applies to the offline backend, which
+      // keeps data URLs on the document.
+      maxImageBytes: store.isLocal ? MAX_BG_IMAGE_BYTES : Infinity,
     };
   }
 
