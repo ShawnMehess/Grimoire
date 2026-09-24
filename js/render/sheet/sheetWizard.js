@@ -882,6 +882,33 @@ export function canLearnMore(levelNum, limit, cantripCount, spellCount) {
   return current < cap;
 }
 
+/** Spell-pick completeness for ONE class sharing a sheet-wide Spells
+ *  Known list (multiclass level-ups): only spells on that class's own
+ *  lists count toward its caps, so another class's spells can neither
+ *  satisfy nor block this level's picks. `spellsForLevelFn(levelNum,
+ *  className)` yields that level's entries-or-names (unfiltered when
+ *  className is null); `levelByNameFn` maps a known name to its spell
+ *  level. An empty class list (no catalog imported) counts as
+ *  complete — hand-tracking, never a trap. Non-casters (null limit)
+ *  are trivially complete. Pure. */
+export function spellPicksCompleteForClass({
+  knownItems = [], className, limit, availableLevels = [],
+  spellsForLevelFn = () => [], levelByNameFn = () => null,
+} = {}) {
+  if (!className || !limit) return true;
+  const classSpells = new Set();
+  (availableLevels || []).forEach((levelNum) => {
+    (spellsForLevelFn(levelNum, className) || []).forEach((entry) => {
+      const name = typeof entry === "string" ? entry : entry?.name;
+      if (name) classSpells.add(name);
+    });
+  });
+  if (classSpells.size === 0) return true;
+  const known = new Set((knownItems || []).filter((name) => classSpells.has(name)));
+  const { cantrips, spells } = spellCountByLevel(known, levelByNameFn);
+  return (availableLevels || []).every((levelNum) => !canLearnMore(levelNum, limit, cantrips, spells));
+}
+
 export function capMessage(levelNum, limit) {
   const cap = levelNum === 0 ? limit.cantrips : limit.spells;
   return levelNum === 0

@@ -312,6 +312,22 @@ assert(typeof wizardMod.renderStepWizardInto === "function", "renderStepWizardIn
 }
 assert(wizardMod.limitNoteText(1, 2, { cantrips: 2, spells: 5, style: "known" }) === "1/2 cantrips known, 2/5 spells known.", "limitNoteText");
 assert(wizardMod.canLearnMore(0, { cantrips: 2, spells: 5 }, 2, 0) === false, "canLearnMore capped");
+{
+  // Multiclass caps: only the level's own class list counts toward them.
+  const byClass = (lvl, name) => (name === "Wizard"
+    ? [{ name: "Fire Bolt" }, { name: "Magic Missile" }]
+    : [{ name: "Sacred Flame" }, { name: "Cure Wounds" }]);
+  const lvlOf = (n) => (n === "Fire Bolt" || n === "Sacred Flame" ? 0 : 1);
+  const limit = { cantrips: 1, spells: 1, style: "known" };
+  const base = { className: "Wizard", limit, availableLevels: [0, 1], spellsForLevelFn: byClass, levelByNameFn: lvlOf };
+  assert(wizardMod.spellPicksCompleteForClass({ ...base, knownItems: [] }) === false, "per-class incomplete when empty");
+  assert(wizardMod.spellPicksCompleteForClass({ ...base, knownItems: ["Sacred Flame", "Cure Wounds"] }) === false, "other-class spells do not satisfy");
+  assert(wizardMod.spellPicksCompleteForClass({ ...base, knownItems: ["Fire Bolt"] }) === false, "open spell cap still incomplete");
+  assert(wizardMod.spellPicksCompleteForClass({ ...base, knownItems: ["Fire Bolt", "Magic Missile"] }) === true, "own-class caps complete");
+  assert(wizardMod.spellPicksCompleteForClass({ ...base, knownItems: ["Sacred Flame", "Cure Wounds", "Fire Bolt", "Magic Missile", "Light", "Spare"] }) === true, "other-class flood neither satisfies nor blocks");
+  assert(wizardMod.spellPicksCompleteForClass({ ...base, knownItems: [], limit: null }) === true, "per-class null limit complete");
+  assert(wizardMod.spellPicksCompleteForClass({ ...base, knownItems: [], spellsForLevelFn: () => [] }) === true, "per-class empty catalog complete");
+}
 
 const wizardStepsMod = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(wizardStepsMod.clampScoreToRange("99", 8, 8, 15) === 15, "clampScoreToRange max");

@@ -215,6 +215,7 @@ import {
   creationFixedBundlesFor,
   groupOptionsOf,
   expressPicksFor,
+  spellPicksCompleteForClass,
   sectionsForChoiceGroups,
   sectionsComplete,
   incompleteSectionNames,
@@ -4576,9 +4577,22 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         id: "spells",
         title: "Spells",
         description: "Your spellcasting improves at this level. Check off any new spells you've picked up — this writes straight to the Spells Known list on the main sheet.",
-        // Multiclass spell picks span classes in ways the single-class
-        // cap check can't express — unenforced there (documented).
-        isComplete: () => (multiclassEntries().length || takingNewClass ? true : spellPicksComplete(levelClass, newClassLevel)),
+        // Multiclass levels enforce the level's own class caps against
+        // that class's spells only, so the other class's spells in the
+        // shared Spells Known list can neither satisfy nor block them.
+        isComplete: () => {
+          if (multiclassEntries().length || takingNewClass) {
+            return spellPicksCompleteForClass({
+              knownItems: findStarterField("spellsKnown", "Spells Known")?.items || [],
+              className: levelClass,
+              limit: spellLimitFor(levelClass, newClassLevel, character.rules?.abilityScores),
+              availableLevels: sharedAvailableSpellLevels(getLevelUpPlan(character.rules?.rulesetId || character.rulesetId, levelClass, newClassLevel)),
+              spellsForLevelFn: (lvl, name) => spellsForLevel(lvl, name),
+              levelByNameFn: (n) => spellLevelByName(n),
+            });
+          }
+          return spellPicksComplete(levelClass, newClassLevel);
+        },
         render(container) {
           noteInto(container, `This ruleset sets your spell slots to ${slots} at this level.`, "level-guide__summary");
           renderSpellPicker(container, { rulesetId: character.rules?.rulesetId || character.rulesetId, className: levelClass, level: newClassLevel });
