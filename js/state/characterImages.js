@@ -45,12 +45,17 @@ export function forEachStoredImage(doc, fn) {
     if (Array.isArray(tab?.layout)) layouts.push(tab.layout);
   }
   const seen = new Set();
+  // A slot exists when EITHER half is present: a cleared image can
+  // leave its Storage path behind (override elision writes the two
+  // keys independently), and that orphaned ref still needs visiting
+  // for migration and deletes.
   const bgSlot = (holder, key) => {
     fn({
       kind: "background",
       get: () => ({ data: holder?.[key] ?? null, ref: holder?.[`${key}Ref`] ?? null }),
       set: (url, ref) => {
-        holder[key] = url;
+        if (url == null) delete holder[key];
+        else holder[key] = url;
         if (ref) holder[`${key}Ref`] = ref;
         else delete holder[`${key}Ref`];
       },
@@ -71,8 +76,8 @@ export function forEachStoredImage(doc, fn) {
           },
         });
       }
-      if (node.style?.bgImage != null) bgSlot(node.style, "bgImage");
-      if (node.styleOverrides?.bgImage != null) bgSlot(node.styleOverrides, "bgImage");
+      if (node.style?.bgImage != null || node.style?.bgImageRef != null) bgSlot(node.style, "bgImage");
+      if (node.styleOverrides?.bgImage != null || node.styleOverrides?.bgImageRef != null) bgSlot(node.styleOverrides, "bgImage");
       if (node.children) visit(node.children);
     }
   };

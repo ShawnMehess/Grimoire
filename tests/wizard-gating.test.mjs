@@ -48,6 +48,7 @@ import {
   availableSpellLevels,
   filterSortSpells,
   reviewChoiceLinesFor,
+  slotLabelFor,
 } from "../js/render/sheet/sheetWizard.js";
 import {
   clampScoreToRange,
@@ -389,6 +390,14 @@ describe("step shell", () => {
     assert.equal(ordinal(1), "1st");
     assert.equal(ordinal(4), "4th");
     assert.deepEqual(availableSpellLevels({ slotChanges: [{ options: 0 }, { options: 2 }] }), [0, 1, 2]);
+  });
+
+  it("labels slot trackers from their field ids", () => {
+    assert.equal(slotLabelFor("slots1"), "1st");
+    assert.equal(slotLabelFor("slots2"), "2nd");
+    assert.equal(slotLabelFor("slots3"), "3rd");
+    assert.equal(slotLabelFor("slots9"), "9th");
+    assert.equal(slotLabelFor("nope"), "nope");
   });
 });
 

@@ -83,6 +83,13 @@ describe("abilities and point buy", () => {
     const scores = { str: 10 };
     assert.equal(applyAsiToScores(scores, "single", "str"), "+2 STR");
     assert.equal(scores.str, 12);
+    // Unknown modes and blank ids never create junk score keys.
+    const clean = { str: 10 };
+    assert.equal(applyAsiToScores(clean, "feat", "str"), "");
+    assert.deepEqual(clean, { str: 10 });
+    applyAsiToScores(clean, "double", "", "dex");
+    assert.equal(clean.dex, 11);
+    assert.ok(!("undefined" in clean) && !("" in clean));
   });
 });
 
@@ -182,6 +189,12 @@ describe("level review builders", () => {
     assert.equal(validateLevelApply({ hpGain: NaN, contentGroups: [], pendingChoices: {}, needsAsi: false }),
       "Enter the HP gained for this level before applying it.");
     assert.equal(validateLevelApply({ hpGain: 5, contentGroups: [], pendingChoices: {}, needsAsi: false }), null);
+    // Whitespace-only feat names fail like empty ones.
+    assert.notEqual(validateLevelApply({ hpGain: 5, contentGroups: [], pendingChoices: {}, needsAsi: true, asiMode: "feat", featChoice: "   " }), null);
+    // An owned-aware checker satisfies like the Choices step does.
+    const groups = [{ key: "g", label: "Skills", minSelections: 1, maxSelections: 2, options: [] }];
+    assert.equal(validateLevelApply({ hpGain: 5, contentGroups: groups, pendingChoices: {}, needsAsi: false, groupSatisfiedFn: () => true }), null);
+    assert.notEqual(validateLevelApply({ hpGain: 5, contentGroups: groups, pendingChoices: {}, needsAsi: false, groupSatisfiedFn: () => false }), null);
     const entry = buildLevelUpEntry({ level: 2, hpGain: 7, subclassName: "", slots: "", featureEntry: "F", asiSummary: "", appliedRulesetId: "x", prev: {} });
     assert.equal(entry.hp, "+7");
   });

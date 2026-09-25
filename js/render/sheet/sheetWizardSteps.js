@@ -6,6 +6,7 @@
 // passes them in.
 
 import { capitalizeFirst, commonPreviewBits, mechanicsPreviewFor } from "./sheetMechanics.js";
+import { slotLabelFor } from "./sheetWizard.js";
 import { el } from "./sheetHelpers.js";
 
 export const ABILITY_DESCRIPTIONS = {
@@ -688,7 +689,9 @@ export function renderGuideLevelClassStepInto(container, pending, deps) {
   if (selectableRowsFn) {
     const { taken, untaken, canMulticlass } = levelClassOptionsFor({ primaryName, entries, allClassNames, level });
     const takenNoteFor = (name) => {
-      if (name === primaryName) return `Primary class — Taking this level reaches ${primaryName} ${level ?? 1}.`;
+      // Primary take reaches the post-apply primary level (total
+      // minus applied secondaries), not the total itself.
+      if (name === primaryName) return `Primary class — Taking this level reaches ${primaryName} ${primaryLevel ?? level ?? 1}.`;
       const entry = (entries || []).find((e) => e.name === name);
       if (!entry) return null;
       return `Secondary class at ${entry.levels}${entry.subclass ? ` (${entry.subclass})` : ""} — Taking this level reaches ${name} ${entry.levels + 1}.`;
@@ -827,7 +830,7 @@ export function syncPendingChoices(pending, contentGroups, savedChoices = {}) {
 }
 
 export function slotsSummary(plan) {
-  return (plan?.slotChanges || []).filter((change) => change.options > 0).map((change) => `${change.options} ${change.label}-level`).join(", ");
+  return (plan?.slotChanges || []).filter((change) => change.options > 0).map((change) => `${change.options} ${(change.label || slotLabelFor(change.fieldId))}-level`).join(", ");
 }
 
 export function alreadyAppliedPanel(className, level, rulesetName) {
@@ -888,13 +891,21 @@ export function levelReviewSummary({ hp, subclass, needsAsi, asiMode, featChoice
   return parts.join(" · ");
 }
 
-export function validateLevelApply({ hpGain, contentGroups, pendingChoices, needsAsi, asiMode, asiAbilities = [], featChoice }) {
+export function validateLevelApply({ hpGain, contentGroups, pendingChoices, needsAsi, asiMode, asiAbilities = [], featChoice, groupSatisfiedFn = null }) {
   if (!Number.isFinite(hpGain) || hpGain < 1) {
     return "Enter the HP gained for this level before applying it.";
   }
   for (const group of contentGroups) {
-    const selected = pendingChoices[group.key] || [];
-    if (selected.length < group.minSelections || selected.length > group.maxSelections) {
+    // With an owned-aware checker (same one the Choices step gates
+    // on), already-owned proficiencies satisfy like they do in the
+    // step; otherwise fall back to the raw count check.
+    const satisfied = groupSatisfiedFn
+      ? groupSatisfiedFn(group)
+      : (() => {
+        const selected = pendingChoices[group.key] || [];
+        return selected.length >= group.minSelections && selected.length <= group.maxSelections;
+      })();
+    if (!satisfied) {
       return `${group.label || "This choice"} needs ${group.minSelections === group.maxSelections ? group.maxSelections : `${group.minSelections}-${group.maxSelections}`} selection(s).`;
     }
   }
@@ -905,7 +916,7 @@ export function validateLevelApply({ hpGain, contentGroups, pendingChoices, need
       return "Choose the ability score(s) for this level's Ability Score Improvement (or switch it to \"Took a feat instead\").";
     }
   }
-  if (needsAsi && asiMode === "feat" && !featChoice) {
+  if (needsAsi && asiMode === "feat" && !(featChoice || "").trim()) {
     return "Choose a feat for this level's Ability Score Improvement (or switch it to a stat increase).";
   }
   return null;
@@ -995,7 +1006,16 @@ export function renderGuideAsiStepInto(container, pending, deps) {
       abilityRow.append(el("label", { class: "level-guide__field", text: i === 0 ? "Ability" : "Second ability" }, abilitySelect));
     }
   };
-  modeSelect.addEventListener("change", () => { pending.asiMode = modeSelect.value; renderModeBody(); });
+  modeSelect.addEventListener("change", () => {
+    pending.asiMode = modeSelect.value;
+    // Stale picks from the previous mode must not linger: Review
+    // summarizes (and validation counts) both ability fields, while
+    // single-mode Apply bumps only the first — a leftover second pick
+    // would promise more than Apply does, or fail validation with no
+    // visible second picker.
+    if (modeSelect.value === "single") pending.asiAbility2 = "";
+    renderModeBody();
+  });
   renderModeBody();
   container.append(abilityRow);
   container.append(featWrap);
@@ -1096,7 +1116,7 @@ export function checkLevelPrereqs({ needsSubclass, hasSubclassField, hasSubclass
     return "This sheet needs a Subclass dropdown containing the ruleset's available choices.";
   }
   if (missingSlots.length > 0) {
-    return `This sheet is missing the ${missingSlots.map((change) => change.label).join(", ")} spell-slot field(s) needed for this level.`;
+    return `This sheet is missing the ${missingSlots.map((change) => change.label || slotLabelFor(change.fieldId)).join(", ")} spell-slot field(s) needed for this level.`;
   }
   return null;
 }
@@ -1106,15 +1126,17 @@ export function checkLevelPrereqs({ needsSubclass, hasSubclassField, hasSubclass
  *  "feat" (no score change — the feat is recorded separately). */
 export function applyAsiToScores(scores, mode, ability1, ability2) {
   const bump = (id, amount) => {
+    if (!id) return;
     scores[id] = (Number(scores[id]) || 10) + amount;
   };
   if (mode === "single") {
     bump(ability1, 2);
-    return `+2 ${ability1.toUpperCase()}`;
+    return ability1 ? `+2 ${ability1.toUpperCase()}` : "";
   }
+  if (mode !== "double") return "";
   bump(ability1, 1);
   bump(ability2, 1);
-  return `+1 ${ability1.toUpperCase()}, +1 ${ability2.toUpperCase()}`;
+  return `+1 ${String(ability1 || "").toUpperCase()}, +1 ${String(ability2 || "").toUpperCase()}`;
 }
 
 export function buildLevelUpEntry({ level, hpGain, subclassName, slots, featureEntry, asiSummary, appliedRulesetId, className, prev = {} }) {

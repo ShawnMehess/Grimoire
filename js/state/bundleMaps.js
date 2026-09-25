@@ -41,13 +41,21 @@ function canonicalFor(map, choiceText) {
 }
 
 function walkBundleChoices(layout, visit) {
-  (layout || []).forEach((block) => {
-    (block.children || []).forEach((field) => {
-      const map = DEFAULT_BUNDLE_MAPS[normBundleName(field.label)];
-      if (!map || !Array.isArray(field.choices)) return;
-      field.choices.forEach((choice) => visit(choice, map));
-    });
-  });
+  // Recursive (blocks can nest inside blocks): a dropdown at any depth
+  // must strip on save and hydrate on load, or documents keep full
+  // bundle copies toward the 1MB cap — and worse, hydrate would leave
+  // nested dropdowns' mechanics silently missing.
+  const walk = (nodes) => {
+    for (const node of nodes || []) {
+      if (!node) continue;
+      if (node.kind === "field") {
+        const map = DEFAULT_BUNDLE_MAPS[normBundleName(node.label)];
+        if (map && Array.isArray(node.choices)) node.choices.forEach((choice) => visit(choice, map));
+      }
+      if (node.children) walk(node.children);
+    }
+  };
+  walk(layout);
 }
 
 function stripDefaultBundlesFromLayout(layout) {

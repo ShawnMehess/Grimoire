@@ -277,12 +277,18 @@ export async function loadCharacter(characterId) {
     /* images never block a load */
   }
   const hydrated = hydrateCharacter(data);
-  if (migrated) {
+  // Save back only for the owner (any signed-in friend can read the
+  // sheet, but only the owner may write it — a viewer-triggered write
+  // would be denied and re-upload on every view), and only the keys
+  // actually present (Firestore rejects undefined values, which would
+  // fail the save-back and retry the uploads forever).
+  if (migrated && data.ownerId && data.ownerId === currentUserId()) {
     try {
-      await setDoc(doc(db, CHARACTERS_COLLECTION, characterId), {
-        ...stripBundlesFromPatch({ layout: data.layout, sheetTabs: data.sheetTabs }),
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
+      const stripped = stripBundlesFromPatch({ layout: data.layout, sheetTabs: data.sheetTabs });
+      const back = { updatedAt: serverTimestamp() };
+      if (stripped.layout !== undefined) back.layout = stripped.layout;
+      if (stripped.sheetTabs !== undefined) back.sheetTabs = stripped.sheetTabs;
+      await setDoc(doc(db, CHARACTERS_COLLECTION, characterId), back, { merge: true });
     } catch (err) {
       console.warn("Migrated images could not be saved back:", err);
     }
@@ -333,8 +339,11 @@ export async function saveCharacterFields(characterId, patch) {
 }
 
 export async function deleteCharacter(characterId) {
+  // Storage first: the rules authorize deletes via the character
+  // document's ownerId, so wiping after deleteDoc would deny every
+  // delete and orphan the whole image prefix.
+  await deleteCharacterImagesFor(characterId).catch(() => {});
   await deleteDoc(doc(db, CHARACTERS_COLLECTION, characterId));
-  deleteCharacterImagesFor(characterId).catch(() => {});
 }
 
 // --- Sheet templates -------------------------------------------------------

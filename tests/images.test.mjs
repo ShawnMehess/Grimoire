@@ -91,6 +91,15 @@ describe("stored-image slot walk", () => {
     assert.equal(refs.length, 3);
   });
 
+  it("visits orphaned Storage refs with no image data", () => {
+    const doc = { layout: [{ kind: "block", style: {}, styleOverrides: { bgImageRef: "characterImages/abc/old.jpg" }, children: [] }] };
+    const slots = [];
+    forEachStoredImage(doc, (slot) => slots.push(slot.get()));
+    assert.equal(slots.length, 1);
+    assert.equal(slots[0].data, null);
+    assert.equal(slots[0].ref, "characterImages/abc/old.jpg");
+  });
+
   it("tolerates missing and empty documents", () => {
     assert.doesNotThrow(() => forEachStoredImage(null, () => { throw new Error("must not run"); }));
     assert.doesNotThrow(() => forEachStoredImage({}, () => { throw new Error("must not run"); }));

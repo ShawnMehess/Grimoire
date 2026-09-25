@@ -546,6 +546,16 @@ export function ordinal(n) {
   return n === 1 ? "1st" : n === 2 ? "2nd" : n === 3 ? "3rd" : `${n}th`;
 }
 
+/** Display label for a spell-slot tracker id ("slots1" → "1st") —
+ *  slot plans carry only fieldId/options, so summaries, prereq
+ *  messages, and auto-created fields derive the human label here
+ *  instead of printing "undefined". Pure. */
+export function slotLabelFor(fieldId) {
+  const n = Number.parseInt(String(fieldId || "").replace("slots", ""), 10);
+  if (!Number.isFinite(n)) return String(fieldId || "spell-slot");
+  return ordinal(n);
+}
+
 export function findSpellCatalog(catalogs = []) {
   return catalogs.find((c) => /spell/i.test(c.name || "")) || null;
 }

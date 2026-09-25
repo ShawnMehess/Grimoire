@@ -214,6 +214,7 @@ import {
   creationChoiceGroupsForState,
   creationFixedBundlesFor,
   groupOptionsOf,
+  slotLabelFor,
   isAsiSlotGroup,
   languageSlotsFor,
   assignLanguageSlot,
@@ -1206,9 +1207,14 @@ export function renderCustomSheet(root, character, store, opts = {}) {
           block.children.push(field);
           currentLayout().push(block);
         });
+        // The swap must persist like the picture-field path's does —
+        // otherwise the doc keeps the data URL while the fresh Storage
+        // object goes unreferenced (and migrates a second time later).
         uploadImageInBackground(dataUrl, (url, ref) => {
-          field.imageData = url;
-          if (ref) field.imageRef = ref;
+          commitMutation(() => {
+            field.imageData = url;
+            if (ref) field.imageRef = ref;
+          });
         });
       });
       return;
@@ -3485,7 +3491,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       if (findStarterField(change.fieldId, change.label)) return;
       const match = change.fieldId.match(/^slots([6-9])$/);
       if (!match) return;
-      const field = createField({ fieldType: "radio", label: change.label, x: Number(match[1]) - 6, y: 2, w: 1, h: 1 });
+      // Plans carry no label — derive it so auto-created fields match
+      // the starter sheet's own "6th".."9th" labels.
+      const field = createField({ fieldType: "radio", label: change.label || slotLabelFor(change.fieldId), x: Number(match[1]) - 6, y: 2, w: 1, h: 1 });
       field.id = change.fieldId;
       field.options = 0;
       field.selected = null;
@@ -3886,9 +3894,14 @@ export function renderCustomSheet(root, character, store, opts = {}) {
    *  at all when there are no groups, so steps with nothing to decide
    *  never show an empty section. Collapse state survives re-renders
    *  (module-level memory keyed `${stepId}:${source}`); Expand All /
-   *  Collapse All covers the step's sections together. */
-  function renderYourChoicesSections(container, stepId, groups, saveRules) {
+   *  Collapse All covers the step's sections together.
+   *  `hintGroups` (optional): the FULL group list including groups
+   *  rendered inline in picker tables — section status and the
+   *  "still to choose" hint count those too, so a step blocked only
+   *  by an inline pick still says what is missing. */
+  function renderYourChoicesSections(container, stepId, groups, saveRules, hintGroups = null) {
     const sections = sectionsForChoiceGroups(groups);
+    const statusGroups = hintGroups ?? groups;
     if (!sections.length) return;
     container.append(el("p", { class: "wizard__section-label", text: "Your choices" }));
     const block = el("div", { class: "wizard__subsection wizard__choice-sections" });
@@ -3908,7 +3921,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     container.append(block);
     sections.forEach((section) => {
       const key = `${stepId}:${section.source}`;
-      const done = section.groups.every((g) => creationGroupSatisfied(g, state));
+      // Inline-table groups share their source: a section is only
+      // complete when its rendered groups AND its inline groups are.
+      const inline = statusGroups.filter((g) => g.source === section.source && !groups.includes(g));
+      const done = [...section.groups, ...inline].every((g) => creationGroupSatisfied(g, state));
       const toggle = el("button", {
         type: "button",
         class: "btn wizard__choice-section-toggle",
@@ -3927,7 +3943,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       renderCreationChoiceGroups(body, section.groups, saveRules, state);
       block.append(el("div", { class: "wizard__choice-section" }, toggle, body));
     });
-    const open = openChoiceSections(groups);
+    const open = openChoiceSections(statusGroups);
     if (open.length) {
       noteInto(container, `Still to choose: ${open.join(" · ")}.`);
     }
@@ -4257,7 +4273,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             },
           });
           renderKnownLanguagesInto(container, state);
-          renderYourChoicesSections(container, "basics", raceSectionGroups, saveRules);
+          renderYourChoicesSections(container, "basics", raceSectionGroups, saveRules, raceChoiceGroups);
         },
       },
       {
@@ -4380,7 +4396,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
               if (host.firstElementChild) rowEl.after(host.firstElementChild);
             },
           });
-          renderYourChoicesSections(container, "background", bgSectionGroups, saveRules);
+          renderYourChoicesSections(container, "background", bgSectionGroups, saveRules, backgroundChoiceGroups);
         },
       },
       {
@@ -4501,6 +4517,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   function renderRulesetLevelGuide() {
     const primaryName = selectedChoiceName("class", "Class");
     const level = currentCharacterLevel();
+    // No Level on the sheet means no level to guide (and no "null"
+    // pending keys or levelUps["null"] entries) — the tab explains
+    // itself via the empty-guide note instead.
+    if (level == null) return null;
     const entries = multiclassEntries();
     const primaryLevel = (() => {
       const used = entries.reduce((n, e) => n + (Number(e.levels) || 0), 0);
@@ -4537,9 +4557,12 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const levelClass = takingNewClass ? (pending.newClassName || "") : (pending.className || primaryName);
     const isSecondary = Boolean(levelClass) && levelClass !== primaryName;
     const entryForLevelClass = entries.find((e) => e.name === levelClass);
-    const newClassLevel = levelClass === primaryName || !levelClass
-      ? (level ?? 1)
-      : (entryForLevelClass ? entryForLevelClass.levels + 1 : 1);
+    // The primary's post-apply level is the total minus applied
+    // secondaries — NOT the total itself, which is what `level`
+    // holds (the Level field already shows the new total).
+    const newClassLevel = levelClass === primaryName
+      ? primaryLevel
+      : (!levelClass ? (level ?? 1) : (entryForLevelClass ? entryForLevelClass.levels + 1 : 1));
     const selectedSubclass = levelClass === primaryName
       ? selectedChoiceName("subclass", "Subclass")
       : (entryForLevelClass?.subclass || "");
@@ -4585,7 +4608,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         const subBundle = SUBCLASS_BUNDLE_MAP.get(normSubclassKey(pending.subclass));
         let prefix = null;
         if (isSecondary || takingNewClass) {
-          prefix = `multiclass:${levelClass}`;
+          // Keyed by subclass name to match the post-apply keys
+          // (extraSecondaryBundles keys subclass bundles
+          // `multiclass:<Subclass>`); keying by class would orphan
+          // these picks at Apply.
+          prefix = `multiclass:${pending.subclass}`;
         } else {
           const subclassField = findStarterField("subclass", "Subclass");
           const choice = (subclassField?.choices || []).find((c) => c.text === pending.subclass);
@@ -4608,8 +4635,12 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     if (!plan && contentGroups.length === 0) return null;
 
     const priorLevelUp = character.levelUps?.[String(level)] || {};
-    if (plan && priorLevelUp.appliedRulesetId === plan.ruleset.id) {
-      return alreadyAppliedPanel(levelClass || primaryName, level, plan.ruleset.name);
+    // Any recorded application counts, regardless of which ruleset
+    // applied it — re-applying after a source change would otherwise
+    // stack HP, ASIs, feats, and multiclass levels a second time.
+    if (priorLevelUp.appliedRulesetId) {
+      return alreadyAppliedPanel(levelClass || primaryName, level,
+        getRuleset(priorLevelUp.appliedRulesetId)?.name || priorLevelUp.appliedRulesetId);
     }
 
     // Same retired-combo migration as the setup wizard, so stored
@@ -4659,7 +4690,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
           merged.set(change.fieldId, Math.max(merged.get(change.fieldId) || 0, change.options));
         }
       }
-      return [...merged.entries()].map(([fieldId, options]) => ({ fieldId, options }));
+      return [...merged.entries()].map(([fieldId, options]) => ({ fieldId, options, label: slotLabelFor(fieldId) }));
     })();
     const slots = slotsSummary({ slotChanges: guideSlotChanges });
     const feedback = el("p", { class: "level-guide__feedback" });
@@ -4693,8 +4724,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     function classLevelInfo(name) {
       const resolved = name === "__new" ? pending.newClassName : name;
       if (!resolved) return null;
+      // Primary take reaches the post-apply primary level (total
+      // minus applied secondaries), not the total itself.
       const atLevel = resolved === primaryName
-        ? (level ?? 1)
+        ? primaryLevel
         : ((entries.find((e) => e.name === resolved)?.levels || 0) + 1);
       const gains = classFeatureGrantsAtLevel(resolved, atLevel)
         .map((g) => g.name)
@@ -4919,27 +4952,63 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
         const applyBtn = el("button", { type: "button", class: "btn btn--primary", text: `Apply Level ${level} Changes` });
         applyBtn.addEventListener("click", async () => {
+          const fail = (msg) => {
+            feedback.textContent = msg;
+            feedback.classList.add("level-guide__feedback--error");
+          };
+          const hpGain = Number.parseInt(pending.hp, 10);
+          if (!levelClass) {
+            fail("Pick which class gains this level before applying it.");
+            return;
+          }
+          // Revalidate every applicable step at Apply time — picks can
+          // shift under a persisted Review page (stale resume, source
+          // changes mid-guide), and Next-gating alone can't catch that.
+          // A broken checker must fail open here, never trap Apply.
+          const openStep = steps.find((s) => {
+            try {
+              return (!s.isApplicable || s.isApplicable())
+                && typeof s.isComplete === "function" && s.isComplete() === false;
+            } catch {
+              return false;
+            }
+          });
+          if (openStep) {
+            fail(`"${openStep.title}" still needs decisions — finish it before applying.`);
+            return;
+          }
           const error = validateLevelApply({
-            hpGain: Number.parseInt(pending.hp, 10),
+            hpGain,
             contentGroups,
             pendingChoices: pending.choices,
             needsAsi,
             asiMode: pending.asiMode,
             asiAbilities: [pending.asiAbility1, pending.asiAbility2],
             featChoice: pending.featChoice,
+            groupSatisfiedFn: (group) => groupPicksSatisfied(group, pending.choices[group.key], alreadyOwnedSkillIds(group.key)),
           });
           if (error) {
-            feedback.textContent = error;
-            feedback.classList.add("level-guide__feedback--error");
+            fail(error);
             return;
           }
+          if (needsAsi && pending.asiMode !== "feat") {
+            const bumps = pending.asiMode === "single"
+              ? [{ id: pending.asiAbility1, amount: 2 }]
+              : [{ id: pending.asiAbility1, amount: 1 }, { id: pending.asiAbility2, amount: 1 }];
+            const over = bumps.find(({ id, amount }) => id && (Number(character.rules?.abilityScores?.[id]) || 10) + amount > 20);
+            if (over) {
+              fail(`${over.id.toUpperCase()} would pass 20 — ability scores can't exceed 20 from an ASI.`);
+              return;
+            }
+          }
           // Brand-new multiclass levels must pass ability prerequisites
-          // (checked live in the picker too — scores can change after).
+          // (checked live in the picker too — scores can change after,
+          // so re-derive them here rather than trusting render time).
+          const freshScores = effectiveScoresFor(character.rules?.abilityScores, raceChoiceForScores?.bundle);
           if (takingNewClass && pending.newClassName) {
-            const reason = multiclassPrereqReason(effectiveScores, primaryName, pending.newClassName);
+            const reason = multiclassPrereqReason(freshScores, primaryName, pending.newClassName);
             if (reason) {
-              feedback.textContent = `Can't multiclass into ${pending.newClassName} yet: ${reason} (racial bonuses count).`;
-              feedback.classList.add("level-guide__feedback--error");
+              fail(`Can't multiclass into ${pending.newClassName} yet: ${reason} (racial bonuses count).`);
               return;
             }
           }
@@ -5061,9 +5130,13 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             character.levelUps = before.levelUps;
             character.rules = before.rules;
             if (stashedPending !== undefined) levelingPendingState[levelKey] = stashedPending;
-            feedback.textContent = "The update could not be saved. Please try again.";
-            feedback.classList.add("level-guide__feedback--error");
             applyBtn.disabled = false;
+            // The DOM still shows the mutated values — rebuild from
+            // the restored data so display matches again (the guide
+            // reopens at its first step with picks intact). The toast
+            // survives the rebuild; inline feedback would not.
+            renderAll();
+            showToast("The update could not be saved — your picks are intact, please try again.", { isError: true });
           }
         });
         container.append(applyBtn);
