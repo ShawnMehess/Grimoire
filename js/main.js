@@ -310,7 +310,7 @@ async function renderCharacterList() {
               : metaLines.map(({ text, sub }) => el("div", {
                 class: "character-card__meta-line" + (sub ? " character-card__meta-line--sub" : ""),
                 text, title: text,
-              })))));
+              }))))));
 
       list.append(card);
     });
