@@ -188,6 +188,14 @@ export async function deleteCharacterImagesFor(characterId) {
   return false;
 }
 
+/** Offline images are inline data URLs, already cloned with the
+ *  document — nothing to copy. */
+export async function copyCharacterImages(oldId, newId) {
+  void oldId;
+  void newId;
+  return {};
+}
+
 // --- Sheet templates ---------------------------------------------------------
 
 function parseTemplateName(name) {

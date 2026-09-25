@@ -394,6 +394,14 @@
    the inline content needs rules: known items read as plain text,
    dropdowns sit inline at a readable size inside the otherwise
    small description line. */
+/* The row itself isn't clickable (its dropdowns are the controls),
+   so it opts out of the picker-table pointer/hover affordance. */
+.inline-pick-row {
+  cursor: default;
+}
+.inline-pick-row:hover {
+  border-color: var(--color-border);
+}
 .inline-pick-line {
   display: flex;
   flex-wrap: wrap;

@@ -50,10 +50,11 @@
 //   - Formulas (see js/data/formula.js and js/render/formulaEditor.js)
 //     are only wired up for TEXT fields — a radio/checkbox field is a
 //     variable SOURCE for other formulas, not itself a formula target.
-//   - Background images are stored as data URLs directly on the
-//     character document. Firestore caps a document at 1MB total, so
-//     large images will fail to save — there's a warning on upload,
-//     but no compression/resizing yet.
+//   - Images upload to Firebase Storage (see uploadImageInBackground
+//     and js/state/characterImages.js), so large images no longer
+//     threaten Firestore's 1MB document cap — but nothing
+//     compresses/resizes them yet. Offline keeps data URLs (with the
+//     old oversize warning, since the cap still applies there).
 
 import { createStarterLayout, createBlock, createField, findNode, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS, ARMOR_PROFICIENCIES, WEAPON_PROFICIENCIES, TOOL_PROFICIENCIES, VEHICLE_PROFICIENCIES } from "../data/blockModel.js";
 import { contentHeight } from "./gridEngine.js";
@@ -5034,6 +5035,25 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             feedback.classList.add("level-guide__feedback--error");
             return;
           }
+          // Customized-sheet audit (mirrors Finish Setup): renamed
+          // fields resolve by id across tabs; deleted ones are
+          // reported after Apply instead of skipped silently. Slot
+          // trackers are already covered above (they block Apply).
+          const applyIssues = [];
+          {
+            const needed = [
+              { id: null, label: "HP Max", what: "HP Max" },
+              { id: null, label: "HP Current", what: "HP Current" },
+              { id: null, label: "Features & Traits", what: "Features & Traits" },
+            ];
+            if (needsAsi && pending.asiMode !== "feat") {
+              const ids = pending.asiMode === "single" ? [pending.asiAbility1] : [pending.asiAbility1, pending.asiAbility2];
+              ids.filter(Boolean).forEach((id) => needed.push({ id: `${id}Score`, label: id.toUpperCase(), what: `ability score ${id.toUpperCase()}` }));
+            }
+            missingSetupTargets(flattenAllFieldsAcrossTabs(), needed).forEach((t) => {
+              applyIssues.push(`No ${t.what} field on the sheet — left unset.`);
+            });
+          }
 
           const before = clone({ layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps, rules: character.rules });
           // Record the multiclass take before anything level-gated runs
@@ -5105,7 +5125,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
           // New subclass/feat picks at this level can carry addItem
           // grants (circle spells, feat spells, …) — gated on the
           // level being applied, not the (still previous) sheet level.
-          syncGrantedListItems(level);
+          syncGrantedListItems(level).forEach(({ fieldId, items }) => {
+            applyIssues.push(`${items.length} granted ${fieldId === "spellsKnown" ? "spell(s)" : "item(s)"} (${items.join(", ")}) had no list to land in.`);
+          });
           mirrorFirstTabLayout();
           unsavedChanges = true;
           // Clear this level's in-progress state BEFORE saving, so the
@@ -5121,8 +5143,17 @@ export function renderCustomSheet(root, character, store, opts = {}) {
           try {
             await store.saveCharacterFields(character.id, { layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps, rules: character.rules, levelingPending: snapshotPending(), levelingStepId: null });
             unsavedChanges = false;
-            statusEl.textContent = "Saved";
+            // The level always applies; missing customized-sheet
+            // targets are reported loudly, never dropped silently.
+            if (applyIssues.length) {
+              statusEl.textContent = `Saved with ${applyIssues.length} issue(s) — see notice.`;
+            } else {
+              statusEl.textContent = "Saved";
+            }
             renderAll();
+            if (applyIssues.length) {
+              showToast(`Level applied, but ${applyIssues.length} thing(s) need attention: ${applyIssues.join(" ")}`, { isError: true });
+            }
           } catch (err) {
             console.error("Failed to apply level-up changes:", err);
             character.layout = before.layout;

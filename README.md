@@ -479,6 +479,10 @@ Loose working files live in `docs/`, not the repo root:
   as text notes instead of pickers (see `docs/RESCUE-NOTES.md`).
   Warlock Mystic Arcanum is one: a free spell of choice with no
   bounded picker — record it in Spells Known via the spell browser.
+- A catalog field linked to someone else's *personal* catalog opens
+  empty for the rest of the table (personal libraries are readable
+  only by their owner) — it fails gracefully with a notice, but the
+  entries won't show. Link a global catalog for table-wide lists.
 - Short Rests restore short-rest feature uses plus Warlock pact slots
   (read off the level-up plan, single-class Warlocks). Long Rests
   restore all feature uses, clear used spell slots, and heal to full

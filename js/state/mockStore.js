@@ -125,3 +125,9 @@ export async function characterImageUrl(path) {
   void path;
   return null;
 }
+
+export async function copyCharacterImages(oldId, newId) {
+  void oldId;
+  void newId;
+  return {};
+}

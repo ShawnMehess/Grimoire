@@ -7,6 +7,7 @@ import { loadStore } from "./state/store.js";
 const characterStore = await loadStore();
 const { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, createCharacter, deleteCharacter, currentUserId } = characterStore;
 import { createBlankCharacter } from "./data/schema.js";
+import { forEachStoredImage } from "./state/characterImages.js";
 import { renderCustomSheet } from "./render/customSheet.js";
 import { computeAllFormulas } from "./data/formula.js";
 import { applySheetTheme } from "./data/themes.js";
@@ -334,6 +335,28 @@ async function duplicateCharacter(character) {
   clone.name = character.name ? `${character.name} (Copy)` : "Unnamed (Copy)";
   clone.ownerId = currentUserId();
   const newId = await createCharacter(clone);
+  // Storage images live under per-character prefixes: copy the objects
+  // so the duplicate owns its images (deleting the original must not
+  // break the copy). Best-effort — failures keep the shared references.
+  if (typeof characterStore.copyCharacterImages === "function") {
+    try {
+      const copied = await characterStore.copyCharacterImages(id, newId);
+      const remap = new Map(Object.entries(copied || {}));
+      if (remap.size) {
+        const fresh = await loadCharacter(newId);
+        if (fresh) {
+          forEachStoredImage(fresh, (slot) => {
+            const { ref } = slot.get();
+            const hit = ref && remap.get(ref);
+            if (hit) slot.set(hit.url, hit.path);
+          });
+          await characterStore.saveCharacterFields(newId, { layout: fresh.layout, sheetTabs: fresh.sheetTabs });
+        }
+      }
+    } catch (err) {
+      console.warn("Image copy skipped:", err);
+    }
+  }
   return newId;
 }
 

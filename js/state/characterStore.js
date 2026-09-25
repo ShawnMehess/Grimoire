@@ -37,6 +37,7 @@ import {
   getStorage,
   ref as storageRef,
   uploadString,
+  uploadBytes,
   getDownloadURL,
   deleteObject,
   listAll,
@@ -216,6 +217,37 @@ export async function deleteCharacterImagesFor(characterId) {
   } catch {
     return false;
   }
+}
+
+/** Copies every stored image from one character prefix to another for
+ *  character duplication, so the copy owns its objects (deleting the
+ *  original must not break the copy's images). Returns
+ *  `{ [oldPath]: { path, url } }`; per-object failures are skipped
+ *  (those slots keep their shared references). Never throws. */
+export async function copyCharacterImages(oldId, newId) {
+  const out = {};
+  let items = [];
+  try {
+    const res = await listAll(storageRef(storage, storagePrefixFor(oldId)));
+    items = res.items || [];
+  } catch {
+    return out;
+  }
+  for (const item of items) {
+    try {
+      const blob = await (await fetch(await getDownloadURL(item))).blob();
+      const ext = (String(item.name).split(".").pop() || "jpg").replace(/[^a-z0-9]/gi, "") || "jpg";
+      const path = `${storagePrefixFor(newId)}/${newImageId()}.${ext}`;
+      const dest = storageRef(storage, path);
+      await uploadBytes(dest, blob, blob.type ? { contentType: blob.type } : undefined);
+      const url = await getDownloadURL(dest);
+      downloadUrlCache.set(path, url);
+      out[item.fullPath] = { path, url };
+    } catch (err) {
+      console.warn("Image copy skipped:", err);
+    }
+  }
+  return out;
 }
 
 /** Uploads every data-URL image still on the document and swaps the

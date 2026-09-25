@@ -768,11 +768,14 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
   // disappearing outright, so the wizard's shape doesn't shift around
   // as earlier answers change. Dots can always go back, but jumping
   // forward past a page that still needs decisions is blocked, just
-  // like Next.
+  // like Next. Clicks ride on `onclick` (not addEventListener) so the
+  // nav refresh below can re-arm dots without stacking handlers.
+  const dotPairs = [];
   steps.forEach((step) => {
     const dot = document.createElement("button");
     dot.type = "button";
     dot.textContent = step.title;
+    dot.dataset.stepId = step.id || "";
     if (!isStepApplicable(step)) {
       dot.className = "wizard__dot wizard__dot--disabled wizard__dot--skipped";
       dot.disabled = true;
@@ -789,10 +792,9 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
     if (pastGate) {
       dot.disabled = true;
       dot.title = "Finish the current page first — It still needs decisions.";
-      dots.append(dot);
-      return;
     }
-    dot.addEventListener("click", () => { goTo(i); });
+    dot.onclick = () => { goTo(i); };
+    dotPairs.push({ dot, step, index: i });
     dots.append(dot);
   });
   wrap.append(dots);
@@ -895,6 +897,18 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
     wrap.querySelectorAll(".wizard__nav .wizard__next").forEach((btn) => {
       btn.disabled = blocked;
       btn.title = blocked ? "Make your selections on this page to continue." : "";
+    });
+    // Completing the page via a no-rebuild pick (choice toggles save
+    // without rebuilding) also unlocks forward dots in place — without
+    // this they stay locked until the next full render, even though
+    // Next already works. Step applicability only ever changes across
+    // full renders, so indexes and listeners stay valid here.
+    const freshFirst = firstIncompleteStep(steps);
+    dotPairs.forEach(({ dot, index }) => {
+      const pastGate = freshFirst !== -1 && index > freshFirst;
+      dot.classList.toggle("wizard__dot--locked", pastGate);
+      dot.disabled = pastGate;
+      dot.title = pastGate ? "Finish the current page first — It still needs decisions." : "";
     });
   };
   // Picks auto-seeded while the body renders (locked defaults) can
