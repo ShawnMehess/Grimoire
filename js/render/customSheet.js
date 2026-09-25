@@ -4086,8 +4086,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             mechanicsListFn: (category, name) => (subraceGroupFor(name)
               ? []
               : mechanicsListFor(category, name, state.level)),
-            // Details always shown, no expand/collapse buttons.
-            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, { collapsible: false, ...opts }),
+            // Collapsed by default (only the selected race's Details
+            // show) — with 13+ races, showing every trait block at
+            // once turns this page into a multi-thousand-pixel scroll.
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
             debounceFn: (fn, ms) => debounce(fn, ms),
             subraceGroupFn: (raceName) => {
               const group = subraceGroupFor(raceName);
@@ -4156,10 +4158,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
             subclassDataFn: (name) => liveSubclassData(name),
             updateFn: (key, value) => update(key, value),
-            // Details always shown, no expand/collapse buttons — the
-            // nested subclass list inherits this too, matching the
-            // button-free nested subrace list.
-            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, { collapsible: false, ...opts }),
+            // Collapsed by default, same as the Race table — only the
+            // selected class (and its nested subclass row) expands.
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
           });
           renderYourChoicesSections(container, "class", classChoiceGroups, saveRules);
           if (getRulesetClass(state.rulesetId, state.className)?.caster) {
@@ -4226,9 +4227,8 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             updateKey: "background",
             updateFn: (key, value) => update(key, value),
             fieldFn: (c, label, control) => field(c, label, control),
-            // Details always shown, no expand/collapse buttons — same
-            // as the race and class tables.
-            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, { collapsible: false, ...opts }),
+            // Collapsed by default, same as the race and class tables.
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
@@ -4564,7 +4564,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             eligibilityFn: (name) => multiclassPrereqFor(name),
             subclassForFn: (name) => subclassForLevelClass(name),
             classInfoFn: (name) => classLevelInfo(name),
-            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, { collapsible: true, ...opts }),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
             getInfo: (name) => catalogEntryInfo(["class"], name),
             getMechanicsList: (name) => {
               // What the class gains at the level taking it would
@@ -4596,7 +4596,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         isComplete: () => Boolean(pending.subclass),
         render(container) {
           renderGuideSubclassStepInto(container, pending, plan.subclassChoices, {
-            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, { collapsible: false, ...opts }),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
             getInfo: (name) => catalogEntryInfo(["subclass"], name),
             getMechanicsList: (name) => {
               const bundle = SUBCLASS_BUNDLE_MAP.get(normSubclassKey(name));

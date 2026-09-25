@@ -194,9 +194,9 @@ export function renderIdentityStepInto(container, state, deps) {
             if (opt && selectSubraceFn) selectSubraceFn(sub.group, opt.id);
           },
           nested: true,
-          // No Expand All/Collapse All of its own — the race list's
-          // top-level controls already cover these rows.
-          collapsible: false,
+          // Rows still collapse individually; just no second Expand
+          // All/Collapse All bar for what's usually 2-4 subraces.
+          showControls: false,
         });
         if (holder.firstElementChild) rowEl.after(holder.firstElementChild);
       },
@@ -238,6 +238,10 @@ export function renderClassStepInto(container, state, deps) {
         getMechanicsList: (n) => (mechanicsListFn ? mechanicsListFn("Subclass", n) : null),
         onSelect: (n) => updateFn("subclass", n),
         nested: true,
+        // Rows still collapse individually; the class list above has
+        // its own Expand All/Collapse All, so this nested list skips a
+        // redundant second bar for its handful of subclasses.
+        showControls: false,
       });
       rowEl.after(holder.firstElementChild);
     },
@@ -682,9 +686,10 @@ export function renderGuideLevelClassStepInto(container, pending, deps) {
           pending.subclass = "";
           if (onChangeFn) onChangeFn();
         },
-        // No Expand All/Collapse All of its own — one control bar per
-        // step is enough (same pattern as nested subrace rows).
-        collapsible: false,
+        // Rows still collapse individually; one Expand All/Collapse
+        // All bar per step is enough (the "Your classes" list above
+        // already has one), so this list skips a second.
+        showControls: false,
       });
     }
     return;
@@ -863,7 +868,6 @@ export function renderGuideSubclassStepInto(container, pending, subclassChoices,
         pending.subclass = name;
         if (gridFn) gridFn();
       },
-      collapsible: false,
     });
     return;
   }

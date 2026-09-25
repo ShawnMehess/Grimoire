@@ -1195,16 +1195,26 @@ export function renderMultiSelectableRowsInto(container, names, opts = {}) {
   return renderPickerTableInto(container, names, { ...opts, mode: "multi" });
 }
 
-function renderSinglePickerRows(container, names, { selectedName, onSelect, getInfo, getMechanics, getMechanicsList, afterRow, nested = false, collapsible = false } = {}) {
+function renderSinglePickerRows(container, names, {
+  selectedName, onSelect, getInfo, getMechanics, getMechanicsList, afterRow, nested = false,
+  // Collapsed-by-default is the right shape for any list long enough to
+  // scroll (Race, Class, Background, …): only the selected row's details
+  // show, everything else is a scannable name + one-line description.
+  // `showControls` is separate from `collapsible` so a nested list (a
+  // race's subraces, a class's subclasses) can still collapse row-by-row
+  // without adding a second Expand All/Collapse All bar to the page —
+  // pass `showControls: false` for those while leaving collapsible true.
+  collapsible = true, showControls = collapsible,
+} = {}) {
   const list = document.createElement("div");
   list.className = "choice-row-list" + (nested ? " choice-row-list--nested" : "");
-  if (collapsible && names.length) {
+  if (showControls && names.length) {
     const controls = el("div", { class: "choice-row-list__collapse-controls" },
       el("button", {
         type: "button", class: "btn", text: "Expand All",
         onclick: () => {
           names.forEach((name) => expandedChoiceRows.add(name));
-          list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = false; });
+          list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = false; d.closest(".choice-row")?.classList.add("choice-row--expanded"); });
           list.querySelectorAll(".choice-row__collapse-btn").forEach((b) => { b.hidden = false; b.setAttribute("aria-expanded", "true"); });
         },
       }),
@@ -1212,7 +1222,7 @@ function renderSinglePickerRows(container, names, { selectedName, onSelect, getI
         type: "button", class: "btn", text: "Collapse All",
         onclick: () => {
           names.forEach((name) => expandedChoiceRows.delete(name));
-          list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = true; });
+          list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = true; d.closest(".choice-row")?.classList.remove("choice-row--expanded"); });
           list.querySelectorAll(".choice-row__collapse-btn").forEach((b) => { b.hidden = true; b.setAttribute("aria-expanded", "false"); });
         },
       }));
@@ -1231,6 +1241,7 @@ function renderSinglePickerRows(container, names, { selectedName, onSelect, getI
       if (name === selectedName && expandedChoiceRows.has(name)) {
         expandedChoiceRows.delete(name);
         if (detailsEl) detailsEl.hidden = true;
+        row.classList.remove("choice-row--expanded");
         if (collapseEl) {
           collapseEl.hidden = true;
           collapseEl.setAttribute("aria-expanded", "false");
@@ -1238,8 +1249,19 @@ function renderSinglePickerRows(container, names, { selectedName, onSelect, getI
         onSelect(null);
         return;
       }
+      // Switching the pick collapses whatever was previously selected
+      // — otherwise every race/class/background you'd ever clicked
+      // through stays pinned open, and the "only the pick is expanded"
+      // list slowly turns back into the wall of details this was
+      // meant to avoid.
+      if (collapsible && selectedName && selectedName !== name) {
+        expandedChoiceRows.delete(selectedName);
+        const prevRow = [...list.querySelectorAll(".choice-row")].find((r) => r.dataset?.rowName === selectedName);
+        prevRow?.classList.remove("choice-row--expanded");
+      }
       expandedChoiceRows.add(name);
       if (detailsEl) detailsEl.hidden = false;
+      if (detailsEl?.children.length) row.classList.add("choice-row--expanded");
       if (collapseEl) {
         collapseEl.hidden = false;
         collapseEl.setAttribute("aria-expanded", "true");
@@ -1248,6 +1270,7 @@ function renderSinglePickerRows(container, names, { selectedName, onSelect, getI
     };
     const row = el("div", {
       class: "choice-row" + (nested ? " choice-row--nested" : "") + (selected ? " choice-row--selected" : ""),
+      "data-row-name": name,
       tabindex: 0, role: "button", "aria-pressed": String(selected),
       onclick: (e) => {
         // The Collapse button handles its own clicks (with
@@ -1293,8 +1316,15 @@ function renderSinglePickerRows(container, names, { selectedName, onSelect, getI
     }
     if (hasDetails) {
       if (collapsible) {
-        const expanded = expandedChoiceRows.has(name);
+        // The selected row reads as expanded even on a fresh render
+        // (e.g. resuming a saved-in-progress wizard) so picking
+        // something never leaves its own details looking collapsed.
+        const expanded = expandedChoiceRows.has(name) || selected;
         details.hidden = !expanded;
+        // Portrait grows from a square thumbnail to a full-body frame
+        // while its row is the one showing details — a visual cue for
+        // "this is the one you're looking at" alongside the highlight.
+        row.classList.toggle("choice-row--expanded", expanded);
         // Collapse button lives at the bottom of the expanded content
         // and only exists while expanded — it collapses, never
         // expands, so it stays hidden on collapsed rows.
@@ -1308,6 +1338,7 @@ function renderSinglePickerRows(container, names, { selectedName, onSelect, getI
           e.stopPropagation();
           expandedChoiceRows.delete(name);
           details.hidden = true;
+          row.classList.remove("choice-row--expanded");
           collapseBtn.hidden = true;
           collapseBtn.setAttribute("aria-expanded", "false");
         });
