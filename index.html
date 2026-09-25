@@ -23,6 +23,10 @@
     <p class="app-loading">Loading<span class="app-loading__dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></p>
   </main>
 
-  <script type="module" src="js/main.js"></script>
+  <!-- ?v= cache-busts the entry script on each release: static hosts
+       and browsers cache JS aggressively, and a stuck copy of main.js
+       fails before any app code can even run. Bump the version
+       whenever shipped JS changes. -->
+  <script type="module" src="js/main.js?v=20260925"></script>
 </body>
 </html>

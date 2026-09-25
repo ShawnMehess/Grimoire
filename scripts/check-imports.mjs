@@ -1,8 +1,14 @@
 // check-imports.mjs
-// Static import-graph check: every relative import in customSheet.js
-// and js/render/sheet/*.js must resolve to a file on disk.
+// Static checks, no DOM or Firebase needed:
+//   1. import graph: every relative import in customSheet.js and
+//      js/render/sheet/*.js must resolve to a file on disk.
+//   2. syntax: every repo JS file must parse (node --check) — a syntax
+//      error in an entry file fails in the browser before any app code
+//      runs, so this gates what smoke-imports (which can't import
+//      DOM-dependent modules) never sees.
 // Run: node scripts/check-imports.mjs
 import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,4 +40,37 @@ if (missing.length) {
   process.exit(1);
 } else {
   console.log("imports: all resolve");
+}
+
+// Every JS file in the repo must at least parse — including entry
+// points like js/main.js that no test suite imports (DOM at module
+// scope), and the Firebase-backed modules Node cannot execute.
+function jsFilesUnder(dir, extension) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...jsFilesUnder(full, extension));
+    else if (entry.name.endsWith(extension)) out.push(full);
+  }
+  return out;
+}
+const syntaxFiles = [
+  ...jsFilesUnder(join(ROOT, "js"), ".js"),
+  ...jsFilesUnder(join(ROOT, "scripts"), ".mjs"),
+  ...(existsSync(join(ROOT, "tests")) ? jsFilesUnder(join(ROOT, "tests"), ".mjs") : []),
+];
+const syntaxErrors = [];
+for (const file of syntaxFiles) {
+  try {
+    execFileSync(process.execPath, ["--check", file], { stdio: "pipe" });
+  } catch {
+    syntaxErrors.push(file);
+  }
+}
+console.log(`parsed ${syntaxFiles.length} files`);
+if (syntaxErrors.length) {
+  console.error("SYNTAX ERRORS:\n" + syntaxErrors.join("\n"));
+  process.exit(1);
+} else {
+  console.log("syntax: all parse");
 }
