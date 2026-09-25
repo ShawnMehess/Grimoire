@@ -65,7 +65,7 @@ import { openCatalogBrowser } from "./catalogBrowser.js";
 import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets, listContentPacks, getContentPack, defaultContentPackIds, hitDieFor, multiclassSlotsFor, classNamesIn, subclassesAcrossRulesets, contentIdMatches } from "../data/dnd5e.js";
 import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor, classLevelsFor, meetsMulticlassPrereq, effectiveScoresFor, multiclassPrereqReason, includedRulesetIds, primaryRulesetId } from "../data/rulesEngine.js";
 import { SUBCLASS_SUPPLEMENT } from "../data/subclassContent.js";
-import { stripSecondaryClassBundle, FIXED_RACE_ENTRIES, SUPERSEDED_RACE_NAMES, legacyRaceBundles, SUBCLASS_BUNDLE_MAP, normSubclassKey } from "../data/contentFixups.js";
+import { stripSecondaryClassBundle, FIXED_RACE_ENTRIES, SUPERSEDED_RACE_NAMES, legacyRaceBundles, SUBCLASS_BUNDLE_MAP, normSubclassKey, LEGACY_ASI_COMBOS } from "../data/contentFixups.js";
 import { DEFAULT_CONTENT } from "../data/defaultContent.js";
 import { FEAT_BUNDLES, FEAT_CATALOG, FEAT_NAMES } from "../data/featBundles.js";
 import { SPELL_CATALOG, WEAPONS_ARMOR_CATALOG, GEAR_CATALOG } from "../data/contentCatalogs.js";
@@ -214,6 +214,12 @@ import {
   creationChoiceGroupsForState,
   creationFixedBundlesFor,
   groupOptionsOf,
+  isAsiSlotGroup,
+  languageSlotsFor,
+  assignLanguageSlot,
+  asiSlotsFor,
+  assignAsiSlot,
+  migrateAsiComboPicks,
   expressPicksFor,
   spellPicksCompleteForClass,
   magicalSecretsUnlocked,
@@ -286,6 +292,7 @@ import {
   renderRowListStepInto,
   renderPreferencesStepInto,
   renderChoicePageStepInto,
+  renderInlinePickRowInto,
   renderInnateAbilitiesStepInto,
   renderAbilitiesStepInto,
   reviewLinesFor,
@@ -3675,6 +3682,15 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
   function renderRulesTab() {
     const state = character.rules = normalizeRulesState(character.rules);
+    // Retired combo-option ASI picks map onto the slot groups (both
+    // key shapes); unparseable leftovers stay untouched for the
+    // Leveling gate to surface. Runs every render but only saves when
+    // something actually migrated.
+    const legacyAsi = migrateAsiComboPicks(character.rules.choices || {}, LEGACY_ASI_COMBOS);
+    if (legacyAsi.migrated > 0) {
+      character.rules.choices = legacyAsi.choices;
+      saveWithStatus("rules", character.rules);
+    }
     // First-visit source default: a returning user's last-picked
     // sources apply silently to characters that never chose their
     // own, before the single-source auto-select below runs. Anything
@@ -3817,9 +3833,23 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     // groups from every source share the conditional Feats page.
     const nonFeatGroupsFor = (...sources) => creationGroups.filter((g) =>
       !g.subrace && sources.includes(g.source) && categorizeChoiceGroup(g) !== "feats");
+    // Full per-pick lists — gating always counts everything, wherever
+    // each group renders.
     const raceChoiceGroups = nonFeatGroupsFor(state.species);
     const classChoiceGroups = nonFeatGroupsFor(state.className, state.subclass);
     const backgroundChoiceGroups = nonFeatGroupsFor(state.background);
+    // Groups rendered inline in the picker tables (not in the generic
+    // "Your choices" sections): language groups and ASI slot groups
+    // nested under their race/background rows. Class tables render no
+    // inline rows (no class grants languages or slot ASIs), so class
+    // language groups — should any ever appear — keep the generic
+    // rendering rather than vanishing.
+    const isInlineLangGroup = (g) => categorizeChoiceGroup(g) === "languages";
+    const raceInlineLang = raceChoiceGroups.filter(isInlineLangGroup);
+    const raceInlineAsi = raceChoiceGroups.filter(isAsiSlotGroup);
+    const raceSectionGroups = raceChoiceGroups.filter((g) => !isInlineLangGroup(g) && !isAsiSlotGroup(g));
+    const bgInlineLang = backgroundChoiceGroups.filter(isInlineLangGroup);
+    const bgSectionGroups = backgroundChoiceGroups.filter((g) => !isInlineLangGroup(g));
     // The race bundle's pick-1 subrace group (Elf/Dwarf) renders nested
     // under its race — the same pattern as subclasses under their
     // class — never as a standalone choice page, so it stays out of
@@ -3901,6 +3931,105 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     if (open.length) {
       noteInto(container, `Still to choose: ${open.join(" · ")}.`);
     }
+  }
+
+  /** Fixed (non-choice) languages on one bundle — Common plus its
+   *  grantTag language mods — for the inline row's known list. */
+  function fixedLangsFor(bundle) {
+    const names = ["Common"];
+    const isLang = (id) => /language/i.test(id || "") || /language/i.test(resolveFieldById(id)?.label || "");
+    for (const mod of bundle?.statModifiers || []) {
+      if (mod.op === "grantTag" && mod.value && isLang(mod.targetFieldId)
+        && !names.some((n) => n.toLowerCase() === String(mod.value).toLowerCase())) names.push(mod.value);
+    }
+    return names;
+  }
+
+  /** Refocuses an inline slot select after the page rebuild a pick
+   *  triggers, so keyboard flow survives. Cosmetic-only: never throws. */
+  function refocusInlineSlot(slotKey) {
+    try {
+      const node = pageGrid.querySelector(`[data-inline-slot="${String(slotKey).replace(/"/g, "")}"]`);
+      if (node) node.focus({ preventScroll: true });
+    } catch { /* keep the pick even if focus fails */ }
+  }
+
+  /** Inline Languages row ("Languages — Common, Dwarvish, [▾], [▾]")
+   *  for a picker table: locked knowns as text plus one dropdown per
+   *  pick slot. Each dropdown lists its own group's options; locked
+   *  knowns and sibling slots' picks grey out. Picks write back onto
+   *  the same per-group choice keys every compute path reads, so
+   *  gating, review, and apply work unchanged. */
+  function renderInlineLanguageRow(container, langGroups, fixedBundle, saveRules) {
+    if (!langGroups.length) return;
+    const store = character.rules.choices || {};
+    const slotModels = languageSlotsFor(langGroups, store);
+    const lockedNames = new Set(grantedLanguageNames(state).fixed.map((n) => String(n).toLowerCase()));
+    const leadItems = fixedLangsFor(fixedBundle).map((name) => ({ text: name, title: name === "Common" ? "Known by everyone — free, never uses picks" : "Granted — already known" }));
+    const allValues = slotModels.flatMap((m) => m.values).filter(Boolean).map((n) => n.toLowerCase());
+    renderInlinePickRowInto(container, {
+      label: "Languages",
+      leadItems,
+      slots: slotModels.flatMap((m) => {
+        const group = langGroups.find((g) => g.key === m.groupKey);
+        const offered = groupOptionsOf(group).filter((o) => o.name);
+        return m.values.map((value, i) => {
+          const own = (value || "").toLowerCase();
+          const siblings = new Set(allValues.filter((n) => n !== own));
+          return {
+            key: `${m.groupKey}#${i}`,
+            value: value || "",
+            placeholder: "Choose…",
+            options: offered.map((o) => {
+              const lower = o.name.toLowerCase();
+              const locked = lockedNames.has(lower);
+              const taken = !locked && siblings.has(lower);
+              return {
+                value: o.name,
+                label: o.name,
+                disabled: locked || taken,
+                title: locked ? "Already known — pick something else" : taken ? "Picked in the other dropdown" : null,
+              };
+            }),
+          };
+        });
+      }),
+      onPick: (slotKey, name) => {
+        const hash = slotKey.lastIndexOf("#");
+        const patch = assignLanguageSlot(langGroups, slotKey.slice(0, hash), Number(slotKey.slice(hash + 1)), name || null, character.rules.choices || {});
+        character.rules.choices = { ...(character.rules.choices || {}), ...patch };
+        saveRules();
+        renderPageGrid();
+        refocusInlineSlot(slotKey);
+      },
+    });
+  }
+
+  /** Inline Ability Scores row ("Ability Scores — +1 to each of [▾],
+   *  [▾]"): one dropdown per +1/+2 slot group. Duplicates stack
+   *  across slots because each slot is its own group. */
+  function renderInlineAsiRow(container, asiGroups, saveRules) {
+    if (!asiGroups.length) return;
+    const models = asiSlotsFor(asiGroups, character.rules.choices || {});
+    const allPlusOne = models.every((m) => m.value === 1);
+    renderInlinePickRowInto(container, {
+      label: "Ability Scores",
+      leadItems: [],
+      collective: models.length > 1 && allPlusOne ? "+1 to each of" : `+${models[0]?.value ?? 1} to`,
+      slots: models.map((m) => ({
+        key: m.groupKey,
+        value: m.pickedAbility || "",
+        placeholder: "Choose…",
+        options: m.options.map((o) => ({ value: o.ability, label: o.label })),
+      })),
+      onPick: (slotKey, abilityId) => {
+        const patch = assignAsiSlot(asiGroups, slotKey, abilityId || null);
+        character.rules.choices = { ...(character.rules.choices || {}), ...patch };
+        saveRules();
+        renderPageGrid();
+        refocusInlineSlot(slotKey);
+      },
+    });
   }
 
   /** Fills cantrips + leveled spells to the class cap, first-available
@@ -4117,9 +4246,18 @@ export function renderCustomSheet(root, character, store, opts = {}) {
               saveRules();
               renderPageGrid();
             },
+            // Inline Languages + ASI rows under the selected race —
+            // those groups leave the generic sections below.
+            extraRowsFn: (raceName, rowEl) => {
+              if (raceName !== state.species) return;
+              const host = el("div");
+              renderInlineLanguageRow(host, raceInlineLang, creationFixedBundles(state)[0], saveRules);
+              renderInlineAsiRow(host, raceInlineAsi, saveRules);
+              if (host.childNodes.length) rowEl.after(...host.childNodes);
+            },
           });
           renderKnownLanguagesInto(container, state);
-          renderYourChoicesSections(container, "basics", raceChoiceGroups, saveRules);
+          renderYourChoicesSections(container, "basics", raceSectionGroups, saveRules);
         },
       },
       {
@@ -4233,8 +4371,16 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
             mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
+            // Inline Languages row under the selected background —
+            // those groups leave the generic section below.
+            afterRow: (bgName, rowEl) => {
+              if (bgName !== state.background || !bgInlineLang.length) return;
+              const host = el("div");
+              renderInlineLanguageRow(host, bgInlineLang, creationFixedBundles(state)[3], saveRules);
+              if (host.firstElementChild) rowEl.after(host.firstElementChild);
+            },
           });
-          renderYourChoicesSections(container, "background", backgroundChoiceGroups, saveRules);
+          renderYourChoicesSections(container, "background", bgSectionGroups, saveRules);
         },
       },
       {
@@ -4466,6 +4612,16 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       return alreadyAppliedPanel(levelClass || primaryName, level, plan.ruleset.name);
     }
 
+    // Same retired-combo migration as the setup wizard, so stored
+    // picks land on the slot groups before pending choices sync from
+    // them (post-setup characters never revisit the setup tab).
+    const legacyAsi = migrateAsiComboPicks(character.rules.choices || {}, LEGACY_ASI_COMBOS);
+    if (legacyAsi.migrated > 0) {
+      character.rules.choices = legacyAsi.choices;
+      store.saveCharacterFields(character.id, { rules: character.rules }).catch((err) => {
+        console.error("Failed to save migrated ASI picks:", err);
+      });
+    }
     syncPendingChoices(pending, contentGroups, character.rules?.choices || {});
 
     // Slot trackers show the COMBINED table once multiclassed (or a

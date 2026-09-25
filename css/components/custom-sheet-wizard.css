@@ -388,6 +388,34 @@
   display: none;
 }
 
+/* Inline pick rows nested in picker tables ("Languages — Common,
+   Elvish, [dropdown]" / "Ability Scores — +1 to each of
+   [dropdown]"). The row itself reuses the picker-table look; only
+   the inline content needs rules: known items read as plain text,
+   dropdowns sit inline at a readable size inside the otherwise
+   small description line. */
+.inline-pick-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--space-1);
+}
+.inline-pick-known {
+  font-weight: 600;
+  color: var(--color-text);
+}
+.inline-pick-collective {
+  color: var(--color-text-muted);
+}
+.inline-pick-select {
+  width: auto;
+  min-width: 7em;
+  max-width: 100%;
+  font-size: var(--text-sm);
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
 .choice-row__portrait img {
   width: 100%;
   height: 100%;

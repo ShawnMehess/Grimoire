@@ -144,6 +144,10 @@ export function renderRulesetStepInto(container, state, deps) {
 
 export function renderIdentityStepInto(container, state, deps) {
   const { characterName, nameInputSetFn, saveNameFn, updateFn, fieldFn, optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn, selectableRowsFn, debounceFn } = deps;
+  // Optional: extra rows under the selected race (inline language/ASI
+  // pickers) — called first so the subrace list below still lands
+  // directly under the race row, ahead of them.
+  const { extraRowsFn = null } = deps;
   const {
     subraceGroupFn = null,
     subraceMechanicsFn = null,
@@ -181,6 +185,7 @@ export function renderIdentityStepInto(container, state, deps) {
       // pattern the Class step uses for subclasses.
       afterRow: (raceName, rowEl) => {
         if (raceName !== state.species) return;
+        if (extraRowsFn) extraRowsFn(raceName, rowEl);
         const sub = subraceGroupFn ? subraceGroupFn(raceName) : null;
         if (!sub?.group?.options?.length) return;
         const picked = sub.group.options.find((o) => (sub.pickedIds || []).includes(o.id));
@@ -259,6 +264,10 @@ export function renderRowListStepInto(container, state, deps) {
     optionNamesFn, fallbackNames, keywords, category, selectedKey,
     inputLabel, inputPlaceholder, updateKey, updateFn, fieldFn,
     selectableRowsFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn,
+    // Optional: inject content after a particular row (nested pickers
+    // under the selected option) — same `afterRow(name, rowEl)` the
+    // class/race tables take. Absent means rows render alone.
+    afterRow = null,
   } = deps;
   const liveNames = optionNamesFn(state.rulesetId, category, fallbackNames);
   if (liveNames.length) {
@@ -267,6 +276,7 @@ export function renderRowListStepInto(container, state, deps) {
       getInfo: (name) => catalogInfoFn(keywords, name),
       getMechanicsList: (name) => (mechanicsListFn ? mechanicsListFn(category, name) : null),
       onSelect: (name) => updateFn(updateKey, name),
+      ...(afterRow ? { afterRow } : {}),
     });
   } else {
     const input = el("input", {
@@ -292,6 +302,54 @@ export function renderPreferencesStepInto(container, state, deps) {
 
 export function renderChoicePageStepInto(container, groups, saveRules, renderChoiceGroupsFn) {
   renderChoiceGroupsFn(container, groups, saveRules);
+}
+
+/** An inline pick row for a picker table ("Languages — Common,
+ *  Elvish, [▾], [▾]"): locked known items as plain text plus one
+ *  `<select>` per pick slot, so the row reads as the known list
+ *  itself rather than a separate picker.
+ *
+ *    renderInlinePickRowInto(container, {
+ *      label,                        // "Languages" / "Ability Scores"
+ *      leadItems: [{ text, title }], // locked knowns (Common, fixed grants)
+ *      collective,                   // "+1 to each of" / "+2 to" / null
+ *      slots: [{ key, value, placeholder, options: [{ value, label, disabled, title }] }],
+ *      onPick: (slotKey, value) => void,  // "" clears; caller persists + refreshes
+ *    })
+ *
+ *  Pure construction — the caller owns the model (slot values, grey
+ *  sets) and re-renders on every pick, same as the spell picker. */
+export function renderInlinePickRowInto(container, deps) {
+  const { label, leadItems = [], collective = null, slots = [], onPick } = deps;
+  if (!slots.length && !leadItems.length) return;
+  const line = el("div", { class: "choice-row__description inline-pick-line" });
+  leadItems.forEach(({ text, title }, i) => {
+    if (i > 0) line.append(document.createTextNode(", "));
+    line.append(el("span", { class: "inline-pick-known", text, title }));
+  });
+  if (collective && slots.length) {
+    if (leadItems.length) line.append(document.createTextNode(", "));
+    line.append(el("span", { class: "inline-pick-collective", text: `${collective} ` }));
+  }
+  slots.forEach((slot, i) => {
+    if (i > 0 || (leadItems.length && !collective)) line.append(document.createTextNode(", "));
+    const select = el("select", {
+      class: "input-group__control inline-pick-select",
+      "data-inline-slot": slot.key,
+      "aria-label": `${label} pick ${i + 1}`,
+      onchange: () => onPick(slot.key, select.value),
+    });
+    select.append(el("option", { value: "", text: slot.placeholder || "Choose…" }));
+    (slot.options || []).forEach((o) => {
+      select.append(el("option", { value: o.value, text: o.label, disabled: o.disabled || false, title: o.title || null }));
+    });
+    select.value = slot.value ?? "";
+    line.append(select);
+  });
+  container.append(el("div", { class: "choice-row choice-row--nested inline-pick-row" },
+    el("div", { class: "choice-row__body" },
+      el("div", { class: "choice-row__label", text: label }),
+      line)));
 }
 
 /** Read-only reference list of everything the chosen Race/Class/

@@ -402,6 +402,141 @@ export function sanitizeSourceDefault(stored, systems = [], packsForFn = () => [
   return { primary, included };
 }
 
+/** Whether a group is an ability-score slot (every option grants a
+ *  single add to one ability score — +1 slots, or the Custom Lineage
+ *  +2). Slot groups render as one ability dropdown each in the picker
+ *  tables rather than as checkbox lists; duplicates stack across
+ *  slots because each slot is its own group. Pure. */
+export function isAsiSlotGroup(group) {
+  const opts = group?.options || [];
+  return opts.length > 0 && opts.every((o) => {
+    const mods = o?.statModifiers || [];
+    return mods.length === 1 && mods[0]?.op === "add"
+      && /^[a-z]+Score$/.test(mods[0]?.targetFieldId || "")
+      && Number.isFinite(mods[0]?.value);
+  });
+}
+
+/** The ability id one slot option grants (from its `<abl>Score`
+ *  target), or null. Pure. */
+export function asiAbilityOf(option) {
+  const mods = option?.statModifiers || [];
+  if (mods.length !== 1) return null;
+  const m = /^([a-z]+)Score$/.exec(mods[0]?.targetFieldId || "");
+  return m ? m[1] : null;
+}
+
+/** Language slots for a set of groups: one slot per pick
+ *  (maxSelections), values resolved to option names in group order
+ *  and padded with null. Returns
+ *  `[{ groupKey, values: [(name|null)] }]`. Pure. */
+export function languageSlotsFor(groups, choicesStore = {}) {
+  return (groups || []).map((group) => {
+    const options = groupOptionsOf(group);
+    const names = [...(choicesStore?.[group.key] || [])]
+      .map((id) => options.find((o) => o.id === id)?.name)
+      .filter(Boolean)
+      .sort((a, b) => options.findIndex((o) => o.name === a) - options.findIndex((o) => o.name === b));
+    const slots = Array.from({ length: Math.max(0, group.maxSelections || 0) }, (_, i) => names[i] ?? null);
+    return { groupKey: group.key, values: slots };
+  });
+}
+
+/** Writes one language slot pick back onto per-group choice keys:
+ *  the slot's group keeps its locked defaults plus the option ids of
+ *  its (deduped) slot names; unknown names are dropped. Returns
+ *  `{ [groupKey]: [optionIds] }` for merging into the choices store.
+ *  Pure. */
+export function assignLanguageSlot(groups, groupKey, slotIndex, name, choicesStore = {}) {
+  const group = (groups || []).find((g) => g.key === groupKey);
+  if (!group) return {};
+  const current = languageSlotsFor([group], choicesStore)[0]?.values || [];
+  current[slotIndex] = name || null;
+  const locked = [...(group.lockedOptionIds || [])];
+  const seen = new Set(locked);
+  const ids = [...locked];
+  for (const slotName of current) {
+    if (!slotName) continue;
+    const opt = groupOptionsOf(group).find((o) => (o.name || "").toLowerCase() === slotName.toLowerCase());
+    if (opt && !seen.has(opt.id)) {
+      seen.add(opt.id);
+      ids.push(opt.id);
+    }
+  }
+  return { [groupKey]: ids };
+}
+
+/** ASI slots for a set of slot groups: the uniform grant value, the
+ *  picked ability (or null), and the offered abilities in group
+ *  order. Returns
+ *  `[{ groupKey, value, pickedAbility, options: [{ ability, label, optionId }] }]`.
+ *  Pure. */
+export function asiSlotsFor(groups, choicesStore = {}) {
+  return (groups || []).map((group) => {
+    const options = (group?.options || [])
+      .map((o) => {
+        const ability = asiAbilityOf(o);
+        if (!ability) return null;
+        return { ability, label: o.name || ability, optionId: o.id, value: o.statModifiers[0].value };
+      })
+      .filter(Boolean);
+    const stored = choicesStore?.[group.key] || [];
+    const picked = options.find((o) => stored.includes(o.optionId)) || null;
+    const values = new Set(options.map((o) => o.value));
+    return {
+      groupKey: group.key,
+      value: values.size === 1 ? options[0].value : 1,
+      pickedAbility: picked?.ability || null,
+      options,
+    };
+  });
+}
+
+/** Writes one ASI slot pick back onto its group key (empty clears).
+ *  Returns `{ [groupKey]: [optionId] }`. Pure. */
+export function assignAsiSlot(groups, groupKey, abilityId) {
+  const group = (groups || []).find((g) => g.key === groupKey);
+  if (!group) return {};
+  const opt = (group.options || []).find((o) => asiAbilityOf(o) === abilityId);
+  return { [groupKey]: opt ? [opt.id] : [] };
+}
+
+/** Migrates retired combo-option picks onto slot groups: for every
+ *  choices key ending in a retired `oldGroupId` holding a single
+ *  combo option id, parses the trailing ability segments
+ *  (`{prefix}-asi-{a}-{b}[-{c}]`, `{prefix}-ability-{a}-{b}`) and
+ *  writes sibling keys for `slotGroupIds` with deterministic
+ *  `{slotGroupId}-{ability}` option ids — doubling the first ability
+ *  when a pair fills three slots (+2/+1). New keys that already hold
+ *  picks are never overwritten, and unparseable picks keep their old
+ *  key untouched (never destroy user data). Returns
+ *  `{ choices, migrated }`. Pure — `abilityIds` is the valid ability
+ *  set (abilities outside it abort that key's migration). */
+export function migrateAsiComboPicks(choices = {}, defs = [], abilityIds = ["str", "dex", "con", "int", "wis", "cha"]) {
+  const valid = new Set(abilityIds || []);
+  const out = { ...(choices || {}) };
+  let migrated = 0;
+  for (const [key, picks] of Object.entries(choices || {})) {
+    const groupId = key.split(":").pop();
+    const def = (defs || []).find((d) => d.oldGroupId === groupId);
+    if (!def || !Array.isArray(picks) || picks.length !== 1) continue;
+    const optionId = picks[0];
+    if (typeof optionId !== "string" || !optionId.startsWith(def.optionPrefix)) continue;
+    const segs = optionId.slice(def.optionPrefix.length).split("-").filter(Boolean);
+    if (!segs.length || segs.length > def.slotGroupIds.length || !segs.every((s) => valid.has(s))) continue;
+    const prefix = key.slice(0, key.length - groupId.length);
+    if (def.slotGroupIds.some((id) => (out[`${prefix}${id}`] || []).length)) continue;
+    const expanded = [...segs];
+    while (expanded.length < def.slotGroupIds.length) expanded.unshift(expanded[0]);
+    def.slotGroupIds.forEach((slotId, i) => {
+      out[`${prefix}${slotId}`] = [`${slotId}-${expanded[i]}`];
+    });
+    delete out[key];
+    migrated++;
+  }
+  return { choices: out, migrated };
+}
+
 export function canPickMore({ selectedCount, maxSelections, isRadio }) {
   if (isRadio) return true;
   return selectedCount < maxSelections;

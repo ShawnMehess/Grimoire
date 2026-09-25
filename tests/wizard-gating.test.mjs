@@ -32,6 +32,13 @@ import {
   magicalSecretsUnlocked,
   secretsPickedCount,
   secretsCompleteFor,
+  isAsiSlotGroup,
+  asiAbilityOf,
+  languageSlotsFor,
+  assignLanguageSlot,
+  asiSlotsFor,
+  assignAsiSlot,
+  migrateAsiComboPicks,
   clampStepIndex,
   stepIsComplete,
   firstIncompleteStep,
@@ -268,6 +275,91 @@ describe("magical secrets", () => {
     assert.equal(secretsCompleteFor(2, 2), true);
     assert.equal(secretsCompleteFor(2, 1), false);
     assert.equal(secretsCompleteFor(0, 0), true);
+  });
+});
+
+describe("inline dropdown rows", () => {
+  const langGroup = (key, min, max, names, locked = []) => ({
+    key, label: "Languages", minSelections: min, maxSelections: max, lockedOptionIds: locked,
+    options: names.map((n) => ({
+      id: `${key}-${n.toLowerCase()}`, name: n,
+      statModifiers: [{ targetFieldId: "languages", op: "grantTag", value: n }],
+    })),
+  });
+  const asiGroup = (key, pairs) => ({
+    key, label: "Ability Score Increase (+1)", minSelections: 1, maxSelections: 1,
+    options: pairs.map(([ability, label, value]) => ({
+      id: `${key}-${ability}`, name: label,
+      statModifiers: [{ targetFieldId: `${ability}Score`, op: "add", value }],
+    })),
+  });
+
+  it("detects ASI slot groups structurally", () => {
+    assert.equal(isAsiSlotGroup(asiGroup("g", [["str", "Strength", 1], ["dex", "Dexterity", 1]])), true);
+    assert.equal(isAsiSlotGroup(asiGroup("g", [["cha", "Charisma", 2]])), true);
+    assert.equal(isAsiSlotGroup(langGroup("h", 1, 1, ["Elvish"])), false);
+    assert.equal(isAsiSlotGroup({ key: "x", options: [{ id: "o", name: "+2 STR/+1 DEX", statModifiers: [{ op: "add", targetFieldId: "strScore", value: 2 }, { op: "add", targetFieldId: "dexScore", value: 1 }] }] }), false);
+    assert.equal(isAsiSlotGroup({ key: "x", options: [] }), false);
+    assert.equal(asiAbilityOf({ statModifiers: [{ op: "add", targetFieldId: "wisScore", value: 1 }] }), "wis");
+    assert.equal(asiAbilityOf({ statModifiers: [] }), null);
+  });
+
+  it("maps language groups to slots and back", () => {
+    const groups = [langGroup("g1", 1, 1, ["Common", "Elvish", "Orc"]), langGroup("g2", 1, 2, ["Common", "Draconic", "Elvish"])];
+    assert.deepEqual(languageSlotsFor(groups, {}), [
+      { groupKey: "g1", values: [null] },
+      { groupKey: "g2", values: [null, null] },
+    ]);
+    const store = { g1: ["g1-elvish"], g2: ["g2-draconic"] };
+    assert.deepEqual(languageSlotsFor(groups, store)[1], { groupKey: "g2", values: ["Draconic", null] });
+    assert.deepEqual(assignLanguageSlot(groups, "g2", 1, "Elvish", store), { g2: ["g2-draconic", "g2-elvish"] });
+    assert.deepEqual(assignLanguageSlot(groups, "g2", 0, "", { g2: ["g2-draconic", "g2-elvish"] }), { g2: ["g2-elvish"] });
+    assert.deepEqual(assignLanguageSlot(groups, "g1", 0, "", store), { g1: [] });
+    assert.deepEqual(assignLanguageSlot(groups, "nope", 0, "Elvish", store), {});
+    // Locked defaults ride along.
+    const locked = [langGroup("g3", 1, 1, ["Common", "Elvish"], ["g3-common"])];
+    assert.deepEqual(assignLanguageSlot(locked, "g3", 0, "Elvish", {}), { g3: ["g3-common", "g3-elvish"] });
+  });
+
+  it("maps ASI slots to picks and back", () => {
+    const groups = [asiGroup("a1", [["str", "Strength", 1], ["dex", "Dexterity", 1]]), asiGroup("a2", [["str", "Strength", 1], ["cha", "Charisma", 1]])];
+    assert.deepEqual(asiSlotsFor(groups, {}), [
+      { groupKey: "a1", value: 1, pickedAbility: null, options: [{ ability: "str", label: "Strength", optionId: "a1-str", value: 1 }, { ability: "dex", label: "Dexterity", optionId: "a1-dex", value: 1 }] },
+      { groupKey: "a2", value: 1, pickedAbility: null, options: [{ ability: "str", label: "Strength", optionId: "a2-str", value: 1 }, { ability: "cha", label: "Charisma", optionId: "a2-cha", value: 1 }] },
+    ]);
+    // Duplicates across slots are independent picks.
+    const store = { a1: ["a1-str"], a2: ["a2-str"] };
+    assert.equal(asiSlotsFor(groups, store)[1].pickedAbility, "str");
+    assert.deepEqual(assignAsiSlot(groups, "a2", "cha"), { a2: ["a2-cha"] });
+    assert.deepEqual(assignAsiSlot(groups, "a2", ""), { a2: [] });
+    assert.deepEqual(assignAsiSlot(groups, "nope", "str"), {});
+  });
+
+  it("migrates retired combo picks onto slots", () => {
+    const defs = [
+      { oldGroupId: "x-asi", optionPrefix: "x-asi-", slotGroupIds: ["x-asi-1", "x-asi-2", "x-asi-3"] },
+      { oldGroupId: "half-elf-abilities", optionPrefix: "half-elf-ability-", slotGroupIds: ["half-elf-asi-1", "half-elf-asi-2"] },
+    ];
+    // Triple spreads as-is; pair doubles its first ability (+2/+1).
+    const t = migrateAsiComboPicks({ "f:c:x-asi": ["x-asi-str-dex-con"] }, defs);
+    assert.deepEqual(t.choices, { "f:c:x-asi-1": ["x-asi-1-str"], "f:c:x-asi-2": ["x-asi-2-dex"], "f:c:x-asi-3": ["x-asi-3-con"] });
+    assert.equal(t.migrated, 1);
+    const p = migrateAsiComboPicks({ "creation:Race:Genasi:x-asi": ["x-asi-str-dex"] }, defs);
+    assert.deepEqual(p.choices, {
+      "creation:Race:Genasi:x-asi-1": ["x-asi-1-str"],
+      "creation:Race:Genasi:x-asi-2": ["x-asi-2-str"],
+      "creation:Race:Genasi:x-asi-3": ["x-asi-3-dex"],
+    });
+    const h = migrateAsiComboPicks({ "f:c:half-elf-abilities": ["half-elf-ability-str-dex"] }, defs);
+    assert.deepEqual(h.choices, { "f:c:half-elf-asi-1": ["half-elf-asi-1-str"], "f:c:half-elf-asi-2": ["half-elf-asi-2-dex"] });
+    // Never overwrites existing slot picks; never destroys the unparseable.
+    const kept = migrateAsiComboPicks({ "f:c:x-asi": ["x-asi-str-dex"], "f:c:x-asi-1": ["x-asi-1-con"] }, defs);
+    assert.deepEqual(kept.choices["f:c:x-asi-1"], ["x-asi-1-con"]);
+    assert.deepEqual(kept.choices["f:c:x-asi"], ["x-asi-str-dex"]);
+    assert.equal(kept.migrated, 0);
+    const bad = migrateAsiComboPicks({ "f:c:x-asi": ["custom-thing"] }, defs);
+    assert.deepEqual(bad.choices, { "f:c:x-asi": ["custom-thing"] });
+    assert.equal(bad.migrated, 0);
   });
 });
 
