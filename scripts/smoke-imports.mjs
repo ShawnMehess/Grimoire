@@ -594,6 +594,7 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   // Hand-written fixups replace source-data stubs with real pickers.
 {
   const { FIXED_CLASS_ENTRIES, FIXED_RACE_ENTRIES } = await import("../js/data/contentFixups.js");
+  const { RACE_EXTRA_ENTRIES: RACE_EXTRAS } = await import("../js/data/extraRaces.js");
   const group = (bundle, id) => (bundle?.choiceGroups || []).find((g) => g.id === id);
   const fighter = FIXED_CLASS_ENTRIES.find((e) => e.name === "Fighter").bundle;
   assert(group(fighter, "fighter-fighting-style")?.options.length === 11, "Fighter fighting-style picker (6 PHB + 5 TCE)");
@@ -623,10 +624,16 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   const genasiBase = FIXED_RACE_ENTRIES.find((e) => e.name === "Genasi").bundle;
   assert(genasiBase.statModifiers.length === 0, "Genasi base carries no fixed traits");
   assert(group(genasiBase, "genasi-subrace")?.options.map((o) => o.name).join(",") === "Air Genasi,Earth Genasi,Fire Genasi,Water Genasi", "Genasi subrace picker");
-  assert(group(genasiBase, "genasi-asi")?.options.length === 35, "Genasi shared ASI picker");
+  for (const id of ["genasi-asi-1", "genasi-asi-2", "genasi-asi-3"]) {
+    const slot = group(genasiBase, id);
+    assert(slot?.options.length === 6 && slot.options.every((o) => o.statModifiers.length === 1 && o.statModifiers[0].value === 1), "Genasi ASI slots (+1 each)");
+  }
   assert(!FIXED_RACE_ENTRIES.some((e) => ["Air Genasi", "Earth Genasi", "Fire Genasi", "Water Genasi"].includes(e.name)), "standalone genasi leave the race list");
   const aarakocra = FIXED_RACE_ENTRIES.find((e) => e.name === "Aarakocra").bundle;
-  assert(aarakocra.choiceGroups.some((g) => g.options.length === 35), "Aarakocra ASI pairs+triples");
+  assert(["aarakocra-asi-1", "aarakocra-asi-2", "aarakocra-asi-3"].every((id) => group(aarakocra, id)?.options.length === 6), "Aarakocra ASI slots");
+  const halfElf = RACE_EXTRAS.find((e) => e.name === "Half-Elf").bundle;
+  assert(["half-elf-asi-1", "half-elf-asi-2"].every((id) => group(halfElf, id)?.options.length === 5), "Half-Elf ASI slots (no CHA)");
+  assert(!halfElf.choiceGroups.some((g) => g.id === "half-elf-abilities"), "Half-Elf pair group retired");
   const mi = featMod.FEAT_BUNDLES.find((b) => b.name === "Magic Initiate");
   assert(mi.choiceGroups.some((g) => g.id === "magic-initiate-cantrips" && g.options.length === 47), "Magic Initiate cantrip picker");
 }

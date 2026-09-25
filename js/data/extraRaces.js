@@ -18,8 +18,9 @@
 // Known limits (flagged, not guessed):
 // - Elf base carries no traits of its own — everything comes from its
 //   elf-subrace picker (High/Wood/Drow), each a full kit.
-// - Half-Elf's two +1s are a real pick-2 pairing group (same treatment
-//   the ASI choice groups already use).
+// - Half-Elf's two +1s are two independent +1 slot groups (one
+//   dropdown each, duplicates allowed) — same shape as the freeform
+//   ASI slots in contentFixups.js.
 // - Tiefling Infernal Legacy spells arrive via spellsKnown addItem at
 //   character levels 1/3/5 — they need the Spell List catalog wired
 //   (see customSheet.js catalogCache) to display.
@@ -51,6 +52,23 @@ function langOptions(id, count) {
       featureGrants: [], resourceGrants: [],
     })),
   };
+}
+
+// One independent +1 slot group per increasable score — same shape as
+// contentFixups.js's asiSlotGroups (duplicated: that module imports
+// this file's entries, so it can't export the builder back here).
+// Duplicates stack across slots; see migrateAsiComboPicks for retired
+// combo picks.
+function asiSlotGroups(idPrefix, count, abilityIds) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `${idPrefix}-${i + 1}`, label: "Ability Score Increase (+1)",
+    minLevel: 1, minSelections: 1, maxSelections: 1,
+    options: abilityIds.map((aid) => ({
+      id: `${idPrefix}-${i + 1}-${aid}`, name: ABILITY_LABEL[aid], description: "",
+      statModifiers: [{ targetFieldId: `${aid}Score`, op: "add", value: 1, minLevel: null }],
+      featureGrants: [], resourceGrants: [],
+    })),
+  }));
 }
 
 function skillOptions(id, label, skillIds, count) {
@@ -199,29 +217,9 @@ export const RACE_EXTRA_ENTRIES = [
       ],
       resourceGrants: [],
       choiceGroups: [
-        {
-          id: "half-elf-abilities", label: "Ability Score Increases (+1 to two other abilities)",
-          minLevel: 1, minSelections: 1, maxSelections: 1,
-          options: (() => {
-            const others = ABILITIES.filter((a) => a !== "cha");
-            const pairs = [];
-            for (let i = 0; i < others.length; i++) {
-              for (let j = i + 1; j < others.length; j++) {
-                const [a, b] = [others[i], others[j]];
-                pairs.push({
-                  id: `half-elf-ability-${a}-${b}`,
-                  name: `+1 ${ABILITY_LABEL[a]} / +1 ${ABILITY_LABEL[b]}`, description: "",
-                  statModifiers: [
-                    { targetFieldId: `${a}Score`, op: "add", value: 1, minLevel: null },
-                    { targetFieldId: `${b}Score`, op: "add", value: 1, minLevel: null },
-                  ],
-                  featureGrants: [], resourceGrants: [],
-                });
-              }
-            }
-            return pairs;
-          })(),
-        },
+        // +1 to two abilities other than Charisma (already +2) — one
+        // dropdown per pick, duplicates allowed.
+        ...asiSlotGroups("half-elf-asi", 2, ABILITIES.filter((a) => a !== "cha")),
         skillOptions("half-elf", "Skill Versatility (any two skills)", SKILLS.map((s) => s[0]), 2),
         langOptions("half-elf", 1),
       ],

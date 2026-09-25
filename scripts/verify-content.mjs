@@ -428,10 +428,18 @@ function featListWith(namesAndLevels) {
   const champ = SUBCLASS_BUNDLE_MAP.get("champion");
   if (!(champ?.choiceGroups || []).some((g) => g.id === "champion-fighting-style")) fail("Champion: fighting-style picker missing");
 
-  // Free-form racial ASIs: 15 pairs + 20 triples.
+  // Free-form racial ASIs: three independent +1 slots (any 3-point
+  // split, duplicates stacking) instead of the old 35-combo picker.
   for (const n of ["Aarakocra", "Aasimar", "Yuan-ti", "Genasi"]) {
-    const g = (race(n)?.choiceGroups || []).find((g) => g.id.endsWith("-asi"));
-    if (!g || g.options.length !== 35) fail(`${n}: ASI picker missing (want 35 options, got ${g?.options.length ?? 0})`);
+    const groups = (race(n)?.choiceGroups || []).filter((g) => /-asi-[123]$/.test(g.id || ""));
+    if (groups.length !== 3) fail(`${n}: ASI slots missing (want 3 slot groups)`);
+    for (const g of groups) {
+      if ((g.options || []).length !== 6) fail(`${n}: ${g.id} wants 6 ability options`);
+      if (!(g.options || []).every((o) => (o.statModifiers || []).length === 1 && o.statModifiers[0].op === "add" && o.statModifiers[0].value === 1)) {
+        fail(`${n}: ${g.id} options are not single +1s`);
+      }
+      if (g.minSelections !== 1 || g.maxSelections !== 1) fail(`${n}: ${g.id} is not single-pick`);
+    }
     if ((race(n)?.featureGrants || []).some((f) => /plus_2_plus_1_or_three_plus_1s/.test(f.description || ""))) {
       fail(`${n}: stale ASI stub note still present`);
     }

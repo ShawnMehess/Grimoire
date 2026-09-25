@@ -143,37 +143,39 @@ const PACT_BOONS = {
 };
 
 // --- Free-form racial ASIs ------------------------------------------------------
-function asiPairTripleOptions(prefix) {
-  const ids = ABILITIES.map((a) => a.id);
+// One independent +1 slot group per increasable score (three slots =
+// any 3-point split, duplicates stacking) — the old 15-pair +
+// 20-triple combo picker couldn't express duplicate picks, and the
+// compute path collapses duplicate ids within a single group, so
+// combos had to go. The wizard renders one ability dropdown per slot.
+function asiSlotOptions(prefix, slot, abilityIds) {
   const label = Object.fromEntries(ABILITIES.map((a) => [a.id, a.label]));
-  const opts = [];
-  for (let i = 0; i < ids.length; i++) {
-    for (let j = i + 1; j < ids.length; j++) {
-      const [a, b] = [ids[i], ids[j]];
-      opts.push({
-        id: `${prefix}-asi-${a}-${b}`, name: `+2 ${label[a]} / +1 ${label[b]}`, description: "",
-        statModifiers: [
-          { targetFieldId: `${a}Score`, op: "add", value: 2, minLevel: null },
-          { targetFieldId: `${b}Score`, op: "add", value: 1, minLevel: null },
-        ],
-        featureGrants: [], resourceGrants: [],
-      });
-    }
-  }
-  for (let i = 0; i < ids.length; i++) {
-    for (let j = i + 1; j < ids.length; j++) {
-      for (let k = j + 1; k < ids.length; k++) {
-        const [a, b, c] = [ids[i], ids[j], ids[k]];
-        opts.push({
-          id: `${prefix}-asi-${a}-${b}-${c}`, name: `+1 ${label[a]} / +1 ${label[b]} / +1 ${label[c]}`, description: "",
-          statModifiers: [a, b, c].map((x) => ({ targetFieldId: `${x}Score`, op: "add", value: 1, minLevel: null })),
-          featureGrants: [], resourceGrants: [],
-        });
-      }
-    }
-  }
-  return opts; // 15 pairs + 20 triples
+  return abilityIds.map((aid) => ({
+    id: `${prefix}-asi-${slot}-${aid}`, name: label[aid], description: "",
+    statModifiers: [{ targetFieldId: `${aid}Score`, op: "add", value: 1, minLevel: null }],
+    featureGrants: [], resourceGrants: [],
+  }));
 }
+function asiSlotGroups(prefix, minLevel, count, abilityIds = ABILITIES.map((a) => a.id)) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `${prefix}-asi-${i + 1}`, label: "Ability Score Increase (+1)", minLevel,
+    minSelections: 1, maxSelections: 1,
+    options: asiSlotOptions(prefix, i + 1, abilityIds),
+  }));
+}
+// Retired combo groups ({prefix}-asi with 35 pair/triple options,
+// half-elf-abilities with 10 pair options) map onto the slot groups
+// above for characters that picked under the old shape — see
+// migrateAsiComboPicks in sheetWizard.js. optionPrefix is the combo
+// option id stem; the trailing ability segments parse back into slot
+// picks (a 2-segment pair doubles its first ability: +2/+1).
+export const LEGACY_ASI_COMBOS = [
+  { oldGroupId: "aarakocra-asi", optionPrefix: "aarakocra-asi-", slotGroupIds: ["aarakocra-asi-1", "aarakocra-asi-2", "aarakocra-asi-3"] },
+  { oldGroupId: "aasimar-asi", optionPrefix: "aasimar-asi-", slotGroupIds: ["aasimar-asi-1", "aasimar-asi-2", "aasimar-asi-3"] },
+  { oldGroupId: "yuan-ti-asi", optionPrefix: "yuan-ti-asi-", slotGroupIds: ["yuan-ti-asi-1", "yuan-ti-asi-2", "yuan-ti-asi-3"] },
+  { oldGroupId: "genasi-asi", optionPrefix: "genasi-asi-", slotGroupIds: ["genasi-asi-1", "genasi-asi-2", "genasi-asi-3"] },
+  { oldGroupId: "half-elf-abilities", optionPrefix: "half-elf-ability-", slotGroupIds: ["half-elf-asi-1", "half-elf-asi-2"] },
+];
 
 // --- Class patches ---------------------------------------------------------------
 function patchFighter(bundle) {
@@ -331,11 +333,8 @@ const ARTIFICER_ARTISAN_TOOLS = [
 function patchFreeformAsi(bundle, prefix) {
   const levels = takeNotes(bundle, (g) => /plus_2_plus_1_or_three_plus_1s/.test(g.description || ""));
   if (!levels.length) return bundle;
-  bundle.choiceGroups.push({
-    id: `${prefix}-asi`, label: "Ability Score Increase — +2/+1 or three +1s", minLevel: Math.min(...levels.filter(Number.isFinite).length ? levels.filter(Number.isFinite) : [1]),
-    minSelections: 1, maxSelections: 1,
-    options: asiPairTripleOptions(prefix),
-  });
+  const minLevel = Math.min(...levels.filter(Number.isFinite).length ? levels.filter(Number.isFinite) : [1]);
+  bundle.choiceGroups.push(...asiSlotGroups(prefix, minLevel, 3));
   return bundle;
 }
 
