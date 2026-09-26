@@ -149,9 +149,10 @@ const PACT_BOONS = {
 // compute path collapses duplicate ids within a single group, so
 // combos had to go. The wizard renders one ability dropdown per slot.
 function asiSlotOptions(prefix, slot, abilityIds) {
-  const label = Object.fromEntries(ABILITIES.map((a) => [a.id, a.label]));
+  // Abbreviated labels everywhere ("STR", never "Strength") — tooltips
+  // on the rendered dropdowns carry the full names.
   return abilityIds.map((aid) => ({
-    id: `${prefix}-asi-${slot}-${aid}`, name: label[aid], description: "",
+    id: `${prefix}-asi-${slot}-${aid}`, name: aid.toUpperCase(), description: "",
     statModifiers: [{ targetFieldId: `${aid}Score`, op: "add", value: 1, minLevel: null }],
     featureGrants: [], resourceGrants: [],
   }));
@@ -853,8 +854,11 @@ function patchRaceEntry(entry) {
     patchFreeformAsi(out.bundle, entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
   }
   if (entry.name === "Custom Lineage") {
-    patchLineageAsiNames(out.bundle);
+    patchAbilityOptionAbbr(out.bundle, "custom-lineage-asi-choice-0");
     patchLineageTraitNames(out.bundle);
+  }
+  if (entry.name === "Changeling") {
+    patchAbilityOptionAbbr(out.bundle, "changeling-asi-choice-1");
   }
   return out;
 }
@@ -885,22 +889,22 @@ function patchLineageTraitNames(bundle) {
   return bundle;
 }
 
-// Custom Lineage's +2 options read "+2 STR" in compiled data — full
-// ability names read better everywhere the option name surfaces
-// (profile dropdowns, review lines, Leveling radios), and the +2
-// already shows in the inline bullet's collective prefix. Derived
-// from each option's own score target, never parsed from the name.
-function patchLineageAsiNames(bundle) {
-  const label = Object.fromEntries(ABILITIES.map((a) => [a.id, a.label]));
+// Ability-named options ("+2 STR", "+1 STR") read better abbreviated
+// ("STR") everywhere the option name surfaces (profile dropdowns,
+// review lines, Leveling radios) — tooltips on the rendered controls
+// carry the full names. Derived from each option's own score target
+// (single score-add only), never parsed from the name. Copy options
+// before renaming: the array above is fresh but the option objects
+// are still shared with compiled defaultContent.
+function patchAbilityOptionAbbr(bundle, groupId) {
   bundle.choiceGroups = (bundle.choiceGroups || []).map((group) => {
-    if (group.id !== "custom-lineage-asi-choice-0") return group;
-    // Copy options before renaming: the array above is fresh but the
-    // option objects are still shared with compiled defaultContent.
+    if (group.id !== groupId) return group;
     return {
       ...group,
       options: (group.options || []).map((o) => {
-        const aid = (o.statModifiers || []).find((m) => m.op === "add" && /Score$/.test(m.targetFieldId || ""))?.targetFieldId.replace(/Score$/, "");
-        return aid && label[aid] ? { ...o, name: label[aid] } : o;
+        const adds = (o.statModifiers || []).filter((m) => m.op === "add" && /Score$/.test(m.targetFieldId || ""));
+        if (adds.length !== 1) return o;
+        return { ...o, name: adds[0].targetFieldId.replace(/Score$/, "").toUpperCase() };
       }),
     };
   });

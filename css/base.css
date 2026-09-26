@@ -211,3 +211,12 @@ input[type="radio"]:disabled {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Ability abbreviations ("STR") render with a dotted underline +
+   help cursor wherever they appear (picker bullets, feature lists),
+   advertising the hover tooltip with the full name and rules. */
+.ability-abbr {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: help;
+}

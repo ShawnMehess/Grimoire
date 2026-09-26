@@ -25,7 +25,9 @@ export function statModifierLabel(mod, { abilityIds = [], abilities = [], skills
   const abilityId = abilityIds.find((id) => mod.targetFieldId === `${id}Score`);
   if (abilityId) return abilityId.toUpperCase();
   const saveAbility = abilities.find((a) => mod.targetFieldId === `${a.id}SaveProf`);
-  if (saveAbility) return `${saveAbility.label} Save`;
+  // Abbreviated like score labels ("STR Save") — tooltips on the
+  // rendered controls carry the full names.
+  if (saveAbility) return `${saveAbility.id.toUpperCase()} Save`;
   const skill = skills.find((s) => mod.targetFieldId === `${s.id}Prof`);
   if (skill) return skill.label;
   if (resolveLabel) return resolveLabel(mod.targetFieldId) || mod.targetFieldId;
@@ -213,14 +215,101 @@ export const MECHANICS_TITLES = {
   innate: "Innate Abilities",
 };
 
+/** Plain-language ability reference, moved here from
+ *  sheetWizardSteps.js so the glossary below shares one source. Kept
+ *  in full names on purpose: these strings are the tooltip bodies
+ *  that teach each abbreviation back. Display layers abbreviate via
+ *  humanizeGameText below. */
+export const ABILITY_DESCRIPTIONS = {
+  str: "Physical power: melee attacks, carrying capacity, and Athletics checks.",
+  dex: "Agility and reflexes: Armor Class, initiative, ranged attacks, and Stealth and Acrobatics checks.",
+  con: "Endurance and fortitude: more hit points at every level, and holding concentration on spells.",
+  int: "Reasoning and memory: Investigation and Arcana checks. Wizards cast with Intelligence.",
+  wis: "Awareness and intuition: Perception and Insight checks. Clerics, Druids, and Rangers cast with Wisdom.",
+  cha: "Force of personality: Persuasion and Deception checks. Bards, Paladins, Sorcerers, and Warlocks cast with Charisma.",
+};
+
+/** Ability glossary backing every abbreviation + tooltip in the UI:
+ *  `{ id: { abbr, name, description } }`. Tooltips read
+ *  "Strength — Physical power: …" via abilityTooltip. */
+export const ABILITY_GLOSSARY = Object.fromEntries(
+  Object.entries(ABILITY_DESCRIPTIONS).map(([id, description]) => {
+    const name = { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" }[id] || id.toUpperCase();
+    return [id, { abbr: id.toUpperCase(), name, description }];
+  })
+);
+
+/** Tooltip text for an ability id ("str" → "Strength — Physical
+ *  power: …"), or null when unknown. Pure. */
+export function abilityTooltip(id) {
+  const entry = ABILITY_GLOSSARY[id];
+  if (!entry) return null;
+  return `${entry.name} — ${entry.description}`;
+}
+
+const ABILITY_NAME_PATTERNS = Object.values(ABILITY_GLOSSARY).map((entry) => ({
+  re: new RegExp(`\\b${entry.name}\\b`, "g"),
+  abbr: entry.abbr,
+}));
+
+/** Turns compiled-data shorthand into natural language for display:
+ *  Foundry variable refs (`@profd4` = proficiency-bonus d4s, `@prof`
+ *  = proficiency bonus, `@<abl>.mod` / `@abilities.<abl>.mod` = "XXX
+ *  modifier") plus full ability names to abbreviations ("Strength" →
+ *  "STR"). Only known tokens change — exotic refs (`@scale.*`,
+ *  `@item.*`, `@classes.*`, `@dice`) need per-instance rules research
+ *  and pass through untouched rather than risk wrong mechanics.
+ *  Capitalized word-boundary matching only, so lowercase prose
+ *  ("respect strength shown") and longer words ("Charismatic") never
+ *  match. Idempotent (output contains no matchable input). Pure. */
+export function humanizeGameText(text) {
+  let out = String(text ?? "");
+  out = out.replace(/@profd4(\s+HP)?/gi, "a number of d4 hit points equal to your proficiency bonus");
+  out = out.replace(/@abilities\.(str|dex|con|int|wis|cha)\.mod/gi, (_, a) => `${a.toUpperCase()} modifier`);
+  out = out.replace(/@(str|dex|con|int|wis|cha)\.mod/gi, (_, a) => `${a.toUpperCase()} modifier`);
+  out = out.replace(/@prof(?![a-z0-9_.])/gi, "proficiency bonus");
+  for (const { re, abbr } of ABILITY_NAME_PATTERNS) {
+    out = out.replace(re, abbr);
+  }
+  return out;
+}
+
+/** Splits display text into plain runs and ability runs for rich
+ *  tooltips: `[{ text } | { abbr, id, name }]`. Matches abbreviations
+ *  and full names (capitalized, word-boundary — homebrew text with
+ *  either spelling tooltips correctly). Pure; the caller builds DOM
+ *  (or keeps plain text where rich rendering is impossible). */
+export function splitAbilityTokens(text) {
+  const src = String(text ?? "");
+  const byToken = {};
+  for (const [id, entry] of Object.entries(ABILITY_GLOSSARY)) {
+    byToken[entry.abbr] = id;
+    byToken[entry.name] = id;
+  }
+  const out = [];
+  let last = 0;
+  const re = /\b(STR|DEX|CON|INT|WIS|CHA|Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma)\b/g;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    if (m.index > last) out.push({ text: src.slice(last, m.index) });
+    const id = byToken[m[1]];
+    const entry = ABILITY_GLOSSARY[id];
+    out.push({ abbr: entry.abbr, id, name: entry.name });
+    last = m.index + m[0].length;
+  }
+  if (last < src.length) out.push({ text: src.slice(last) });
+  return out;
+}
+
 /** First sentence of a longer text, capped — keeps picker bullets brief
  *  without trailing off mid-thought: a sentence boundary inside the
  *  cap wins; otherwise the whole first sentence (up to 2× cap) rather
  *  than a word-cut fragment. The match is anchored at the start, so a
  *  text with no early boundary (e.g. clauses joined by semicolons)
- *  can never produce a mid-string or mid-word fragment. */
+ *  can never produce a mid-string or mid-word fragment. Input is
+ *  humanized first, so truncation decisions land on the final text. */
 export function briefDescription(text, max = 140) {
-  const flat = String(text || "").replace(/\s+/g, " ").trim();
+  const flat = humanizeGameText(String(text || "").replace(/\s+/g, " ").trim());
   if (!flat) return "";
   const m = flat.match(new RegExp(`^(.{1,${max}}?[.!?])(\\s|$)`));
   if (m) return m[1].trim();
@@ -281,7 +370,10 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   const tagLabel = (fieldId) => TAG_FIELD_LABELS[fieldId]
     || (typeof resolveLabel === "function" && resolveLabel(fieldId))
     || fieldId;
-  const levelTag = (minLevel) => (Number.isFinite(minLevel) && minLevel > 1 ? ` (level ${minLevel})` : "");
+  // No "at level N" annotations anywhere: grants above the passed
+  // level never reach the bullets at all (atLevel below), and grants
+  // at or below it simply apply — players care what they get, not
+  // when each piece kicked in.
   const atLevel = (item) => !item.minLevel || item.minLevel <= level;
 
   const otherTraits = [];
@@ -305,9 +397,9 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     } else if (mod.op === "addItem") {
       // Class rows skip spell access entirely (see classDisplay) —
       // the Spells step, not the picker row, covers it.
-      if (!classDisplay) innate.push(`Learn the ${mod.value} spell${levelTag(mod.minLevel)}`);
+      if (!classDisplay) innate.push(`Learn the ${mod.value} spell`);
     } else if (["add", "subtract", "multiply", "set"].includes(mod.op)) {
-      otherTraits.push(`${summarize(mod)}${levelTag(mod.minLevel)}`);
+      otherTraits.push(summarize(mod));
     }
   }
   for (const [fieldId, values] of tagsByField) {
@@ -328,18 +420,18 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     if (classDisplay && (/^speed$/i.test(name) || isDarkvisionGrant(grant) || isResistanceGrant(grant))) continue;
     if (classDisplay && /spellcasting|pact magic|spell lists?|spells known|spell slots|ritual casting/i.test(name)) continue;
     if (/^speed$/i.test(name)) {
-      speedBits.push(`${featureBit(grant)}${levelTag(grant.minLevel)}`);
+      speedBits.push(featureBit(grant));
     } else if (isDarkvisionGrant(grant)) {
-      darkvisionBits.push(`${featureBit(grant)}${levelTag(grant.minLevel)}`);
+      darkvisionBits.push(featureBit(grant));
     } else if (isResistanceGrant(grant)) {
       const why = briefDescription(grant.description, 120);
-      resistanceBits.push(`${name}${why ? `: ${why}` : ""}${levelTag(grant.minLevel)}`);
+      resistanceBits.push(`${name}${why ? `: ${why}` : ""}`);
     } else if (classDisplay && /^hit (die|points)/i.test(name)) {
       const why = briefDescription(grant.description, 120);
-      hitBits.push(`${name}${why ? `: ${why}` : ""}${levelTag(grant.minLevel)}`);
+      hitBits.push(`${name}${why ? `: ${why}` : ""}`);
     } else {
       const why = briefDescription(grant.description, 120);
-      innate.push(`${name}${why ? `: ${why}` : ""}${levelTag(grant.minLevel)}`);
+      innate.push(`${name}${why ? `: ${why}` : ""}`);
     }
   }
   // A "(override)" Darkvision replaces the base range rather than

@@ -4,7 +4,7 @@
 // DOM rendering stays in customSheet.js for now; all list math,
 // step navigation, and spell-catalog lookups live here testably.
 
-import { briefDescription, capitalizeFirst } from "./sheetMechanics.js";
+import { briefDescription, capitalizeFirst, splitAbilityTokens, abilityTooltip, humanizeGameText } from "./sheetMechanics.js";
 import { el } from "./sheetHelpers.js";
 import { contentIdMatches } from "../../data/dnd5e.js";
 
@@ -1420,6 +1420,24 @@ export function renderSelectableRowsInto(container, names, opts = {}) {
   return renderPickerTableInto(container, names, { ...opts, mode: "single" });
 }
 
+/** Display text as DOM with ability abbreviations wrapped in tooltip
+ *  abbrs ("STR" hovers "Strength — …"). Used everywhere rich picker
+ *  text renders (bullets, flavor lines, spell effects); plain-text
+ *  paths (review lines, option values, aria labels) keep the bare
+ *  strings. `<option>` elements can't contain markup, so dropdowns
+ *  get `title` attributes instead — see the call sites. */
+export function richAbilityNodes(text) {
+  return splitAbilityTokens(text).map((run) => {
+    if (run.text !== undefined) return document.createTextNode(run.text);
+    const tip = abilityTooltip(run.id);
+    const abbr = document.createElement("abbr");
+    abbr.className = "ability-abbr";
+    abbr.textContent = run.abbr;
+    if (tip) abbr.title = tip;
+    return abbr;
+  });
+}
+
 /** One profile bullet with embedded dropdowns ("Languages — Common,
  *  [▾]" / "+1 to each of [▾], [▾]"). Same visual grammar as the
  *  static bullets (bold topic + em dash, or a bare sentence for
@@ -1574,7 +1592,8 @@ function renderSinglePickerRows(container, names, {
       : el("div", { class: "choice-row__portrait", text: (name || "?").charAt(0).toUpperCase() }));
     const body = el("div", { class: "choice-row__body" },
       el("div", { class: "choice-row__label", text: name }),
-      el("div", { class: "choice-row__description", text: info?.description || "No description available yet." }));
+      el("div", { class: "choice-row__description" },
+        ...richAbilityNodes(humanizeGameText(info?.description || "No description available yet."))));
     row.append(body);
     const details = el("div", { class: "choice-row__details" });
     let hasDetails = false;
@@ -1593,13 +1612,20 @@ function renderSinglePickerRows(container, names, {
               // Bold lead topic ("Speed", "Darkvision", …) joined to the
               // detail with an em dash — split on the first ": " only, so
               // colons inside descriptions never break the shape. Items
-              // without a topic stay plain text.
+              // without a topic stay plain text. Every run goes through
+              // the ability tokenizer so abbreviations tooltip.
               const colon = item.indexOf(": ");
-              if (colon <= 0) return el("li", { text: item });
-              return el("li", {},
-                el("strong", { text: item.slice(0, colon) }),
-                // The word after the em dash is always capitalized.
-                document.createTextNode(` — ${capitalizeFirst(item.slice(colon + 2))}`));
+              if (colon <= 0) {
+                const alone = el("li", {});
+                alone.append(...richAbilityNodes(humanizeGameText(item)));
+                return alone;
+              }
+              const li = el("li", {},
+                el("strong", {}, ...richAbilityNodes(item.slice(0, colon))),
+                document.createTextNode(" — "));
+              // The word after the em dash is always capitalized.
+              li.append(...richAbilityNodes(humanizeGameText(capitalizeFirst(item.slice(colon + 2)))));
+              return li;
             })));
       }
     } else if (getMechanics) {
@@ -1671,23 +1697,29 @@ function renderMultiPickerRows(container, names, { selectedSet, onToggle, getInf
       text: selected ? "✓" : (name || "?").charAt(0).toUpperCase(),
     }));
     const body = el("div", { class: "choice-row__body" },
-      el("div", { class: "choice-row__label", text: name }),
-      // The full effect text below already says what the spell does, so
-      // the short description line would just repeat it — it only shows
-      // as a fallback for entries with no mechanics at all.
-      !(info?.mechanics && (info.mechanics.meta || info.mechanics.effect))
-        ? el("div", { class: "choice-row__description", text: info?.description || "No description available yet." })
-        : null,
-      info?.mechanics?.meta ? el("div", { class: "choice-row__mechanics-meta", text: info.mechanics.meta }) : null,
-      info?.mechanics?.effect ? el("div", { class: "choice-row__mechanics-effect", text: info.mechanics.effect }) : null,
-      Array.isArray(info?.tags) && info.tags.length
-        ? el("div", { class: "choice-row__tags" },
-          ...[...info.tags].sort((a, b) => String(a).localeCompare(String(b)))
-            .map((tag) => el("span", {
-              class: "choice-row__tag",
-              text: String(tag).replace(/(?:^|[\s-]+)\S/g, (c) => c.toUpperCase()),
-            })))
-        : null);
+      el("div", { class: "choice-row__label", text: name }));
+    // The full effect text below already says what the spell does, so
+    // the short description line would just repeat it — it only shows
+    // as a fallback for entries with no mechanics at all.
+    if (!(info?.mechanics && (info.mechanics.meta || info.mechanics.effect))) {
+      body.append(el("div", { class: "choice-row__description" },
+        ...richAbilityNodes(humanizeGameText(info?.description || "No description available yet."))));
+    }
+    if (info?.mechanics?.meta) {
+      body.append(el("div", { class: "choice-row__mechanics-meta", text: info.mechanics.meta }));
+    }
+    if (info?.mechanics?.effect) {
+      // Briefed (= humanized) at model time; tooltips wrap from here.
+      body.append(el("div", { class: "choice-row__mechanics-effect" }, ...richAbilityNodes(info.mechanics.effect)));
+    }
+    if (Array.isArray(info?.tags) && info.tags.length) {
+      body.append(el("div", { class: "choice-row__tags" },
+        ...[...info.tags].sort((a, b) => String(a).localeCompare(String(b)))
+          .map((tag) => el("span", {
+            class: "choice-row__tag",
+            text: String(tag).replace(/(?:^|[\s-]+)\S/g, (c) => c.toUpperCase()),
+          }))));
+    }
     row.append(body);
     list.append(row);
   });
@@ -1827,12 +1859,12 @@ export function renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned,
       rerender();
     });
     const text = document.createElement("span");
-    text.textContent = option.name || "Unnamed option";
+    text.append(...richAbilityNodes(option.name || "Unnamed option"));
     optionLabel.append(input, text);
     if (option.description) {
       const description = document.createElement("span");
       description.className = "level-guide__choice-description";
-      description.textContent = option.description;
+      description.append(...richAbilityNodes(humanizeGameText(option.description)));
       optionLabel.append(description);
     }
     choiceGroup.append(optionLabel);

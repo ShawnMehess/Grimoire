@@ -10,6 +10,7 @@
 // interface," matching the request that prompted this.
 
 import { ensureCatalogShape, effectiveSectionRows } from "./catalogLibraryEditor.js";
+import { humanizeGameText, splitAbilityTokens, abilityTooltip } from "./sheet/sheetMechanics.js";
 
 function fmtCost(n) {
   return Number.isFinite(n) ? n : 0;
@@ -205,7 +206,20 @@ export function openCatalogBrowser({ catalog, getMoney, spendMoney, moneyLabel }
     nameEl.textContent = entry.name || "Unnamed item";
     const descEl = document.createElement("div");
     descEl.className = "catalog-browser__entry-desc";
-    descEl.textContent = entry.description || "";
+    // Same ability tooltips as the picker bullets (local construction —
+    // this module doesn't import the wizard).
+    for (const run of splitAbilityTokens(humanizeGameText(entry.description || ""))) {
+      if (run.text !== undefined) {
+        descEl.append(document.createTextNode(run.text));
+        continue;
+      }
+      const abbr = document.createElement("abbr");
+      abbr.className = "ability-abbr";
+      abbr.textContent = run.abbr;
+      const tip = abilityTooltip(run.id);
+      if (tip) abbr.title = tip;
+      descEl.append(abbr);
+    }
     info.append(nameEl, descEl);
     if (entryTags(entry).length) {
       const tagsEl = document.createElement("div");

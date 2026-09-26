@@ -5,18 +5,13 @@
 // sheet closure); the tab shell keeps `state`/`update`/`field` and
 // passes them in.
 
-import { capitalizeFirst, commonPreviewBits, mechanicsPreviewFor } from "./sheetMechanics.js";
-import { slotLabelFor } from "./sheetWizard.js";
+import { capitalizeFirst, ABILITY_DESCRIPTIONS, abilityTooltip, humanizeGameText } from "./sheetMechanics.js";
+import { slotLabelFor, richAbilityNodes } from "./sheetWizard.js";
 import { el } from "./sheetHelpers.js";
 
-export const ABILITY_DESCRIPTIONS = {
-  str: "Physical power: melee attacks, carrying capacity, and Athletics checks.",
-  dex: "Agility and reflexes: Armor Class, initiative, ranged attacks, and Stealth and Acrobatics checks.",
-  con: "Endurance and fortitude: more hit points at every level, and holding concentration on spells.",
-  int: "Reasoning and memory: Investigation and Arcana checks. Wizards cast with Intelligence.",
-  wis: "Awareness and intuition: Perception and Insight checks. Clerics, Druids, and Rangers cast with Wisdom.",
-  cha: "Force of personality: Persuasion and Deception checks. Bards, Paladins, Sorcerers, and Warlocks cast with Charisma.",
-};
+// Ability descriptions live in sheetMechanics.js (shared with the
+// glossary); re-exported here so existing importers keep working.
+export { ABILITY_DESCRIPTIONS };
 
 export const HP_METHOD_OPTIONS = [
   { value: "average", label: "Fixed Average", description: "Always take the fixed average for your hit die (e.g. 5 for a d8), plus your Constitution modifier. Consistent and predictable, no rolling involved." },
@@ -315,7 +310,8 @@ export function renderInnateAbilitiesStepInto(container, sections) {
     section.features.forEach((feature) => {
       const block = el("div", { class: "level-guide__choices" },
         el("strong", { text: feature.name || "Unnamed ability" }),
-        feature.description ? el("p", { class: "level-guide__choice-description", text: feature.description }) : null);
+        feature.description ? el("p", { class: "level-guide__choice-description" },
+          ...richAbilityNodes(humanizeGameText(feature.description))) : null);
       container.append(block);
     });
   });
@@ -432,11 +428,11 @@ export function abilityRowInto(scoresWrap, id, control, description, modifierFn,
   const modValue = el("div", { class: "input-group__control wizard__ability-modifier-value" });
   const bonusNote = bonusTextFn ? el("p", { class: "wizard__ability-row-description wizard__ability-bonus" }) : null;
   const row = el("div", { class: "wizard__ability-row" },
-    el("label", { class: "level-guide__field", text: id.toUpperCase() }, control),
+    el("label", { class: "level-guide__field", text: id.toUpperCase(), title: abilityTooltip(id) ?? null }, control),
     el("div", { class: "level-guide__field wizard__ability-modifier" },
       el("span", { text: "Modifier" }),
       modValue),
-    el("p", { class: "wizard__ability-row-description", text: description }),
+    el("p", { class: "wizard__ability-row-description" }, ...richAbilityNodes(humanizeGameText(description))),
     bonusNote);
   scoresWrap.append(row);
 
@@ -946,7 +942,7 @@ export function renderGuideAsiStepInto(container, pending, deps) {
     for (let i = 0; i < count; i++) {
       const abilitySelect = el("select", { class: "input-group__control" });
       abilitySelect.append(el("option", { value: "", text: "Choose" }));
-      abilityIds.forEach((id) => { abilitySelect.append(el("option", { value: id, text: abilityLabelFor(id) })); });
+      abilityIds.forEach((id) => { abilitySelect.append(el("option", { value: id, text: abilityLabelFor(id), title: abilityTooltip(id) ?? null })); });
       abilitySelect.value = i === 0 ? pending.asiAbility1 : pending.asiAbility2;
       abilitySelect.addEventListener("change", () => { if (i === 0) pending.asiAbility1 = abilitySelect.value; else pending.asiAbility2 = abilitySelect.value; });
       abilityRow.append(el("label", { class: "level-guide__field", text: i === 0 ? "Ability" : "Second ability" }, abilitySelect));
@@ -971,9 +967,14 @@ export function renderGuideFeaturesStepInto(container, features) {
   // Same bulleted bold-topic rows as the creator pickers so new
   // features read identically everywhere they appear.
   container.append(el("ul", { class: "choice-row__mechanics-list" },
-    ...features.map((feature) => el("li", {},
-      el("strong", { text: feature.name }),
-      feature.description ? document.createTextNode(` — ${capitalizeFirst(feature.description.trimStart())}`) : null))));
+    ...features.map((feature) => {
+      const li = el("li", {}, el("strong", { text: feature.name }));
+      if (feature.description) {
+        li.append(document.createTextNode(" — "));
+        li.append(...richAbilityNodes(humanizeGameText(capitalizeFirst(feature.description.trimStart()))));
+      }
+      return li;
+    })));
 }
 
 export function renderGuideHpStepInto(container, pending, { conScore, dieSize, method }) {

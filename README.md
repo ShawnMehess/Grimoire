@@ -391,7 +391,14 @@ later pages:
 - **Picker rows** show a personality/playstyle blurb plus categorized,
   bulleted mechanics (Statistical traits → Ability increases →
   Proficiencies → Innate abilities), collapsible per row with
-  Expand All / Collapse All.
+  Expand All / Collapse All. Bullets list only what applies at the
+  current level — never future unlocks, never "(level N)" tags.
+- **Abilities read abbreviated everywhere** ("STR", never "Strength"
+  in labels, bullets, dropdowns, or review lines), each hovering its
+  full name plus what the score governs. Compiled shorthand renders
+  as natural language ("@con.mod" → "CON modifier", "@prof" →
+  "proficiency bonus", "@profd4" → "a number of d4 hit points equal
+  to your proficiency bonus").
 - **Languages read as a profile sentence** ("Languages — Common,
   Dwarvish, [▾]") inside the selected race/background's own traits:
   known tongues as text, one dropdown per pick. Known tongues and the

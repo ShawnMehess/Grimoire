@@ -4388,7 +4388,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "athlete-ability-str",
-            "name": "+1 Strength",
+            "name": "+1 STR",
             "description": "",
             "statModifiers": [
               {
@@ -4403,7 +4403,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "athlete-ability-dex",
-            "name": "+1 Dexterity",
+            "name": "+1 DEX",
             "description": "",
             "statModifiers": [
               {
@@ -4493,7 +4493,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "chef-ability-con",
-            "name": "+1 Constitution",
+            "name": "+1 CON",
             "description": "",
             "statModifiers": [
               {
@@ -4508,7 +4508,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "chef-ability-wis",
-            "name": "+1 Wisdom",
+            "name": "+1 WIS",
             "description": "",
             "statModifiers": [
               {
@@ -4565,7 +4565,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "crusher-ability-str",
-            "name": "+1 Strength",
+            "name": "+1 STR",
             "description": "",
             "statModifiers": [
               {
@@ -4580,7 +4580,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "crusher-ability-con",
-            "name": "+1 Constitution",
+            "name": "+1 CON",
             "description": "",
             "statModifiers": [
               {
@@ -4660,7 +4660,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "dragon-fear-ability-str",
-            "name": "+1 Strength",
+            "name": "+1 STR",
             "description": "",
             "statModifiers": [
               {
@@ -4675,7 +4675,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "dragon-fear-ability-con",
-            "name": "+1 Constitution",
+            "name": "+1 CON",
             "description": "",
             "statModifiers": [
               {
@@ -4690,7 +4690,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "dragon-fear-ability-cha",
-            "name": "+1 Charisma",
+            "name": "+1 CHA",
             "description": "",
             "statModifiers": [
               {
@@ -4731,7 +4731,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "dragon-hide-ability-str",
-            "name": "+1 Strength",
+            "name": "+1 STR",
             "description": "",
             "statModifiers": [
               {
@@ -4746,7 +4746,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "dragon-hide-ability-con",
-            "name": "+1 Constitution",
+            "name": "+1 CON",
             "description": "",
             "statModifiers": [
               {
@@ -4761,7 +4761,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "dragon-hide-ability-cha",
-            "name": "+1 Charisma",
+            "name": "+1 CHA",
             "description": "",
             "statModifiers": [
               {
@@ -4962,7 +4962,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "elven-accuracy-ability-dex",
-            "name": "+1 Dexterity",
+            "name": "+1 DEX",
             "description": "",
             "statModifiers": [
               {
@@ -4977,7 +4977,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "elven-accuracy-ability-int",
-            "name": "+1 Intelligence",
+            "name": "+1 INT",
             "description": "",
             "statModifiers": [
               {
@@ -4992,7 +4992,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "elven-accuracy-ability-wis",
-            "name": "+1 Wisdom",
+            "name": "+1 WIS",
             "description": "",
             "statModifiers": [
               {
@@ -5007,7 +5007,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "elven-accuracy-ability-cha",
-            "name": "+1 Charisma",
+            "name": "+1 CHA",
             "description": "",
             "statModifiers": [
               {
@@ -5056,7 +5056,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "fade-away-ability-dex",
-            "name": "+1 Dexterity",
+            "name": "+1 DEX",
             "description": "",
             "statModifiers": [
               {
@@ -5071,7 +5071,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "fade-away-ability-int",
-            "name": "+1 Intelligence",
+            "name": "+1 INT",
             "description": "",
             "statModifiers": [
               {
@@ -5132,7 +5132,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "fey-teleportation-ability-int",
-            "name": "+1 Intelligence",
+            "name": "+1 INT",
             "description": "",
             "statModifiers": [
               {
@@ -5147,7 +5147,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "fey-teleportation-ability-cha",
-            "name": "+1 Charisma",
+            "name": "+1 CHA",
             "description": "",
             "statModifiers": [
               {
@@ -5195,7 +5195,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "fey-touched-ability-int",
-            "name": "+1 Intelligence",
+            "name": "+1 INT",
             "description": "",
             "statModifiers": [
               {
@@ -5210,7 +5210,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "fey-touched-ability-wis",
-            "name": "+1 Wisdom",
+            "name": "+1 WIS",
             "description": "",
             "statModifiers": [
               {
@@ -5225,7 +5225,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "fey-touched-ability-cha",
-            "name": "+1 Charisma",
+            "name": "+1 CHA",
             "description": "",
             "statModifiers": [
               {
@@ -5636,7 +5636,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "flames-of-phlegethos-ability-int",
-            "name": "+1 Intelligence",
+            "name": "+1 INT",
             "description": "",
             "statModifiers": [
               {
@@ -5651,7 +5651,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "flames-of-phlegethos-ability-cha",
-            "name": "+1 Charisma",
+            "name": "+1 CHA",
             "description": "",
             "statModifiers": [
               {
@@ -5730,7 +5730,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "gift-of-the-gem-dragon-ability-int",
-            "name": "+1 Intelligence",
+            "name": "+1 INT",
             "description": "",
             "statModifiers": [
               {
@@ -5745,7 +5745,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "gift-of-the-gem-dragon-ability-wis",
-            "name": "+1 Wisdom",
+            "name": "+1 WIS",
             "description": "",
             "statModifiers": [
               {
@@ -5760,7 +5760,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "gift-of-the-gem-dragon-ability-cha",
-            "name": "+1 Charisma",
+            "name": "+1 CHA",
             "description": "",
             "statModifiers": [
               {
@@ -6028,7 +6028,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "lightly-armored-ability-str",
-            "name": "+1 Strength",
+            "name": "+1 STR",
             "description": "",
             "statModifiers": [
               {
@@ -6043,7 +6043,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "lightly-armored-ability-dex",
-            "name": "+1 Dexterity",
+            "name": "+1 DEX",
             "description": "",
             "statModifiers": [
               {
@@ -8595,7 +8595,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "moderately-armored-ability-str",
-            "name": "+1 Strength",
+            "name": "+1 STR",
             "description": "",
             "statModifiers": [
               {
@@ -8610,7 +8610,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "moderately-armored-ability-dex",
-            "name": "+1 Dexterity",
+            "name": "+1 DEX",
             "description": "",
             "statModifiers": [
               {
@@ -8674,7 +8674,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "observant-ability-int",
-            "name": "+1 Intelligence",
+            "name": "+1 INT",
             "description": "",
             "statModifiers": [
               {
@@ -8689,7 +8689,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "observant-ability-wis",
-            "name": "+1 Wisdom",
+            "name": "+1 WIS",
             "description": "",
             "statModifiers": [
               {
@@ -8730,7 +8730,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "orcish-fury-ability-str",
-            "name": "+1 Strength",
+            "name": "+1 STR",
             "description": "",
             "statModifiers": [
               {
@@ -8745,7 +8745,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "orcish-fury-ability-con",
-            "name": "+1 Constitution",
+            "name": "+1 CON",
             "description": "",
             "statModifiers": [
               {
@@ -8786,7 +8786,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "piercer-ability-str",
-            "name": "+1 Strength",
+            "name": "+1 STR",
             "description": "",
             "statModifiers": [
               {
@@ -8801,7 +8801,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "piercer-ability-dex",
-            "name": "+1 Dexterity",
+            "name": "+1 DEX",
             "description": "",
             "statModifiers": [
               {
@@ -9749,7 +9749,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "resilient-ability-str",
-            "name": "Strength",
+            "name": "STR",
             "description": "",
             "statModifiers": [
               {
@@ -9769,7 +9769,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "resilient-ability-dex",
-            "name": "Dexterity",
+            "name": "DEX",
             "description": "",
             "statModifiers": [
               {
@@ -9789,7 +9789,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "resilient-ability-con",
-            "name": "Constitution",
+            "name": "CON",
             "description": "",
             "statModifiers": [
               {
@@ -9809,7 +9809,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "resilient-ability-int",
-            "name": "Intelligence",
+            "name": "INT",
             "description": "",
             "statModifiers": [
               {
@@ -9829,7 +9829,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "resilient-ability-wis",
-            "name": "Wisdom",
+            "name": "WIS",
             "description": "",
             "statModifiers": [
               {
@@ -9849,7 +9849,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "resilient-ability-cha",
-            "name": "Charisma",
+            "name": "CHA",
             "description": "",
             "statModifiers": [
               {
@@ -9895,7 +9895,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "revenant-blade-ability-str",
-            "name": "+1 Strength",
+            "name": "+1 STR",
             "description": "",
             "statModifiers": [
               {
@@ -9910,7 +9910,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "revenant-blade-ability-dex",
-            "name": "+1 Dexterity",
+            "name": "+1 DEX",
             "description": "",
             "statModifiers": [
               {
@@ -9983,7 +9983,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "second-chance-ability-dex",
-            "name": "+1 Dexterity",
+            "name": "+1 DEX",
             "description": "",
             "statModifiers": [
               {
@@ -9998,7 +9998,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "second-chance-ability-con",
-            "name": "+1 Constitution",
+            "name": "+1 CON",
             "description": "",
             "statModifiers": [
               {
@@ -10013,7 +10013,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "second-chance-ability-cha",
-            "name": "+1 Charisma",
+            "name": "+1 CHA",
             "description": "",
             "statModifiers": [
               {
@@ -10077,7 +10077,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "shadow-touched-ability-int",
-            "name": "+1 Intelligence",
+            "name": "+1 INT",
             "description": "",
             "statModifiers": [
               {
@@ -10092,7 +10092,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "shadow-touched-ability-wis",
-            "name": "+1 Wisdom",
+            "name": "+1 WIS",
             "description": "",
             "statModifiers": [
               {
@@ -10107,7 +10107,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "shadow-touched-ability-cha",
-            "name": "+1 Charisma",
+            "name": "+1 CHA",
             "description": "",
             "statModifiers": [
               {
@@ -10324,7 +10324,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "skill-expert-ability-str",
-            "name": "+1 Strength",
+            "name": "+1 STR",
             "description": "",
             "statModifiers": [
               {
@@ -10339,7 +10339,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "skill-expert-ability-dex",
-            "name": "+1 Dexterity",
+            "name": "+1 DEX",
             "description": "",
             "statModifiers": [
               {
@@ -10354,7 +10354,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "skill-expert-ability-con",
-            "name": "+1 Constitution",
+            "name": "+1 CON",
             "description": "",
             "statModifiers": [
               {
@@ -10369,7 +10369,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "skill-expert-ability-int",
-            "name": "+1 Intelligence",
+            "name": "+1 INT",
             "description": "",
             "statModifiers": [
               {
@@ -10384,7 +10384,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "skill-expert-ability-wis",
-            "name": "+1 Wisdom",
+            "name": "+1 WIS",
             "description": "",
             "statModifiers": [
               {
@@ -10399,7 +10399,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "skill-expert-ability-cha",
-            "name": "+1 Charisma",
+            "name": "+1 CHA",
             "description": "",
             "statModifiers": [
               {
@@ -10995,7 +10995,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "slasher-ability-str",
-            "name": "+1 Strength",
+            "name": "+1 STR",
             "description": "",
             "statModifiers": [
               {
@@ -11010,7 +11010,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "slasher-ability-dex",
-            "name": "+1 Dexterity",
+            "name": "+1 DEX",
             "description": "",
             "statModifiers": [
               {
@@ -11074,7 +11074,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "squat-nimbleness-ability-str",
-            "name": "+1 Strength",
+            "name": "+1 STR",
             "description": "",
             "statModifiers": [
               {
@@ -11089,7 +11089,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "squat-nimbleness-ability-dex",
-            "name": "+1 Dexterity",
+            "name": "+1 DEX",
             "description": "",
             "statModifiers": [
               {
@@ -11221,7 +11221,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "tavern-brawler-ability-str",
-            "name": "+1 Strength",
+            "name": "+1 STR",
             "description": "",
             "statModifiers": [
               {
@@ -11236,7 +11236,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "tavern-brawler-ability-con",
-            "name": "+1 Constitution",
+            "name": "+1 CON",
             "description": "",
             "statModifiers": [
               {
@@ -11284,7 +11284,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "telekinetic-ability-int",
-            "name": "+1 Intelligence",
+            "name": "+1 INT",
             "description": "",
             "statModifiers": [
               {
@@ -11299,7 +11299,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "telekinetic-ability-wis",
-            "name": "+1 Wisdom",
+            "name": "+1 WIS",
             "description": "",
             "statModifiers": [
               {
@@ -11314,7 +11314,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "telekinetic-ability-cha",
-            "name": "+1 Charisma",
+            "name": "+1 CHA",
             "description": "",
             "statModifiers": [
               {
@@ -11355,7 +11355,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "telepathic-ability-int",
-            "name": "+1 Intelligence",
+            "name": "+1 INT",
             "description": "",
             "statModifiers": [
               {
@@ -11370,7 +11370,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "telepathic-ability-wis",
-            "name": "+1 Wisdom",
+            "name": "+1 WIS",
             "description": "",
             "statModifiers": [
               {
@@ -11385,7 +11385,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "telepathic-ability-cha",
-            "name": "+1 Charisma",
+            "name": "+1 CHA",
             "description": "",
             "statModifiers": [
               {
@@ -11458,7 +11458,7 @@ export const FEAT_BUNDLES = [
         "options": [
           {
             "id": "weapon-master-ability-str",
-            "name": "+1 Strength",
+            "name": "+1 STR",
             "description": "",
             "statModifiers": [
               {
@@ -11473,7 +11473,7 @@ export const FEAT_BUNDLES = [
           },
           {
             "id": "weapon-master-ability-dex",
-            "name": "+1 Dexterity",
+            "name": "+1 DEX",
             "description": "",
             "statModifiers": [
               {

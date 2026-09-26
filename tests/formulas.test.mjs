@@ -35,6 +35,10 @@ import {
   briefDescription,
   capitalizeFirst,
   statModifierSummary,
+  ABILITY_GLOSSARY,
+  abilityTooltip,
+  humanizeGameText,
+  splitAbilityTokens,
 } from "../js/render/sheet/sheetMechanics.js";
 import {
   levelReviewSectionsFor,
@@ -167,6 +171,34 @@ describe("mechanics previews", () => {
     assert.equal(briefDescription("First. Second.", 200), "First.");
     assert.equal(capitalizeFirst("meditate 4 hours"), "Meditate 4 hours");
     assert.equal(capitalizeFirst(""), "");
+  });
+
+  it("humanizes compiled shorthand into natural language", () => {
+    assert.equal(humanizeGameText("As an action, heal @profd4 HP, once per long rest."),
+      "As an action, heal a number of d4 hit points equal to your proficiency bonus, once per long rest.");
+    assert.equal(humanizeGameText("2d6 damage in an area (DC 8 + @con.mod + @prof), once per short or long rest."),
+      "2d6 damage in an area (DC 8 + CON modifier + proficiency bonus), once per short or long rest.");
+    assert.equal(humanizeGameText("uses set to @prof per Long Rest."), "uses set to proficiency bonus per Long Rest.");
+    assert.equal(humanizeGameText("uses set to @abilities.wis.mod per Long Rest."), "uses set to WIS modifier per Long Rest.");
+    // Exotic scaling refs pass through rather than risk wrong mechanics.
+    assert.equal(humanizeGameText("extra damage equal to @scale.barbarian.brutal."), "extra damage equal to @scale.barbarian.brutal.");
+    // Ability names abbreviate; lowercase prose and longer words never match.
+    assert.equal(humanizeGameText("add your Strength modifier."), "add your STR modifier.");
+    assert.equal(humanizeGameText("respect strength shown, not claimed."), "respect strength shown, not claimed.");
+    assert.equal(humanizeGameText("You talk, sneak, cast — Charismatic."), "You talk, sneak, cast — Charismatic.");
+    // Idempotent: output contains no matchable input.
+    assert.equal(humanizeGameText(humanizeGameText("heal @profd4 HP with Strength.")), "heal a number of d4 hit points equal to your proficiency bonus with STR.");
+  });
+
+  it("splits ability tokens for tooltips", () => {
+    assert.deepEqual(splitAbilityTokens("No abilities here."), [{ text: "No abilities here." }]);
+    assert.deepEqual(splitAbilityTokens("+2 DEX"), [{ text: "+2 " }, { abbr: "DEX", id: "dex", name: "Dexterity" }]);
+    assert.deepEqual(splitAbilityTokens("Wizards cast with Intelligence."),
+      [{ text: "Wizards cast with " }, { abbr: "INT", id: "int", name: "Intelligence" }, { text: "." }]);
+    assert.deepEqual(splitAbilityTokens(""), []);
+    assert.ok(abilityTooltip("str").startsWith("Strength — "));
+    assert.equal(abilityTooltip("nope"), null);
+    assert.equal(ABILITY_GLOSSARY.cha.abbr, "CHA");
   });
 });
 

@@ -346,9 +346,10 @@ if (!fullText) continue;
           label: "Ability Score Increase",
           minLevel: null, minSelections: 1, maxSelections: 1,
           options: abilityOpts.map((a) => {
-            const ability = ABILITIES.find((x) => x.id === a);
+            // Abbreviated labels ("STR") — tooltips on the rendered
+            // controls carry the full names.
             return {
-              id: `${id}-ability-${a}`, name: ability.label, description: "",
+              id: `${id}-ability-${a}`, name: a.toUpperCase(), description: "",
               statModifiers: [
                 { targetFieldId: `${a}Score`, op: "add", value: 1, minLevel: null },
                 { targetFieldId: `${a}SaveProf`, op: "grant", minLevel: null },
@@ -365,9 +366,8 @@ if (!fullText) continue;
           label: "Ability Score Increase",
           minLevel: null, minSelections: 1, maxSelections: 1,
           options: abilityOpts.map((a) => {
-            const ability = ABILITIES.find((x) => x.id === a);
             return {
-              id: `${id}-ability-${a}`, name: `+1 ${ability.label}`, description: "",
+              id: `${id}-ability-${a}`, name: `+1 ${a.toUpperCase()}`, description: "",
               statModifiers: [{ targetFieldId: `${a}Score`, op: "add", value: 1, minLevel: null }],
               featureGrants: [], resourceGrants: [],
             };

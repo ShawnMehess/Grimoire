@@ -5,6 +5,7 @@
 // here so the rules live in one testable place with no DOM dependency.
 
 import { hideToggleBtnInto } from "./sheetStyles.js";
+import { humanizeGameText, splitAbilityTokens, abilityTooltip } from "./sheetMechanics.js";
 
 // --- Field node DOM ---------------------------------------------------------
 //
@@ -692,7 +693,20 @@ export function buildFeatureListValueInto(features) {
     if (feature.description) {
       const desc = document.createElement("div");
       desc.className = "featurelist-row__description";
-      desc.textContent = feature.description;
+      // Same ability tooltips as the picker bullets (local
+      // construction — this leaf module doesn't import the wizard).
+      for (const run of splitAbilityTokens(humanizeGameText(feature.description))) {
+        if (run.text !== undefined) {
+          desc.append(document.createTextNode(run.text));
+          continue;
+        }
+        const abbr = document.createElement("abbr");
+        abbr.className = "ability-abbr";
+        abbr.textContent = run.abbr;
+        const tip = abilityTooltip(run.id);
+        if (tip) abbr.title = tip;
+        desc.append(abbr);
+      }
       row.append(desc);
     }
 

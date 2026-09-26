@@ -95,6 +95,7 @@ import {
   statModifierSummary as sharedStatModifierSummary,
   mechanicsBulletsFor as sharedMechanicsBulletsFor,
   briefDescription as sharedBriefDescription,
+  abilityTooltip as sharedAbilityTooltip,
   MECHANICS_TITLES as SHARED_MECHANICS_TITLES,
   LANGUAGE_BULLET_LABEL as SHARED_LANGUAGE_BULLET_LABEL,
 } from "./sheet/sheetMechanics.js";
@@ -4002,7 +4003,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         key: m.groupKey,
         value: m.pickedAbility || "",
         placeholder: "Choose…",
-        options: m.options.map((o) => ({ value: o.ability, label: o.label })),
+        options: m.options.map((o) => ({ value: o.ability, label: o.label, title: sharedAbilityTooltip(o.ability) ?? null })),
       })),
       onPick: (slotKey, abilityId) => {
         const patch = assignAsiSlot(asiGroups, slotKey, abilityId || null);

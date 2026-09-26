@@ -28,7 +28,6 @@
 import { LANGUAGES } from "./schema.js";
 
 const ABILITIES = ["str", "dex", "con", "int", "wis", "cha"];
-const ABILITY_LABEL = { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" };
 
 const SKILLS = [
   ["acrobatics", "Acrobatics"], ["animalHandling", "Animal Handling"],
@@ -63,8 +62,9 @@ function asiSlotGroups(idPrefix, count, abilityIds) {
   return Array.from({ length: count }, (_, i) => ({
     id: `${idPrefix}-${i + 1}`, label: "Ability Score Increase (+1)",
     minLevel: 1, minSelections: 1, maxSelections: 1,
+    // Abbreviated labels ("STR") — tooltips carry the full names.
     options: abilityIds.map((aid) => ({
-      id: `${idPrefix}-${i + 1}-${aid}`, name: ABILITY_LABEL[aid], description: "",
+      id: `${idPrefix}-${i + 1}-${aid}`, name: aid.toUpperCase(), description: "",
       statModifiers: [{ targetFieldId: `${aid}Score`, op: "add", value: 1, minLevel: null }],
       featureGrants: [], resourceGrants: [],
     })),

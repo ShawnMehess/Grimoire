@@ -476,7 +476,7 @@ assert(featMod.FEAT_CATALOG.tabs[0].entries.length === 83, "FEAT_CATALOG entries
   const actor = featMod.FEAT_BUNDLES.find((b) => b.name === "Actor");
   assert(actor.statModifiers.some((m) => m.targetFieldId === "chaScore" && m.value === 1), "Actor +1 CHA");
   const resilient = featMod.FEAT_BUNDLES.find((b) => b.name === "Resilient");
-  const strOpt = resilient.choiceGroups[0].options.find((o) => o.name === "Strength");
+  const strOpt = resilient.choiceGroups[0].options.find((o) => o.name === "STR");
   assert(strOpt.statModifiers.some((m) => m.targetFieldId === "strScore"), "Resilient STR score option");
   assert(strOpt.statModifiers.some((m) => m.targetFieldId === "strSaveProf"), "Resilient STR save option");
   const gunner = featMod.FEAT_BUNDLES.find((b) => b.name === "Gunner");
@@ -489,7 +489,7 @@ assert(featMod.FEAT_CATALOG.tabs[0].entries.length === 83, "FEAT_CATALOG entries
   const resilient = featMod.FEAT_BUNDLES.find((b) => b.name === "Resilient");
   const groups = levelingMod.featChoiceGroupsFor([{ name: "Resilient", bundle: resilient }]);
   assert(groups.length === 1 && groups[0].key.startsWith("feat:Resilient:"), "featChoiceGroupsFor keys");
-  const strOpt = resilient.choiceGroups[0].options.find((o) => o.name === "Strength");
+  const strOpt = resilient.choiceGroups[0].options.find((o) => o.name === "STR");
   const sel = levelingMod.selectedRuleOptionsIn(groups, { [groups[0].key]: [strOpt.id] });
   assert(sel.length === 1 && sel[0].option.id === strOpt.id, "feat option selectable");
   const vm = {};
@@ -635,7 +635,9 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   assert(["half-elf-asi-1", "half-elf-asi-2"].every((id) => group(halfElf, id)?.options.length === 5), "Half-Elf ASI slots (no CHA)");
   assert(!halfElf.choiceGroups.some((g) => g.id === "half-elf-abilities"), "Half-Elf pair group retired");
   const lineage = FIXED_RACE_ENTRIES.find((e) => e.name === "Custom Lineage").bundle;
-  assert(group(lineage, "custom-lineage-asi-choice-0")?.options.map((o) => o.name).join(",") === "Strength,Dexterity,Constitution,Intelligence,Wisdom,Charisma", "Lineage ASI options use full names");
+  assert(group(lineage, "custom-lineage-asi-choice-0")?.options.map((o) => o.name).join(",") === "STR,DEX,CON,INT,WIS,CHA", "Lineage ASI options abbreviated");
+  const changeling = FIXED_RACE_ENTRIES.find((e) => e.name === "Changeling").bundle;
+  assert(group(changeling, "changeling-asi-choice-1")?.options.map((o) => o.name).join(",") === "STR,DEX,CON,INT,WIS", "Changeling ASI options abbreviated");
   const lineageTrait = group(lineage, "custom-lineage-variable_trait");
   assert(lineageTrait?.options.map((o) => o.name).join(",") === "Darkvision (60 feet),Skill Proficiency", "Lineage variable trait renamed");
   assert(lineageTrait?.options[0]?.featureGrants?.[0]?.name === "Darkvision (60 feet)", "Lineage trait feature follows the rename");
