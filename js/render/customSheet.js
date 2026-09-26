@@ -2845,10 +2845,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   /** Languages granted outside the language pickers: fixed bundle
    *  grants (plus Common, always) and language tags on selected
    *  options of non-language groups (subrace options chief among
-   *  them). Returns { fixed: [...], picked: [...] } — fixed shows
-   *  locked, picked shows locked here but stays editable at its own
-   *  picker. Takes the rules state explicitly so both the wizard
-   *  step and the Known Languages summary can share it. */
+   *  them). Returns { fixed: [...], picked: [...] } — the inline
+   *  profile sentences grey out the fixed set. Takes the rules state
+   *  explicitly so wizard steps share one computation. */
   function grantedLanguageNames(st) {
     const fixed = new Set(["Common"]);
     const picked = new Set();
@@ -2871,56 +2870,6 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         });
       });
     return { fixed: [...fixed], picked: [...picked] };
-  }
-
-  /** Every language the character already knows at Setup time:
-   *  Common (always) plus fixed grants and picks so far — including
-   *  picks from non-language groups (e.g. a subrace granting Elvish).
-   *  Shown above the pickers even when there's nothing left to choose,
-   *  so the page never reads empty. */
-  function knownLanguagesFor(state) {
-    const seen = new Set();
-    const known = [];
-    const take = (name, locked) => {
-      const clean = String(name || "").trim();
-      const key = clean.toLowerCase();
-      if (!clean || seen.has(key)) return;
-      seen.add(key);
-      known.push({ name: clean, locked });
-    };
-    take("Common", true);
-    const isLanguageField = (id) => /language/i.test(id || "")
-      || /language/i.test(resolveFieldById(id)?.label || "");
-    creationFixedBundles(state).forEach((bundle) => {
-      (bundle?.statModifiers || []).forEach((mod) => {
-        if (mod.op === "grantTag" && mod.value && isLanguageField(mod.targetFieldId)) take(mod.value, true);
-      });
-    });
-    const groups = creationChoiceGroupsFor(state).filter((g) => categorizeChoiceGroup(g) === "languages");
-    const store = character.rules.choices || {};
-    groups.forEach((group) => {
-      const all = groupOptionsOf(group);
-      (store[group.key] || []).forEach((id) => {
-        const opt = all.find((o) => o.id === id);
-        if (opt?.name) take(opt.name, false);
-      });
-    });
-    // Language tags granted by picks outside language groups (subrace
-    // options chief among them) are known too — just changeable, so
-    // they show unlocked rather than locked.
-    grantedLanguageNames(state).picked.forEach((name) => take(name, false));
-    return known;
-  }
-
-  function renderKnownLanguagesInto(container, state) {
-    container.append(el("p", { class: "wizard__section-label", text: "Known Languages" }));
-    container.append(el("div", { class: "taglist-chips" },
-      ...knownLanguagesFor(state).map(({ name, locked }) => el("span", {
-        class: "taglist-chip" + (locked ? " taglist-chip--granted" : ""),
-        title: locked && name !== "Common" ? "Granted by your race, class, or background"
-          : name === "Common" ? "Known by everyone — Free, never uses picks" : null,
-        text: name,
-      }))));
   }
 
   /** Human-readable label for a statModifier's targetFieldId — special-
@@ -4350,7 +4299,8 @@ export function renderCustomSheet(root, character, store, opts = {}) {
               renderPageGrid();
             },
           });
-          renderKnownLanguagesInto(container, state);
+          // No separate Known Languages summary: every known tongue
+          // already reads inside its own pick's profile sentence above.
           renderYourChoicesSections(container, "basics", raceSectionGroups, saveRules, raceChoiceGroups);
         },
       },

@@ -389,15 +389,10 @@
 }
 
 /* Dropdowns embedded in profile sentences ("Languages — Common,
-   [dropdown]" / "+1 to each of [dropdown], [dropdown]"): known items
-   read as plain text, dropdowns sit inline at a readable size. */
-.inline-pick-known {
-  font-weight: 600;
-  color: var(--color-text);
-}
-.inline-pick-collective {
-  color: var(--color-text-muted);
-}
+   [dropdown]" / "+1 to each of [dropdown], [dropdown]"). Known items
+   and collective prefixes deliberately unstyled: they inherit the
+   bullet's own text color and weight, reading as ordinary sentence
+   text. Only the dropdowns get sizing. */
 .mechanics-pick .inline-pick-select {
   width: auto;
   min-width: 7em;

@@ -852,7 +852,30 @@ function patchRaceEntry(entry) {
   if (["Aarakocra", "Aasimar", "Yuan-ti"].includes(entry.name)) {
     patchFreeformAsi(out.bundle, entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
   }
+  if (entry.name === "Custom Lineage") patchLineageAsiNames(out.bundle);
   return out;
+}
+
+// Custom Lineage's +2 options read "+2 STR" in compiled data — full
+// ability names read better everywhere the option name surfaces
+// (profile dropdowns, review lines, Leveling radios), and the +2
+// already shows in the inline bullet's collective prefix. Derived
+// from each option's own score target, never parsed from the name.
+function patchLineageAsiNames(bundle) {
+  const label = Object.fromEntries(ABILITIES.map((a) => [a.id, a.label]));
+  bundle.choiceGroups = (bundle.choiceGroups || []).map((group) => {
+    if (group.id !== "custom-lineage-asi-choice-0") return group;
+    // Copy options before renaming: the array above is fresh but the
+    // option objects are still shared with compiled defaultContent.
+    return {
+      ...group,
+      options: (group.options || []).map((o) => {
+        const aid = (o.statModifiers || []).find((m) => m.op === "add" && /Score$/.test(m.targetFieldId || ""))?.targetFieldId.replace(/Score$/, "");
+        return aid && label[aid] ? { ...o, name: label[aid] } : o;
+      }),
+    };
+  });
+  return bundle;
 }
 
 export const FIXED_RACE_ENTRIES = [

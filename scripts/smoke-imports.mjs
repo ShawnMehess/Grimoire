@@ -634,6 +634,8 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   const halfElf = RACE_EXTRAS.find((e) => e.name === "Half-Elf").bundle;
   assert(["half-elf-asi-1", "half-elf-asi-2"].every((id) => group(halfElf, id)?.options.length === 5), "Half-Elf ASI slots (no CHA)");
   assert(!halfElf.choiceGroups.some((g) => g.id === "half-elf-abilities"), "Half-Elf pair group retired");
+  const lineage = FIXED_RACE_ENTRIES.find((e) => e.name === "Custom Lineage").bundle;
+  assert(group(lineage, "custom-lineage-asi-choice-0")?.options.map((o) => o.name).join(",") === "Strength,Dexterity,Constitution,Intelligence,Wisdom,Charisma", "Lineage ASI options use full names");
   const mi = featMod.FEAT_BUNDLES.find((b) => b.name === "Magic Initiate");
   assert(mi.choiceGroups.some((g) => g.id === "magic-initiate-cantrips" && g.options.length === 47), "Magic Initiate cantrip picker");
 }
