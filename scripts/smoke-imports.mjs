@@ -637,8 +637,8 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   const lineage = FIXED_RACE_ENTRIES.find((e) => e.name === "Custom Lineage").bundle;
   assert(group(lineage, "custom-lineage-asi-choice-0")?.options.map((o) => o.name).join(",") === "Strength,Dexterity,Constitution,Intelligence,Wisdom,Charisma", "Lineage ASI options use full names");
   const lineageTrait = group(lineage, "custom-lineage-variable_trait");
-  assert(lineageTrait?.options.map((o) => o.name).join(",") === "Darkvision (60 ft),Skill Proficiency", "Lineage variable trait renamed");
-  assert(lineageTrait?.options[0]?.featureGrants?.[0]?.name === "Darkvision (60 ft)", "Lineage trait feature follows the rename");
+  assert(lineageTrait?.options.map((o) => o.name).join(",") === "Darkvision (60 feet),Skill Proficiency", "Lineage variable trait renamed");
+  assert(lineageTrait?.options[0]?.featureGrants?.[0]?.name === "Darkvision (60 feet)", "Lineage trait feature follows the rename");
   const mi = featMod.FEAT_BUNDLES.find((b) => b.name === "Magic Initiate");
   assert(mi.choiceGroups.some((g) => g.id === "magic-initiate-cantrips" && g.options.length === 47), "Magic Initiate cantrip picker");
 }

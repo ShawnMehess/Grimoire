@@ -874,9 +874,9 @@ function patchLineageTraitNames(bundle) {
         if ((o.name || "").trim() !== "Darkvision 60") return o;
         return {
           ...o,
-          name: "Darkvision (60 ft)",
+          name: "Darkvision (60 feet)",
           featureGrants: (o.featureGrants || []).map((f) => (
-            (f.name || "").trim() === "Darkvision 60" ? { ...f, name: "Darkvision (60 ft)" } : f
+            (f.name || "").trim() === "Darkvision 60" ? { ...f, name: "Darkvision (60 feet)" } : f
           )),
         };
       }),

@@ -428,12 +428,16 @@ export function asiAbilityOf(option) {
 
 /** Language slots for a set of groups: one slot per pick
  *  (maxSelections), values resolved to option names in group order
- *  and padded with null. Returns
+ *  and padded with null. Locked defaults (Common) ride along in
+ *  storage but are NOT slot values — otherwise a single-slot group
+ *  would display the locked pick instead of the real choice. Returns
  *  `[{ groupKey, values: [(name|null)] }]`. Pure. */
 export function languageSlotsFor(groups, choicesStore = {}) {
   return (groups || []).map((group) => {
     const options = groupOptionsOf(group);
+    const locked = new Set(group.lockedOptionIds || []);
     const names = [...(choicesStore?.[group.key] || [])]
+      .filter((id) => !locked.has(id))
       .map((id) => options.find((o) => o.id === id)?.name)
       .filter(Boolean)
       .sort((a, b) => options.findIndex((o) => o.name === a) - options.findIndex((o) => o.name === b));
@@ -1491,9 +1495,24 @@ function renderSinglePickerRows(container, names, {
       el("button", {
         type: "button", class: "btn", text: "Collapse All",
         onclick: () => {
-          names.forEach((name) => expandedChoiceRows.delete(name));
-          list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = true; d.closest(".choice-row")?.classList.remove("choice-row--expanded"); });
-          list.querySelectorAll(".choice-row__collapse-btn").forEach((b) => { b.hidden = true; b.setAttribute("aria-expanded", "false"); });
+          // The current pick stays expanded as the anchor while
+          // everything else collapses around it (nothing selected:
+          // everything collapses, as before).
+          names.forEach((name) => { if (name !== selectedName) expandedChoiceRows.delete(name); });
+          if (selectedName) expandedChoiceRows.add(selectedName);
+          list.querySelectorAll(".choice-row").forEach((row) => {
+            const keep = !!selectedName && row.dataset?.rowName === selectedName;
+            const details = row.querySelector(".choice-row__details");
+            if (details) {
+              details.hidden = !keep;
+              row.classList.toggle("choice-row--expanded", keep);
+            }
+            const btn = row.querySelector(".choice-row__collapse-btn");
+            if (btn) {
+              btn.hidden = !keep;
+              btn.setAttribute("aria-expanded", String(keep));
+            }
+          });
         },
       }));
     container.append(controls);

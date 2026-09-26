@@ -325,6 +325,9 @@ describe("inline dropdown rows", () => {
     // Locked defaults ride along.
     const locked = [langGroup("g3", 1, 1, ["Common", "Elvish"], ["g3-common"])];
     assert.deepEqual(assignLanguageSlot(locked, "g3", 0, "Elvish", {}), { g3: ["g3-common", "g3-elvish"] });
+    // ...but never occupy a slot: the dropdown shows the real pick.
+    assert.deepEqual(languageSlotsFor(locked, { g3: ["g3-common", "g3-elvish"] }), [{ groupKey: "g3", values: ["Elvish"] }]);
+    assert.deepEqual(languageSlotsFor(locked, { g3: ["g3-common"] }), [{ groupKey: "g3", values: [null] }]);
   });
 
   it("maps ASI slots to picks and back", () => {
