@@ -20,7 +20,18 @@
     <div id="auth-area"></div>
   </header>
   <main class="app-main" id="app-main">
-    <p class="app-loading">Loading<span class="app-loading__dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></p>
+    <div class="app-loading-screen" role="status" aria-label="Loading Character Vault">
+      <div class="app-loading-screen__inner">
+        <div class="app-loading-screen__brand">
+          <span class="app-loading-screen__mark" aria-hidden="true"></span>
+          <h1>Character Vault</h1>
+        </div>
+        <div class="app-loading-screen__spinner" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <p class="app-loading-screen__text">Loading<span class="app-loading-screen__dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></p>
+      </div>
+    </div>
   </main>
 
   <!-- ?v= cache-busts the entry script on each release: static hosts

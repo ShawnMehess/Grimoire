@@ -186,21 +186,90 @@ input[type="radio"]:disabled {
   background-clip: padding-box;
 }
 
-/* Simple loading state used before the app finishes mounting */
+/* Loading screen — matches the character selection page (Vault) design */
+.app-loading-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg);
+  z-index: 1000;
+  font-family: var(--font-body);
+  color: var(--color-text);
+}
+.app-loading-screen__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  text-align: center;
+  padding: var(--space-6);
+}
+.app-loading-screen__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.app-loading-screen__mark {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  background: var(--gradient-accent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3l4.2 8.6L29 13l-6.8 6.1L23.9 29 16 24.4 8.1 29l1.7-9.9L3 13l8.8-1.4z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3l4.2 8.6L29 13l-6.8 6.1L23.9 29 16 24.4 8.1 29l1.7-9.9L3 13l8.8-1.4z'/%3E%3C/svg%3E") center / contain no-repeat;
+  filter: drop-shadow(0 0 6px var(--color-accent-muted));
+}
+.app-loading-screen__brand h1 {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0;
+}
+.app-loading-screen__spinner {
+  display: flex;
+  gap: 4px;
+  margin-top: var(--space-2);
+}
+.app-loading-screen__spinner span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  opacity: 0.3;
+  animation: app-loading-spinner 1.2s infinite ease-in-out;
+}
+.app-loading-screen__spinner span:nth-child(2) { animation-delay: 0.15s; }
+.app-loading-screen__spinner span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes app-loading-spinner {
+  0%, 80%, 100% { transform: scale(0.8); opacity: 0.3; }
+  40% { transform: scale(1.2); opacity: 1; }
+}
+.app-loading-screen__text {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+.app-loading-screen__dots span {
+  animation: app-loading-blink 1.2s infinite;
+  opacity: 0.2;
+}
+.app-loading-screen__dots span:nth-child(2) { animation-delay: 0.2s; }
+.app-loading-screen__dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes app-loading-blink {
+  0%, 80%, 100% { opacity: 0.2; }
+  40% { opacity: 1; }
+}
+
+/* Simple loading state used before the app finishes mounting (fallback) */
 .app-loading {
   color: var(--color-text-muted);
   font-family: var(--font-display);
   letter-spacing: 0.02em;
-}
-.app-loading__dots span {
-  animation: app-loading-blink 1.2s infinite;
-  opacity: 0.2;
-}
-.app-loading__dots span:nth-child(2) { animation-delay: 0.2s; }
-.app-loading__dots span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes app-loading-blink {
-  0%, 80%, 100% { opacity: 0.2; }
-  40% { opacity: 1; }
 }
 
 /* Respect reduced-motion preferences */
