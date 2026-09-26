@@ -199,6 +199,20 @@ const TAG_FIELD_LABELS = {
   otherProf: "Other",
 };
 
+/** Display label of the Languages bullet ("Languages: Common, …") —
+ *  exported so profile-embedded pickers can find (and replace) that
+ *  bullet instead of duplicating it. */
+export const LANGUAGE_BULLET_LABEL = TAG_FIELD_LABELS.languages;
+
+/** Picker-profile section titles, exported so embedded pickers can
+ *  target sections without duplicating literals. */
+export const MECHANICS_TITLES = {
+  traits: "Racial Traits",
+  scores: "Ability Score Increases",
+  proficiencies: "Proficiencies",
+  innate: "Innate Abilities",
+};
+
 /** First sentence of a longer text, capped — keeps picker bullets brief
  *  without trailing off mid-thought: a sentence boundary inside the
  *  cap wins; otherwise the whole first sentence (up to 2× cap) rather

@@ -94,6 +94,9 @@ import {
   statModifierLabel as sharedStatModifierLabel,
   statModifierSummary as sharedStatModifierSummary,
   mechanicsBulletsFor as sharedMechanicsBulletsFor,
+  briefDescription as sharedBriefDescription,
+  MECHANICS_TITLES as SHARED_MECHANICS_TITLES,
+  LANGUAGE_BULLET_LABEL as SHARED_LANGUAGE_BULLET_LABEL,
 } from "./sheet/sheetMechanics.js";
 import {
   cellsDelta,
@@ -217,6 +220,9 @@ import {
   groupOptionsOf,
   slotLabelFor,
   isAsiSlotGroup,
+  isFeaturePickGroup,
+  assignFeatureSlot,
+  withLiveBullets,
   languageSlotsFor,
   assignLanguageSlot,
   asiSlotsFor,
@@ -294,7 +300,6 @@ import {
   renderRowListStepInto,
   renderPreferencesStepInto,
   renderChoicePageStepInto,
-  renderInlinePickRowInto,
   renderInnateAbilitiesStepInto,
   renderAbilitiesStepInto,
   reviewLinesFor,
@@ -2788,9 +2793,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
    *  Background picker row (replaces the one-line preview): fixed
    *  order, empty categories omitted. Classes render in Class Traits
    *  display (no shared speed/senses/resistances or spell lists; hit
-   *  lines lead) — see mechanicsBulletsFor. */
-  function mechanicsListFor(category, name, level) {
-    return sharedMechanicsBulletsFor(bundleFor(category, name, includedRulesetIdsFor()), level, {
+   *  lines lead) — see mechanicsBulletsFor. `bundleOverride` renders
+   *  a modified bundle through the same pipeline (the live-profile
+   *  path strips superseded fixed grants before previewing). */
+  function mechanicsListFor(category, name, level, bundleOverride = null) {
+    return sharedMechanicsBulletsFor(bundleOverride ?? bundleFor(category, name, includedRulesetIdsFor()), level, {
       abilityIds: ABILITY_IDS,
       abilities: ABILITIES,
       skills: SKILLS,
@@ -3856,9 +3863,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const isInlineLangGroup = (g) => categorizeChoiceGroup(g) === "languages";
     const raceInlineLang = raceChoiceGroups.filter(isInlineLangGroup);
     const raceInlineAsi = raceChoiceGroups.filter(isAsiSlotGroup);
-    const raceSectionGroups = raceChoiceGroups.filter((g) => !isInlineLangGroup(g) && !isAsiSlotGroup(g));
+    const raceInlineFeat = raceChoiceGroups.filter(isFeaturePickGroup);
+    const raceSectionGroups = raceChoiceGroups.filter((g) => !isInlineLangGroup(g) && !isAsiSlotGroup(g) && !isFeaturePickGroup(g));
     const bgInlineLang = backgroundChoiceGroups.filter(isInlineLangGroup);
-    const bgSectionGroups = backgroundChoiceGroups.filter((g) => !isInlineLangGroup(g));
+    const bgInlineFeat = backgroundChoiceGroups.filter(isFeaturePickGroup);
+    const bgSectionGroups = backgroundChoiceGroups.filter((g) => !isInlineLangGroup(g) && !isFeaturePickGroup(g));
     // The race bundle's pick-1 subrace group (Elf/Dwarf) renders nested
     // under its race — the same pattern as subclasses under their
     // class — never as a standalone choice page, so it stays out of
@@ -3950,13 +3959,19 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     }
   }
 
+  /** Whether a statModifier target holds languages (field id or the
+   *  sheet field's label) — shared by the fixed-language list and the
+   *  live-profile stripping below. */
+  function isLangFieldId(id) {
+    return /language/i.test(id || "") || /language/i.test(resolveFieldById(id)?.label || "");
+  }
+
   /** Fixed (non-choice) languages on one bundle — Common plus its
-   *  grantTag language mods — for the inline row's known list. */
+   *  grantTag language mods — for the inline bullet's known list. */
   function fixedLangsFor(bundle) {
     const names = ["Common"];
-    const isLang = (id) => /language/i.test(id || "") || /language/i.test(resolveFieldById(id)?.label || "");
     for (const mod of bundle?.statModifiers || []) {
-      if (mod.op === "grantTag" && mod.value && isLang(mod.targetFieldId)
+      if (mod.op === "grantTag" && mod.value && isLangFieldId(mod.targetFieldId)
         && !names.some((n) => n.toLowerCase() === String(mod.value).toLowerCase())) names.push(mod.value);
     }
     return names;
@@ -3971,22 +3986,23 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     } catch { /* keep the pick even if focus fails */ }
   }
 
-  /** Inline Languages row ("Languages — Common, Dwarvish, [▾], [▾]")
-   *  for a picker table: locked knowns as text plus one dropdown per
-   *  pick slot. Each dropdown lists its own group's options; locked
-   *  knowns and sibling slots' picks grey out. Picks write back onto
-   *  the same per-group choice keys every compute path reads, so
-   *  gating, review, and apply work unchanged. */
-  function renderInlineLanguageRow(container, langGroups, fixedBundle, saveRules) {
-    if (!langGroups.length) return;
+  /** Live Languages bullet model ("Languages" topic with locked knowns
+   *  + one dropdown per pick slot), or null when there are no language
+   *  groups. Each dropdown lists its own group's options; locked knowns
+   *  and sibling slots' picks grey out. Picks write back onto the same
+   *  per-group choice keys every compute path reads, so gating, review,
+   *  and apply work unchanged. */
+  function liveLanguageBullet(langGroups, fixedBundle, saveRules) {
+    if (!langGroups.length) return null;
     const store = character.rules.choices || {};
     const slotModels = languageSlotsFor(langGroups, store);
     const lockedNames = new Set(grantedLanguageNames(state).fixed.map((n) => String(n).toLowerCase()));
-    const leadItems = fixedLangsFor(fixedBundle).map((name) => ({ text: name, title: name === "Common" ? "Known by everyone — free, never uses picks" : "Granted — already known" }));
+    const lead = fixedLangsFor(fixedBundle).map((name) => ({ text: name, title: name === "Common" ? "Known by everyone — free, never uses picks" : "Granted — already known" }));
     const allValues = slotModels.flatMap((m) => m.values).filter(Boolean).map((n) => n.toLowerCase());
-    renderInlinePickRowInto(container, {
-      label: "Languages",
-      leadItems,
+    return {
+      live: true,
+      topic: SHARED_LANGUAGE_BULLET_LABEL,
+      lead,
       slots: slotModels.flatMap((m) => {
         const group = langGroups.find((g) => g.key === m.groupKey);
         const offered = groupOptionsOf(group).filter((o) => o.name);
@@ -4019,19 +4035,19 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         renderPageGrid();
         refocusInlineSlot(slotKey);
       },
-    });
+    };
   }
 
-  /** Inline Ability Scores row ("Ability Scores — +1 to each of [▾],
-   *  [▾]"): one dropdown per +1/+2 slot group. Duplicates stack
-   *  across slots because each slot is its own group. */
-  function renderInlineAsiRow(container, asiGroups, saveRules) {
-    if (!asiGroups.length) return;
+  /** Live Ability Scores bullet model ("+1 to each of [▾], [▾]"): one
+   *  dropdown per +1/+2 slot group. Duplicates stack across slots
+   *  because each slot is its own group. */
+  function liveAsiBullet(asiGroups, saveRules) {
+    if (!asiGroups.length) return null;
     const models = asiSlotsFor(asiGroups, character.rules.choices || {});
     const allPlusOne = models.every((m) => m.value === 1);
-    renderInlinePickRowInto(container, {
-      label: "Ability Scores",
-      leadItems: [],
+    return {
+      live: true,
+      topic: null,
       collective: models.length > 1 && allPlusOne ? "+1 to each of" : `+${models[0]?.value ?? 1} to`,
       slots: models.map((m) => ({
         key: m.groupKey,
@@ -4046,7 +4062,75 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         renderPageGrid();
         refocusInlineSlot(slotKey);
       },
+    };
+  }
+
+  /** Live feature-pick bullet models ("Variable Trait: [▾]"): one
+   *  dropdown per single-pick feature group, offering option names
+   *  (tooltips carry the option's own text). Stored as the option id,
+   *  exactly like the generic radio UI would. */
+  function liveFeatureBullets(featGroups, saveRules) {
+    return (featGroups || []).map((group) => {
+      const stored = character.rules.choices?.[group.key] || [];
+      const picked = (group.options || []).find((o) => stored.includes(o.id)) || null;
+      return {
+        live: true,
+        topic: group.label || "Choose",
+        lead: [],
+        slots: [{
+          key: group.key,
+          value: picked?.id || "",
+          placeholder: "Choose…",
+          options: (group.options || []).filter((o) => o.name).map((o) => ({
+            value: o.id,
+            label: o.name,
+            title: o.featureGrants?.[0]?.description ? sharedBriefDescription(o.featureGrants[0].description, 120) : null,
+          })),
+        }],
+        onPick: (slotKey, optionId) => {
+          const patch = assignFeatureSlot(featGroups, slotKey, optionId || null);
+          character.rules.choices = { ...(character.rules.choices || {}), ...patch };
+          saveRules();
+          renderPageGrid();
+          refocusInlineSlot(slotKey);
+        },
+      };
     });
+  }
+
+  /** Picker-profile sections with live pick bullets spliced in — for
+   *  the selected race/background only (everyone else renders the
+   *  static preview). Language tags and same-named stub notes leave
+   *  the static preview, with the live bullets superseding them
+   *  (verified lossless: the stubs read "Choice of: …"); ASI bullets
+   *  append beside fixed score lines. */
+  function profileSectionsFor(category, name, saveRules) {
+    const statik = mechanicsListFor(category, name, state.level);
+    const isRace = category === "Race" && name === state.species;
+    const isBg = category === "Background" && name === state.background;
+    if (!isRace && !isBg) return statik;
+    const langGroups = isRace ? raceInlineLang : bgInlineLang;
+    const asiGroups = isRace ? raceInlineAsi : [];
+    const featGroups = isRace ? raceInlineFeat : bgInlineFeat;
+    if (!langGroups.length && !asiGroups.length && !featGroups.length) return statik;
+    const full = bundleFor(category, name, includedRulesetIds(state));
+    const liveFeatLabels = new Set(featGroups.map((g) => (g.label || "").trim()));
+    const stripped = {
+      ...full,
+      statModifiers: (full?.statModifiers || []).filter((m) => !(m.op === "grantTag" && isLangFieldId(m.targetFieldId))),
+      featureGrants: (full?.featureGrants || []).filter((f) => !liveFeatLabels.has((f.name || "").trim())),
+    };
+    const sections = mechanicsListFor(category, name, state.level, stripped);
+    const fixedBundle = isRace ? creationFixedBundles(state)[0] : creationFixedBundles(state)[3];
+    return withLiveBullets(sections, [
+      langGroups.length
+        ? { section: isRace ? SHARED_MECHANICS_TITLES.traits : SHARED_MECHANICS_TITLES.innate, bullet: liveLanguageBullet(langGroups, fixedBundle, saveRules) }
+        : null,
+      asiGroups.length
+        ? { section: SHARED_MECHANICS_TITLES.scores, bullet: liveAsiBullet(asiGroups, saveRules), after: SHARED_MECHANICS_TITLES.traits }
+        : null,
+      ...liveFeatureBullets(featGroups, saveRules).map((bullet) => ({ section: SHARED_MECHANICS_TITLES.innate, bullet })),
+    ].filter(Boolean));
   }
 
   /** Fills cantrips + leveled spells to the class cap, first-available
@@ -4228,10 +4312,12 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
             // Races with subraces show no Details of their own — the
-            // subrace rows underneath carry all of it.
+            // subrace rows underneath carry all of it. Otherwise the
+            // profile embeds live pick bullets (languages, ASI,
+            // feature picks) for the selected race.
             mechanicsListFn: (category, name) => (subraceGroupFor(name)
               ? []
-              : mechanicsListFor(category, name, state.level)),
+              : profileSectionsFor(category, name, saveRules)),
             // Collapsed by default (only the selected race's Details
             // show) — with 13+ races, showing every trait block at
             // once turns this page into a multi-thousand-pixel scroll.
@@ -4262,15 +4348,6 @@ export function renderCustomSheet(root, character, store, opts = {}) {
               character.rules.choices[group.key] = [optionId];
               saveRules();
               renderPageGrid();
-            },
-            // Inline Languages + ASI rows under the selected race —
-            // those groups leave the generic sections below.
-            extraRowsFn: (raceName, rowEl) => {
-              if (raceName !== state.species) return;
-              const host = el("div");
-              renderInlineLanguageRow(host, raceInlineLang, creationFixedBundles(state)[0], saveRules);
-              renderInlineAsiRow(host, raceInlineAsi, saveRules);
-              if (host.childNodes.length) rowEl.after(...host.childNodes);
             },
           });
           renderKnownLanguagesInto(container, state);
@@ -4387,15 +4464,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
-            mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
-            // Inline Languages row under the selected background —
-            // those groups leave the generic section below.
-            afterRow: (bgName, rowEl) => {
-              if (bgName !== state.background || !bgInlineLang.length) return;
-              const host = el("div");
-              renderInlineLanguageRow(host, bgInlineLang, creationFixedBundles(state)[3], saveRules);
-              if (host.firstElementChild) rowEl.after(host.firstElementChild);
-            },
+            // Background profiles embed live language bullets for the
+            // selected background, like race profiles do.
+            mechanicsListFn: (category, name) => profileSectionsFor(category, name, saveRules),
           });
           renderYourChoicesSections(container, "background", bgSectionGroups, saveRules, backgroundChoiceGroups);
         },

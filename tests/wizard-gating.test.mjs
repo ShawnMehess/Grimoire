@@ -33,6 +33,9 @@ import {
   secretsPickedCount,
   secretsCompleteFor,
   isAsiSlotGroup,
+  isFeaturePickGroup,
+  assignFeatureSlot,
+  withLiveBullets,
   asiAbilityOf,
   languageSlotsFor,
   assignLanguageSlot,
@@ -361,6 +364,55 @@ describe("inline dropdown rows", () => {
     const bad = migrateAsiComboPicks({ "f:c:x-asi": ["custom-thing"] }, defs);
     assert.deepEqual(bad.choices, { "f:c:x-asi": ["custom-thing"] });
     assert.equal(bad.migrated, 0);
+  });
+});
+
+describe("profile-embedded pick bullets", () => {
+  const featGroup = (key, names) => ({
+    key, label: "Variable Trait", minSelections: 1, maxSelections: 1,
+    options: names.map((n) => ({ id: `${key}-${n.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, name: n, featureGrants: [{ name: n }] })),
+  });
+
+  it("detects feature-pick groups only", () => {
+    assert.equal(isFeaturePickGroup(featGroup("g", ["Darkvision 60", "Skill Proficiency"])), true);
+    assert.equal(isFeaturePickGroup({ key: "s", subrace: true, minSelections: 1, maxSelections: 1, options: [{ id: "o", name: "High Elf", statModifiers: [] }] }), false);
+    assert.equal(isFeaturePickGroup({ key: "m", minSelections: 2, maxSelections: 2, options: [{ id: "o", name: "A", statModifiers: [] }] }), false);
+    assert.equal(isFeaturePickGroup({ key: "a", minSelections: 1, maxSelections: 1, options: [{ id: "o", name: "X", statModifiers: [{ op: "add", targetFieldId: "strScore", value: 1 }] }] }), false);
+    assert.equal(isFeaturePickGroup({ key: "e", minSelections: 1, maxSelections: 1, options: [] }), false);
+  });
+
+  it("writes feature picks onto their group key", () => {
+    const groups = [featGroup("g", ["Darkvision 60", "Skill Proficiency"])];
+    assert.deepEqual(assignFeatureSlot(groups, "g", "g-darkvision-60"), { g: ["g-darkvision-60"] });
+    assert.deepEqual(assignFeatureSlot(groups, "g", ""), { g: [] });
+    assert.deepEqual(assignFeatureSlot(groups, "nope", "g-darkvision-60"), {});
+    assert.deepEqual(assignFeatureSlot(groups, "g", "bogus"), { g: [] });
+  });
+
+  it("splices live bullets into profile sections", () => {
+    const statik = [
+      { title: "Racial Traits", items: ["Speed: 30 feet"] },
+      { title: "Innate Abilities", items: ["Trance: meditate"] },
+    ];
+    const lang = { live: true, topic: "Languages" };
+    const asi = { live: true, topic: null };
+    const feat = { live: true, topic: "Variable Trait" };
+    // ASI section created after Racial Traits when missing.
+    const a = withLiveBullets(statik, [{ section: "Ability Score Increases", bullet: asi, after: "Racial Traits" }]);
+    assert.deepEqual(a.map((s) => s.title), ["Racial Traits", "Ability Score Increases", "Innate Abilities"]);
+    assert.equal(a[1].items[0], asi);
+    assert.deepEqual(statik[1].items, ["Trance: meditate"]);
+    // Language bullet appends to the named section; features too.
+    const b = withLiveBullets(statik, [
+      { section: "Racial Traits", bullet: lang },
+      { section: "Innate Abilities", bullet: feat },
+    ]);
+    assert.deepEqual(b[0].items, ["Speed: 30 feet", lang]);
+    assert.deepEqual(b[1].items, ["Trance: meditate", feat]);
+    // Missing sections append at the end; null bullets skip.
+    const c = withLiveBullets([], [{ section: "Innate Abilities", bullet: feat }, { section: "X", bullet: null }]);
+    assert.deepEqual(c, [{ title: "Innate Abilities", items: [feat] }]);
+    assert.deepEqual(withLiveBullets(statik, []), statik);
   });
 });
 

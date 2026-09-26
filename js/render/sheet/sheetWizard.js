@@ -537,6 +537,52 @@ export function migrateAsiComboPicks(choices = {}, defs = [], abilityIds = ["str
   return { choices: out, migrated };
 }
 
+/** Whether a group is a feature pick (single-pick, every option
+ *  named and carrying no stat modifiers — e.g. Custom Lineage's
+ *  Variable Trait, Draconic Ancestry): these render as one inline
+ *  sentence dropdown in the pick's profile ("Variable Trait:
+ *  [Darkvision 60 ▾]"). Subrace, language, ASI-slot, and feat groups
+ *  are classified elsewhere and never match here. Pure. */
+export function isFeaturePickGroup(group) {
+  if (group?.subrace) return false;
+  if ((group?.maxSelections ?? 0) !== 1) return false;
+  const opts = group?.options || [];
+  return opts.length > 0 && opts.every((o) => o?.name && (o.statModifiers || []).length === 0);
+}
+
+/** Writes one feature-pick dropdown choice back onto its group key
+ *  (empty clears). Returns `{ [groupKey]: [optionId] }`. Pure. */
+export function assignFeatureSlot(groups, groupKey, optionId) {
+  const group = (groups || []).find((g) => g.key === groupKey);
+  if (!group) return {};
+  const opt = optionId && (group.options || []).find((o) => o.id === optionId);
+  return { [groupKey]: opt ? [opt.id] : [] };
+}
+
+/** Splices live pick bullets into a pick's static profile sections —
+ *  the model behind profile-embedded dropdowns. `placements` lists
+ *  `{ section, bullet, after }`: the bullet appends to the named
+ *  section, creating it after the `after` section (or at the end)
+ *  when missing. Language bullets are expected pre-merged (the caller
+ *  strips the static language tags first, so no duplicate "Languages"
+ *  line survives); feature bullets supersede same-named stub notes
+ *  the same way. Returns a new array; inputs untouched. Pure. */
+export function withLiveBullets(sections = [], placements = []) {
+  const out = (sections || []).map((s) => ({ ...s, items: [...(s?.items || [])] }));
+  for (const { section, bullet, after } of placements || []) {
+    if (!bullet) continue;
+    let target = out.find((s) => s.title === section);
+    if (!target) {
+      target = { title: section, items: [] };
+      const anchor = after ? out.findIndex((s) => s.title === after) : -1;
+      if (anchor === -1) out.push(target);
+      else out.splice(anchor + 1, 0, target);
+    }
+    target.items.push(bullet);
+  }
+  return out;
+}
+
 export function canPickMore({ selectedCount, maxSelections, isRadio }) {
   if (isRadio) return true;
   return selectedCount < maxSelections;
@@ -1348,6 +1394,49 @@ export function renderSelectableRowsInto(container, names, opts = {}) {
   return renderPickerTableInto(container, names, { ...opts, mode: "single" });
 }
 
+/** One profile bullet with embedded dropdowns ("Languages — Common,
+ *  [▾]" / "+1 to each of [▾], [▾]"). Same visual grammar as the
+ *  static bullets (bold topic + em dash, or a bare sentence for
+ *  topic-less ASI lines). Clicks and keypresses stop at the selects:
+ *  without that, every pick would bubble to the row and toggle
+ *  (collapse + de-select) the pick itself. `change` still bubbles so
+ *  wizard gating refreshes. Module-private — only reachable through
+ *  live descriptors in a mechanics list. */
+function renderLiveBulletItem(item) {
+  const li = el("li", { class: "mechanics-pick" });
+  const lead = item.lead || [];
+  const slots = item.slots || [];
+  if (item.topic) {
+    li.append(el("strong", { text: item.topic }), document.createTextNode(" — "));
+  }
+  lead.forEach(({ text, title }, i) => {
+    if (i > 0) li.append(document.createTextNode(", "));
+    li.append(el("span", { class: "inline-pick-known", text, title }));
+  });
+  if (item.collective && slots.length) {
+    if (lead.length) li.append(document.createTextNode(", "));
+    li.append(el("span", { class: "inline-pick-collective", text: `${item.collective} ` }));
+  }
+  slots.forEach((slot, i) => {
+    if (i > 0 || (lead.length && !item.collective)) li.append(document.createTextNode(", "));
+    const select = el("select", {
+      class: "input-group__control inline-pick-select",
+      "data-inline-slot": slot.key,
+      "aria-label": `${item.topic || "Pick"} ${i + 1}`,
+      onchange: () => { if (typeof item.onPick === "function") item.onPick(slot.key, select.value); },
+      onclick: (e) => e.stopPropagation(),
+      onkeydown: (e) => e.stopPropagation(),
+    });
+    select.append(el("option", { value: "", text: slot.placeholder || "Choose…" }));
+    (slot.options || []).forEach((o) => {
+      select.append(el("option", { value: o.value, text: o.label, disabled: o.disabled || false, title: o.title || null }));
+    });
+    select.value = slot.value ?? "";
+    li.append(select);
+  });
+  return li;
+}
+
 /** Multi-select table — legacy name, delegates to the generic
  *  picker table. Prefer renderPickerTableInto for new callers. */
 export function renderMultiSelectableRowsInto(container, names, opts = {}) {
@@ -1457,6 +1546,9 @@ function renderSinglePickerRows(container, names, {
           el("div", { class: "choice-row__mechanics-title", text: section.title }),
           el("ul", { class: "choice-row__mechanics-list" },
             ...section.items.map((item) => {
+              // Live pick bullets (dropdowns embedded in the profile
+              // sentence) render through their own builder below.
+              if (item && typeof item === "object" && item.live === true) return renderLiveBulletItem(item);
               // Bold lead topic ("Speed", "Darkvision", …) joined to the
               // detail with an em dash — split on the first ": " only, so
               // colons inside descriptions never break the shape. Items

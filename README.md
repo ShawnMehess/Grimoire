@@ -338,11 +338,13 @@ must resolve or it fails.
 
 ## Character creation wizard
 
-Six steps — choices appear where they originate: languages and
-ability-score increases as inline dropdown rows inside the race /
-background picker tables, everything else as collapsible "Your
-choices" sections directly under the pick that grants them (with
-Expand All / Collapse All), never on separate later pages:
+Six steps — choices appear where they originate: languages,
+ability-score increases, and feature picks (Custom Lineage's variable
+trait, Draconic Ancestry, Celestial Revelation) as sentences with
+dropdowns inside the race / background profile itself, everything
+else as collapsible "Your choices" sections directly under the pick
+that grants them (with Expand All / Collapse All), never on separate
+later pages:
 
 1. **Basics** — sources/rulesets (saved as your per-user default, so
    returning users don't re-pick; always overridable per character),
@@ -389,17 +391,21 @@ Expand All / Collapse All), never on separate later pages:
   bulleted mechanics (Statistical traits → Ability increases →
   Proficiencies → Innate abilities), collapsible per row with
   Expand All / Collapse All.
-- **Languages read as a row** under the selected race/background
-  ("Languages — Common, Dwarvish, [▾]"): known tongues as text, one
-  dropdown per pick. Known tongues and the other dropdown's pick grey
-  out; Common is locked everywhere and never counts against the pick
-  budget. Spell rows show a mechanical line
-  (level · school · casting · range · duration + effect); hitting a
-  spell cap shows a tooltip on the row instead of an error banner.
-- **Ability increases read as a row too** ("Ability Scores — +1 to
-  each of [▾], [▾]"): one dropdown per increasable score, and the
-  same ability may be picked twice (it stacks). Retired combo picks
-  migrate onto the new slots automatically.
+- **Languages read as a profile sentence** ("Languages — Common,
+  Dwarvish, [▾]") inside the selected race/background's own traits:
+  known tongues as text, one dropdown per pick. Known tongues and the
+  other dropdown's pick grey out; Common is locked everywhere and
+  never counts against the pick budget. Spell rows show a mechanical
+  line (level · school · casting · range · duration + effect);
+  hitting a spell cap shows a tooltip on the row instead of an error
+  banner.
+- **Ability increases read as a sentence too** ("Ability Score
+  Increases — +1 to each of [▾], [▾]"): one dropdown per increasable
+  score, and the same ability may be picked twice (it stacks).
+  Retired combo picks migrate onto the new slots automatically.
+  Single-pick feature choices (Variable Trait, Draconic Ancestry,
+  Celestial Revelation) read the same way ("Variable Trait:
+  [Darkvision 60 ▾]").
 - **Magical Secrets** (Bard 10/14/18, College of Lore 6): an
   any-class spell picker capped at the unlocked total, enforced in
   creation and level-ups. Counting is deliberately lenient (a racial
@@ -487,6 +493,6 @@ Loose working files live in `docs/`, not the repo root:
   (read off the level-up plan, single-class Warlocks). Long Rests
   restore all feature uses, clear used spell slots, and heal to full
   HP — all in one undoable commit (see `takeRest` in `customSheet.js`).
-- Language and ability-score picks live in inline table rows with
-  one dropdown per pick — there are no merged cross-source pickers
-  and no combo-option lists for ASIs.
+- Language, ability-score, and feature picks live as sentences with
+  dropdowns inside the pick's own profile — there are no merged
+  cross-source pickers and no combo-option lists for ASIs.
