@@ -2789,7 +2789,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
    *  a modified bundle through the same pipeline (the live-profile
    *  path strips superseded fixed grants before previewing). */
   function mechanicsListFor(category, name, level, bundleOverride = null) {
-    return sharedMechanicsBulletsFor(bundleOverride ?? bundleFor(category, name, includedRulesetIdsFor()), level, {
+    const bundle = bundleOverride ?? bundleFor(category, name, includedRulesetIdsFor());
+    if (!bundle) return [];
+    return sharedMechanicsBulletsFor(bundle, level, {
       abilityIds: ABILITY_IDS,
       abilities: ABILITIES,
       skills: SKILLS,
@@ -2938,7 +2940,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         && norm(entry.category) === norm(category) && norm(entry.name) === norm(name));
       if (fromLibrary) return fromLibrary;
     }
-    return bundleForIn(category, name, lookupIds[0] || null, bundleLibraryCache, starterLookup);
+    const bundle = bundleForIn(category, name, lookupIds[0] || null, bundleLibraryCache, starterLookup);
+    if (!bundle) {
+      console.warn(`[bundleFor] Bundle not found: ${category} "${name}" (rulesetIds: ${lookupIds.join(", ")})`);
+    }
+    return bundle;
   }
 
   function creationChoiceGroupsFor(state) {
@@ -4153,6 +4159,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const featGroups = isRace ? raceInlineFeat : bgInlineFeat;
     if (!langGroups.length && !toolGroups.length && !asiGroups.length && !featGroups.length) return statik;
     const full = bundleFor(category, name, includedRulesetIds(state));
+    if (!full) return statik;
     const liveFeatLabels = new Set(featGroups.map((g) => (g.label || "").trim()));
     const stripped = {
       ...full,
