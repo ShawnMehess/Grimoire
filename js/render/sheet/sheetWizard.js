@@ -732,6 +732,14 @@ export function applicableStepsOf(steps) {
   return steps.filter((step) => isStepApplicable(step));
 }
 
+/** Whether an auto-skipped step reads as passed-over yet: only once
+ *  the current position has moved beyond it in full step order. Before
+ *  that it's just greyed out like any locked dot, so a fresh wizard
+ *  doesn't imply anything was skipped already. Pure. */
+export function skippedStepPassed(stepFullIndex, currentFullIndex) {
+  return stepFullIndex < currentFullIndex;
+}
+
 /** Tooltip for an auto-skipped step's progress dot: the step's own
  *  reason when it gives one, otherwise the standard "nothing to
  *  choose" note. Never throws (a broken checker must not trap the
@@ -817,15 +825,29 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
   // like Next. Clicks ride on `onclick` (not addEventListener) so the
   // nav refresh below can re-arm dots without stacking handlers.
   const dotPairs = [];
-  steps.forEach((step) => {
+  // Forward jumps past undecided pages (and inapplicable ones not
+  // yet passed) share one locked tooltip with the Next button below.
+  const lockedTitle = "Finish the current page first — It still needs decisions.";
+  const currentFullIndex = steps.indexOf(applicableSteps[stepState.index]);
+  steps.forEach((step, fullIndex) => {
     const dot = document.createElement("button");
     dot.type = "button";
     dot.textContent = step.title;
     dot.dataset.stepId = step.id || "";
     if (!isStepApplicable(step)) {
-      dot.className = "wizard__dot wizard__dot--disabled wizard__dot--skipped";
-      dot.disabled = true;
-      dot.title = skippedStepTitle(step);
+      // Skipped steps read as passed-over (struck "skipped" + reason)
+      // only once the wizard has moved beyond them; before that they
+      // stay plain greyed-out dots like every other locked step, so a
+      // fresh wizard doesn't suggest anything was skipped already.
+      if (skippedStepPassed(fullIndex, currentFullIndex)) {
+        dot.className = "wizard__dot wizard__dot--disabled wizard__dot--skipped";
+        dot.disabled = true;
+        dot.title = skippedStepTitle(step);
+      } else {
+        dot.className = "wizard__dot wizard__dot--disabled wizard__dot--locked";
+        dot.disabled = true;
+        dot.title = lockedTitle;
+      }
       dots.append(dot);
       return;
     }
@@ -837,7 +859,7 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
       + (pastGate ? " wizard__dot--locked" : "");
     if (pastGate) {
       dot.disabled = true;
-      dot.title = "Finish the current page first — It still needs decisions.";
+      dot.title = lockedTitle;
     }
     dot.onclick = () => { goTo(i); };
     dotPairs.push({ dot, step, index: i });
@@ -954,7 +976,7 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
       const pastGate = freshFirst !== -1 && index > freshFirst;
       dot.classList.toggle("wizard__dot--locked", pastGate);
       dot.disabled = pastGate;
-      dot.title = pastGate ? "Finish the current page first — It still needs decisions." : "";
+      dot.title = pastGate ? lockedTitle : "";
     });
   };
   // Picks auto-seeded while the body renders (locked defaults) can

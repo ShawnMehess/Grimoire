@@ -46,6 +46,7 @@ import {
   stepIsComplete,
   firstIncompleteStep,
   skippedStepTitle,
+  skippedStepPassed,
   rulesetOptionNamesIn,
   ordinal,
   availableSpellLevels,
@@ -436,6 +437,12 @@ describe("step shell", () => {
     assert.equal(skippedStepTitle({ unavailableMessage: () => "Needs a caster." }), "Needs a caster.");
     assert.equal(skippedStepTitle({ unavailableMessage: () => { throw new Error("x"); } }),
       "Skipped — nothing to choose for your current picks.");
+  });
+
+  it("marks skipped steps only once passed", () => {
+    assert.equal(skippedStepPassed(4, 0), false);
+    assert.equal(skippedStepPassed(4, 4), false);
+    assert.equal(skippedStepPassed(4, 5), true);
   });
 
   it("ordinals and available spell levels", () => {

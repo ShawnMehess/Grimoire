@@ -18,7 +18,7 @@ const authArea = document.getElementById("auth-area");
 
 const backBtn = document.createElement("button");
 backBtn.className = "btn";
-backBtn.textContent = "← Back";
+backBtn.textContent = "Return to Character Selection";
 backBtn.style.display = "none";
 // The currently-open character's { hasUnsavedChanges, destroy } (see
 // renderCustomSheet) — null when no character is open. Checked/torn

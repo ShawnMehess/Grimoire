@@ -371,8 +371,8 @@ later pages:
   until every section on the page is decided — picks, subclass where
   choosable now, spell caps, equipment. Dots and Back always work
   backward. A "Step X of N" counter plus progress bar tracks where
-  you are; auto-skipped steps show a muted "skipped" tag instead of
-  vanishing.
+  you are; auto-skipped steps stay plain greyed-out dots until you
+  pass them, then show a muted "skipped" tag instead of vanishing.
 - **Source changes revalidate.** Unchecking a content book keeps every
   pick still offered under the remaining books, clears only orphaned
   picks (and their choice-group picks, plus a race-granted feat with
