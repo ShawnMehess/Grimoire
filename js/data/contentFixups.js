@@ -852,8 +852,37 @@ function patchRaceEntry(entry) {
   if (["Aarakocra", "Aasimar", "Yuan-ti"].includes(entry.name)) {
     patchFreeformAsi(out.bundle, entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
   }
-  if (entry.name === "Custom Lineage") patchLineageAsiNames(out.bundle);
+  if (entry.name === "Custom Lineage") {
+    patchLineageAsiNames(out.bundle);
+    patchLineageTraitNames(out.bundle);
+  }
   return out;
+}
+
+// Custom Lineage's variable-trait option reads "Darkvision 60" in
+// compiled data — parenthesized range reads better everywhere the
+// name surfaces (profile dropdown, review lines, applied feature
+// list). Darkvision detection matches /darkvision/i on the name, so
+// categorization is unaffected. Option id untouched, so stored picks
+// keep working; option objects copied before renaming, as above.
+function patchLineageTraitNames(bundle) {
+  bundle.choiceGroups = (bundle.choiceGroups || []).map((group) => {
+    if (group.id !== "custom-lineage-variable_trait") return group;
+    return {
+      ...group,
+      options: (group.options || []).map((o) => {
+        if ((o.name || "").trim() !== "Darkvision 60") return o;
+        return {
+          ...o,
+          name: "Darkvision (60 ft)",
+          featureGrants: (o.featureGrants || []).map((f) => (
+            (f.name || "").trim() === "Darkvision 60" ? { ...f, name: "Darkvision (60 ft)" } : f
+          )),
+        };
+      }),
+    };
+  });
+  return bundle;
 }
 
 // Custom Lineage's +2 options read "+2 STR" in compiled data — full
