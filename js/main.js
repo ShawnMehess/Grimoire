@@ -288,8 +288,15 @@ async function renderCharacterList() {
           e.stopPropagation();
           const confirmed = window.confirm(`Delete "${c.name || "Unnamed"}"? This can't be undone.`);
           if (!confirmed) return;
-          await deleteCharacter(c.id);
-          renderCharacterList();
+          deleteBtn.disabled = true;
+          try {
+            await deleteCharacter(c.id);
+            await renderCharacterList();
+          } catch (err) {
+            console.error("Failed to delete character:", err);
+            window.alert("Couldn't delete that character — see the console for details.");
+            deleteBtn.disabled = false;
+          }
         },
       });
       const metaLines = buildCardMetaLines(c);

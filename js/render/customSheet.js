@@ -3816,8 +3816,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const raceInlineFeat = raceChoiceGroups.filter(isFeaturePickGroup);
     const raceSectionGroups = raceChoiceGroups.filter((g) => !isInlineLangGroup(g) && !isAsiSlotGroup(g) && !isFeaturePickGroup(g));
     const bgInlineLang = backgroundChoiceGroups.filter(isInlineLangGroup);
+    const bgInlineTool = backgroundChoiceGroups.filter((g) => g.fieldId === "toolProf");
     const bgInlineFeat = backgroundChoiceGroups.filter(isFeaturePickGroup);
-    const bgSectionGroups = backgroundChoiceGroups.filter((g) => !isInlineLangGroup(g) && !isFeaturePickGroup(g));
+    const bgSectionGroups = backgroundChoiceGroups.filter((g) => !isInlineLangGroup(g) && g.fieldId !== "toolProf" && !isFeaturePickGroup(g));
     // The race bundle's pick-1 subrace group (Elf/Dwarf) renders nested
     // under its race — the same pattern as subclasses under their
     // class — never as a standalone choice page, so it stays out of
@@ -3988,6 +3989,102 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     };
   }
 
+  /** Live Tool Proficiencies bullet model ("Tool Proficiencies: [▾], [▾]"):
+   *  one dropdown per tool slot group, with a superscript ? button
+   *  that opens a dialog with all tools grouped by category. */
+  function liveToolBullet(toolGroups, fixedBundle, saveRules) {
+    if (!toolGroups.length) return null;
+    const store = character.rules.choices || {};
+    const slotModels = languageSlotsFor(toolGroups, store);
+    const owned = ownedSkillIdsFrom(creationFixedBundles(state), creationChoiceGroupsFor(state), toolGroups[0]?.key);
+    const ownedNames = new Set(owned);
+    const lead = TOOL_PROFICIENCIES.filter((t) => ownedNames.has(t.toLowerCase())).map((name) => ({ text: name, title: "Granted — already known" }));
+    const allValues = slotModels.flatMap((m) => m.values).filter(Boolean).map((n) => n.toLowerCase());
+    const openDialog = (slotKey) => {
+      const overlay = el("div", { class: "modal-overlay" });
+      const box = el("div", { class: "modal-box tool-picker-dialog", onclick: (e) => e.stopPropagation() });
+      const heading = el("h3", { text: "Choose Tool Proficiencies" });
+      const groups = TOOL_PROFICIENCY_GROUPS;
+      const checked = new Set(store[toolGroups[0].key] || []);
+      groups.forEach((g) => {
+        const optgroup = el("div", { class: "tool-picker-group" },
+          el("h4", { text: g.label }),
+          ...g.options.map((tool) => {
+            const id = `tool-${tool.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+            const isChecked = checked.has(tool.toLowerCase());
+            const label = el("label", { class: "tool-picker-option" },
+              el("input", { type: "checkbox", checked: isChecked, value: tool, onchange: (e) => {
+                const newChecked = new Set(checked);
+                if (e.target.checked) newChecked.add(tool.toLowerCase());
+                else newChecked.delete(tool.toLowerCase());
+                const max = toolGroups[0]?.maxSelections || toolGroups[0]?.options?.length || 2;
+                if (newChecked.size > max) {
+                  e.target.checked = !e.target.checked;
+                  return;
+                }
+                checked.clear();
+                newChecked.forEach((v) => checked.add(v));
+              }}),
+              el("span", { text: tool }));
+            return label;
+          }));
+        box.append(optgroup);
+      });
+      const actions = el("div", { class: "modal-actions" });
+      const accept = el("button", { type: "button", class: "btn btn--primary", text: "Accept", onclick: () => {
+        const picks = [...checked].sort();
+        const patch = assignLanguageSlot(toolGroups, toolGroups[0].key, 0, picks[0] || null, store);
+        character.rules.choices = { ...(character.rules.choices || {}), ...patch };
+        saveRules();
+        renderPageGrid();
+        overlay.remove();
+      }});
+      const cancel = el("button", { type: "button", class: "btn", text: "Cancel", onclick: () => overlay.remove() });
+      actions.append(cancel, accept);
+      box.append(heading, actions);
+      overlay.append(box);
+      document.body.append(overlay);
+    };
+    return {
+      live: true,
+      topic: "Tool Proficiencies",
+      lead,
+      slots: slotModels.flatMap((m) => {
+        const group = toolGroups.find((g) => g.key === m.groupKey);
+        const offered = groupOptionsOf(group).filter((o) => o.name);
+        return m.values.map((value, i) => {
+          const own = (value || "").toLowerCase();
+          const siblings = new Set(allValues.filter((n) => n !== own));
+          return {
+            key: `${m.groupKey}#${i}`,
+            value: value || "",
+            placeholder: "Choose…",
+            options: offered.map((o) => {
+              const lower = o.name.toLowerCase();
+              const locked = ownedNames.has(lower);
+              const taken = !locked && siblings.has(lower);
+              return {
+                value: o.name,
+                label: o.name,
+                disabled: locked || taken,
+                title: locked ? "Already granted — pick something else" : taken ? "Picked in the other dropdown" : null,
+              };
+            }),
+            dialogOpener: () => openDialog(`${m.groupKey}#${i}`),
+          };
+        });
+      }),
+      onPick: (slotKey, name) => {
+        const hash = slotKey.lastIndexOf("#");
+        const patch = assignLanguageSlot(toolGroups, slotKey.slice(0, hash), Number(slotKey.slice(hash + 1)), name || null, character.rules.choices || {});
+        character.rules.choices = { ...(character.rules.choices || {}), ...patch };
+        saveRules();
+        renderPageGrid();
+        refocusInlineSlot(slotKey);
+      },
+    };
+  }
+
   /** Live Ability Scores bullet model ("+1 to each of [▾], [▾]"): one
    *  dropdown per +1/+2 slot group. Duplicates stack across slots
    *  because each slot is its own group. */
@@ -4060,9 +4157,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const isBg = category === "Background" && name === state.background;
     if (!isRace && !isBg) return statik;
     const langGroups = isRace ? raceInlineLang : bgInlineLang;
+    const toolGroups = isBg ? bgInlineTool : [];
     const asiGroups = isRace ? raceInlineAsi : [];
     const featGroups = isRace ? raceInlineFeat : bgInlineFeat;
-    if (!langGroups.length && !asiGroups.length && !featGroups.length) return statik;
+    if (!langGroups.length && !toolGroups.length && !asiGroups.length && !featGroups.length) return statik;
     const full = bundleFor(category, name, includedRulesetIds(state));
     const liveFeatLabels = new Set(featGroups.map((g) => (g.label || "").trim()));
     const stripped = {
@@ -4075,6 +4173,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     return withLiveBullets(sections, [
       langGroups.length
         ? { section: isRace ? SHARED_MECHANICS_TITLES.traits : SHARED_MECHANICS_TITLES.innate, bullet: liveLanguageBullet(langGroups, fixedBundle, saveRules) }
+        : null,
+      toolGroups.length
+        ? { section: SHARED_MECHANICS_TITLES.innate, bullet: liveToolBullet(toolGroups, fixedBundle, saveRules) }
         : null,
       asiGroups.length
         ? { section: SHARED_MECHANICS_TITLES.scores, bullet: liveAsiBullet(asiGroups, saveRules), after: SHARED_MECHANICS_TITLES.traits }
@@ -4180,15 +4281,12 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
     const steps = [
       {
-        id: "basics",
-        title: "Basics",
-        description: "Pick your sources, name your character, and choose a species — its granted choices (languages, traits, subrace) appear right below it.",
+        id: "rules",
+        title: "Rules",
+        description: "Pick your sources and how hit points work on level-up.",
         isComplete: () => {
           if (includedRulesetIds(state).length === 0 || !primaryRulesetId(state)) return false;
-          if (!((character.name || "").trim()) || !state.species) return false;
-          const sub = subraceGroupFor(state.species);
-          if (sub && !groupPicksSatisfied(sub, state.choices?.[sub.key])) return false;
-          return choicesComplete(raceChoiceGroups);
+          return Boolean(character.rules.hpMethod);
         },
         render(container) {
           const sourcesWrap = sectionInto(container, "Sources");
@@ -4247,6 +4345,26 @@ export function renderCustomSheet(root, character, store, opts = {}) {
               } else if (syncMessage) statusEl.textContent = syncMessage;
             },
           });
+          const hpWrap = sectionInto(container, "Hit Points on Level-Up");
+          renderPreferencesStepInto(hpWrap, state, {
+            hpOptions: HP_METHOD_OPTIONS,
+            currentMethod: character.rules.hpMethod || "average",
+            updateFn: (key, value) => update(key, value),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
+          });
+        },
+      },
+      {
+        id: "identity",
+        title: "Identity",
+        description: "Name your character, set starting level, and choose a species — its granted choices (languages, traits, subrace) appear right below it.",
+        isComplete: () => {
+          if (!((character.name || "").trim()) || !state.species) return false;
+          const sub = subraceGroupFor(state.species);
+          if (sub && !groupPicksSatisfied(sub, state.choices?.[sub.key])) return false;
+          return choicesComplete(raceChoiceGroups);
+        },
+        render(container) {
           renderIdentityStepInto(container, state, {
             characterName: character.name,
             nameInputSetFn: (v) => { nameInput.value = v; },
@@ -4261,16 +4379,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
-            // Races with subraces show no Details of their own — the
-            // subrace rows underneath carry all of it. Otherwise the
-            // profile embeds live pick bullets (languages, ASI,
-            // feature picks) for the selected race.
             mechanicsListFn: (category, name) => (subraceGroupFor(name)
               ? []
               : profileSectionsFor(category, name, saveRules)),
-            // Collapsed by default (only the selected race's Details
-            // show) — with 13+ races, showing every trait block at
-            // once turns this page into a multi-thousand-pixel scroll.
             selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
             debounceFn: (fn, ms) => debounce(fn, ms),
             subraceGroupFn: (raceName) => {
@@ -4300,34 +4411,20 @@ export function renderCustomSheet(root, character, store, opts = {}) {
               renderPageGrid();
             },
           });
-          // No separate Known Languages summary: every known tongue
-          // already reads inside its own pick's profile sentence above.
-          renderYourChoicesSections(container, "basics", raceSectionGroups, saveRules, raceChoiceGroups);
+          renderYourChoicesSections(container, "identity", raceSectionGroups, saveRules, raceChoiceGroups);
         },
       },
       {
         id: "class",
         title: "Class",
-        description: "Pick what your character does best — class sets hit points, attacks, and features. If a subclass is available at your level, pick it under your class, then make that class's choices (skills, spells, abilities) below.",
+        description: "Pick what your character does best — class sets hit points, attacks, and features. If a subclass is available at your level, pick it under your class, then make that class's choices below. Spells have their own page.",
         isComplete: () => {
           if (!state.className) return false;
           const subs = liveSubclassData(state.className);
           if (subs.subclasses.length && state.level >= subs.subclassLevel && !state.subclass) return false;
-          if (!choicesComplete(classChoiceGroups)) return false;
-          if (!spellPicksComplete(state.className, state.level)) return false;
-          return secretsSatisfiedFor(state.className, state.level, state.subclass);
+          return choicesComplete(classChoiceGroups);
         },
         render(container) {
-          const expressWrap = sectionInto(container, "Express setup");
-          if (!state.className) {
-            noteInto(expressWrap, "In a hurry? Pick a class below and Express fills every choice with its recommended defaults, landing you on Gear & Review.");
-          } else {
-            expressWrap.append(el("button", {
-              type: "button", class: "btn btn--primary", text: `Express: fill ${state.className} defaults & jump to Review`,
-              onclick: () => applyExpressDefaults(),
-            }));
-            noteInto(expressWrap, "Fills ability scores, subclass, choices, equipment, and spells with recommended picks. Review everything at the end — jump back to change anything.");
-          }
           const classFallback = wizardFieldOptionNames("class", "Class");
           renderClassStepInto(container, state, {
             optionNamesFn: (rulesetId, category) => rulesetOptionNames(
@@ -4344,13 +4441,40 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             // Collapsed by default, same as the Race table — only the
             // selected class (and its nested subclass row) expands.
             selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
+            creationGroups,
+            categorizeChoiceGroup: sharedCategorizeChoiceGroup,
+            saveRules,
           });
           renderYourChoicesSections(container, "class", classChoiceGroups, saveRules);
-          if (getRulesetClass(state.rulesetId, state.className)?.caster) {
-            const spellWrap = sectionInto(container, "Spells");
-            renderSpellPicker(spellWrap, { rulesetId: state.rulesetId, className: state.className, level: state.level });
-          }
-          renderSecretsSectionInto(container, state.className, state.level, state.subclass);
+        },
+      },
+      {
+        id: "background",
+        title: "Background",
+        description: "Pick where your character comes from. It grants skill and tool proficiencies (bonuses on those rolls) plus starting gear — its granted choices appear right below it.",
+        isComplete: () => {
+          if (!state.background) return false;
+          return choicesComplete(backgroundChoiceGroups);
+        },
+        render(container) {
+          renderRowListStepInto(container, state, {
+            optionNamesFn: (rulesetId, category) => rulesetOptionNames(rulesetId, category, wizardFieldOptionNames("background", "Background")),
+            fallbackNames: [],
+            keywords: ["background"],
+            category: "Background",
+            selectedKey: "background",
+            inputLabel: "Background",
+            inputPlaceholder: "No Background options found for this ruleset yet — Type it in for now",
+            updateKey: "background",
+            updateFn: (key, value) => update(key, value),
+            fieldFn: (c, label, control) => field(c, label, control),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
+            catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
+            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
+            summarizeFn: (m) => statModifierSummary(m),
+            mechanicsListFn: (category, name) => profileSectionsFor(category, name, saveRules),
+          });
+          renderYourChoicesSections(container, "background", bgSectionGroups, saveRules, backgroundChoiceGroups);
         },
       },
       {
@@ -4391,35 +4515,20 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         },
       },
       {
-        id: "background",
-        title: "Background",
-        description: "Pick where your character comes from. It grants skill and tool proficiencies (bonuses on those rolls) plus starting gear — its granted choices appear right below it.",
+        id: "spells",
+        title: "Spells",
+        description: "Pick only the spells your class allows — counts and levels are capped automatically.",
+        isApplicable: () => Boolean(getRulesetClass(state.rulesetId, state.className)?.caster),
+        unavailableMessage: wizardUnavailableMessage,
         isComplete: () => {
-          if (!state.background) return false;
-          return choicesComplete(backgroundChoiceGroups);
+          if (!getRulesetClass(state.rulesetId, state.className)?.caster) return true;
+          if (!spellPicksComplete(state.className, state.level)) return false;
+          return secretsSatisfiedFor(state.className, state.level, state.subclass);
         },
         render(container) {
-          renderRowListStepInto(container, state, {
-            optionNamesFn: (rulesetId, category) => rulesetOptionNames(rulesetId, category, wizardFieldOptionNames("background", "Background")),
-            fallbackNames: [],
-            keywords: ["background"],
-            category: "Background",
-            selectedKey: "background",
-            inputLabel: "Background",
-            inputPlaceholder: "No Background options found for this ruleset yet — Type it in for now",
-            updateKey: "background",
-            updateFn: (key, value) => update(key, value),
-            fieldFn: (c, label, control) => field(c, label, control),
-            // Collapsed by default, same as the race and class tables.
-            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
-            catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
-            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
-            summarizeFn: (m) => statModifierSummary(m),
-            // Background profiles embed live language bullets for the
-            // selected background, like race profiles do.
-            mechanicsListFn: (category, name) => profileSectionsFor(category, name, saveRules),
-          });
-          renderYourChoicesSections(container, "background", bgSectionGroups, saveRules, backgroundChoiceGroups);
+          const spellWrap = sectionInto(container, "Spells");
+          renderSpellPicker(spellWrap, { rulesetId: state.rulesetId, className: state.className, level: state.level });
+          renderSecretsSectionInto(container, state.className, state.level, state.subclass);
         },
       },
       {
@@ -4458,9 +4567,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         },
       },
       {
-        id: "gear-review",
-        title: "Gear & Review",
-        description: "Choose starting gear (or take gold instead), set how hit points work on level-up, skim what you get automatically, and check every choice. Then Finish Setup to write it to your sheet.",
+        id: "gear",
+        title: "Gear",
+        description: "Choose starting gear (or take gold instead) and weapon/armor/tool training.",
         isComplete: () => {
           const entry = CLASS_STARTING_EQUIPMENT[state.className];
           if (!state.className || !entry) return true;
@@ -4470,8 +4579,6 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             return (entry.decisions || []).every((d) => se.picks[d.id]
               && d.options.some((o) => o.id === se.picks[d.id]));
           }
-          // Legacy flattened picks count as decided (they resolve
-          // verbatim); touching anything converts to the new shape.
           return Boolean(se.classOptionId);
         },
         render(container) {
@@ -4479,35 +4586,64 @@ export function renderCustomSheet(root, character, store, opts = {}) {
           renderStartingEquipmentStepInto(gearWrap, state, saveRules);
           const equipWrap = sectionInto(container, "Weapons, Armor & Tools");
           renderEquipmentProficienciesStepInto(equipWrap, state, saveRules);
-          const hpWrap = sectionInto(container, "Hit Points on Level-Up");
-          renderPreferencesStepInto(hpWrap, state, {
-            hpOptions: HP_METHOD_OPTIONS,
-            currentMethod: character.rules.hpMethod || "average",
+          const innateWrap = sectionInto(container, "What You Get Automatically");
+          renderInnateAbilitiesStepInto(innateWrap, innateAbilitySections(state));
+        },
+      },
+      {
+        id: "review",
+        title: "Review",
+        description: "Check your three picks below — selections stay editable via dropdowns — then Finish Setup.",
+        isComplete: () => Boolean(state.species && state.className && state.background),
+        render(container) {
+          const raceWrap = sectionInto(container, "Race");
+          renderRowListStepInto(raceWrap, { ...state, background: state.species }, {
+            optionNamesFn: (rulesetId, category) => rulesetOptionNames(rulesetId, "Race", wizardFieldOptionNames("race", "Race")),
+            fallbackNames: [],
+            keywords: ["race", "species"],
+            category: "Race",
+            selectedKey: "species",
+            inputLabel: "Race/Species",
+            inputPlaceholder: "Type race",
+            updateKey: "species",
+            updateFn: (key, value) => update(key, value),
+            fieldFn: (c, label, control) => field(c, label, control),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
+            catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
+            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
+            summarizeFn: (m) => statModifierSummary(m),
+            mechanicsListFn: (category, name) => profileSectionsFor("Race", name, saveRules),
+          });
+          const classWrap = sectionInto(container, "Class");
+          renderClassStepInto(classWrap, state, {
+            optionNamesFn: (rulesetId, category) => rulesetOptionNames(rulesetId, category, wizardFieldOptionNames("class", "Class")),
+            catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
+            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
+            summarizeFn: (m) => statModifierSummary(m),
+            mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
+            subclassDataFn: (name) => liveSubclassData(name),
             updateFn: (key, value) => update(key, value),
             selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
           });
-          const innateWrap = sectionInto(container, "What You Get Automatically");
-          renderInnateAbilitiesStepInto(innateWrap, innateAbilitySections(state));
-          const allGroups = [...creationChoiceGroupsFor(state), ...equipmentProficiencyGroups()];
+          const bgWrap = sectionInto(container, "Background");
+          renderRowListStepInto(bgWrap, state, {
+            optionNamesFn: (rulesetId, category) => rulesetOptionNames(rulesetId, category, wizardFieldOptionNames("background", "Background")),
+            fallbackNames: [],
+            keywords: ["background"],
+            category: "Background",
+            selectedKey: "background",
+            inputLabel: "Background",
+            inputPlaceholder: "Type background",
+            updateKey: "background",
+            updateFn: (key, value) => update(key, value),
+            fieldFn: (c, label, control) => field(c, label, control),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
+            catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
+            bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
+            summarizeFn: (m) => statModifierSummary(m),
+            mechanicsListFn: (category, name) => profileSectionsFor(category, name, saveRules),
+          });
           const spellsField = findStarterField("spellsKnown", "Spells Known");
-          const se = character.rules.startingEquipment;
-          const seEntry = CLASS_STARTING_EQUIPMENT[state.className];
-          const equipBits = [];
-          if (seEntry) {
-            if (se?.gold || se?.classOptionId === goldOptionIdFor(state.className)) {
-              equipBits.push(`${state.className} package: ${seEntry.gold.gp} gp instead`);
-            } else if (se?.picks) {
-              const labels = (seEntry.decisions || [])
-                .map((d) => d.options.find((o) => o.id === se.picks[d.id])?.label)
-                .filter(Boolean);
-              if (labels.length) equipBits.push(`${state.className} package: ${labels.join(" · ")}`);
-            } else if (se?.classOptionId) {
-              equipBits.push(`${state.className} package: previously saved choice`);
-            }
-          }
-          if (state.background && BG_STARTING_EQUIPMENT[state.background]) {
-            equipBits.push(`${state.background} package: fixed, applied automatically`);
-          }
           renderReviewStepInto(container, state, {
             characterName: character.name,
             rulesetName: includedRulesetIds(state).map((id) => getRuleset(id)?.name || id).join(" + ") || null,
@@ -4515,10 +4651,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             resources: resolved.derived.resources,
             abilityScores: character.rules.abilityScores,
             abilityMethod: character.rules.abilityScoreMethod,
-            hpMethod: character.rules.hpMethod,
-            choiceLines: reviewChoiceLinesFor(allGroups, character.rules.choices || {}),
+            hpMethod: null,
+            choiceLines: [],
             spellsPicked: [...(spellsField?.items || [])],
-            equipmentLine: equipBits.length ? `Equipment: ${equipBits.join(" · ")}` : null,
+            equipmentLine: null,
             featNames: (character.rules.feats || []).map((f) => f.name).filter(Boolean),
             syncFn: () => syncRulesToSheet(resolved),
           });

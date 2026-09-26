@@ -397,7 +397,16 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     } else if (mod.op === "addItem") {
       // Class rows skip spell access entirely (see classDisplay) —
       // the Spells step, not the picker row, covers it.
-      if (!classDisplay) innate.push(`Learn the ${mod.value} spell`);
+      // Skip a redundant "Learn the X spell" line when a feature grant
+      // already describes that same spell (e.g. Tiefling Infernal Legacy
+      // already says "You know the Thaumaturgy cantrip").
+      if (!classDisplay) {
+        const spellName = String(mod.value || "").trim().toLowerCase();
+        const described = (bundle.featureGrants || []).some((g) =>
+          String(g?.description || "").toLowerCase().includes(spellName) && spellName
+        );
+        if (!described) innate.push(`Learn the ${mod.value} spell`);
+      }
     } else if (["add", "subtract", "multiply", "set"].includes(mod.op)) {
       otherTraits.push(summarize(mod));
     }

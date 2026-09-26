@@ -332,28 +332,21 @@
 
 .choice-row__details {
   margin-top: var(--space-1);
-  /* Animation for expand/collapse */
+  /* Animated expand/collapse (row click + Expand All / Collapse All):
+   * JS drives opacity/translate via WAAPI; CSS keeps layout smooth and
+   * animates the portrait cue alongside. */
   overflow: hidden;
-  transition: max-height var(--transition-normal), opacity var(--transition-normal), margin-top var(--transition-normal), margin-bottom var(--transition-normal);
+  will-change: opacity, transform;
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+}
+.choice-row__details[hidden] {
+  display: none;
 }
 
-/* Per-row Collapse button at the bottom of expanded content —
- *  deliberately quiet (plain muted text, not a .btn): collapsing is a
- *  secondary tidying action, while the Expand All / Collapse All bar
- *  above the list keeps its full button styling. */
+/* Legacy Collapse button removed — row click alone toggles.
+ * Kept hidden for any stale markup/tests. */
 .choice-row__collapse-btn {
-  margin-top: var(--space-2);
-  align-self: flex-start;
-  background: none;
-  border: none;
-  padding: 0;
-  font-size: var(--text-xs);
-  color: var(--color-text-faint);
-  cursor: pointer;
-}
-.choice-row__collapse-btn:hover {
-  color: var(--color-text-muted);
-  text-decoration: underline;
+  display: none;
 }
 
 /* Expand All / Collapse All controls */
@@ -832,4 +825,82 @@
 .level-guide__choice-option--locked input:disabled {
   accent-color: var(--color-accent);
   cursor: default;
+}
+
+/* Superscript help button (?) next to inline pick topic — opens a dialog */
+.inline-pick-help {
+  margin-left: 2px;
+  font-size: 0.7em;
+  vertical-align: super;
+  cursor: pointer;
+  color: var(--color-accent, #b3492b);
+}
+.inline-pick-help a {
+  color: inherit;
+  text-decoration: none;
+}
+.inline-pick-help a:hover {
+  text-decoration: underline;
+}
+
+/* Tool proficiency picker dialog */
+.tool-picker-dialog {
+  max-width: 480px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.tool-picker-group {
+  margin-bottom: var(--space-3);
+}
+.tool-picker-group h4 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+.tool-picker-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.tool-picker-option:hover {
+  background: var(--color-bg-hover);
+}
+.tool-picker-option input[type="checkbox"] {
+  accent-color: var(--color-accent);
+  width: 16px;
+  height: 16px;
+}
+
+/* Feat picker dialog */
+.feat-picker-dialog {
+  max-width: 560px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.feat-picker-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.feat-picker-option:hover {
+  background: var(--color-bg-hover);
+}
+.feat-picker-option input[type="checkbox"] {
+  accent-color: var(--color-accent);
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+}
+.feat-picker-desc {
+  flex: 1;
+  min-width: 0;
 }

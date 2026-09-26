@@ -616,15 +616,23 @@ export function spellsForLevelIn(catalog, levelNum, className) {
   const tab = (catalog.tabs || []).find((t) => t.id === tabId)
     || (catalog.tabs || []).find((t) => (levelNum === 0 ? /cantrip/i : new RegExp(`^${levelNum}`)).test(t.name || ""));
   const entries = (tab?.entries || [])
-    .map((e) => ({
-      name: e.name,
-      description: e.description || "",
-      classes: (e.fieldValues?.classes || "").trim(),
-      classList: spellClassesFor(e),
-      tags: Array.isArray(e.fieldValues?.tags) ? [...e.fieldValues.tags] : [],
-      school: (e.fieldValues?.school || "").trim(),
-      mechanics: spellMechanicsLine(e),
-    }))
+    .map((e) => {
+      const rawDesc = String(e.description || "").trim();
+      const fullEffect = String(e.fieldValues?.effect || "").trim();
+      // Compiled descriptions are often just the first sentence
+      // ("You touch a creature.") — fall back to the full effect text
+      // so the row always says what the spell actually does.
+      const description = (rawDesc.length <= 30 && fullEffect) ? fullEffect : (e.description || "");
+      return {
+        name: e.name,
+        description,
+        classes: (e.fieldValues?.classes || "").trim(),
+        classList: spellClassesFor(e),
+        tags: Array.isArray(e.fieldValues?.tags) ? [...e.fieldValues.tags] : [],
+        school: (e.fieldValues?.school || "").trim(),
+        mechanics: spellMechanicsLine(e),
+      };
+    })
     .filter((e) => e.name);
   if (!className) return entries;
   const norm = (s) => (s || "").toLowerCase();
@@ -651,9 +659,9 @@ export function spellClassesFor(entry) {
 }
 
 /** One spell's mechanical summary for picker rows: level/school/
- *  casting/range/duration meta plus the effect's first sentence
- *  (damage, type, status effects live there). Returns
- *  { meta, effect } — either may be "". */
+ *  casting/range/duration meta plus the full mechanical effect text
+ *  (damage dice, save DC/ability, conditions, duration — what the spell
+ *  actually does in combat). Returns { meta, effect } — either may be "". */
 export function spellMechanicsLine(entry) {
   const fv = entry?.fieldValues || {};
   const bits = [];
@@ -670,7 +678,11 @@ export function spellMechanicsLine(entry) {
   if (dur) bits.push(dur);
   const who = spellClassesFor(entry);
   if (who.length) bits.push(who.join(", "));
-  return { meta: bits.join(" · "), effect: briefDescription(fv.effect, 160) };
+  // Full effect (not first-sentence truncated) so damage, saves,
+  // and conditions are visible during selection.
+  const rawEffect = String(fv.effect || "").trim();
+  const effect = rawEffect.length > 800 ? briefDescription(rawEffect, 800) : rawEffect;
+  return { meta: bits.join(" · "), effect };
 }
 
 /** Review-tab lines for choice groups with picks. Groups whose label
@@ -1250,8 +1262,9 @@ export function renderSpellPickerInto(container, { rulesetId, className, level }
     o.textContent = text;
     tagSelect.append(o);
   };
+  const capitalizeTag = (t) => String(t || "").replace(/(?:^|[\s-]+)\S/g, (c) => c.toUpperCase());
   tagOption("all", "All tags");
-  presentTags.forEach((t) => tagOption(t, t));
+  presentTags.forEach((t) => tagOption(t, capitalizeTag(t)));
   if (!presentTags.includes(ui.tag)) ui.tag = "all";
   tagSelect.value = ui.tag;
   const sortLabel = document.createElement("label");
@@ -1451,7 +1464,13 @@ function renderLiveBulletItem(item) {
   const lead = item.lead || [];
   const slots = item.slots || [];
   if (item.topic) {
-    li.append(el("strong", { text: item.topic }), document.createTextNode(" — "));
+    const topicEl = el("strong", { text: item.topic });
+    if (slots.some((s) => s.dialogOpener)) {
+      const helpBtn = el("sup", { class: "inline-pick-help", title: "Open picker dialog" },
+        el("a", { href: "#", onclick: (e) => { e.preventDefault(); e.stopPropagation(); slots.forEach((s) => s.dialogOpener?.()); } }, "?"));
+      topicEl.append(document.createTextNode(" "), helpBtn);
+    }
+    li.append(topicEl, document.createTextNode(" — "));
   }
   lead.forEach(({ text, title }, i) => {
     if (i > 0) li.append(document.createTextNode(", "));
@@ -1487,6 +1506,39 @@ export function renderMultiSelectableRowsInto(container, names, opts = {}) {
   return renderPickerTableInto(container, names, { ...opts, mode: "multi" });
 }
 
+function animateRowDetails(details, row, expand) {
+  if (!details) return;
+  try {
+    if (expand) {
+      details.hidden = false;
+      row?.classList.add("choice-row--expanded");
+      if (typeof details.animate === "function") {
+        details.animate(
+          [{ opacity: 0, transform: "translateY(-4px)" }, { opacity: 1, transform: "translateY(0)" }],
+          { duration: 180, easing: "ease-out" }
+        );
+      }
+    } else {
+      row?.classList.remove("choice-row--expanded");
+      if (typeof details.animate === "function") {
+        const anim = details.animate(
+          [{ opacity: 1, transform: "translateY(0)" }, { opacity: 0, transform: "translateY(-4px)" }],
+          { duration: 150, easing: "ease-in" }
+        );
+        const finish = () => { details.hidden = true; };
+        if (anim && typeof anim.finished?.then === "function") anim.finished.then(finish).catch(finish);
+        else if (anim) { anim.onfinish = finish; setTimeout(() => { try { details.hidden = true; } catch {} }, 170); }
+        else details.hidden = true;
+      } else {
+        details.hidden = true;
+      }
+    }
+  } catch {
+    details.hidden = !expand;
+    row?.classList.toggle("choice-row--expanded", expand);
+  }
+}
+
 function renderSinglePickerRows(container, names, {
   selectedName, onSelect, getInfo, getMechanics, getMechanicsList, afterRow, nested = false,
   // Collapsed-by-default is the right shape for any list long enough to
@@ -1496,6 +1548,7 @@ function renderSinglePickerRows(container, names, {
   // race's subraces, a class's subclasses) can still collapse row-by-row
   // without adding a second Expand All/Collapse All bar to the page —
   // pass `showControls: false` for those while leaving collapsible true.
+  // Row click alone toggles expand/collapse — no per-row Collapse button.
   collapsible = true, showControls = collapsible,
 } = {}) {
   const list = document.createElement("div");
@@ -1506,8 +1559,11 @@ function renderSinglePickerRows(container, names, {
         type: "button", class: "btn", text: "Expand All",
         onclick: () => {
           names.forEach((name) => expandedChoiceRows.add(name));
-          list.querySelectorAll(".choice-row__details").forEach((d) => { d.hidden = false; d.closest(".choice-row")?.classList.add("choice-row--expanded"); });
-          list.querySelectorAll(".choice-row__collapse-btn").forEach((b) => { b.hidden = false; b.setAttribute("aria-expanded", "true"); });
+          list.querySelectorAll(".choice-row").forEach((row) => {
+            const d = row.querySelector(".choice-row__details");
+            if (d && d.hidden) animateRowDetails(d, row, true);
+            else if (d) row.classList.add("choice-row--expanded");
+          });
         },
       }),
       el("button", {
@@ -1522,13 +1578,9 @@ function renderSinglePickerRows(container, names, {
             const keep = !!selectedName && row.dataset?.rowName === selectedName;
             const details = row.querySelector(".choice-row__details");
             if (details) {
-              details.hidden = !keep;
-              row.classList.toggle("choice-row--expanded", keep);
-            }
-            const btn = row.querySelector(".choice-row__collapse-btn");
-            if (btn) {
-              btn.hidden = !keep;
-              btn.setAttribute("aria-expanded", String(keep));
+              if (keep && details.hidden) animateRowDetails(details, row, true);
+              else if (!keep && !details.hidden) animateRowDetails(details, row, false);
+              else row.classList.toggle("choice-row--expanded", keep);
             }
           });
         },
@@ -1538,21 +1590,15 @@ function renderSinglePickerRows(container, names, {
   names.forEach((name) => {
     const info = getInfo ? getInfo(name) : null;
     const selected = name === selectedName;
-    // First click selects the row and expands its details; clicking
-    // the open, selected row again collapses it and de-selects
-    // (onSelect(null)). Collapsing is otherwise the Collapse
-    // button's job alone, so a click never hides what was just picked.
+    // First click selects the row and expands its details (animated);
+    // clicking the open, selected row again collapses it and de-selects
+    // (onSelect(null)). Row click alone handles collapse — no Collapse button.
     const toggleRow = () => {
       const detailsEl = row.querySelector(".choice-row__details");
-      const collapseEl = row.querySelector(".choice-row__collapse-btn");
       if (name === selectedName && expandedChoiceRows.has(name)) {
         expandedChoiceRows.delete(name);
-        if (detailsEl) detailsEl.hidden = true;
-        row.classList.remove("choice-row--expanded");
-        if (collapseEl) {
-          collapseEl.hidden = true;
-          collapseEl.setAttribute("aria-expanded", "false");
-        }
+        if (detailsEl) animateRowDetails(detailsEl, row, false);
+        else row.classList.remove("choice-row--expanded");
         onSelect(null);
         return;
       }
@@ -1564,25 +1610,22 @@ function renderSinglePickerRows(container, names, {
       if (collapsible && selectedName && selectedName !== name) {
         expandedChoiceRows.delete(selectedName);
         const prevRow = [...list.querySelectorAll(".choice-row")].find((r) => r.dataset?.rowName === selectedName);
-        prevRow?.classList.remove("choice-row--expanded");
+        if (prevRow) {
+          const prevDetails = prevRow.querySelector(".choice-row__details");
+          if (prevDetails && !prevDetails.hidden) animateRowDetails(prevDetails, prevRow, false);
+          else prevRow.classList.remove("choice-row--expanded");
+        }
       }
       expandedChoiceRows.add(name);
-      if (detailsEl) detailsEl.hidden = false;
-      if (detailsEl?.children.length) row.classList.add("choice-row--expanded");
-      if (collapseEl) {
-        collapseEl.hidden = false;
-        collapseEl.setAttribute("aria-expanded", "true");
-      }
+      if (detailsEl && detailsEl.hidden) animateRowDetails(detailsEl, row, true);
+      else if (detailsEl?.children.length) row.classList.add("choice-row--expanded");
       onSelect(name);
     };
     const row = el("div", {
       class: "choice-row" + (nested ? " choice-row--nested" : "") + (selected ? " choice-row--selected" : ""),
       "data-row-name": name,
       tabindex: 0, role: "button", "aria-pressed": String(selected),
-      onclick: (e) => {
-        // The Collapse button handles its own clicks (with
-        // stopPropagation) — anything else on the row toggles.
-        if (e.target.closest(".choice-row__collapse-btn")) return;
+      onclick: () => {
         toggleRow();
       },
       onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleRow(); } },
@@ -1637,30 +1680,13 @@ function renderSinglePickerRows(container, names, {
         // The selected row reads as expanded even on a fresh render
         // (e.g. resuming a saved-in-progress wizard) so picking
         // something never leaves its own details looking collapsed.
+        // No Collapse button — row click alone toggles (animated).
         const expanded = expandedChoiceRows.has(name) || selected;
         details.hidden = !expanded;
         // Portrait grows from a square thumbnail to a full-body frame
         // while its row is the one showing details — a visual cue for
         // "this is the one you're looking at" alongside the highlight.
         row.classList.toggle("choice-row--expanded", expanded);
-        // Collapse button lives at the bottom of the expanded content
-        // and only exists while expanded — it collapses, never
-        // expands, so it stays hidden on collapsed rows.
-        const collapseBtn = document.createElement("button");
-        collapseBtn.type = "button";
-        collapseBtn.className = "choice-row__collapse-btn";
-        collapseBtn.textContent = "Collapse";
-        collapseBtn.setAttribute("aria-expanded", String(expanded));
-        collapseBtn.hidden = !expanded;
-        collapseBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          expandedChoiceRows.delete(name);
-          details.hidden = true;
-          row.classList.remove("choice-row--expanded");
-          collapseBtn.hidden = true;
-          collapseBtn.setAttribute("aria-expanded", "false");
-        });
-        body.append(collapseBtn);
       }
       body.append(details);
     }
@@ -1727,6 +1753,61 @@ function renderMultiPickerRows(container, names, { selectedSet, onToggle, getInf
   return list;
 }
 
+/** Opens a dialog with all available feats for a feat choice group. */
+function openFeatDialog(group, choicesStore, namePrefix, onChange, rerender) {
+  const overlay = el("div", { class: "modal-overlay" });
+  const box = el("div", { class: "modal-box feat-picker-dialog", onclick: (e) => e.stopPropagation() });
+  const heading = el("h3", { text: `Choose ${group.maxSelections === 1 ? "a Feat" : group.maxSelections + " Feats"}` });
+  const selected = new Set(choicesStore[group.key] || []);
+  const locked = new Set(group.lockedOptionIds || []);
+  // Get all feat options from the group
+  const featOptions = groupOptionsOf(group).filter((o) => o.name);
+  const searchInput = el("input", { type: "search", class: "input-group__control", placeholder: "Search feats…", style: "margin-bottom: var(--space-2); width: 100%;" });
+  const listWrap = el("div", { class: "feat-picker-list", style: "max-height: 50vh; overflow-y: auto;" });
+  const renderFeatList = () => {
+    listWrap.innerHTML = "";
+    const query = searchInput.value.toLowerCase();
+    featOptions.filter((f) => f.name.toLowerCase().includes(query)).forEach((feat) => {
+      const isSelected = selected.has(feat.id);
+      const isLocked = locked.has(feat.id);
+      const label = el("label", { class: "feat-picker-option" },
+        el("input", { type: "checkbox", checked: isSelected || isLocked, disabled: isLocked, value: feat.id, onchange: (e) => {
+          if (isLocked) return;
+          const max = group.maxSelections;
+          const counted = [...selected].filter((id) => !locked.has(id));
+          if (e.target.checked) {
+            if (counted.length >= max) { e.target.checked = false; return; }
+            selected.add(feat.id);
+          } else {
+            selected.delete(feat.id);
+          }
+        }}),
+        el("span", { text: feat.name, style: "flex: 1;" }),
+        feat.description ? el("span", { class: "feat-picker-desc", text: feat.description, style: "font-size: var(--text-xs); color: var(--color-text-muted); margin-left: var(--space-2);" }) : null
+      );
+      listWrap.append(label);
+    });
+    if (!listWrap.children.length) {
+      listWrap.append(el("p", { class: "leveling-tab__intro", text: "No feats match your search." }));
+    }
+  };
+  searchInput.addEventListener("input", renderFeatList);
+  renderFeatList();
+  const actions = el("div", { class: "modal-actions" });
+  const accept = el("button", { type: "button", class: "btn btn--primary", text: "Accept", onclick: () => {
+    const picks = [...selected].filter((id) => !locked.has(id)).sort();
+    choicesStore[group.key] = [...locked, ...picks];
+    if (onChange) onChange();
+    rerender();
+    overlay.remove();
+  }});
+  const cancel = el("button", { type: "button", class: "btn", text: "Cancel", onclick: () => overlay.remove() });
+  actions.append(cancel, accept);
+  box.append(heading, searchInput, listWrap, actions);
+  overlay.append(box);
+  document.body.append(overlay);
+}
+
 /** Shared renderer for a choiceGroups list's checkboxes/radios.
  *  Enforces maxSelections and shows already-owned proficiencies as
  *  picked-and-locked. A group may also name `lockedOptionIds`: those
@@ -1761,7 +1842,15 @@ export function renderChoiceGroupsInto(container, groups, choicesStore, namePref
     const count = group.minSelections === group.maxSelections
       ? `Choose ${group.maxSelections}`
       : `Choose up to ${group.maxSelections}`;
-    legend.textContent = `${group.label || "Choose an option"} (${count} — ${counted.length}/${group.maxSelections} picked)`;
+    const isFeatGroup = categorizeChoiceGroup(group) === "feats";
+    if (isFeatGroup) {
+      const helpBtn = el("sup", { class: "inline-pick-help", title: "Open feat picker dialog" },
+        el("a", { href: "#", onclick: (e) => { e.preventDefault(); e.stopPropagation(); openFeatDialog(group, choicesStore, namePrefix, onChange, rerender); } }, "?"));
+      legend.textContent = `${group.label || "Choose an option"} (${count} — ${counted.length}/${group.maxSelections} picked)`;
+      legend.append(document.createTextNode(" "), helpBtn);
+    } else {
+      legend.textContent = `${group.label || "Choose an option"} (${count} — ${counted.length}/${group.maxSelections} picked)`;
+    }
     choiceGroup.append(legend);
     const source = document.createElement("p");
     source.className = "level-guide__choice-source";

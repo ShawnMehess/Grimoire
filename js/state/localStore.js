@@ -95,7 +95,9 @@ function allCharacters() {
 }
 
 function persistCharacters(map) {
-  writeJson(LS_KEYS.characters, map);
+  const ok = writeJson(LS_KEYS.characters, map);
+  if (!ok) throw new Error("Could not save to localStorage (blocked or full — try a non-private window).");
+  return true;
 }
 
 export async function loadCharacter(characterId) {

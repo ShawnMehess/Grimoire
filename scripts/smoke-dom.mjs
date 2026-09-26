@@ -147,11 +147,11 @@ const wizard = await import("../js/render/sheet/sheetWizard.js");
   assert(rows.length === 2, "table renders two rows");
   // Controls present in collapsible mode.
   assert(box.children.some((c) => (c.className || "").includes("choice-row-list__collapse-controls")), "collapse controls render");
-  // First click selects + expands.
+  // First click selects + expands (no Collapse button — row click alone toggles).
   rows[0].click();
   assert(calls.join() === "Elf", "row click selects");
   assert(detailsOf(rows[0]).hidden === false, "row click expands");
-  assert(collapseBtnOf(rows[0]).hidden === false, "collapse button appears on expand");
+  assert(collapseBtnOf(rows[0]) == null, "no collapse button (row click toggles)");
   // The app re-renders with the new selection; clicking the open,
   // selected row again collapses + de-selects.
   const box2 = document.createElement("div");
@@ -167,21 +167,6 @@ const wizard = await import("../js/render/sheet/sheetWizard.js");
   rows2[0].click();
   assert(calls[calls.length - 1] === null, "second click de-selects (null)");
   assert(detailsOf(rows2[0]).hidden === true, "second click collapses");
-  assert(collapseBtnOf(rows2[0]).hidden === true, "collapse button hides on collapse");
-  // Collapse button only collapses, never de-selects.
-  const box3 = document.createElement("div");
-  const list3 = wizard.renderPickerTableInto(box3, ["A", "B"], {
-    selectedName: "",
-    getInfo: (n) => ({ description: `${n} flavor` }),
-    getMechanicsList: () => [{ title: "Racial Traits", items: ["Speed: 30 feet"] }],
-    onSelect: (n) => calls.push(n),
-    collapsible: true,
-  });
-  const rows3 = rowsOf(list3);
-  rows3[1].click();
-  collapseBtnOf(rows3[1]).click();
-  assert(detailsOf(rows3[1]).hidden === true, "collapse button collapses");
-  assert(calls[calls.length - 1] === "B", "collapse button keeps selection");
 }
 
 // --- Generic picker table: multi mode --------------------------------------

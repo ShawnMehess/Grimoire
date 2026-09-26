@@ -213,7 +213,7 @@ export function renderIdentityStepInto(container, state, deps) {
 }
 
 export function renderClassStepInto(container, state, deps) {
-  const { optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn, subclassDataFn, updateFn, selectableRowsFn } = deps;
+  const { optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn, subclassDataFn, updateFn, selectableRowsFn, creationGroups, categorizeChoiceGroup, saveRules } = deps;
   const liveNames = optionNamesFn(state.rulesetId, "Class");
   selectableRowsFn(container, liveNames, {
     selectedName: state.className,
@@ -246,6 +246,15 @@ export function renderClassStepInto(container, state, deps) {
       rowEl.after(holder.firstElementChild);
     },
   });
+  // Inline class-specific choices (fighting style, expertise, etc.) under the selected class
+  if (state.className) {
+    // Include both non-feat class choices AND class-specific feat choices
+    const classGroups = creationGroups.filter((g) => !g.subrace && (g.source === state.className || g.source === state.subclass));
+    if (classGroups.length) {
+      const classChoicesWrap = sectionInto(container, "Class Choices");
+      renderCreationChoiceGroups(classChoicesWrap, classGroups, saveRules, state);
+    }
+  }
 }
 
 // --- Generic row-list + choice-page steps -------------------------------------------
@@ -424,11 +433,22 @@ export function abilityBonusNoteText(base, bonus, sources = []) {
   return `${sign}${who} → ${total} total`;
 }
 
-export function abilityRowInto(scoresWrap, id, control, description, modifierFn, formatFn, bonusTextFn = null) {
+function flashBonusNote(bonusNote) {
+  if (!bonusNote || bonusNote.hidden) return;
+  bonusNote.style.transition = "color 0.2s ease, background-color 0.2s ease";
+  bonusNote.style.color = "var(--color-accent, #b3492b)";
+  bonusNote.style.backgroundColor = "rgba(179, 73, 43, 0.15)";
+  setTimeout(() => {
+    bonusNote.style.color = "";
+    bonusNote.style.backgroundColor = "";
+  }, 1500);
+}
+
+export function abilityRowInto(scoresWrap, id, control, description, modifierFn, formatFn, bonusTextFn = null, bonus = 0) {
   const modValue = el("div", { class: "input-group__control wizard__ability-modifier-value" });
   const bonusNote = bonusTextFn ? el("p", { class: "wizard__ability-row-description wizard__ability-bonus" }) : null;
   const row = el("div", { class: "wizard__ability-row" },
-    el("label", { class: "level-guide__field", text: id.toUpperCase(), title: abilityTooltip(id) ?? null }, control),
+    el("label", { class: "level-guide__field", text: id.toUpperCase(), title: abilityTooltip(id) ?? null, style: "font-weight: 700;" }, control),
     el("div", { class: "level-guide__field wizard__ability-modifier" },
       el("span", { text: "Modifier" }),
       modValue),
@@ -449,7 +469,7 @@ export function abilityRowInto(scoresWrap, id, control, description, modifierFn,
     }
   };
   updateModifier();
-  return updateModifier;
+  return { updateModifier, bonus, bonusNote };
 }
 
 export function renderAbilitiesStepInto(container, deps) {
@@ -483,9 +503,10 @@ export function renderAbilitiesStepInto(container, deps) {
   function renderScores() {
     scoresWrap.innerHTML = "";
     const current = methodSelect.value;
-    const scoreInput = (id, minVal, maxVal, onChange) => el("input", {
+    const bonusMap = bonuses || {};
+    const scoreInput = (id, minVal, maxVal, onChange, displayValue) => el("input", {
       type: "number", min: String(minVal), max: String(maxVal),
-      class: "input-group__control", value: String(scores[id]),
+      class: "input-group__control", value: String(displayValue),
       onchange: () => onChange(input),
     });
 
@@ -497,22 +518,37 @@ export function renderAbilitiesStepInto(container, deps) {
         note.textContent = pointBuyNoteText(spent, budget);
       };
       abilityIds.forEach((id) => {
-        if (scores[id] < min || scores[id] > max) scores[id] = min;
-        const input = scoreInput(id, min, max, (target) => {
-          let value = clampScoreToRange(target.value, min, min, max);
-          // Stop the increase right at whatever's still affordable
-          // rather than letting it go over budget — e.g. with only 1
-          // point left, typing/stepping to 12 when 11 is the last
-          // thing they can afford snaps back to 11, not 12.
+        const bonus = bonusMap[id]?.bonus || 0;
+        const effectiveMin = 8 + bonus;
+        if (scores[id] < effectiveMin) scores[id] = effectiveMin;
+        const displayValue = scores[id] + bonus;
+        const input = scoreInput(id, effectiveMin, max + bonus, (target) => {
+          let value = clampScoreToRange(target.value, effectiveMin, effectiveMin, max + bonus);
           const affordable = affordableFn(id);
-          if (value > affordable) value = affordable;
+          if (value > affordable + bonus) value = affordable + bonus;
+          if (value < effectiveMin) {
+            target.value = String(effectiveMin);
+            value = effectiveMin;
+          }
           target.value = String(value);
-          scores[id] = value;
+          scores[id] = value - bonus;
           saveFn();
           updateNote();
           updateModifier();
+        }, displayValue);
+        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn, bonus);
+        input.addEventListener("keydown", (e) => {
+          if ((e.key === "ArrowDown" || e.key === "-") && Number(input.value) <= effectiveMin) {
+            e.preventDefault();
+            flashBonusNote(bonusNote);
+          }
         });
-        const updateModifier = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn);
+        input.addEventListener("input", () => {
+          if (Number(input.value) < effectiveMin) {
+            input.value = String(effectiveMin);
+            flashBonusNote(bonusNote);
+          }
+        });
       });
       updateNote();
     } else if (current === "roll") {
@@ -526,21 +562,50 @@ export function renderAbilitiesStepInto(container, deps) {
       rollAllBtn.addEventListener("click", () => {
         abilityIds.forEach((id) => {
           scores[id] = rollFn();
-          inputs[id].value = String(scores[id]);
-          modifierUpdaters[id]();
+          const bonus = bonusMap[id]?.bonus || 0;
+          inputs[id].value = String(scores[id] + bonus);
+          modifierUpdaters[id].updateModifier();
         });
         saveFn();
       });
       abilityIds.forEach((id) => {
-        const input = scoreInput(id, 3, 18, (target) => { scores[id] = Number(target.value) || 10; saveFn(); updateModifier(); });
-        const updateModifier = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn);
+        const bonus = bonusMap[id]?.bonus || 0;
+        const effectiveMin = 8 + bonus;
+        const input = scoreInput(id, effectiveMin, 18 + bonus, (target) => { scores[id] = Math.max(effectiveMin, Number(target.value) || effectiveMin) - bonus; saveFn(); modifierUpdaters[id].updateModifier(); }, scores[id] + bonus);
+        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn, bonus);
+        input.addEventListener("keydown", (e) => {
+          if ((e.key === "ArrowDown" || e.key === "-") && Number(input.value) <= effectiveMin) {
+            e.preventDefault();
+            flashBonusNote(bonusNote);
+          }
+        });
+        input.addEventListener("input", () => {
+          if (Number(input.value) < effectiveMin) {
+            input.value = String(effectiveMin);
+            flashBonusNote(bonusNote);
+          }
+        });
         inputs[id] = input;
-        modifierUpdaters[id] = updateModifier;
+        modifierUpdaters[id] = { updateModifier };
       });
     } else {
       abilityIds.forEach((id) => {
-        const input = scoreInput(id, 1, 30, (target) => { scores[id] = Number(target.value) || 10; saveFn(); updateModifier(); });
-        const updateModifier = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn);
+        const bonus = bonusMap[id]?.bonus || 0;
+        const effectiveMin = 8 + bonus;
+        const input = scoreInput(id, effectiveMin, 30 + bonus, (target) => { scores[id] = Math.max(effectiveMin, Number(target.value) || effectiveMin) - bonus; saveFn(); updateModifier(); }, scores[id] + bonus);
+        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn, bonus);
+        input.addEventListener("keydown", (e) => {
+          if ((e.key === "ArrowDown" || e.key === "-") && Number(input.value) <= effectiveMin) {
+            e.preventDefault();
+            flashBonusNote(bonusNote);
+          }
+        });
+        input.addEventListener("input", () => {
+          if (Number(input.value) < effectiveMin) {
+            input.value = String(effectiveMin);
+            flashBonusNote(bonusNote);
+          }
+        });
       });
     }
   }

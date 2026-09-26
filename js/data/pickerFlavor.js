@@ -10,19 +10,19 @@
 // portraits) are untouched.
 
 export const CLASS_FLAVOR = {
-  Barbarian: "Rage-fueled front-line brawler. You charge in first, soak hits, and hit back harder — best for players who want simple, brutal, high-damage melee.",
-  Bard: "Charismatic jack-of-all-trades. You talk, sneak, cast, and inspire the party — best for players who want to do a little of everything and be the face.",
-  Cleric: "Divine full caster in armor. You heal, protect, and smite for your god — best for players who want magic with staying power and a sacred mission.",
-  Druid: "Nature's shapeshifting caster. Wild Shape, control spells, and wilderness mastery — best for players who love versatility and the wild.",
-  Fighter: "Disciplined weapon specialist with unmatched staying power. Extra attacks and second chances — best for players who want dependable martial play with room to customize.",
-  Monk: "Fast, unarmored striker. Stunning strikes, mobility, and ki-powered tricks — best for players who want speed and style over armor.",
-  Paladin: "Holy warrior bound by oath. Heavy armor, burst smite damage, and protective auras — best for players who want righteous melee with conviction.",
-  Ranger: "Wilderness hunter and tracker. Favored enemies, exploration mastery, and skirmish archery — best for players who want a self-reliant outdoors specialist.",
-  Rogue: "Skill expert and ambusher. Sneak Attack, expertise, and cunning action — best for players who want clever play and big precision hits.",
-  Sorcerer: "Instinctive arcane blaster. Few spells known, but metamagic bends them — best for players who want explosive, flexible casting.",
-  Warlock: "Pact-bound caster with endlessly renewable tricks. Eldritch Blast plus invocations on a short-rest rhythm — best for players who like a dark bargain.",
-  Wizard: "The prepared scholar of magic. The biggest spellbook in the game — best for players who love planning, utility, and always having the right spell.",
-  Artificer: "Magical inventor and tinkerer. Infuse gear, brew elixirs or pilot arcane armor — best for players who want tools, pets, and gadgets over raw spellpower.",
+  Barbarian: "Rage-fueled front-line brawler. You charge in first, soak hits, and hit back harder — best for those who want simple, brutal, high-damage melee.",
+  Bard: "Charismatic jack-of-all-trades. You talk, sneak, cast, and inspire the party — best for those who want to do a little of everything and be the face.",
+  Cleric: "Divine full caster in armor. You heal, protect, and smite for your god — best for those who want magic with staying power and a sacred mission.",
+  Druid: "Nature's shapeshifting caster. Wild Shape, control spells, and wilderness mastery — best for those who love versatility and the wild.",
+  Fighter: "Disciplined weapon specialist with unmatched staying power. Extra attacks and second chances — best for those who want dependable martial play with room to customize.",
+  Monk: "Fast, unarmored striker. Stunning strikes, mobility, and ki-powered tricks — best for those who want speed and style over armor.",
+  Paladin: "Holy warrior bound by oath. Heavy armor, burst smite damage, and protective auras — best for those who want righteous melee with conviction.",
+  Ranger: "Wilderness hunter and tracker. Favored enemies, exploration mastery, and skirmish archery — best for those who want a self-reliant outdoors specialist.",
+  Rogue: "Skill expert and ambusher. Sneak Attack, expertise, and cunning action — best for those who want clever play and big precision hits.",
+  Sorcerer: "Instinctive arcane blaster. Few spells known, but metamagic bends them — best for those who want explosive, flexible casting.",
+  Warlock: "Pact-bound caster with endlessly renewable tricks. Eldritch Blast plus invocations on a short-rest rhythm — best for those who like a dark bargain.",
+  Wizard: "The prepared scholar of magic. The biggest spellbook in the game — best for those who love planning, utility, and always having the right spell.",
+  Artificer: "Magical inventor and tinkerer. Infuse gear, brew elixirs or pilot arcane armor — best for those who want tools, pets, and gadgets over raw spellpower.",
 };
 
 export const RACE_FLAVOR = {
