@@ -534,16 +534,41 @@ export function buildAvatarPlaceholderSvg() {
   return svg;
 }
 
-/** Reads a File as a data URL, warning when it may not fit in a
- *  single Firestore document. */
-export function readImageFileInto(file, maxBytes, toastFn, onLoaded) {
+/** Reads a File as a compressed data URL (max 500px, WebP 0.7 quality). */
+export async function readImageFileInto(file, maxBytes, toastFn, onLoaded) {
+  // First read as raw data URL
   const reader = new FileReader();
   reader.onload = () => {
-    if (reader.result.length > maxBytes) {
-      toastFn("That image is large enough that it (plus the rest of this character) may not fit in a single Firestore document (1MB limit). It'll be applied, but saving might fail — try a smaller image if so.");
+    const rawDataUrl = reader.result;
+    if (rawDataUrl.length > maxBytes) {
+      toastFn("That image is large enough that it (plus the rest of this character) may not fit in a single Firestore document (1MB limit). It'll be compressed and applied, but saving might still fail if too large — try a smaller image if so.");
     }
-    onLoaded(reader.result);
+    // Compress to ~30-70KB WebP Base64
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      const MAX_WIDTH = 500;
+      if (width > MAX_WIDTH) {
+        height = Math.round((height * MAX_WIDTH) / width);
+        width = MAX_WIDTH;
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+      try {
+        const compressed = canvas.toDataURL("image/webp", 0.7);
+        onLoaded(compressed);
+      } catch {
+        const compressed = canvas.toDataURL("image/jpeg", 0.7);
+        onLoaded(compressed);
+      }
+    };
+    img.onerror = () => onLoaded(rawDataUrl); // fallback to raw
+    img.src = rawDataUrl;
   };
+  reader.onerror = () => onLoaded(null);
   reader.readAsDataURL(file);
 }
 

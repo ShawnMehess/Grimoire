@@ -5,10 +5,15 @@
 // functions and works with plain JS objects — that keeps Firebase
 // swappable and keeps the rendering code testable without a live
 // backend.
+//
+// Images are stored as compressed Base64 Data URLs directly in the
+// character document (no Firebase Storage). Picture fields use
+// `imageData`; block background images use `style.bgImage`.
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js";
 import { bundleDedupeKey as sharedBundleDedupeKey } from "./bundleMaps.js";
-import { isDataUrlImage, storagePathFor, storagePrefixFor, forEachStoredImage } from "./characterImages.js";
+import { isDataUrlImage, forEachStoredImage } from "./characterImages.js";
+import { compressDataUrl } from "./imageCompression.js";
 import {
   getFirestore,
   doc,
@@ -33,17 +38,7 @@ import {
   GoogleAuthProvider,
   signOut,
 } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-auth.js";
-import {
-  getStorage,
-  ref as storageRef,
-  uploadString,
-  uploadBytes,
-  getDownloadURL,
-  deleteObject,
-  listAll,
-} from "https://www.gstatic.com/firebasejs/12.12.0/firebase-storage.js";
 
-// Same project as the earlier Grimoire/DiceAndData attempt.
 const firebaseConfig = {
   apiKey: "AIzaSyBYYgS04lxcbeawj7WDahEN7SbzYgVGLjE",
   authDomain: "diceanddata-81ebe.firebaseapp.com",
@@ -56,23 +51,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const storage = getStorage(app);
 
-// Firefox's Private Browsing mode blocks/cripples IndexedDB, which is
-// what Firebase Auth's default persistence uses. The auth SDK's own
-// internal IndexedDB probe can hang indefinitely in that situation
-// (rather than failing fast) — which is exactly why the app used to
-// sit on "Loading..." forever in a Private Browsing window: the
-// onAuthChange callback below never fired because auth init itself
-// never resolved. A regular Firefox tab isn't blocked, so it worked,
-// just with the normal one-time delay of Firebase spinning up.
-//
-// Fix: probe IndexedDB ourselves first, with a short hard timeout of
-// our own. If it doesn't answer quickly, assume it's blocked and tell
-// Firebase to skip straight to in-memory-only persistence (sign-in
-// still works for the session, it just won't be remembered next
-// visit) instead of letting Firebase's own detection hang. A normal
-// window still gets full persistence as before.
 function probeIndexedDb() {
   return new Promise((resolve) => {
     if (typeof indexedDB === "undefined") {
@@ -99,8 +78,6 @@ function probeIndexedDb() {
     } catch {
       finish(false);
     }
-    // The actual hang case: indexedDB.open() never calls back at all.
-    // This timeout is what keeps the app from waiting on it forever.
     setTimeout(() => finish(false), 800);
   });
 }
@@ -150,181 +127,13 @@ export async function isCurrentUserAdmin() {
 
 // --- Character CRUD ---------------------------------------------------------
 
-// Default-content bundle strip/hydrate lives in ./bundleMaps.js (shared
-// with localStore.js so both backends stay byte-identical) — see that
-// file for the why. Imported here for the CRUD functions below.
 import { stripBundlesFromPatch, hydrateCharacter } from "./bundleMaps.js";
-
-// --- Character images (Firebase Storage) --------------------------------------
-//
-// Picture fields and background images used to live on the character
-// document as data URLs, pushing documents toward Firestore's 1MB cap.
-// New and replaced images upload here instead: the document keeps the
-// renderable download URL plus the Storage path sidecar (`imageRef` /
-// `bgImageRef`) for deletes and re-resolution — see
-// ./characterImages.js for the shared shapes. Renderers only read the
-// URL, so they work unchanged; offline keeps data URLs (localStore.js
-// pass-through) and migrates on the next online load.
-
-const downloadUrlCache = new Map();
-
-function newImageId() {
-  return crypto.randomUUID ? crypto.randomUUID() : `img-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-/** Uploads one data-URL image for a character. Returns
- *  `{ path, url }`; non-data URLs pass through untouched (nothing to
- *  upload). Upload failures reject for the caller to fall back to the
- *  data URL. */
-export async function uploadCharacterImage(characterId, dataUrl) {
-  if (!isDataUrlImage(dataUrl)) return { path: null, url: dataUrl };
-  const path = storagePathFor(characterId, dataUrl, newImageId);
-  const ref = storageRef(storage, path);
-  await uploadString(ref, dataUrl, "data_url");
-  const url = await getDownloadURL(ref);
-  downloadUrlCache.set(path, url);
-  return { path, url };
-}
-
-/** Download URL for a stored path (memory-cached per session). */
-export async function characterImageUrl(path) {
-  if (!path) return null;
-  if (downloadUrlCache.has(path)) return downloadUrlCache.get(path);
-  const url = await getDownloadURL(storageRef(storage, path));
-  downloadUrlCache.set(path, url);
-  return url;
-}
-
-/** Deletes one stored image (best-effort: false, never throws). */
-export async function deleteCharacterImage(path) {
-  if (!path) return false;
-  downloadUrlCache.delete(path);
-  try {
-    await deleteObject(storageRef(storage, path));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Deletes every stored image under a character's prefix (best-effort:
- *  false, never throws) — called from deleteCharacter below. */
-export async function deleteCharacterImagesFor(characterId) {
-  try {
-    const res = await listAll(storageRef(storage, storagePrefixFor(characterId)));
-    await Promise.all(res.items.map((item) => deleteObject(item).catch(() => {})));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Copies every stored image from one character prefix to another for
- *  character duplication, so the copy owns its objects (deleting the
- *  original must not break the copy's images). Returns
- *  `{ [oldPath]: { path, url } }`; per-object failures are skipped
- *  (those slots keep their shared references). Never throws. */
-export async function copyCharacterImages(oldId, newId) {
-  const out = {};
-  let items = [];
-  try {
-    const res = await listAll(storageRef(storage, storagePrefixFor(oldId)));
-    items = res.items || [];
-  } catch {
-    return out;
-  }
-  for (const item of items) {
-    try {
-      const blob = await (await fetch(await getDownloadURL(item))).blob();
-      const ext = (String(item.name).split(".").pop() || "jpg").replace(/[^a-z0-9]/gi, "") || "jpg";
-      const path = `${storagePrefixFor(newId)}/${newImageId()}.${ext}`;
-      const dest = storageRef(storage, path);
-      await uploadBytes(dest, blob, blob.type ? { contentType: blob.type } : undefined);
-      const url = await getDownloadURL(dest);
-      downloadUrlCache.set(path, url);
-      out[item.fullPath] = { path, url };
-    } catch (err) {
-      console.warn("Image copy skipped:", err);
-    }
-  }
-  return out;
-}
-
-/** Uploads every data-URL image still on the document and swaps the
- *  slots to `{ url, path }`. Returns true when any slot changed (the
- *  caller saves the migrated document back). Failed uploads keep
- *  their data URLs and retry on a later load. */
-async function migrateDataUrlImages(characterId, data) {
-  const jobs = [];
-  forEachStoredImage(data, (slot) => {
-    const { data: value } = slot.get();
-    if (isDataUrlImage(value)) jobs.push({ slot, value });
-  });
-  if (!jobs.length) return false;
-  let changed = false;
-  for (const { slot, value } of jobs) {
-    try {
-      const { path, url } = await uploadCharacterImage(characterId, value);
-      slot.set(url, path);
-      changed = true;
-    } catch (err) {
-      console.warn("Image migration skipped:", err);
-    }
-  }
-  return changed;
-}
-
-/** Fills stored paths missing a usable URL (best-effort, memory-only
- *  — never persisted): covers documents whose URL was lost without
- *  its path. Anything unresolvable (offline, deleted) is left alone
- *  so loads never fail for images. */
-async function resolveMissingImageData(data) {
-  const jobs = [];
-  forEachStoredImage(data, (slot) => {
-    const { data: value, ref } = slot.get();
-    if (ref && typeof value !== "string") jobs.push({ slot, ref });
-  });
-  for (const { slot, ref } of jobs) {
-    try {
-      slot.set(await characterImageUrl(ref), ref);
-    } catch {
-      /* leave the slot as-is */
-    }
-  }
-}
 
 export async function loadCharacter(characterId) {
   const snap = await getDoc(doc(db, CHARACTERS_COLLECTION, characterId));
   if (!snap.exists()) return null;
   const data = { id: snap.id, ...snap.data() };
-  let migrated = false;
-  try {
-    migrated = await migrateDataUrlImages(characterId, data);
-  } catch (err) {
-    console.warn("Image migration skipped:", err);
-  }
-  try {
-    await resolveMissingImageData(data);
-  } catch {
-    /* images never block a load */
-  }
   const hydrated = hydrateCharacter(data);
-  // Save back only for the owner (any signed-in friend can read the
-  // sheet, but only the owner may write it — a viewer-triggered write
-  // would be denied and re-upload on every view), and only the keys
-  // actually present (Firestore rejects undefined values, which would
-  // fail the save-back and retry the uploads forever).
-  if (migrated && data.ownerId && data.ownerId === currentUserId()) {
-    try {
-      const stripped = stripBundlesFromPatch({ layout: data.layout, sheetTabs: data.sheetTabs });
-      const back = { updatedAt: serverTimestamp() };
-      if (stripped.layout !== undefined) back.layout = stripped.layout;
-      if (stripped.sheetTabs !== undefined) back.sheetTabs = stripped.sheetTabs;
-      await setDoc(doc(db, CHARACTERS_COLLECTION, characterId), back, { merge: true });
-    } catch (err) {
-      console.warn("Migrated images could not be saved back:", err);
-    }
-  }
   return hydrated;
 }
 
@@ -371,11 +180,47 @@ export async function saveCharacterFields(characterId, patch) {
 }
 
 export async function deleteCharacter(characterId) {
-  // Storage first: the rules authorize deletes via the character
-  // document's ownerId, so wiping after deleteDoc would deny every
-  // delete and orphan the whole image prefix.
-  await deleteCharacterImagesFor(characterId).catch(() => {});
   await deleteDoc(doc(db, CHARACTERS_COLLECTION, characterId));
+}
+
+// --- Character image upload (compressed Base64 directly in document) --------
+
+/** Compress and upload a data-URL image for a character.
+ *  Returns the compressed Base64 Data URL.
+ *  Non-data URLs pass through untouched. */
+export async function uploadCharacterImage(characterId, dataUrl) {
+  if (!isDataUrlImage(dataUrl)) return dataUrl;
+  try {
+    return await compressDataUrl(dataUrl);
+  } catch (err) {
+    console.warn("Image compression failed, using original:", err);
+    return dataUrl;
+  }
+}
+
+/** No-op for compatibility — images are inline Base64, no resolution needed. */
+export async function characterImageUrl(path) {
+  void path;
+  return null;
+}
+
+/** No-op for compatibility — images are inline Base64, no Storage object to delete. */
+export async function deleteCharacterImage(path) {
+  void path;
+  return false;
+}
+
+/** No-op — images are inline Base64, deleted with the document. */
+export async function deleteCharacterImagesFor(characterId) {
+  void characterId;
+  return false;
+}
+
+/** Copies are no-ops since images are inline Base64 in the document. */
+export async function copyCharacterImages(oldId, newId) {
+  void oldId;
+  void newId;
+  return {};
 }
 
 // --- Sheet templates -------------------------------------------------------
@@ -392,10 +237,6 @@ function parseTemplateName(name) {
 }
 
 function templatePayload(character, parsed) {
-  // stripBundlesFromPatch already knows layout vs. sheetTabs are
-  // shaped differently (a flat block array vs. an array of tabs each
-  // with their own .layout) — reuse it here instead of the generic
-  // cloneLayout, which only handled the flat-block shape correctly.
   const stripped = stripBundlesFromPatch({ layout: character.layout, sheetTabs: character.sheetTabs || [] });
   return {
     characterId: character.id,
@@ -429,21 +270,6 @@ async function syncCharacterTemplate(characterId) {
 }
 
 // --- Bundle libraries -------------------------------------------------------
-//
-// A reusable "Elf" or "Fighter" bundle, defined ONCE here rather than
-// hand-built fresh on every character. Deliberately NOT stored in
-// terms of field ids the way an in-character bundle is (see
-// ensureBundle/renderModifiersPanel in customSheet.js) — a library
-// bundle has to work across many different characters' sheets, each
-// with their own field ids, so it references targets by NAME instead
-// ("Strength", not whatever opaque id Strength happens to have on one
-// particular character). Applying a library bundle to a specific
-// character's dropdown choice (see applyBundleLibraryToChoice in
-// customSheet.js) resolves those names against THAT character's
-// fields and copies the result in — a one-time "materialize" step,
-// the same way a sheet TEMPLATE gets applied rather than live-linked.
-// Editing the library after the fact won't retroactively update
-// characters it's already been applied to.
 
 function bundleLibraryPayload(entry, ownerId) {
   return {
@@ -478,12 +304,6 @@ export async function listBundleLibraries() {
   });
 }
 
-/** Creates a new bundle (entry.id omitted) or overwrites an existing
- *  one (entry.id set) in the requested scope. Global bundles need
- *  admin rights — same gate the global sheet-template sync uses —
- *  and both the check and the actual write are enforced again by
- *  firestore.rules, so this isn't the only thing standing between a
- *  non-admin and the public collection. */
 export async function saveBundleLibrary(scope, entry) {
   const uid = currentUserId();
   if (!uid) throw new Error("Not signed in");
@@ -512,24 +332,10 @@ export async function deleteBundleLibrary(scope, id) {
   await deleteDoc(ref);
 }
 
-/** Two bundles are "the same" for dedupe purposes — shared definition
- *  in ./bundleMaps.js (also used by localStore.js); re-exported here
- *  so the upload-time duplicate check in bundleLibraryEditor.js keeps
- *  working unchanged. */
 export function bundleDedupeKey(entry) {
   return sharedBundleDedupeKey(entry);
 }
 
-/** One-off cleanup pass: lists every bundle library (personal + global,
- *  same as listBundleLibraries), keeps the first entry seen per
- *  bundleDedupeKey, and deletes the rest. Meant to be run once when a
- *  character sheet first loads (see customSheet.js) to clear out
- *  duplicates that already exist, not on every refresh — repeat
- *  uploads are instead prevented up front in bundleLibraryEditor.js.
- *  Global duplicates only actually get removed if the signed-in user
- *  is an admin; deleteDoc calls that firestore.rules rejects for a
- *  non-admin fail silently per-entry (caught by the caller) rather
- *  than aborting the whole pass. */
 export async function dedupeBundleLibraries() {
   const all = await listBundleLibraries();
   const seen = new Map();
@@ -555,23 +361,6 @@ export async function dedupeBundleLibraries() {
 }
 
 // --- Catalogs ----------------------------------------------------------
-//
-// A reusable list of things a player can browse and spend an in-sheet
-// currency on — "Common Weapons," a spell list, whatever — defined
-// ONCE here (same global/personal-scope pattern as bundle libraries
-// above) and linked to from a "Catalog" field on any character (see
-// catalogLibraryEditor.js and the "catalog" fieldType in
-// blockModel.js/customSheet.js). A catalog is
-// { id, name, archetype, tabs: [{ id, name, archetypeDiff, entries }] },
-// where archetype defines the (Acquisition Costs / Requirements /
-// Effects) fields every entry gets by default, and each entry is
-// { id, name, description, imageData, archetypeDiff, fieldValues }.
-// Unlike a bundle, nothing here references field IDS at all — a
-// catalog doesn't know or care which character it's attached to; a
-// linked archetype row stores a field NAME + shape snapshot (see
-// catalogLibraryEditor.js's linkFromField), and the FIELD linking to
-// the catalog itself separately holds which money field on THIS
-// character purchases draw from.
 
 function catalogPayload(entry, ownerId) {
   return {
@@ -608,8 +397,6 @@ export async function loadCatalog(scope, id) {
   return snap.exists() ? { id: snap.id, scope, ...snap.data() } : null;
 }
 
-/** Same shape/rules as saveBundleLibrary — global needs admin rights,
- *  enforced here and again by firestore.rules. */
 export async function saveCatalog(scope, entry) {
   const uid = currentUserId();
   if (!uid) throw new Error("Not signed in");

@@ -8,13 +8,9 @@
 // identical to Firestore (shared ./bundleMaps.js), so a character
 // exported from one backend imports cleanly into the other.
 //
-// Deliberate differences from characterStore.js:
-// - Auth is a fixed local identity ("Local Player"); signIn resolves
-//   immediately, signOutUser returns to the signed-out screen.
-// - Templates / bundle libraries / catalogs are personal-only;
-//   "global" scope reads as empty and writes fall back to personal.
-// - isCurrentUserAdmin() is always true: locally you own everything,
-//   so "GLOBAL TEMPLATE" sync just works.
+// Images are stored as compressed Base64 Data URLs directly in the
+// character document (no Firebase Storage). Picture fields use
+// `imageData`; block background images use `style.bgImage`.
 
 import { stripBundlesFromPatch, hydrateCharacter, bundleDedupeKey } from "./bundleMaps.js";
 
@@ -24,7 +20,7 @@ export const authSignInLabel = () => "Continue offline";
 const LS_KEYS = {
   characters: "grimoire.local.characters.v1",
   templates: "grimoire.local.templates.v1",
-  bundles: "grimoire.local.bundles.v1",
+  bundles: "grimiore.local.bundles.v1",
   catalogs: "grimoire.local.catalogs.v1",
 };
 
@@ -63,7 +59,6 @@ let signedIn = true;
 
 export function onAuthChange(callback) {
   authCallback = callback;
-  // Mirror Firebase's async initial callback.
   setTimeout(() => callback(signedIn ? { ...LOCAL_USER } : null), 0);
   return () => { authCallback = null; };
 }
@@ -159,17 +154,12 @@ export async function deleteCharacter(characterId) {
   persistCharacters(map);
 }
 
-// --- Character images -------------------------------------------------------
-//
-// Same export names as characterStore.js so renderers stay
-// backend-agnostic. Offline has no Storage: uploads keep the data URL
-// (local documents never hit the Firestore cap), deletes are no-ops,
-// and the next online load migrates data URLs it finds.
+// --- Character image upload (compressed Base64 directly in document) --------
 
-/** Offline pass-through: keeps the data URL (no path). */
+/** Offline pass-through: keeps the compressed Base64 data URL (no path). */
 export async function uploadCharacterImage(characterId, dataUrl) {
   void characterId;
-  return { path: null, url: dataUrl };
+  return dataUrl;
 }
 
 /** No stored object offline — nothing to resolve. */
@@ -190,8 +180,7 @@ export async function deleteCharacterImagesFor(characterId) {
   return false;
 }
 
-/** Offline images are inline data URLs, already cloned with the
- *  document — nothing to copy. */
+/** Offline images are inline Base64, already cloned with the document. */
 export async function copyCharacterImages(oldId, newId) {
   void oldId;
   void newId;
@@ -265,7 +254,6 @@ export async function saveBundleLibrary(scope, entry) {
   if (!uid) throw new Error("Not signed in");
   const id = entry.id || newId();
   const map = readJson(LS_KEYS.bundles, {});
-  // No separate global namespace offline — everything is personal.
   map[id] = { id, scope: "personal", ...bundleLibraryPayload(entry, uid) };
   writeJson(LS_KEYS.bundles, map);
   return id;

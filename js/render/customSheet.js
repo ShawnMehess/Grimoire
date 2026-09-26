@@ -1201,31 +1201,22 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const cw = colWidthPx();
     const { x, y } = dropCellFor(e.clientX, e.clientY, rect, cw, GAP_PX);
 
-    // Dropping an image file directly onto empty grid space (not onto
-    // an existing picture field, which handles the drop itself and
-    // stops it from bubbling here) auto-builds a new block just for it.
-    if (imageFile) {
-      readImageFile(imageFile, (dataUrl) => {
-        const size = DEFAULT_FIELD_SIZE.picture;
-        const block = createBlock({ name: "New Block", x, y, w: size.w, h: size.h + BLOCK_HEADER_ROWS });
-        const field = createField({ fieldType: "picture", label: "Stat", x: 0, y: 0, w: size.w, h: size.h });
-        commitMutation(() => {
-          field.imageData = dataUrl;
-          block.children.push(field);
-          currentLayout().push(block);
-        });
-        // The swap must persist like the picture-field path's does —
-        // otherwise the doc keeps the data URL while the fresh Storage
-        // object goes unreferenced (and migrates a second time later).
-        uploadImageInBackground(dataUrl, (url, ref) => {
+// Dropping an image file directly onto empty grid space (not onto
+      // an existing picture field, which handles the drop itself and
+      // stops it from bubbling here) auto-builds a new block just for it.
+      if (imageFile) {
+        readImageFile(imageFile, (dataUrl) => {
+          const size = DEFAULT_FIELD_SIZE.picture;
+          const block = createBlock({ name: "New Block", x, y, w: size.w, h: size.h + BLOCK_HEADER_ROWS });
+          const field = createField({ fieldType: "picture", label: "Stat", x: 0, y: 0, w: size.w, h: size.h });
           commitMutation(() => {
-            field.imageData = url;
-            if (ref) field.imageRef = ref;
+            field.imageData = dataUrl;
+            block.children.push(field);
+            currentLayout().push(block);
           });
         });
-      });
-      return;
-    }
+        return;
+      }
 
     commitMutation(() => {
       if (blockId) {
@@ -5848,22 +5839,12 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     select.value = field.selected || "";
   }
 
-  /** Uploads a freshly-picked data-URL image to Firebase Storage in
-   *  the background (preview-first: the data URL applies immediately,
-   *  then swaps to the hosted URL + path once uploaded). `apply(url,
-   *  ref)` writes the result. Offline — or when the upload fails —
-   *  the data URL simply stays: the sheet keeps working, and the next
-   *  online load migrates it (see migrateDataUrlImages in
-   *  characterStore.js). */
+  /** Uploads a freshly-picked data-URL image: compresses it and stores
+   *  the compressed Base64 directly in the document. */
   function uploadImageInBackground(dataUrl, apply) {
     if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) return;
-    if (typeof store.uploadCharacterImage !== "function") return;
-    store.uploadCharacterImage(character.id, dataUrl).then((result) => {
-      if (!result || !result.url || result.url === dataUrl) return;
-      commitMutation(() => apply(result.url, result.path || null));
-    }).catch((err) => {
-      console.warn("Image upload skipped:", err);
-    });
+    // Already compressed by readImageFileInto; just store it
+    commitMutation(() => apply(dataUrl));
   }
 
   /** Reads a File as a data URL. The "might not fit in a single
@@ -5888,24 +5869,16 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
   function buildPictureValue(field) {
     return buildPictureValueInto(field, {
-      // Preview-first: the data URL applies instantly, then swaps to
-      // the hosted URL + Storage path once the background upload
-      // lands (offline it just stays a data URL).
+      // Compress to ~30-70KB WebP Base64 and store directly in document.
       readFileFn: (file, onLoaded) => readImageFile(file, (dataUrl) => {
-        onLoaded(dataUrl, null);
-        uploadImageInBackground(dataUrl, (url, ref) => onLoaded(url, ref));
+        onLoaded(dataUrl);
       }),
       commitFn: (fn, opts) => commitMutation(fn, opts),
       clearAvatarsFn: (f) => clearOtherAvatars(f),
       placeholderFn: () => buildAvatarPlaceholderSvg(),
       iconMarkup: personIconSvgMarkup(),
-      setImageFn: (f, url, ref) => {
+      setImageFn: (f, url) => {
         f.imageData = url;
-        if (ref) {
-          const stale = f.imageRef;
-          f.imageRef = ref;
-          if (stale && stale !== ref) store.deleteCharacterImage(stale).catch(() => {});
-        }
       },
     });
   }
@@ -6340,21 +6313,13 @@ try {
   function stylePopoverDeps() {
     return {
       forEditing: (n) => styleForEditing(n),
-      // Background data URLs preview immediately, then swap to the
-      // hosted URL + Storage path once the background upload lands
-      // (offline they just stay data URLs). The ref rides alongside
-      // through setNodeStyleValue so block references keep working;
-      // a replaced Storage object is deleted so swaps don't orphan.
+      // Background data URLs are compressed and stored directly.
       setValue: (n, k, v) => {
         if (k === "bgImage" && typeof v === "string" && v.startsWith("data:image/")) {
           setNodeStyleValue(n, k, v);
-          uploadImageInBackground(v, (url, ref) => {
+          uploadImageInBackground(v, (url) => {
             commitMutation(() => {
-              const holder = n.sourceBlockId ? (n.styleOverrides ?? {}) : (n.style ?? {});
-              const stale = holder.bgImageRef;
               setNodeStyleValue(n, "bgImage", url);
-              if (ref) setNodeStyleValue(n, "bgImageRef", ref);
-              if (stale && stale !== ref) store.deleteCharacterImage(stale).catch(() => {});
             });
           });
           return;

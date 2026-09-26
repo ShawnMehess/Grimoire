@@ -1,43 +1,22 @@
 // characterImages.js
 //
-// Pure (Firebase-free) helpers for moving character images out of
-// Firestore documents and into Firebase Storage. The document keeps a
-// sidecar per image — `imageData`/`bgImage` holds the renderable URL
-// (a data URL for legacy/offline images, an https download URL once
-// uploaded) plus `imageRef`/`bgImageRef` with the Storage path for
-// deletes and re-resolution. Renderers only ever read the URL, so
-// they work unchanged; characterStore.js (uploads, deletes,
-// migration) and localStore.js (offline pass-through) implement the
-// backend side under identical export names.
+// Pure (Firebase-free) helpers for character images stored as
+// compressed Base64 Data URLs directly in Firestore documents.
+// No Firebase Storage dependency — images live on the character
+// document as `imageData` (picture fields) or `bgImage` (block
+// background images). No `imageRef`/`bgImageRef` sidecars needed.
 
-/** Whether a stored image value is an inline data URL (legacy or
- *  offline) as opposed to a hosted https URL. */
+/** Whether a stored image value is an inline data URL. */
 export function isDataUrlImage(value) {
   return typeof value === "string" && value.startsWith("data:image/");
 }
 
-/** Storage directory for one character's images (path-safe). */
-export function storagePrefixFor(characterId) {
-  const safe = String(characterId || "unknown").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "unknown";
-  return `characterImages/${safe}`;
-}
-
-/** Storage path for one upload, keeping the image's own extension so
- *  downloads serve the right content type. */
-export function storagePathFor(characterId, dataUrl, newIdFn) {
-  const mime = (/^data:(image\/[a-z0-9.+-]+)/i.exec(dataUrl || "") || [])[1] || "image/jpeg";
-  const ext = (mime.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "") || "jpg";
-  return `${storagePrefixFor(characterId)}/${newIdFn()}.${ext}`;
-}
-
 /** Visits every stored image on a character document (picture fields
  *  plus block/field background images, across all tabs) with
- *  `{ kind, get, set }` — `get()` returns `{ data, ref }`,
- *  `set(url, ref)` writes the URL and (when given) the Storage path.
- *  Reference nodes (`sourceBlockId`) share their source block's style,
- *  so only each node's own values are visited, deduplicated by
- *  identity. Pure — the caller (characterStore migration, tests)
- *  decides what to do per slot. */
+ *  `{ kind, get, set }` — `get()` returns `{ data }`,
+ *  `set(url)` writes the URL. Reference nodes (`sourceBlockId`)
+ *  share their source block's style, so only each node's own
+ *  values are visited, deduplicated by identity. */
 export function forEachStoredImage(doc, fn) {
   const layouts = [];
   if (Array.isArray(doc?.layout)) layouts.push(doc.layout);
@@ -45,19 +24,16 @@ export function forEachStoredImage(doc, fn) {
     if (Array.isArray(tab?.layout)) layouts.push(tab.layout);
   }
   const seen = new Set();
-  // A slot exists when EITHER half is present: a cleared image can
-  // leave its Storage path behind (override elision writes the two
-  // keys independently), and that orphaned ref still needs visiting
-  // for migration and deletes.
   const bgSlot = (holder, key) => {
+    const isLegacyRef = key === "bgImageRef";
     fn({
       kind: "background",
-      get: () => ({ data: holder?.[key] ?? null, ref: holder?.[`${key}Ref`] ?? null }),
-      set: (url, ref) => {
+      get: () => isLegacyRef
+        ? { data: null, ref: holder?.[key] ?? null }
+        : { data: holder?.[key] ?? null },
+      set: (url) => {
         if (url == null) delete holder[key];
         else holder[key] = url;
-        if (ref) holder[`${key}Ref`] = ref;
-        else delete holder[`${key}Ref`];
       },
     });
   };
@@ -68,16 +44,15 @@ export function forEachStoredImage(doc, fn) {
       if (node.kind === "field" && node.fieldType === "picture") {
         fn({
           kind: "picture",
-          get: () => ({ data: node.imageData ?? null, ref: node.imageRef ?? null }),
-          set: (url, ref) => {
-            node.imageData = url;
-            if (ref) node.imageRef = ref;
-            else delete node.imageRef;
-          },
+          get: () => ({ data: node.imageData ?? null }),
+          set: (url) => { node.imageData = url; },
         });
       }
-      if (node.style?.bgImage != null || node.style?.bgImageRef != null) bgSlot(node.style, "bgImage");
-      if (node.styleOverrides?.bgImage != null || node.styleOverrides?.bgImageRef != null) bgSlot(node.styleOverrides, "bgImage");
+      if (node.style?.bgImage != null) bgSlot(node.style, "bgImage");
+      if (node.styleOverrides?.bgImage != null) bgSlot(node.styleOverrides, "bgImage");
+      // Legacy: also visit orphaned bgImageRef for migration
+      if (node.style?.bgImageRef != null) bgSlot(node.style, "bgImageRef");
+      if (node.styleOverrides?.bgImageRef != null) bgSlot(node.styleOverrides, "bgImageRef");
       if (node.children) visit(node.children);
     }
   };
