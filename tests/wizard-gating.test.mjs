@@ -59,6 +59,7 @@ import {
   pointBuyNoteText,
   abilityBonusNoteText,
   reviewLinesFor,
+  resolvePrimaryRuleset,
 } from "../js/render/sheet/sheetWizardSteps.js";
 
 describe("choice-group satisfaction", () => {
@@ -475,6 +476,17 @@ describe("library option names and review lines", () => {
       [{ key: "g1", label: "Skills", options: [{ id: "a", name: "Arcana" }] }], { g1: ["a"] });
     assert.deepEqual(lines, ["Skills: Arcana"]);
     assert.deepEqual(reviewChoiceLinesFor([{ key: "g", options: [] }], {}), []);
+  });
+
+  it("resolves the single selected ruleset", () => {
+    const one = [{ id: "dnd5e-2014" }];
+    const two = [{ id: "dnd5e-2014" }, { id: "dnd5e-2024" }];
+    assert.equal(resolvePrimaryRuleset(one, null), "dnd5e-2014");
+    assert.equal(resolvePrimaryRuleset(one, "dnd5e-2014"), "dnd5e-2014");
+    assert.equal(resolvePrimaryRuleset(two, null), "dnd5e-2014");
+    assert.equal(resolvePrimaryRuleset(two, "dnd5e-2024"), "dnd5e-2024");
+    assert.equal(resolvePrimaryRuleset(two, "gone"), "dnd5e-2014");
+    assert.equal(resolvePrimaryRuleset([], null), null);
   });
 
   it("reviews creation answers", () => {

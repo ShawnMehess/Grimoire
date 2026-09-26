@@ -42,6 +42,16 @@ export function bucketGroupsByCategory(groups, categories, categorizeFn) {
   return byCategory;
 }
 
+/** Which ruleset counts as selected: the persisted one when it still
+ *  exists, else the first registered system (display fallback — the
+ *  caller persists an explicit pick separately). Single-select by
+ *  construction: exactly one id (or null when nothing is registered).
+ *  Pure. */
+export function resolvePrimaryRuleset(systems = [], primaryId = null) {
+  if (primaryId && (systems || []).some((s) => s?.id === primaryId)) return primaryId;
+  return systems?.[0]?.id ?? null;
+}
+
 export function renderRulesetStepInto(container, state, deps) {
   const {
     listRulesetsFn, listContentPacksFn = () => [],
@@ -58,41 +68,35 @@ export function renderRulesetStepInto(container, state, deps) {
   // system table never faces an empty picker. Persist-only here (no
   // re-render): the rest of this step paints the selection in the
   // same pass.
-  const primary = (primaryId && systems.some((s) => s.id === primaryId)) ? primaryId : systems[0].id;
-  if (primary !== primaryId && systems.length === 1) {
+  const primary = resolvePrimaryRuleset(systems, primaryId);
+  if (primary && primary !== primaryId && systems.length === 1) {
     setPrimaryFn(primary, { rerender: false });
   }
 
-  // The ruleset section: a radio list when more than one system
-  // exists, a single selected row otherwise.
-  if (systems.length === 1) {
-    container.append(el("div", { class: "choice-row choice-row--selected" },
-      el("div", { class: "choice-row__body" },
-        el("div", { class: "choice-row__label", text: systems[0].name }),
-        el("div", { class: "choice-row__description", text: systems[0].description || "Game system for this character." }),
-        el("div", { class: "choice-row__mechanics-meta", text: "Ruleset — Used for level-up math" }))));
-  } else {
-    const list = el("div", { class: "choice-row-list ruleset-list", role: "radiogroup" });
-    systems.forEach((entry) => {
-      const checked = entry.id === primary;
-      // No native radio: like every other picker, the row itself is
-      // the control and the highlight is the selection state.
-      const pick = () => setPrimaryFn(entry.id);
-      const row = el("div", {
-        class: "choice-row" + (checked ? " choice-row--selected" : ""),
-        tabindex: 0, role: "radio", "aria-checked": String(checked),
-        onclick: pick,
-        onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } },
-      });
-      const body = el("div", { class: "choice-row__body" },
-        el("div", { class: "choice-row__label", text: entry.name }),
-        entry.description ? el("div", { class: "choice-row__description", text: entry.description }) : null,
-        checked ? el("div", { class: "choice-row__mechanics-meta", text: "Ruleset — Used for level-up math" }) : null);
-      row.append(body);
-      list.append(row);
+  // The ruleset section is always a single-select radio list — one
+  // row per registered system today, several when more exist. The
+  // checked row drives which content books show below; clicking the
+  // already-selected row is a no-op (compared against the persisted
+  // pick, so a display fallback never blocks persisting it).
+  const rulesetList = el("div", { class: "choice-row-list ruleset-list", role: "radiogroup" });
+  systems.forEach((entry) => {
+    const checked = entry.id === primary;
+    // No native radio: like every other picker, the row itself is
+    // the control and the highlight is the selection state.
+    const pick = () => { if (entry.id !== primaryId) setPrimaryFn(entry.id); };
+    const row = el("div", {
+      class: "choice-row" + (checked ? " choice-row--selected" : ""),
+      tabindex: 0, role: "radio", "aria-checked": String(checked),
+      onclick: pick,
+      onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } },
     });
-    container.append(list);
-  }
+    const body = el("div", { class: "choice-row__body" },
+      el("div", { class: "choice-row__label", text: entry.name }),
+      entry.description ? el("div", { class: "choice-row__description", text: entry.description }) : null);
+    row.append(body);
+    rulesetList.append(row);
+  });
+  container.append(rulesetList);
 
   // Content books for the primary ruleset: one toggle row per pack.
   // Auto-select the only book, or the system's default books when

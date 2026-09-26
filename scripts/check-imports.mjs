@@ -7,9 +7,10 @@
 //      runs, so this gates what smoke-imports (which can't import
 //      DOM-dependent modules) never sees.
 // Run: node scripts/check-imports.mjs
-import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync, mkdtempSync, copyFileSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(join(dirname(fileURLToPath(import.meta.url)), ".."));
@@ -45,6 +46,10 @@ if (missing.length) {
 // Every JS file in the repo must at least parse — including entry
 // points like js/main.js that no test suite imports (DOM at module
 // scope), and the Firebase-backed modules Node cannot execute.
+// NOTE: plain `node --check x.js` does NOT catch early errors in
+// typeless .js files containing ESM (it passes files with genuine
+// duplicate-binding/paren bugs), so .js sources are checked as .mjs
+// copies — pure parse, no imports resolve, temp file removed after.
 function jsFilesUnder(dir, extension) {
   const out = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -60,12 +65,21 @@ const syntaxFiles = [
   ...(existsSync(join(ROOT, "tests")) ? jsFilesUnder(join(ROOT, "tests"), ".mjs") : []),
 ];
 const syntaxErrors = [];
-for (const file of syntaxFiles) {
-  try {
-    execFileSync(process.execPath, ["--check", file], { stdio: "pipe" });
-  } catch {
-    syntaxErrors.push(file);
-  }
+const checkDir = mkdtempSync(join(tmpdir(), "grimoire-syntax-"));
+try {
+  syntaxFiles.forEach((file, i) => {
+    // .mjs checks directly; .js goes through a same-bytes .mjs copy
+    // so module-goal parsing applies (see NOTE above).
+    const target = file.endsWith(".mjs") ? file : join(checkDir, `check-${i}.mjs`);
+    if (target !== file) copyFileSync(file, target);
+    try {
+      execFileSync(process.execPath, ["--check", target], { stdio: "pipe" });
+    } catch {
+      syntaxErrors.push(file);
+    }
+  });
+} finally {
+  rmSync(checkDir, { recursive: true, force: true });
 }
 console.log(`parsed ${syntaxFiles.length} files`);
 if (syntaxErrors.length) {

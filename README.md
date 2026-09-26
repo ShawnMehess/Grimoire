@@ -346,9 +346,10 @@ else as collapsible "Your choices" sections directly under the pick
 that grants them (with Expand All / Collapse All), never on separate
 later pages:
 
-1. **Basics** — sources/rulesets (saved as your per-user default, so
-   returning users don't re-pick; always overridable per character),
-   name, level, race, plus race-granted choices (languages, subrace).
+1. **Basics** — one ruleset at a time, then that ruleset's content
+   books (saved as your per-user default, so returning users don't
+   re-pick; always overridable per character), name, level, race,
+   plus race-granted choices (languages, subrace).
 2. **Class** — class, subclass if choosable now, class-granted
    choices, the spell picker for casters, and Magical Secrets for
    Bards with unlocks. **Express** lives here too: one click fills
