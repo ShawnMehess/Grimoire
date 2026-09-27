@@ -331,6 +331,7 @@ import {
   POINT_BUY_MAX as SHARED_POINT_BUY_MAX,
   POINT_BUY_BUDGET as SHARED_POINT_BUY_BUDGET,
   wizardFieldOptionNamesIn,
+  applyLiveSubclassOverride,
   applyLiveSubclassOverrideToResolved,
   cleanStaleSubclass,
   appendFieldGroup,
@@ -4602,6 +4603,8 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             creationGroups,
             categorizeChoiceGroup: sharedCategorizeChoiceGroup,
             saveRules,
+            sectionIntoFn: sectionInto,
+            renderCreationChoiceGroupsFn: renderCreationChoiceGroups,
             getSummary: (name) => sharedMechanicsSummaryForPicker(
               bundleFor("Class", name, includedRulesetIds(state)),
               state.level,
@@ -4797,6 +4800,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             subclassDataFn: (name) => liveSubclassData(name),
             updateFn: (key, value) => update(key, value),
             selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
+            creationGroups,
+            categorizeChoiceGroup: sharedCategorizeChoiceGroup,
+            saveRules,
+            sectionIntoFn: sectionInto,
+            renderCreationChoiceGroupsFn: renderCreationChoiceGroups,
           });
           const bgWrap = sectionInto(container, "Background");
           renderRowListStepInto(bgWrap, state, {

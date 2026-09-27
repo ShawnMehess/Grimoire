@@ -1,0 +1,39 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  static-and-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test tests/*.mjs
+      - run: node scripts/check-imports.mjs
+      - run: node scripts/smoke-imports.mjs
+      - run: node scripts/smoke-dom.mjs
+      - run: node scripts/verify-content.mjs
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm i --no-audit --no-fund
+      # Full Chrome (not just headless shell): the print-dialog and
+      # color-adjust assertions need the real engine.
+      - id: setup-chrome
+        uses: browser-actions/setup-chrome@latest
+      - run: npm run test:e2e
+        env:
+          PLAYWRIGHT_CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+      - run: npm run test:crawl
+        env:
+          PLAYWRIGHT_CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}

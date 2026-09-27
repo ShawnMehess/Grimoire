@@ -213,7 +213,7 @@ export function renderIdentityStepInto(container, state, deps) {
 }
 
 export function renderClassStepInto(container, state, deps) {
-  const { optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn, subclassDataFn, updateFn, selectableRowsFn, creationGroups, categorizeChoiceGroup, saveRules } = deps;
+  const { optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn, subclassDataFn, updateFn, selectableRowsFn, creationGroups, categorizeChoiceGroup, saveRules, sectionIntoFn, renderCreationChoiceGroupsFn } = deps;
   const liveNames = optionNamesFn(state.rulesetId, "Class");
   selectableRowsFn(container, liveNames, {
     selectedName: state.className,
@@ -251,8 +251,8 @@ export function renderClassStepInto(container, state, deps) {
     // Include both non-feat class choices AND class-specific feat choices
     const classGroups = creationGroups.filter((g) => !g.subrace && (g.source === state.className || g.source === state.subclass));
     if (classGroups.length) {
-      const classChoicesWrap = sectionInto(container, "Class Choices");
-      renderCreationChoiceGroups(classChoicesWrap, classGroups, saveRules, state);
+      const classChoicesWrap = sectionIntoFn(container, "Class Choices");
+      renderCreationChoiceGroupsFn(classChoicesWrap, classGroups, saveRules, state);
     }
   }
 }

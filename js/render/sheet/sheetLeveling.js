@@ -478,7 +478,7 @@ export function dedupResourceTiers(candidates) {
   return [...byKey.values()];
 }
 
-export function collectResourceGrantsIn(fields, level, valueMap, ruleOptions, featBundles, evaluateFn, levelFor = null) {  const candidates = [];
+export function collectResourceGrantsIn(fields, level, valueMap, ruleOptions, featBundles, evaluateFn, levelFor = null, extraBundles = []) {  const candidates = [];
   const add = (grant, keyBase, source, lvl) => {
     if (grant.minLevel && lvl < grant.minLevel) return;
     const maximum = resolveResourceMaximum(grant, valueMap, evaluateFn);
