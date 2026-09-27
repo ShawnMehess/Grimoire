@@ -88,7 +88,6 @@ import {
   CAPTIONLESS_FIELD_TYPES,
 } from "./sheet/sheetConstants.js";
 import { debounce, valuesMatch, mergeTextStyle, clone, newId, el } from "./sheet/sheetHelpers.js";
-import { compressDataUrl } from "../state/imageCompression.js";
 import {
   CREATION_CHOICE_CATEGORIES as SHARED_CREATION_CHOICE_CATEGORIES,
   categorizeChoiceGroup as sharedCategorizeChoiceGroup,
@@ -970,103 +969,108 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const dialogContent = el("div", { class: "print-dialog__content" });
 
     // Orientation
+    const orientationSelect = el("select", { class: "print-dialog__select" },
+      el("option", { value: "portrait", text: "Portrait" }),
+      el("option", { value: "landscape", text: "Landscape" }));
     const orientationRow = el("div", { class: "print-dialog__row" },
       el("span", { class: "print-dialog__label", text: "Orientation" }),
-      el("select", { class: "print-dialog__select" },
-        el("option", { value: "portrait", text: "Portrait" }),
-        el("option", { value: "landscape", text: "Landscape" })
-      ));
+      orientationSelect);
 
-    // Scale
+    // Scale (percent — applied as print-only zoom on the sheet canvas)
+    const scaleInput = el("input", {
+      class: "print-dialog__input", type: "range", min: "50", max: "200", value: "100",
+      title: "Percentage of page size",
+    });
     const scaleRow = el("div", { class: "print-dialog__row" },
       el("span", { class: "print-dialog__label", text: "Scale" }),
-      el("input", { class: "print-dialog__input", type: "range", min: "50", max: "200", value: "100",
-        title: "Percentage of page size" }));
+      scaleInput);
 
-    // Which tabs
-    const tabs = ["identity", "class", "background", "spells", "gear", "features", "custom"];
-    const tabInputs = tabs.map((kind) => {
-      const tab = findTab(character.sheetTabs, kind);
-      const isActive = tab ? tab.active : false;
-      return el("label", { class: "print-dialog__label print-dialog__tab-label" },
-        el("input", { type: "checkbox", checked: isActive, class: "print-dialog__tab-checkbox" }),
-        el("span", { class: "print-dialog__tab-text" }, tab ? tab.name : kind));
-    });
+    // Which tab to print — the sheet renders one tab at a time, so
+    // printing means printing one tab (default: the active one).
+    // NOTE: findTab looks tabs up by id, not kind, so list the real
+    // tabs instead of guessing kind strings.
+    const currentTabId = activeTab().id;
+    const tabInputs = (character.sheetTabs || []).map((tab, index) =>
+      el("label", { class: "print-dialog__label print-dialog__tab-label" },
+        el("input", {
+          type: "radio", name: "print-tab", value: tab.id,
+          checked: tab.id === currentTabId, class: "print-dialog__tab-radio",
+        }),
+        el("span", { class: "print-dialog__tab-text" }, tab.name || defaultTabName(tab, index))));
 
     const tabsRow = el("div", { class: "print-dialog__row print-dialog__tabs" },
-      el("span", { class: "print-dialog__label", text: "Tabs" }),
+      el("span", { class: "print-dialog__label", text: "Tab" }),
       ...tabInputs);
 
     // Background images
+    const bgInput = el("input", { type: "checkbox", checked: true });
     const bgRow = el("div", { class: "print-dialog__row" },
       el("span", { class: "print-dialog__label", text: "Background images" }),
       el("label", { class: "print-dialog__checkbox-label" },
-        el("input", { type: "checkbox", checked: true }),
+        bgInput,
         " Include background images"));
+
+    const closeDialog = () => {
+      document.removeEventListener("keydown", onDialogKeyDown);
+      if (dialog.parentElement) dialog.parentElement.removeChild(dialog);
+    };
+    function onDialogKeyDown(e) {
+      if (e.key === "Escape") closeDialog();
+    }
 
     // Buttons
     const actions = el("div", { class: "print-dialog__actions" },
-      el("button", { class: "btn btn--primary", text: "Print", onclick: () => {
-        // Apply print settings and print
-        const orientation = orientationRow.querySelector("select").value;
-        const scale = parseInt(scaleRow.querySelector("input").value);
-        const selectedTabs = [];
-        document.querySelectorAll(".print-dialog__tab-checkbox:checked").forEach((cb) => {
-          const label = cb.nextElementSibling.textContent.trim();
-          selectedTabs.push(label);
-        });
-        const includeBg = bgRow.querySelector("input").checked;
+      el("button", {
+        class: "btn btn--primary", text: "Print",
+        onclick: () => {
+          const orientation = orientationSelect.value === "landscape" ? "landscape" : "portrait";
+          const scale = Math.min(200, Math.max(50, parseInt(scaleInput.value, 10) || 100));
+          const picked = dialog.querySelector("input.print-dialog__tab-radio:checked");
+          const pickedTabId = (picked && picked.value) || currentTabId;
+          const includeBg = bgInput.checked;
 
-        // Build print styles based on selections
-        const styleEl = document.createElement("style");
-        styleEl.textContent = `
+          // The sheet renders one tab at a time — switch to the picked
+          // tab for the print, then switch back afterward.
+          const previousTabId = activeTabId;
+          if (pickedTabId !== previousTabId && (character.sheetTabs || []).some((t) => t.id === pickedTabId)) {
+            activeTabId = pickedTabId;
+            renderAll();
+          }
+          // The dialog lives inside the sheet root, so it must be
+          // hidden explicitly — otherwise it lands on the paper.
+          const styleEl = document.createElement("style");
+          styleEl.textContent = `
           @media print {
-            :root {
-              --color-bg: #ffffff;
-              --color-bg-raised: #f5f2ea;
-              --color-text: #1a1510;
-            }
-            body { background: #fff; }
-            .app-header, .sheet-toolbar, .sheet-block-frame, .sheet-tabs,
-                   .node-toolbar, .drag-handle, .resize-handle, .wizard__nav,
-                   .wizard__dots, .sheet-toast, .modal-overlay,
-                   .choice-row-list__collapse-controls, .spell-picker-tip,
-                   .textlist-add, .textlist-item__handle, .textlist-item__remove,
-                   .field-roll, button { display: none !important; }
-            .choice-row__details[hidden] { display: block; }
-            .page-grid-scroll { overflow: visible; }
-            a { color: inherit; text-decoration: none; }
-            @page { size: ${orientation} 8.5in 11in; margin: 0.5in; }
-            .sheet-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+            .print-dialog { display: none !important; }
+            .page-grid-scroll { zoom: ${scale / 100}; }
+            ${includeBg
+              ? ".page-grid, .page-grid * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }"
+              : ".page-grid, .page-grid * { background-image: none !important; }"}
+            @page { size: ${orientation}; margin: 0.5in; }
           }
         `;
-        document.head.append(styleEl);
-
-        // Hide non-selected tabs
-        document.querySelectorAll(".sheet-tab").forEach((el) => {
-          const tabKind = el.dataset.kind;
-          if (!selectedTabs.includes(tabKind)) el.style.display = "none";
-        });
-
-        // Print
-        window.print();
-
-        // Cleanup
-        document.head.removeChild(styleEl);
-        document.querySelectorAll(".sheet-tab").forEach((el) => {
-          el.style.display = "";
-        });
-      } }),
-      el("button", { class: "btn btn--secondary", text: "Cancel", onclick: () => root.removeChild(dialog) }));
+          document.head.append(styleEl);
+          try {
+            window.print();
+          } finally {
+            styleEl.remove();
+            if (activeTabId !== previousTabId) {
+              activeTabId = previousTabId;
+              renderAll();
+            }
+            closeDialog();
+          }
+        },
+      }),
+      el("button", { class: "btn btn--secondary", text: "Cancel", onclick: () => closeDialog() }));
 
     dialogContent.append(orientationRow, scaleRow, tabsRow, bgRow, actions);
     dialog.append(dialogContent);
     root.append(dialog);
 
-    // Focus trap / escape to close
-    dialog.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") root.removeChild(dialog);
-    });
+    // Escape closes (document-level: the dialog div itself never takes
+    // keyboard focus, so a listener on it would never fire).
+    document.addEventListener("keydown", onDialogKeyDown);
     actions.querySelector(".btn--primary").focus();
   }
 
@@ -1339,7 +1343,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       // an existing picture field, which handles the drop itself and
       // stops it from bubbling here) auto-builds a new block just for it.
       if (imageFile) {
-        compressDataUrl(imageFile).then((dataUrl) => {
+        // readImageFileInto already downscales to 500px WebP (see
+        // sheetFields.js), so the stored data URL stays small enough
+        // for Firestore — no extra compression step needed here.
+        readImageFile(imageFile, (dataUrl) => {
+          if (!dataUrl) return;
           const size = DEFAULT_FIELD_SIZE.picture;
           const block = createBlock({ name: "New Block", x, y, w: size.w, h: size.h + BLOCK_HEADER_ROWS });
           const field = createField({ fieldType: "picture", label: "Stat", x: 0, y: 0, w: size.w, h: size.h });

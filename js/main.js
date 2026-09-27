@@ -236,7 +236,20 @@ async function renderCharacterList() {
     appRoot.append(el("p", { class: "leveling-tab__intro", text: "Offline mode — Characters save in this browser only. Drop ?offline=1 (with a connection) to use the shared backend." }));
   }
 
-  const characters = await listMyCharacters();
+  let characters = [];
+  try {
+    characters = await listMyCharacters();
+  } catch (err) {
+    console.error("Failed to list characters:", err);
+    const retryBtn = el("button", {
+      type: "button", class: "btn btn--primary", text: "Retry",
+      onclick: () => renderCharacterList(),
+    });
+    appRoot.append(
+      el("p", { class: "leveling-tab__intro", text: "Couldn't load your characters — check your connection and try again. (See the console for details.)" }),
+      retryBtn);
+    return;
+  }
 
   const searchInput = el("input", { type: "search", class: "input-group__control character-vault__search", placeholder: "Search your characters…" });
   const searchRow = el("div", { class: "character-vault__search-row" }, searchInput);
@@ -258,6 +271,12 @@ async function renderCharacterList() {
       : characters;
 
     if (filtered.length === 0) {
+      // An empty vault and a search with no hits are different
+      // situations — don't tell someone with zero characters that
+      // "no characters match that search".
+      emptyState.textContent = characters.length === 0
+        ? "You don't have any characters yet — click + New Character above to create your first one."
+        : "No characters match that search.";
       appRoot.append(emptyState);
       return;
     }
