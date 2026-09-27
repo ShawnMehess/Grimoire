@@ -9,6 +9,10 @@
     "test:smoke": "node --test tests/smoke-imports.mjs tests/smoke-dom.mjs",
     "test:imports": "node --test tests/imports.test.mjs 2>/dev/null || echo 'No imports test file'",
     "test:content": "node --test tests/content.test.mjs 2>/dev/null || echo 'No content test file'",
+    "test:e2e": "node scripts/e2e-smoke.mjs",
     "verify": "node scripts/verify-content.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.63.0"
   }
 }
