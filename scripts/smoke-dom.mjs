@@ -330,6 +330,36 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(sections.includes("ASI: STR, CON") && sections.includes("Skills: Arcana"), "review sections");
 }
 
+// --- Choice-group list: feat vs non-feat branching -------------------------
+// Regression guard: renderChoiceGroupsInto once called a bare
+// `categorizeChoiceGroup` it never imported, crashing the creator the
+// moment any race with real choice groups (e.g. Changeling) rendered.
+{
+  const groups = [
+    {
+      key: "g-feat", label: "Choose a feat", source: "Test",
+      minSelections: 0, maxSelections: 1,
+      options: [{ id: "f1", name: "Alert" }],
+    },
+    {
+      key: "g-skill", label: "Choose a skill", source: "Test",
+      minSelections: 0, maxSelections: 1,
+      options: [{ id: "s1", name: "Arcana" }],
+    },
+  ];
+  const box = document.createElement("div");
+  const store = {};
+  let threw = null;
+  try {
+    wizard.renderChoiceGroupsInto(box, groups, store, "test", () => {}, () => new Set());
+  } catch (err) { threw = err; }
+  assert(threw === null, "choice-group list renders without missing bindings");
+  if (threw === null) {
+    assert(box.querySelectorAll(".level-guide__choices").length === 2, "both choice groups render fieldsets");
+    assert(box.querySelector(".inline-pick-help") !== null, "feat group gets the feat-picker help");
+  }
+}
+
 // --- Toolbar shell: Play View insertion point -----------------------------
 {
   const shell = await import("../js/render/sheet/sheetToolbar.js");

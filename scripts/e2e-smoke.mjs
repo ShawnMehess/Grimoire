@@ -156,6 +156,18 @@ try {
     check(stepText, "creator wizard advances to step 2");
     await page.screenshot({ path: path.join(shotDir, "creator-step2.png") });
   }
+  // Changeling regression: picking a race with real choice groups once
+  // crashed the creator (a bare categorizeChoiceGroup reference with no
+  // binding). Step 2 is Identity, which lists the race rows.
+  const changeling = await page.$(`.choice-row[data-row-name="Changeling"]`);
+  check(!!changeling, "Identity step lists Changeling");
+  if (changeling) {
+    await changeling.click();
+    await page.waitForTimeout(1500);
+    const rendered = await page.$$(".level-guide__choices");
+    check(rendered.length >= 1, "Changeling choice groups render");
+    await page.screenshot({ path: path.join(shotDir, "changeling.png") });
+  }
 } finally {
   await browser.close();
   server.close();

@@ -4,7 +4,7 @@
 // DOM rendering stays in customSheet.js for now; all list math,
 // step navigation, and spell-catalog lookups live here testably.
 
-import { briefDescription, capitalizeFirst, splitAbilityTokens, abilityTooltip, humanizeGameText } from "./sheetMechanics.js";
+import { briefDescription, capitalizeFirst, splitAbilityTokens, abilityTooltip, humanizeGameText, categorizeChoiceGroup } from "./sheetMechanics.js";
 import { el } from "./sheetHelpers.js";
 import { contentIdMatches } from "../../data/dnd5e.js";
 
