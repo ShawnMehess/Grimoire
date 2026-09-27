@@ -4,6 +4,7 @@
 // customSheet.js owns DOM + character mutation; it delegates math here.
 
 import { buildLabelValueInto } from "./sheetFields.js";
+import { previewForType, personIconSvgMarkup } from "./sheetFields.js";
 import { hideToggleBtnInto } from "./sheetStyles.js";
 
 export function resolveSourceBlock(block, globalLayout = []) {
@@ -358,6 +359,51 @@ export function renderBlockNodeInto(block, cw, deps) {
   return el;
 }
 
+// --- Sidebar icon/name helpers ---------------------------------------
+const TYPE_ICONS = {
+  text: () => previewForType("text", personIconSvgMarkup()),
+  label: () => previewForType("label", personIconSvgMarkup()),
+  textarea: () => previewForType("textarea", personIconSvgMarkup()),
+  textlist: () => previewForType("textlist", personIconSvgMarkup()),
+  dropdown: () => previewForType("dropdown", personIconSvgMarkup()),
+  radio: () => previewForType("radio", personIconSvgMarkup()),
+  checkbox: () => previewForType("checkbox", personIconSvgMarkup()),
+  picture: () => previewForType("picture", personIconSvgMarkup()),
+  catalog: () => previewForType("catalog", personIconSvgMarkup()),
+  featureList: () => previewForType("featureList", personIconSvgMarkup()),
+  characterlink: () => previewForType("characterlink", personIconSvgMarkup()),
+};
+
+const FALLBACK_NAMES = {
+  text: "Text Field",
+  label: "Label",
+  textarea: "Textarea",
+  textlist: "Text List",
+  dropdown: "Dropdown",
+  radio: "Radio Group",
+  checkbox: "Checkbox Group",
+  picture: "Image",
+  catalog: "Catalog",
+  featureList: "Feature List",
+  characterlink: "Character Link",
+  block: "Block",
+  "label-block": "Label Block",
+};
+
+function getIconForType(type) {
+  const fn = TYPE_ICONS[type] || TYPE_ICONS.text;
+  const icon = fn();
+  if (icon instanceof Node) return icon.cloneNode(true);
+  return icon;
+}
+
+function getFallbackName(type) {
+  return FALLBACK_NAMES[type] || "Field";
+}
+
+export { getIconForType, getFallbackName };
+
+// --- Sidebar (Stat Blocks list) DOM -------------------------------------
 export function renderBlockFrameInto(frameEl, deps) {
   const {
     layout = [],
@@ -410,7 +456,9 @@ export function renderBlockFrameInto(frameEl, deps) {
     titleRow.append(toggleBtn);
 
     const name = document.createElement("span");
-    name.textContent = source.name || "Unnamed Block";
+    const displayName = source.name && source.name.trim() ? source.name : "Block";
+    name.textContent = displayName;
+    titleRow.prepend(getIconForType(source.blockType || "block"));
     titleRow.append(name);
     blockLine.append(titleRow);
 
@@ -429,7 +477,9 @@ export function renderBlockFrameInto(frameEl, deps) {
     (source.children || []).forEach((field) => {
       const fieldItem = document.createElement("div");
       fieldItem.className = "sheet-block-list__field";
-      fieldItem.textContent = field.label || "Unnamed Field";
+      const displayName = field.label && field.label.trim() ? field.label : getFallbackName(field.fieldType);
+      fieldItem.textContent = displayName;
+      fieldItem.prepend(getIconForType(field.fieldType));
       fieldItem.draggable = true;
       fieldItem.dataset.highlightId = field.id;
       fieldItem.addEventListener("click", (e) => {
@@ -450,7 +500,8 @@ export function renderBlockFrameInto(frameEl, deps) {
         (field.checked || []).forEach((_, i) => {
           const cbItem = document.createElement("div");
           cbItem.className = "sheet-block-list__field sheet-block-list__field--sub";
-          cbItem.textContent = `↳ ${field.label || "Unnamed Field"} ${i + 1}`;
+          const baseName = field.label && field.label.trim() ? field.label : getFallbackName("checkbox");
+          cbItem.textContent = `↳ ${baseName} ${i + 1}`;
           cbItem.draggable = true;
           cbItem.dataset.highlightId = field.id;
           cbItem.addEventListener("click", (e) => {

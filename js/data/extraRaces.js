@@ -102,7 +102,7 @@ export const RACE_EXTRA_ENTRIES = [
       dropdownAccess: [],
       featureGrants: [speedFeature(30)],
       resourceGrants: [],
-      choiceGroups: [langOptions("human", 1)],
+      choiceGroups: [{ ...langOptions("human", 1), category: "languages" }],
     },
   },
   {
@@ -117,6 +117,7 @@ export const RACE_EXTRA_ENTRIES = [
       choiceGroups: [
         {
           id: "elf-subrace", label: "Elven Subrace", subrace: true, minLevel: 1, minSelections: 1, maxSelections: 1,
+          category: "features",
           options: [
             {
               id: "elf-subrace-high", name: "High Elf", description: "",
@@ -219,9 +220,9 @@ export const RACE_EXTRA_ENTRIES = [
       choiceGroups: [
         // +1 to two abilities other than Charisma (already +2) — one
         // dropdown per pick, duplicates allowed.
-        ...asiSlotGroups("half-elf-asi", 2, ABILITIES.filter((a) => a !== "cha")),
-        skillOptions("half-elf", "Skill Versatility (any two skills)", SKILLS.map((s) => s[0]), 2),
-        langOptions("half-elf", 1),
+        ...asiSlotGroups("half-elf-asi", 2, ABILITIES.filter((a) => a !== "cha")).map((g) => ({ ...g, category: "abilities" })),
+        { ...skillOptions("half-elf", "Skill Versatility (any two skills)", SKILLS.map((s) => s[0]), 2), category: "skills" },
+        { ...langOptions("half-elf", 1), category: "languages" },
       ],
     },
   },

@@ -169,6 +169,13 @@
   padding: 0 var(--space-2);
 }
 
+/* Horizontal separator for grouping sections in the style popover. */
+.style-popover__separator {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: var(--space-2) 0;
+}
+
 /* --- Equation stub modal --- */
 
 .modal-overlay {

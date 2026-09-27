@@ -167,3 +167,19 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Play View mode – responsive, phone-friendly grid */
+.play-mode .page-grid {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+.play-mode .sheetCell {
+  padding: 4px;
+}
+.play-mode .sheetCell .block {
+  font-size: 0.75rem;
+  padding: 6px;
+}
+.play-mode .toolbar {
+  display: none;
+}

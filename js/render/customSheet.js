@@ -88,6 +88,7 @@ import {
   CAPTIONLESS_FIELD_TYPES,
 } from "./sheet/sheetConstants.js";
 import { debounce, valuesMatch, mergeTextStyle, clone, newId, el } from "./sheet/sheetHelpers.js";
+import { compressDataUrl } from "../state/imageCompression.js";
 import {
   CREATION_CHOICE_CATEGORIES as SHARED_CREATION_CHOICE_CATEGORIES,
   categorizeChoiceGroup as sharedCategorizeChoiceGroup,
@@ -98,6 +99,7 @@ import {
   abilityTooltip as sharedAbilityTooltip,
   MECHANICS_TITLES as SHARED_MECHANICS_TITLES,
   LANGUAGE_BULLET_LABEL as SHARED_LANGUAGE_BULLET_LABEL,
+mechanicsSummaryForPicker as sharedMechanicsSummaryForPicker,
 } from "./sheet/sheetMechanics.js";
 import {
   cellsDelta,
@@ -355,7 +357,7 @@ import {
   shouldResetGroupBorder,
   applyGroupBorderOverlay,
   buildDragHandle as sharedBuildDragHandle,
-  buildResizeHandle as sharedBuildResizeHandle,
+  buildResizeHandles as sharedBuildResizeHandles,
   positionFloatingToolbarAt,
   positionPopoverWithinViewportAt,
   closeOpenPopoversIn,
@@ -714,11 +716,37 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
   // --- Toolbar: mode toggle + add-block (edit mode only) --------------
   const { toolbar, modeBtn, undoBtn, redoBtn, addBlockBtn } = buildToolbarShell();
-  addBlockBtn.addEventListener("click", () => {
-    commitMutation(() => {
-      currentLayout().push(createBlock({ name: "New Block", x: 0, y: 0, w: 3, h: 3 }));
-    });
+
+  // --- Play/View mode toggle ---
+  let playMode = false;
+  const playViewBtn = document.createElement("button");
+  playViewBtn.type = "button";
+  playViewBtn.className = "btn btn--secondary";
+  playViewBtn.textContent = "Play View";
+  playViewBtn.title = "Switch to Play View for a responsive, phone-friendly display";
+  playViewBtn.addEventListener("click", () => {
+    playMode = !playMode;
+    playViewBtn.textContent = playMode ? "Sheet View" : "Play View";
+    playViewBtn.title = playMode ? "Switch to Sheet View" : "Switch to Play View for a responsive, phone-friendly display";
+    pageGrid.classList.toggle("play-mode", playMode);
+    if (playMode) {
+      sidebarToggleBtn.style.display = "none";
+      modeSelect.style.display = "none";
+      rulesetSelect.style.display = "none";
+      themeSelect.style.display = "none";
+      displayDetails.style.display = "none";
+      cardZonesWrap.hidden = true;
+    } else {
+      sidebarToggleBtn.style.display = "";
+      modeSelect.style.display = "";
+      rulesetSelect.style.display = "";
+      themeSelect.style.display = "";
+      displayDetails.style.display = "";
+      cardZonesWrap.hidden = false;
+      renderAll();
+    }
   });
+  toolbar.insertBefore(playViewBtn, modeBtn);
 
   // Toggles the Stat Blocks sidebar closed — mainly useful on
   // narrower screens (see the @media rule for .sheet-block-frame in
@@ -931,10 +959,116 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   const printBtn = el("button", {
     type: "button", class: "btn", text: "Print",
     title: "Print this character sheet (or save it as PDF)",
-    onclick: () => window.print(),
+    onclick: () => openPrintDialog(),
   });
   const displayActions = el("div", { class: "modal-actions" }, rulesetSyncBtn, printBtn);
   displayPanel.append(displayActions);
+
+  // --- Print dialog ---
+  function openPrintDialog() {
+    const dialog = el("div", { class: "print-dialog" });
+    const dialogContent = el("div", { class: "print-dialog__content" });
+
+    // Orientation
+    const orientationRow = el("div", { class: "print-dialog__row" },
+      el("span", { class: "print-dialog__label", text: "Orientation" }),
+      el("select", { class: "print-dialog__select" },
+        el("option", { value: "portrait", text: "Portrait" }),
+        el("option", { value: "landscape", text: "Landscape" })
+      ));
+
+    // Scale
+    const scaleRow = el("div", { class: "print-dialog__row" },
+      el("span", { class: "print-dialog__label", text: "Scale" }),
+      el("input", { class: "print-dialog__input", type: "range", min: "50", max: "200", value: "100",
+        title: "Percentage of page size" }));
+
+    // Which tabs
+    const tabs = ["identity", "class", "background", "spells", "gear", "features", "custom"];
+    const tabInputs = tabs.map((kind) => {
+      const tab = findTab(character.sheetTabs, kind);
+      const isActive = tab ? tab.active : false;
+      return el("label", { class: "print-dialog__label print-dialog__tab-label" },
+        el("input", { type: "checkbox", checked: isActive, class: "print-dialog__tab-checkbox" }),
+        el("span", { class: "print-dialog__tab-text" }, tab ? tab.name : kind));
+    });
+
+    const tabsRow = el("div", { class: "print-dialog__row print-dialog__tabs" },
+      el("span", { class: "print-dialog__label", text: "Tabs" }),
+      ...tabInputs);
+
+    // Background images
+    const bgRow = el("div", { class: "print-dialog__row" },
+      el("span", { class: "print-dialog__label", text: "Background images" }),
+      el("label", { class: "print-dialog__checkbox-label" },
+        el("input", { type: "checkbox", checked: true }),
+        " Include background images"));
+
+    // Buttons
+    const actions = el("div", { class: "print-dialog__actions" },
+      el("button", { class: "btn btn--primary", text: "Print", onclick: () => {
+        // Apply print settings and print
+        const orientation = orientationRow.querySelector("select").value;
+        const scale = parseInt(scaleRow.querySelector("input").value);
+        const selectedTabs = [];
+        document.querySelectorAll(".print-dialog__tab-checkbox:checked").forEach((cb) => {
+          const label = cb.nextElementSibling.textContent.trim();
+          selectedTabs.push(label);
+        });
+        const includeBg = bgRow.querySelector("input").checked;
+
+        // Build print styles based on selections
+        const styleEl = document.createElement("style");
+        styleEl.textContent = `
+          @media print {
+            :root {
+              --color-bg: #ffffff;
+              --color-bg-raised: #f5f2ea;
+              --color-text: #1a1510;
+            }
+            body { background: #fff; }
+            .app-header, .sheet-toolbar, .sheet-block-frame, .sheet-tabs,
+                   .node-toolbar, .drag-handle, .resize-handle, .wizard__nav,
+                   .wizard__dots, .sheet-toast, .modal-overlay,
+                   .choice-row-list__collapse-controls, .spell-picker-tip,
+                   .textlist-add, .textlist-item__handle, .textlist-item__remove,
+                   .field-roll, button { display: none !important; }
+            .choice-row__details[hidden] { display: block; }
+            .page-grid-scroll { overflow: visible; }
+            a { color: inherit; text-decoration: none; }
+            @page { size: ${orientation} 8.5in 11in; margin: 0.5in; }
+            .sheet-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+          }
+        `;
+        document.head.append(styleEl);
+
+        // Hide non-selected tabs
+        document.querySelectorAll(".sheet-tab").forEach((el) => {
+          const tabKind = el.dataset.kind;
+          if (!selectedTabs.includes(tabKind)) el.style.display = "none";
+        });
+
+        // Print
+        window.print();
+
+        // Cleanup
+        document.head.removeChild(styleEl);
+        document.querySelectorAll(".sheet-tab").forEach((el) => {
+          el.style.display = "";
+        });
+      } }),
+      el("button", { class: "btn btn--secondary", text: "Cancel", onclick: () => root.removeChild(dialog) }));
+
+    dialogContent.append(orientationRow, scaleRow, tabsRow, bgRow, actions);
+    dialog.append(dialogContent);
+    root.append(dialog);
+
+    // Focus trap / escape to close
+    dialog.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") root.removeChild(dialog);
+    });
+    actions.querySelector(".btn--primary").focus();
+  }
 
   // Everything else the character-selection page shows on a card
   // (Race, Class, Level, whatever) is NOT intrinsic — name is the
@@ -1205,7 +1339,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       // an existing picture field, which handles the drop itself and
       // stops it from bubbling here) auto-builds a new block just for it.
       if (imageFile) {
-        readImageFile(imageFile, (dataUrl) => {
+        compressDataUrl(imageFile).then((dataUrl) => {
           const size = DEFAULT_FIELD_SIZE.picture;
           const block = createBlock({ name: "New Block", x, y, w: size.w, h: size.h + BLOCK_HEADER_ROWS });
           const field = createField({ fieldType: "picture", label: "Stat", x: 0, y: 0, w: size.w, h: size.h });
@@ -2396,14 +2530,15 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     return true;
   }
 
-  /** Same fit-check as growFieldToFitLabel, used after a person edits
-   *  a label by hand (typing past what its cell can hold) — wrapped in
-   *  commitMutation so the wider field is persisted and folds into the
-   *  same undo step as the edit that caused it, the way any other
-   *  consequence of an edit would. The plain pre-check before
-   *  commitMutation (mirroring growFieldToFitLabel's own guard) means
-   *  an already-fitting label never touches the undo stack or triggers
-   *  a save for doing nothing. */
+/** Same fit-check as growFieldToFitLabel, used after a person edits
+ *  a label by hand (typing past what its cell can hold) — wrapped in
+ *  commitMutation so the wider field is persisted and folds into the
+ *  same undo step as the edit that caused it, the way any other
+ *  consequence of an edit would. The plain pre-check before
+ *  commitMutation (mirroring growFieldToFitLabel's own guard) means
+ *  an already-fitting label never touches the undo stack or triggers
+ *  a save for doing nothing. Grows in whole grid-cell increments.
+ *  Never allows the label to extend outside its parent block. */
   function growFieldIfLabelOverflows(labelEl, field, fieldEl, parentBlock) {
     if (!parentBlock) return;
     const maxW = labelMaxWidth(parentBlock, field);
@@ -2411,6 +2546,14 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     commitMutation(() => {
       growFieldToFitLabel(labelEl, field, fieldEl, parentBlock);
     }, { render: false });
+    // Ensure the field never extends beyond parent block boundaries
+    const contentRows = parentBlock.h - BLOCK_HEADER_ROWS;
+    if (field.x + field.w > parentBlock.w) {
+      field.w = parentBlock.w - field.x;
+    }
+    if (field.y + field.h > contentRows) {
+      field.h = contentRows - field.y;
+    }
   }
 
   function applyNodeStyle(el, style) {
@@ -4382,6 +4525,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
               : profileSectionsFor(category, name, saveRules)),
             selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
             debounceFn: (fn, ms) => debounce(fn, ms),
+            getSummary: (name) => sharedMechanicsSummaryForPicker(
+              bundleFor("Race", name, includedRulesetIds(state)),
+              state.level,
+              { abilityIds: ABILITY_IDS, abilities: ABILITIES, skills: SKILLS, resolveLabel: (id) => resolveFieldById(id)?.label }
+            ),
             subraceGroupFn: (raceName) => {
               const group = subraceGroupFor(raceName);
               if (!group) return null;
@@ -4442,6 +4590,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             creationGroups,
             categorizeChoiceGroup: sharedCategorizeChoiceGroup,
             saveRules,
+            getSummary: (name) => sharedMechanicsSummaryForPicker(
+              bundleFor("Class", name, includedRulesetIds(state)),
+              state.level,
+              { abilityIds: ABILITY_IDS, abilities: ABILITIES, skills: SKILLS, resolveLabel: (id) => resolveFieldById(id)?.label }
+            ),
           });
           renderYourChoicesSections(container, "class", classChoiceGroups, saveRules);
         },
@@ -4471,6 +4624,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
             mechanicsListFn: (category, name) => profileSectionsFor(category, name, saveRules),
+            getSummary: (name) => sharedMechanicsSummaryForPicker(
+              bundleFor("Background", name, includedRulesetIds(state)),
+              state.level,
+              { abilityIds: ABILITY_IDS, abilities: ABILITIES, skills: SKILLS, resolveLabel: (id) => resolveFieldById(id)?.label }
+            ),
           });
           renderYourChoicesSections(container, "background", bgSectionGroups, saveRules, backgroundChoiceGroups);
         },
@@ -4550,6 +4708,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
               selectedName: lineageFeatPick()?.name,
               getInfo: (name) => catalogEntryInfo(["feat"], name),
               collapsible: true,
+              getSummary: (name) => sharedMechanicsSummaryForPicker(
+                bundleFor("Feat", name, includedRulesetIds(state)),
+                state.level,
+                { abilityIds: ABILITY_IDS, abilities: ABILITIES, skills: SKILLS, resolveLabel: (id) => resolveFieldById(id)?.label }
+              ),
               onSelect: (name) => {
                 // De-select (second click on the open row) drops the
                 // lineage feat rather than recording a blank one.
@@ -5567,10 +5730,20 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       ghostFn: wireGhostDefault,
       ownTextFn: applyTextStyleToOwnText,
       dragHandleFn: buildDragHandle,
-      resizeHandleFn: buildResizeHandle,
+      resizeHandleFn: sharedBuildResizeHandles,
       toolbarFn: (b, el) => buildBlockToolbar(b, el),
       fieldNodeFn: (f, parent, w, style) => renderFieldNode(f, parent, w, style),
-      dragFn: (el, node, w, onSettled) => wireDrag(el, node, w, onSettled),
+      dragFn: (el, node, w, onSettled) => wireDrag(el, node, w, {
+        gapPx: 10,
+        bounds: {},
+        isEditMode: () => editMode,
+        onSelectBlockOrField: (el, node) => selectOnly(node.id),
+        snapshot: () => snapshotForUndo(),
+        commit: (fn) => commitMutation(fn),
+        settled: () => { settled(); renderAll(); },
+        applyRect: applyRect,
+        reselect: (el, node) => reselect(el, node),
+      }),
       resizeFn: (el, node, w, opts) => wireResize(el, node, w, opts),
       commitFn: (fn, opts) => commitMutation(fn, opts),
       sourceOf: (b) => sourceBlockFor(b),
@@ -5609,10 +5782,20 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       innerFn: (fieldEl, f, parent, w) => renderFieldInner(fieldEl, f, parent, w),
       ownTextFn: applyTextStyleToOwnText,
       dragHandleFn: buildDragHandle,
-      resizeHandleFn: buildResizeHandle,
+      resizeHandleFn: sharedBuildResizeHandles,
       equationHintFn: (f) => buildEquationHint(f),
       toolbarFn: (f, parent, el) => buildFieldToolbar(f, parent, el),
-      dragFn: (el, node, w, onSettled, bounds) => wireDrag(el, node, w, onSettled, bounds),
+      dragFn: (el, node, w, onSettled, bounds) => wireDrag(el, node, w, {
+        gapPx: 10,
+        bounds: bounds || {},
+        isEditMode: () => editMode,
+        onSelectBlockOrField: (el, node) => selectOnly(node.id),
+        snapshot: () => snapshotForUndo(),
+        commit: (fn) => commitMutation(fn),
+        settled: () => { settled(); renderAll(); },
+        applyRect: applyRect,
+        reselect: (el, node) => reselect(el, node),
+      }),
       resizeFn: (el, node, w, opts) => wireResize(el, node, w, opts),
       renderAllFn: () => renderAll(),
       persistFn: () => persist(),

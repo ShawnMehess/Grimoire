@@ -59,11 +59,23 @@ export function buildDragHandle() {
   return h;
 }
 
-export function buildResizeHandle() {
-  const h = document.createElement("div");
-  h.className = "node-handle resize-handle";
-  h.setAttribute("aria-hidden", "true"); // see buildDragHandle
-  return h;
+/** Creates four resize handles (one per corner) for a node. */
+export function buildResizeHandles() {
+  const handles = document.createDocumentFragment();
+  const corners = [
+    { cls: "resize-handle--tl", cursor: "nwse-resize" },
+    { cls: "resize-handle--tr", cursor: "nesw-resize" },
+    { cls: "resize-handle--bl", cursor: "nesw-resize" },
+    { cls: "resize-handle--br", cursor: "nwse-resize" },
+  ];
+  corners.forEach(({ cls, cursor }) => {
+    const h = document.createElement("div");
+    h.className = `node-handle resize-handle ${cls}`;
+    h.style.cursor = cursor;
+    h.setAttribute("aria-hidden", "true");
+    handles.appendChild(h);
+  });
+  return handles;
 }
 
 export function positionFloatingToolbarAt(el, rightEdgePx, topEdgePx, bottomEdgePx) {

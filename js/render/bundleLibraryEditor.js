@@ -21,6 +21,7 @@
 import { positionCollectionMenu } from "./collectionMenuLayout.js";
 import { deepClone, newLocalId } from "./sheet/sheetHelpers.js";
 import { listContentPacks, listRulesets } from "../data/dnd5e.js";
+import { CREATION_CHOICE_CATEGORIES } from "./sheet/sheetMechanics.js";
 
 const MODIFIER_OPS = [
   { value: "add", label: "+ Add" },
@@ -258,12 +259,19 @@ export function openBundleLibraryManager(store, onChange) {
     catRow.className = "bundle-library-field-row";
     const catLabel = document.createElement("label");
     catLabel.textContent = "Category";
-    const catInput = document.createElement("input");
-    catInput.type = "text";
-    catInput.placeholder = "e.g. Race";
-    catInput.value = selected.category;
-    catInput.addEventListener("input", () => { selected.category = catInput.value; });
-    catRow.append(catLabel, catInput);
+    const catSelect = document.createElement("select");
+    catSelect.className = "bundle-library-field-select";
+    // Add empty option for "uncategorized"
+    catSelect.append(new Option("", ""));
+    CREATION_CHOICE_CATEGORIES.forEach((cat) => {
+      const opt = document.createElement("option");
+      opt.value = cat.key;
+      opt.textContent = cat.title;
+      if (cat.key === selected.category) opt.selected = true;
+      catSelect.append(opt);
+    });
+    catSelect.addEventListener("change", () => { selected.category = catSelect.value; });
+    catRow.append(catLabel, catSelect);
 
     editorCol.append(nameRow, catRow);
 

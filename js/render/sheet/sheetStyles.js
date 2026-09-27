@@ -204,12 +204,21 @@ export function buildStylePopoverInto(node, wrapperEl, deps) {
   const { forEditing, setValue, commit, applyStyle, styleChangeFn, toastFn, maxImageBytes } = deps;
   const pop = document.createElement("div");
   pop.className = "style-popover";
+  pop.style.zIndex = "200"; // Above resize handles (z-index: 5), drag ghost (z-index: 100), selection outlines (z-index: 5)
   pop.addEventListener("pointerdown", (e) => e.stopPropagation());
   const editableStyle = forEditing(node);
 
   function buildStyleLabel(text, styleKey) {
     const label = buildStyleLabelEl(text, node);
     return markLocalOverride(label, node, styleKey);
+  }
+
+  // Helper to add a horizontal separator
+  function addSeparator(popover) {
+    const sep = document.createElement("hr");
+    sep.className = "style-popover__separator";
+    sep.style.cssText = "border: none; border-top: 1px solid var(--color-border); margin: var(--space-2) 0;";
+    popover.append(sep);
   }
 
   // Background color (whole node only — background doesn't cascade
@@ -256,6 +265,8 @@ export function buildStylePopoverInto(node, wrapperEl, deps) {
   imgRow.append(imgLabel, imgInput);
   pop.append(imgRow);
 
+  addSeparator(pop); // Separator between Background and Text groups
+
   // Font family
   const fontRow = document.createElement("div");
   fontRow.className = "style-popover__row";
@@ -300,6 +311,8 @@ export function buildStylePopoverInto(node, wrapperEl, deps) {
   });
   colorRow.append(colorLabel, colorInput);
   pop.append(colorRow);
+
+  addSeparator(pop); // Separator between Text and Hover/Selection groups
 
   // Bold / Italic / Underline
   const togglesRow = document.createElement("div");

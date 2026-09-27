@@ -12,10 +12,31 @@ export const CREATION_CHOICE_CATEGORIES = [
   { key: "languages", title: "Languages", test: /language/i },
   { key: "equipment", title: "Starting Equipment", test: /equipment|\bgear\b|weapon|armor|\bpack\b/i },
   { key: "feats", title: "Feats", test: /\bfeat\b/i },
+  { key: "abilities", title: "Ability Scores", test: /ability score|ability increase|asi/i },
+  { key: "skills", title: "Skills", test: /skill/i },
+  { key: "tools", title: "Tools", test: /tool/i },
+  { key: "weapons", title: "Weapons", test: /weapon/i },
+  { key: "armor", title: "Armor", test: /armor/i },
+  { key: "vehicles", title: "Vehicles", test: /vehicle/i },
+  { key: "feats", title: "Feats", test: /\bfeat\b/i },
   { key: "proficiencies", title: "Ability Proficiencies", test: null },
 ];
 
+/** Supported explicit category keys for choice groups. */
+export const CHOICE_GROUP_CATEGORY_KEYS = new Set(
+  CREATION_CHOICE_CATEGORIES.map((c) => c.key)
+);
+
+/**
+ * Categorize a choice group by explicit `category` field if present,
+ * falling back to the heuristic regex match on the label.
+ * Pure — no side effects.
+ */
 export function categorizeChoiceGroup(group) {
+  if (group?.category && CHOICE_GROUP_CATEGORY_KEYS.has(group.category)) {
+    return group.category;
+  }
+  // Compatibility fallback: heuristic based on label (legacy content)
   const label = group?.label || "";
   const found = CREATION_CHOICE_CATEGORIES.find((cat) => cat.test && cat.test.test(label));
   return (found || CREATION_CHOICE_CATEGORIES[CREATION_CHOICE_CATEGORIES.length - 1]).key;
@@ -482,4 +503,24 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   if (profs.length) out.push({ title: "Proficiencies", items: [profs.join(", ")] });
   if (innate.length) out.push({ title: "Innate Abilities", items: innate });
   return out;
+}
+
+/**
+ * Generate a plain-language "What this changes" summary for a bundle,
+ * suitable for the wizard's picker rows. Only includes effects at or
+ * below the given level. Returns an array of plain strings suitable
+ * for rendering as bullet points or a compact list.
+ * Pure — no side effects, no DOM.
+ */
+export function mechanicsSummaryForPicker(bundle, level = Infinity, deps = {}) {
+  if (!bundle) return [];
+  const sections = mechanicsBulletsFor(bundle, level, deps);
+  if (!sections.length) return [];
+  const lines = [];
+  for (const section of sections) {
+    for (const item of section.items) {
+      lines.push(item);
+    }
+  }
+  return lines;
 }

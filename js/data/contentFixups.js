@@ -182,7 +182,9 @@ export const LEGACY_ASI_COMBOS = [
 function patchFighter(bundle) {
   const levels = takeNotes(bundle, (g) => /Fighting Style/.test(g.name || ""));
   if (levels.length) {
-    bundle.choiceGroups.push(fightingStyleGroup("fighter", Math.min(...levels.filter(Number.isFinite)), FS_LISTS.Fighter));
+    const group = fightingStyleGroup("fighter", Math.min(...levels.filter(Number.isFinite)), FS_LISTS.Fighter);
+    group.category = "features";
+    bundle.choiceGroups.push(group);
   }
   return bundle;
 }
@@ -190,7 +192,9 @@ function patchFighter(bundle) {
 function patchPaladin(bundle) {
   const levels = takeNotes(bundle, (g) => /Fighting Style/.test(g.name || ""));
   if (levels.length) {
-    bundle.choiceGroups.push(fightingStyleGroup("paladin", Math.min(...levels.filter(Number.isFinite)), FS_LISTS.Paladin));
+    const group = fightingStyleGroup("paladin", Math.min(...levels.filter(Number.isFinite)), FS_LISTS.Paladin);
+    group.category = "features";
+    bundle.choiceGroups.push(group);
   }
   return bundle;
 }
@@ -198,7 +202,9 @@ function patchPaladin(bundle) {
 function patchRanger(bundle) {
   const levels = takeNotes(bundle, (g) => /Fighting Style/.test(g.name || ""));
   if (levels.length) {
-    bundle.choiceGroups.push(fightingStyleGroup("ranger", Math.min(...levels.filter(Number.isFinite)), FS_LISTS.Ranger));
+    const group = fightingStyleGroup("ranger", Math.min(...levels.filter(Number.isFinite)), FS_LISTS.Ranger);
+    group.category = "features";
+    bundle.choiceGroups.push(group);
   }
   return bundle;
 }
@@ -212,11 +218,13 @@ function patchRogue(bundle) {
     resourceGrants: [],
   };
   levels.forEach((minLevel, i) => {
-    bundle.choiceGroups.push({
+    const group = {
       id: `rogue-expertise-${i}`, label: "Expertise — pick 2 of your proficiencies", minLevel,
       minSelections: 2, maxSelections: 2,
+      category: "skills",
       options: [...skillExpertiseOptions("rogue"), thieves],
-    });
+    };
+    bundle.choiceGroups.push(group);
   });
   return bundle;
 }
@@ -224,11 +232,13 @@ function patchRogue(bundle) {
 function patchBard(bundle) {
   const levels = takeNotes(bundle, (g) => /^Expertise/.test(g.name || ""));
   levels.forEach((minLevel, i) => {
-    bundle.choiceGroups.push({
+    const group = {
       id: `bard-expertise-${i}`, label: "Expertise — pick 2 of your proficiencies", minLevel,
       minSelections: 2, maxSelections: 2,
+      category: "skills",
       options: skillExpertiseOptions("bard"),
-    });
+    };
+    bundle.choiceGroups.push(group);
   });
   // Magical Secrets stubs are removed (not replaced with a choice
   // group — hundreds of spell options would bloat every save). The
@@ -243,11 +253,13 @@ function patchSorcerer(bundle) {
   const levels = takeNotes(bundle, (g) => /^Metamagic/.test(g.name || ""));
   const counts = [2, 1, 1]; // L3 two, L10 +1, L17 +1
   levels.forEach((minLevel, i) => {
-    bundle.choiceGroups.push({
+    const group = {
       id: `sorcerer-metamagic-${i}`, label: `Metamagic — pick ${counts[i] ?? 1}`, minLevel,
       minSelections: counts[i] ?? 1, maxSelections: counts[i] ?? 1,
+      category: "features",
       options: Object.entries(METAMAGIC).map(([n, d]) => textOption(`sorcerer-metamagic-${i}`, n, `${d} (Costs sorcery points — tracked, not auto-spent.)`)),
-    });
+    };
+    bundle.choiceGroups.push(group);
   });
   return bundle;
 }
@@ -258,19 +270,23 @@ function patchWarlock(bundle) {
   // Known counts by level: 2, then +1 at 5/7/9/12/15/18.
   const tiers = [{ minLevel: base, count: 2 }, { minLevel: 5, count: 1 }, { minLevel: 7, count: 1 }, { minLevel: 9, count: 1 }, { minLevel: 12, count: 1 }, { minLevel: 15, count: 1 }, { minLevel: 18, count: 1 }];
   tiers.forEach((tier, i) => {
-    bundle.choiceGroups.push({
+    const group = {
       id: `warlock-invocations-${i}`, label: `Eldritch Invocations — pick ${tier.count} (level ${tier.minLevel}+)`, minLevel: tier.minLevel,
       minSelections: tier.count, maxSelections: tier.count,
+      category: "features",
       options: INVOCATIONS.map(([n, d]) => textOption(`warlock-invocations-${i}`, n, `${d} (Recorded here — prerequisites apply, see text.)`)),
-    });
+    };
+    bundle.choiceGroups.push(group);
   });
   const pactLevels = takeNotes(bundle, (g) => /^Pact Boon/.test(g.name || ""));
   if (pactLevels.length) {
-    bundle.choiceGroups.push({
+    const group = {
       id: "warlock-pact-boon", label: "Pact Boon", minLevel: Math.min(...pactLevels.filter(Number.isFinite)),
       minSelections: 1, maxSelections: 1,
+      category: "features",
       options: Object.entries(PACT_BOONS).map(([n, d]) => textOption("warlock-pact-boon", n, d)),
-    });
+    };
+    bundle.choiceGroups.push(group);
   }
   // Mystic Arcanum intentionally stays a note (free spell of choice —
   // record it in Spells Known via the browser).
@@ -316,6 +332,7 @@ function artificerInfusionGroup(index, minLevel, count) {
   return {
     id: `artificer-infusions-${index}`, label: `Infusions Known — pick ${count} (level ${minLevel}+)`, minLevel,
     minSelections: count, maxSelections: count,
+    category: "features",
     options: ARTIFICER_INFUSIONS.map(([n, d]) => textOption(`artificer-infusions-${index}`, n, `${d} (Recorded here — each infusion lives in one object at a time; see Infuse Item.)`)),
   };
 }

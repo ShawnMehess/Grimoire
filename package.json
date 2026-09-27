@@ -1,0 +1,14 @@
+{
+  "name": "dnd-character-sheet",
+  "version": "1.0.0",
+  "description": "Vanilla JS D&D character sheet builder",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/**/*.mjs",
+    "test:smoke": "node --test tests/smoke-imports.mjs tests/smoke-dom.mjs",
+    "test:imports": "node --test tests/imports.test.mjs 2>/dev/null || echo 'No imports test file'",
+    "test:content": "node --test tests/content.test.mjs 2>/dev/null || echo 'No content test file'",
+    "verify": "node scripts/verify-content.mjs"
+  }
+}

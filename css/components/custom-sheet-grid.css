@@ -419,6 +419,16 @@
   z-index: 4;
 }
 
+/* Keep selection visible when pointer is over the selected element
+   or any of its descendants (children), and during drag/resize. */
+.is-edit-mode .grid-node.is-selected:hover,
+.is-edit-mode .grid-node.is-selected:has(:hover),
+.is-edit-mode .grid-node.is-selected.is-dragging,
+.is-edit-mode .grid-node.is-selected.is-resizing {
+  border-color: var(--color-accent);
+  z-index: 5;
+}
+
 /* A block/field can have its own border turned off (see the ▢ toggle
    in its toolbar / buildBorderToggleButton) — selection still shows
    through even then, via the compound selector below outweighing
@@ -599,6 +609,8 @@
   position: absolute;
   left: 0; right: 0; bottom: 0;
   /* top set inline in JS — starts right after the name row + gap */
+  /* Contain fields within block boundaries */
+  overflow: hidden;
 }
 
 /* --- Field internal layout: label position variants --- */
@@ -645,6 +657,9 @@
   text-align: center;
   padding: 2px;
   overflow: hidden;
+  /* Stable dimensions: reserve space even when empty so grid doesn't jump */
+  min-height: 1.3em;
+  min-width: 1.5rem;
 }
 .field-inner--left .field-label,
 .field-inner--right .field-label {
@@ -667,13 +682,16 @@
   outline: none;
   cursor: text;
   display: flex;
-  flex-direction: column; /* see the .field-label comment above — same
+  flex-direction: column; /* see the .field_label comment above — same
     fix, same reasoning, for the same empty-caret quirk */
   justify-content: center;
   text-align: center;
   padding: 2px 4px;
   overflow: auto;
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  /* Stable dimensions for empty fields: maintain grid cell size */
+  min-height: 1.3em;
+  min-width: 1.5rem;
 }
 .field-value:focus {
   border-color: var(--color-accent);
@@ -701,6 +719,12 @@
   border: none;
   font-family: var(--font-display);
   font-size: var(--text-md);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  min-height: 1.3em;
+  min-width: 1.5rem;
 }
 
 .field-value--picture {
@@ -987,16 +1011,14 @@
   display: none;
 }
 
-/* Shown only on hover — previously always-on for every block/field in
-   edit mode at once, which buried the sheet in little grab/resize
-   icons. Also kept visible for the duration of an actual drag/resize
-   (via the is-dragging/is-resizing classes wireDrag/wireResize already
-   toggle) so the handle doesn't vanish mid-gesture just because the
-   pointer has moved past the node's own edge while dragging it. */
+/* Handles shown on node hover, when node is selected (even hovering descendants),
+   and during active drag/resize — so they don't vanish mid-gesture. */
 .is-edit-mode .grid-node:hover > .node-handle,
+.is-edit-mode .grid-node:has(:hover) > .node-handle,
 .is-edit-mode .grid-node.is-dragging > .node-handle,
 .is-edit-mode .grid-node.is-resizing > .node-handle {
   display: flex;
+}
 }
 
 .drag-handle {
@@ -1021,15 +1043,82 @@
 
 .resize-handle {
   position: absolute;
-  bottom: -2px;
-  right: -2px;
   width: 14px;
   height: 14px;
   background: var(--color-border-strong);
-  border-radius: var(--radius-sm) 0 var(--radius-sm) 0;
-  cursor: nwse-resize;
+  border-radius: var(--radius-sm);
   z-index: 5;
   touch-action: none;
+}
+
+/* Bottom-right (default, existing) */
+.resize-handle--br {
+  bottom: -2px;
+  right: -2px;
+  cursor: nwse-resize;
+  border-radius: var(--radius-sm) 0 var(--radius-sm) 0;
+}
+
+/* Bottom-left */
+.resize-handle--bl {
+  bottom: -2px;
+  left: -2px;
+  cursor: nesw-resize;
+  border-radius: 0 var(--radius-sm) 0 var(--radius-sm);
+}
+
+/* Top-right */
+.resize-handle--tr {
+  top: -2px;
+  right: -2px;
+  cursor: nesw-resize;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+/* Top-left */
+.resize-handle--tl {
+  top: -2px;
+  left: -2px;
+  cursor: nwse-resize;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+/* Top-left */
+.resize-handle--tl {
+  top: -2px;
+  left: -2px;
+  cursor: nwse-resize;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+/* Drag ghost preview */
+.drag-ghost {
+  position: fixed;
+  box-shadow: var(--shadow-lg);
+  border: 2px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  /* Subtle pulse animation */
+  animation: drag-ghost-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes drag-ghost-pulse {
+  0%, 100% { box-shadow: var(--shadow-lg), 0 0 0 0 var(--color-accent); }
+  50% { box-shadow: var(--shadow-lg), 0 0 8px 2px var(--color-accent); }
+}
+
+/* Valid drop target feedback */
+.drag-ghost--valid {
+  border-color: var(--color-positive);
+}
+.drag-ghost--valid .grid-node {
+  border-color: var(--color-positive) !important;
+}
+
+.drag-ghost--invalid {
+  border-color: var(--color-negative);
+}
+.drag-ghost--invalid .grid-node {
+  border-color: var(--color-negative) !important;
 }
 
 .node-toolbar {

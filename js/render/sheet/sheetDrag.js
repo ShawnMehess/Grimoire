@@ -101,6 +101,38 @@ export function wireDrag(el, node, cw, deps) {
     const startX = node.x, startY = node.y;
     const isBlock = Array.isArray(node.children);
 
+    // Create ghost element
+    let ghost = null;
+    const pageGrid = el.closest(".page-grid");
+    
+    function createGhost() {
+      const g = el.cloneNode(true);
+      g.classList.add("drag-ghost");
+      g.style.pointerEvents = "none";
+      g.style.zIndex = "100";
+      g.style.opacity = "0.7";
+      g.style.transition = "none";
+      // Remove handles from ghost
+      g.querySelectorAll(".node-handle").forEach(h => h.remove());
+      g.querySelectorAll(".node-toolbar").forEach(t => t.remove());
+      document.body.appendChild(g);
+      return g;
+    }
+
+    function updateGhost() {
+      if (!ghost || !pageGrid) return;
+      const pgRect = pageGrid.getBoundingClientRect();
+      const left = pgRect.left + node.x * (cw + 10);
+      const top = pgRect.top + node.y * (cw + 10);
+      ghost.style.left = `${left}px`;
+      ghost.style.top = `${top}px`;
+    }
+
+    ghost = createGhost();
+    updateGhost();
+    // Subdue original element
+    el.style.opacity = "0.4";
+
     function onMove(ev) {
       const dx = cellsDelta(ev.clientX - startClientX, cw, gapPx);
       const dy = cellsDelta(ev.clientY - startClientY, cw, gapPx);
@@ -108,18 +140,85 @@ export function wireDrag(el, node, cw, deps) {
       node.x = pos.x;
       node.y = pos.y;
       applyRect(el, node, cw);
+      updateGhost();
     }
     function onUp() {
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onCancel);
+      document.removeEventListener("keydown", onEscape);
       el.classList.remove("is-dragging");
+      el.style.opacity = "";
+      if (ghost) {
+        ghost.remove();
+      }
       commit(before);
       settled();
       reselect(el, node, isBlock);
     }
+    function onCancel() {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onCancel);
+      document.removeEventListener("keydown", onEscape);
+      el.classList.remove("is-dragging");
+      el.style.opacity = "";
+      if (ghost) {
+        ghost.remove();
+      }
+      // Restore original position
+      node.x = startX;
+      node.y = startY;
+      applyRect(el, node, cw);
+      commit(before);
+      settled();
+      reselect(el, node, isBlock);
+    }
+    function onEscape(ev) {
+      if (ev.key === "Escape") {
+        onCancel();
+      }
+    }
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onCancel);
+    document.addEventListener("keydown", onEscape);
   });
+}
+
+function getCornerFromHandle(handle) {
+  if (handle.classList.contains("resize-handle--tl")) return "tl";
+  if (handle.classList.contains("resize-handle--tr")) return "tr";
+  if (handle.classList.contains("resize-handle--bl")) return "bl";
+  if (handle.classList.contains("resize-handle--br")) return "br";
+  return "br"; // default
+}
+
+function applyResizeByCorner(node, startW, startH, startX, startY, dw, dh, corner, { minW, minH, maxW, maxH }) {
+  let x = startX, y = startY, w = startW, h = startH;
+  switch (corner) {
+    case "br":
+      w = Math.min(maxW, Math.max(minW, startW + dw));
+      h = Math.min(maxH, Math.max(minH, startH + dh));
+      break;
+    case "bl":
+      w = Math.min(maxW, Math.max(minW, startW - dw));
+      x = startX + startW - w;
+      h = Math.min(maxH, Math.max(minH, startH + dh));
+      break;
+    case "tr":
+      w = Math.min(maxW, Math.max(minW, startW + dw));
+      h = Math.min(maxH, Math.max(minH, startH - dh));
+      y = startY + startH - h;
+      break;
+    case "tl":
+      w = Math.min(maxW, Math.max(minW, startW - dw));
+      x = startX + startW - w;
+      h = Math.min(maxH, Math.max(minH, startH - dh));
+      y = startY + startH - h;
+      break;
+  }
+  return { x, y, w, h };
 }
 
 export function wireResize(el, node, cw, deps) {
@@ -137,46 +236,57 @@ export function wireResize(el, node, cw, deps) {
     applyRect,
     reselect,
   } = deps;
-  const handle = scopedHandle(el, "resize-handle");
-  if (!handle) return;
-  handle.addEventListener("pointerdown", (e) => {
-    if (!isEditMode()) return;
-    e.preventDefault();
-    e.stopPropagation();
-    el.classList.add("is-resizing");
-    const isBlock = Array.isArray(node.children);
-    const scalePlan = getScaleFieldIds(el, node, e) || { ids: [], fields: [] };
-    const before = snapshot();
-    const startClientX = e.clientX, startClientY = e.clientY;
-    const startW = node.w, startH = node.h;
 
-    function onMove(ev) {
-      const dw = cellsDelta(ev.clientX - startClientX, cw, gapPx);
-      const dh = cellsDelta(ev.clientY - startClientY, cw, gapPx);
-      const dims = resizeDims(startW, startH, dw, dh, { minW, minH, maxW, maxH });
-      const ratioW = dims.w / startW;
-      const ratioH = dims.h / startH;
-      node.w = dims.w;
-      node.h = dims.h;
-      applyRect(el, node, cw);
-      scalePlan.fields.forEach(({ field, start }) => {
-        const r = scaleFieldRect(start, ratioW, ratioH);
-        field.x = r.x; field.y = r.y; field.w = r.w; field.h = r.h;
-        const fieldEl = el.querySelector(`[data-node-id="${field.id}"]`);
-        if (fieldEl) applyRect(fieldEl, field, cw);
-      });
-    }
-    function onUp() {
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      el.classList.remove("is-resizing");
-      commit(before);
-      settled();
-      reselect(el, node, isBlock, scalePlan.ids);
-    }
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
-  });
+  const handles = el.querySelectorAll(".resize-handle");
+  if (!handles.length) return;
+
+  const attachResize = (handle) => {
+    handle.addEventListener("pointerdown", (e) => {
+      if (!isEditMode()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      el.classList.add("is-resizing");
+      const isBlock = Array.isArray(node.children);
+      const scalePlan = getScaleFieldIds(el, node, e) || { ids: [], fields: [] };
+      const before = snapshot();
+      const startClientX = e.clientX, startClientY = e.clientY;
+      const startW = node.w, startH = node.h, startX = node.x, startY = node.y;
+      const corner = getCornerFromHandle(handle);
+
+      function onMove(ev) {
+        const dw = cellsDelta(ev.clientX - startClientX, cw, gapPx);
+        const dh = cellsDelta(ev.clientY - startClientY, cw, gapPx);
+        const dims = applyResizeByCorner(node, startW, startH, startX, startY, dw, dh, corner, { minW, minH, maxW, maxH });
+        node.x = dims.x;
+        node.y = dims.y;
+        node.w = dims.w;
+        node.h = dims.h;
+        applyRect(el, node, cw);
+        if (isBlock && scalePlan.fields.length) {
+          const ratioW = dims.w / startW;
+          const ratioH = dims.h / startH;
+          scalePlan.fields.forEach(({ field, start }) => {
+            const r = scaleFieldRect(start, ratioW, ratioH);
+            field.x = r.x; field.y = r.y; field.w = r.w; field.h = r.h;
+            const fieldEl = el.querySelector(`[data-node-id="${field.id}"]`);
+            if (fieldEl) applyRect(fieldEl, field, cw);
+          });
+        }
+      }
+      function onUp() {
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onUp);
+        el.classList.remove("is-resizing");
+        commit(before);
+        settled();
+        reselect(el, node, isBlock, scalePlan.ids);
+      }
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+    });
+  };
+
+  handles.forEach(attachResize);
 }
 
 // --- Duplicate / nudge math ------------------------------------------------
