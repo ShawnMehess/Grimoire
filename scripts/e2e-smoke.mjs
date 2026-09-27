@@ -158,15 +158,24 @@ try {
   }
   // Changeling regression: picking a race with real choice groups once
   // crashed the creator (a bare categorizeChoiceGroup reference with no
-  // binding). Step 2 is Identity, which lists the race rows.
+  // binding). Step 2 is Identity, which lists the race rows. Its skill
+  // pick renders inline in the row (summary + superscript ?) through
+  // the shared choice dialog — never as a bottom section.
   const changeling = await page.$(`.choice-row[data-row-name="Changeling"]`);
   check(!!changeling, "Identity step lists Changeling");
   if (changeling) {
     await changeling.click();
     await page.waitForTimeout(1500);
-    const rendered = await page.$$(".level-guide__choices");
-    check(rendered.length >= 1, "Changeling choice groups render");
+    check(await page.$(".choice-row--selected .inline-pick-help"), "Changeling choice shows inline ?");
+    check(!((await page.$$(".level-guide__choices")).length), "no bottom choice sections for Changeling");
+    // The ? opens the shared skills dialog; Escape closes it untouched.
+    await page.click(".choice-row--selected .inline-pick-help a");
+    await page.waitForTimeout(400);
+    check(await page.$(".choice-dialog-overlay"), "shared choice dialog opens");
     await page.screenshot({ path: path.join(shotDir, "changeling.png") });
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    check(!(await page.$(".choice-dialog-overlay")), "shared choice dialog closes on Escape");
   }
 } finally {
   await browser.close();

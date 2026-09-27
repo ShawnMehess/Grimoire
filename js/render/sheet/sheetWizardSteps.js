@@ -6,7 +6,7 @@
 // passes them in.
 
 import { capitalizeFirst, ABILITY_DESCRIPTIONS, abilityTooltip, humanizeGameText } from "./sheetMechanics.js";
-import { slotLabelFor, richAbilityNodes } from "./sheetWizard.js";
+import { slotLabelFor, richAbilityNodes, choiceDialogKindFor } from "./sheetWizard.js";
 import { el } from "./sheetHelpers.js";
 
 // Ability descriptions live in sheetMechanics.js (shared with the
@@ -213,7 +213,7 @@ export function renderIdentityStepInto(container, state, deps) {
 }
 
 export function renderClassStepInto(container, state, deps) {
-  const { optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn, subclassDataFn, updateFn, selectableRowsFn, creationGroups, categorizeChoiceGroup, saveRules, sectionIntoFn, renderCreationChoiceGroupsFn } = deps;
+  const { optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn, subclassDataFn, updateFn, selectableRowsFn, creationGroups, categorizeChoiceGroup, saveRules, sectionIntoFn, renderCreationChoiceGroupsFn, inlineChoicesFn } = deps;
   const liveNames = optionNamesFn(state.rulesetId, "Class");
   selectableRowsFn(container, liveNames, {
     selectedName: state.className,
@@ -246,10 +246,22 @@ export function renderClassStepInto(container, state, deps) {
       rowEl.after(holder.firstElementChild);
     },
   });
+  // Dialog-pick groups (skills, tools, fighting styles, expertise) for
+  // the selected class render inline in its own details through the
+  // shared dialog — see inlineChoicesFn. Anything left without a dialog
+  // kind keeps the bottom section below.
+  if (state.className && typeof inlineChoicesFn === "function") {
+    // Scoped to container (which may still be detached) — never the
+    // global document.
+    const details = container.querySelector(`.choice-row[data-row-name="${state.className.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"] .choice-row__details`);
+    const dialogGroups = (creationGroups || []).filter((g) =>
+      !g.subrace && (g.source === state.className || g.source === state.subclass) && choiceDialogKindFor(g));
+    if (details && dialogGroups.length) inlineChoicesFn(details, dialogGroups);
+  }
   // Inline class-specific choices (fighting style, expertise, etc.) under the selected class
   if (state.className) {
     // Include both non-feat class choices AND class-specific feat choices
-    const classGroups = creationGroups.filter((g) => !g.subrace && (g.source === state.className || g.source === state.subclass));
+    const classGroups = (creationGroups || []).filter((g) => !g.subrace && (g.source === state.className || g.source === state.subclass) && !choiceDialogKindFor(g));
     if (classGroups.length) {
       const classChoicesWrap = sectionIntoFn(container, "Class Choices");
       renderCreationChoiceGroupsFn(classChoicesWrap, classGroups, saveRules, state);

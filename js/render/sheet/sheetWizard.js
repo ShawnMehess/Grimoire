@@ -1459,15 +1459,21 @@ export function richAbilityNodes(text) {
  *  (collapse + de-select) the pick itself. `change` still bubbles so
  *  wizard gating refreshes. Module-private — only reachable through
  *  live descriptors in a mechanics list. */
-function renderLiveBulletItem(item) {
+export function renderLiveBulletItem(item) {
   const li = el("li", { class: "mechanics-pick" });
   const lead = item.lead || [];
   const slots = item.slots || [];
+  // A ? opener lives either on the whole bullet (choice-summary bullets
+  // whose picks live in the shared dialog) or on individual slots (the
+  // older language/tool dropdown bullets) — same superscript either way.
+  const opener = typeof item.dialogOpener === "function"
+    ? item.dialogOpener
+    : (slots.some((s) => s.dialogOpener) ? () => slots.forEach((s) => s.dialogOpener?.()) : null);
   if (item.topic) {
     const topicEl = el("strong", { text: item.topic });
-    if (slots.some((s) => s.dialogOpener)) {
+    if (opener) {
       const helpBtn = el("sup", { class: "inline-pick-help", title: "Open picker dialog" },
-        el("a", { href: "#", onclick: (e) => { e.preventDefault(); e.stopPropagation(); slots.forEach((s) => s.dialogOpener?.()); } }, "?"));
+        el("a", { href: "#", onclick: (e) => { e.preventDefault(); e.stopPropagation(); opener(); } }, "?"));
       topicEl.append(document.createTextNode(" "), helpBtn);
     }
     li.append(topicEl, document.createTextNode(" — "));
@@ -1751,6 +1757,131 @@ function renderMultiPickerRows(container, names, { selectedSet, onToggle, getInf
   });
   container.append(list);
   return list;
+}
+
+/** Which shared choice dialog (if any) a bottom-section group belongs
+ *  in once inlined into its row: skills, tools, fighting styles, or
+ *  expertise. Returns null for groups with their own inline rendering
+ *  (languages, ASI slots, feature picks, subraces) or no options.
+ *  Pure — customSheet uses it both to build inline bullets and to
+ *  decide what stays in the bottom sections (nothing, these days). */
+export function choiceDialogKindFor(group) {
+  if (!group) return null;
+  const label = `${group.label || ""} ${group.source || ""}`;
+  if (/fighting style/i.test(label)) return "styles";
+  if (/expertise/i.test(label)) return "expertise";
+  const category = typeof categorizeChoiceGroup === "function" ? categorizeChoiceGroup(group) : null;
+  if (category === "skills") return "skills";
+  if (category === "tools") return "tools";
+  if (group.fieldId === "toolProf") return "tools";
+  return null;
+}
+
+/** One shared choice dialog for every inlined pick list (skills, tools,
+ *  fighting styles, expertise) — a single dialog object reused across
+ *  all instances of a kind, configured per open. Modeled on the feat
+ *  picker: searchable option list with per-option descriptions, max
+ *  enforcement, locked (pre-granted) options, Accept writes/Cancel
+ *  discards. `options` is a snapshot taken at open; `host` defaults to
+ *  document.body (pass a container in tests).
+ *
+ *  opts: { title, searchPlaceholder, multi, maxSelections, options,
+ *    lockedIds, initialSelected, onAccept(ids), host } */
+export function openChoiceDialog({
+  title,
+  searchPlaceholder = "Search options…",
+  multi = true,
+  maxSelections = 1,
+  options = [],
+  lockedIds = [],
+  initialSelected = [],
+  onAccept,
+  host = null,
+}) {
+  const mount = host || document.body;
+  // Singleton: opening a second dialog replaces the first, so there is
+  // ever one dialog object no matter how many ? buttons exist. Done by
+  // direct child scan (not a :scope selector) so stub-DOM harnesses
+  // enforce the same invariant as browsers.
+  [...(mount.children || [])]
+    .filter((c) => (c.className || "").split(/\s+/).includes("choice-dialog-overlay"))
+    .forEach((c) => c.remove?.());
+  const overlay = el("div", { class: "modal-overlay choice-dialog-overlay" });
+  const box = el("div", { class: "modal-box choice-dialog", onclick: (e) => e.stopPropagation() });
+  const heading = el("h3", { text: title || "Choose an option" });
+  const selected = new Set(initialSelected || []);
+  const locked = new Set(lockedIds || []);
+  const usable = (options || []).filter((o) => o && o.name);
+  const searchInput = el("input", { type: "search", class: "input-group__control", placeholder: searchPlaceholder, style: "margin-bottom: var(--space-2); width: 100%;" });
+  const countNote = el("p", { class: "leveling-tab__intro" });
+  const listWrap = el("div", { class: "choice-dialog-list", style: "max-height: 50vh; overflow-y: auto;" });
+  const updateCount = () => {
+    const counted = [...selected].filter((id) => !locked.has(id)).length;
+    countNote.textContent = multi ? `${counted}/${maxSelections} picked` : (counted ? "Picked" : "Nothing picked yet");
+  };
+  const renderList = () => {
+    listWrap.innerHTML = "";
+    const query = (searchInput.value || "").toLowerCase();
+    const visible = usable.filter((o) => o.name.toLowerCase().includes(query));
+    visible.forEach((opt) => {
+      const isSelected = selected.has(opt.id);
+      const isLocked = locked.has(opt.id);
+      const input = el("input", {
+        type: multi ? "checkbox" : "radio", checked: isSelected || isLocked, disabled: isLocked, value: opt.id,
+        onchange: (e) => {
+          if (isLocked) return;
+          if (multi) {
+            const counted = [...selected].filter((id) => !locked.has(id));
+            if (e.target.checked) {
+              if (counted.length >= maxSelections) { e.target.checked = false; return; }
+              selected.add(opt.id);
+            } else {
+              selected.delete(opt.id);
+            }
+          } else {
+            selected.clear();
+            selected.add(opt.id);
+          }
+          updateCount();
+        },
+      });
+      if (!multi) input.name = `choice-dialog-${title}`;
+      const label = el("label", { class: "choice-dialog-option" },
+        input,
+        el("span", { text: opt.name, style: "flex: 1;" }),
+        opt.description ? el("span", { class: "choice-dialog-desc", text: opt.description }) : null);
+      listWrap.append(label);
+    });
+    if (!listWrap.children.length) {
+      listWrap.append(el("p", { class: "leveling-tab__intro", text: query ? "No options match your search." : "No options available." }));
+    }
+    updateCount();
+  };
+  searchInput.addEventListener("input", renderList);
+  renderList();
+  const close = () => {
+    if (typeof document.removeEventListener === "function") document.removeEventListener("keydown", onKeyDown);
+    overlay.remove();
+  };
+  function onKeyDown(e) {
+    if (e.key === "Escape") close();
+  }
+  const actions = el("div", { class: "modal-actions" });
+  const accept = el("button", {
+    type: "button", class: "btn btn--primary", text: "Accept", onclick: () => {
+      if (typeof onAccept === "function") onAccept([...locked, ...[...selected].filter((id) => !locked.has(id))].sort());
+      close();
+    },
+  });
+  const cancel = el("button", { type: "button", class: "btn", text: "Cancel", onclick: () => close() });
+  actions.append(cancel, accept);
+  box.append(heading, searchInput, countNote, listWrap, actions);
+  overlay.append(box);
+  mount.append(overlay);
+  // Escape closes (document-level: the overlay itself never takes
+  // keyboard focus, so a listener on it would never fire).
+  if (typeof document.addEventListener === "function") document.addEventListener("keydown", onKeyDown);
+  return overlay;
 }
 
 /** Opens a dialog with all available feats for a feat choice group. */

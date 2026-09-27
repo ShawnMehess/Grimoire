@@ -259,6 +259,9 @@ import {
   renderChoiceGroupsInto,
   renderCrossCategoryChoiceInto,
   renderFlatChoiceOptionsInto,
+  renderLiveBulletItem,
+  openChoiceDialog,
+  choiceDialogKindFor,
   spellCountByLevel as sharedSpellCountByLevel,
   canLearnMore as sharedCanLearnMore,
   availableSpellLevels as sharedAvailableSpellLevels,
@@ -3967,11 +3970,16 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const raceInlineLang = raceChoiceGroups.filter(isInlineLangGroup);
     const raceInlineAsi = raceChoiceGroups.filter(isAsiSlotGroup);
     const raceInlineFeat = raceChoiceGroups.filter(isFeaturePickGroup);
-    const raceSectionGroups = raceChoiceGroups.filter((g) => !isInlineLangGroup(g) && !isAsiSlotGroup(g) && !isFeaturePickGroup(g));
+    // Whatever is left over renders in the row itself through the
+    // shared choice dialog (see inlineChoiceBullets) — the bottom
+    // "Your choices" sections below are now permanently empty, so
+    // their render calls are gone and only the lists remain for
+    // gating/hints, which count picks wherever they render.
+    const raceSectionGroups = raceChoiceGroups.filter((g) => !isInlineLangGroup(g) && !isAsiSlotGroup(g) && !isFeaturePickGroup(g) && !choiceDialogKindFor(g));
     const bgInlineLang = backgroundChoiceGroups.filter(isInlineLangGroup);
     const bgInlineTool = backgroundChoiceGroups.filter((g) => g.fieldId === "toolProf");
     const bgInlineFeat = backgroundChoiceGroups.filter(isFeaturePickGroup);
-    const bgSectionGroups = backgroundChoiceGroups.filter((g) => !isInlineLangGroup(g) && g.fieldId !== "toolProf" && !isFeaturePickGroup(g));
+    const bgSectionGroups = backgroundChoiceGroups.filter((g) => !isInlineLangGroup(g) && g.fieldId !== "toolProf" && !isFeaturePickGroup(g) && !choiceDialogKindFor(g));
     // The race bundle's pick-1 subrace group (Elf/Dwarf) renders nested
     // under its race — the same pattern as subclasses under their
     // class — never as a standalone choice page, so it stays out of
@@ -4298,6 +4306,61 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     });
   }
 
+  /** Inline summary bullets for choice groups that moved out of the
+   *  bottom "Your choices" sections into their row — "Skills — Arcana,
+   *  Stealth" plus a superscript ? opening the one shared dialog for
+   *  that choice kind (skills/tools/styles/expertise). Writes the same
+   *  choicesStore keys the bottom renderer used, so wizard gating and
+   *  hints are untouched. Already-granted options lock exactly like
+   *  the flat renderer. */
+  function inlineChoiceBullets(choiceGroups, saveRules) {
+    const store = character.rules?.choices || {};
+    return (choiceGroups || []).filter((g) => choiceDialogKindFor(g)).map((group) => {
+      const kind = choiceDialogKindFor(group);
+      const opts = groupOptionsOf(group).filter((o) => o.name);
+      const owned = ownedSkillIdsFrom(creationFixedBundles(state), creationChoiceGroupsFor(state), group.key);
+      const lockedIds = [...new Set([...(group.lockedOptionIds || []), ...opts.filter((o) => optionIsOwned(o, owned)).map((o) => o.id)])];
+      const stored = store[group.key] || [];
+      const pickedNames = stored.map((id) => opts.find((o) => o.id === id)?.name).filter(Boolean);
+      const placeholders = {
+        skills: "Search skills…",
+        tools: "Search tools…",
+        styles: "Search fighting styles…",
+        expertise: "Search your proficiencies…",
+      };
+      return {
+        live: true,
+        topic: group.label || "Choose",
+        lead: [{ text: pickedNames.length ? pickedNames.join(", ") : `Choose ${group.maxSelections}` }],
+        dialogOpener: () => openChoiceDialog({
+          title: group.label || "Choose an option",
+          searchPlaceholder: placeholders[kind] || "Search options…",
+          multi: group.maxSelections !== 1,
+          maxSelections: group.maxSelections,
+          options: opts.map((o) => ({ id: o.id, name: o.name, description: o.description || null })),
+          lockedIds,
+          initialSelected: stored,
+          onAccept: (ids) => {
+            character.rules.choices = { ...(character.rules.choices || {}), [group.key]: ids };
+            saveRules();
+            renderPageGrid();
+          },
+        }),
+      };
+    });
+  }
+
+  /** Appends inline choice bullets (see above) as a mechanics list
+   *  into a row-details container — the inlineChoicesFn dep for class
+   *  steps, which can't go through profileSectionsFor. */
+  function appendInlineChoiceBullets(details, choiceGroups, saveRules) {
+    const bullets = inlineChoiceBullets(choiceGroups, saveRules);
+    if (!bullets.length) return;
+    const ul = el("ul", { class: "choice-row__mechanics-list" });
+    bullets.forEach((b) => ul.append(renderLiveBulletItem(b)));
+    details.append(ul);
+  }
+
   /** Picker-profile sections with live pick bullets spliced in — for
    *  the selected race/background only (everyone else renders the
    *  static preview). Language tags and same-named stub notes leave
@@ -4335,6 +4398,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         ? { section: SHARED_MECHANICS_TITLES.scores, bullet: liveAsiBullet(asiGroups, saveRules), after: SHARED_MECHANICS_TITLES.traits }
         : null,
       ...liveFeatureBullets(featGroups, saveRules).map((bullet) => ({ section: SHARED_MECHANICS_TITLES.innate, bullet })),
+      // Dialog-pick leftovers (skills, tools, fighting styles,
+      // expertise) render here in the row — inlineChoiceBullets keeps
+      // only dialog kinds, so the full per-pick lists are safe to pass.
+      ...inlineChoiceBullets(isRace ? raceChoiceGroups : backgroundChoiceGroups, saveRules).map((bullet) => ({ section: SHARED_MECHANICS_TITLES.innate, bullet })),
     ].filter(Boolean));
   }
 
@@ -4570,13 +4637,17 @@ export function renderCustomSheet(root, character, store, opts = {}) {
               renderPageGrid();
             },
           });
+          // raceSectionGroups is empty for every baked-in race now
+          // (leftovers render in the row via inlineChoiceBullets) — the
+          // call stays as a safety net so a future/homebrew group no
+          // dialog covers still surfaces instead of vanishing.
           renderYourChoicesSections(container, "identity", raceSectionGroups, saveRules, raceChoiceGroups);
         },
       },
       {
         id: "class",
         title: "Class",
-        description: "Pick what your character does best — class sets hit points, attacks, and features. If a subclass is available at your level, pick it under your class, then make that class's choices below. Spells have their own page.",
+        description: "Pick what your character does best — class sets hit points, attacks, and features. If a subclass is available at your level, pick it under your class, then make that class's choices in its row. Spells have their own page.",
         isComplete: () => {
           if (!state.className) return false;
           const subs = liveSubclassData(state.className);
@@ -4605,13 +4676,17 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             saveRules,
             sectionIntoFn: sectionInto,
             renderCreationChoiceGroupsFn: renderCreationChoiceGroups,
+            inlineChoicesFn: (details, groups) => appendInlineChoiceBullets(details, groups, saveRules),
             getSummary: (name) => sharedMechanicsSummaryForPicker(
               bundleFor("Class", name, includedRulesetIds(state)),
               state.level,
               { abilityIds: ABILITY_IDS, abilities: ABILITIES, skills: SKILLS, resolveLabel: (id) => resolveFieldById(id)?.label }
             ),
           });
-          renderYourChoicesSections(container, "class", classChoiceGroups, saveRules);
+          // classChoiceGroups is empty for every baked-in class now
+          // (leftovers render in the row via inlineChoicesFn) — the
+          // call stays as a safety net for groups no dialog covers.
+          renderYourChoicesSections(container, "class", classChoiceGroups.filter((g) => !choiceDialogKindFor(g)), saveRules);
         },
       },
       {
@@ -4645,6 +4720,9 @@ export function renderCustomSheet(root, character, store, opts = {}) {
               { abilityIds: ABILITY_IDS, abilities: ABILITIES, skills: SKILLS, resolveLabel: (id) => resolveFieldById(id)?.label }
             ),
           });
+          // bgSectionGroups is empty for every baked-in background now
+          // (leftovers render in the row via inlineChoiceBullets) — the
+          // call stays as a safety net for groups no dialog covers.
           renderYourChoicesSections(container, "background", bgSectionGroups, saveRules, backgroundChoiceGroups);
         },
       },
@@ -4805,6 +4883,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
             saveRules,
             sectionIntoFn: sectionInto,
             renderCreationChoiceGroupsFn: renderCreationChoiceGroups,
+            inlineChoicesFn: (details, groups) => appendInlineChoiceBullets(details, groups, saveRules),
           });
           const bgWrap = sectionInto(container, "Background");
           renderRowListStepInto(bgWrap, state, {

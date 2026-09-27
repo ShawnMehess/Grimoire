@@ -904,3 +904,44 @@
   flex: 1;
   min-width: 0;
 }
+
+/* Shared choice dialog (skills, tools, fighting styles, expertise) —
+   one dialog object reused across all instances of a kind. Same
+   visual grammar as the feat picker above. */
+.choice-dialog {
+  max-width: 560px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.choice-dialog-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.choice-dialog-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.choice-dialog-option:hover {
+  background: var(--color-bg-hover);
+}
+.choice-dialog-option input[type="checkbox"],
+.choice-dialog-option input[type="radio"] {
+  accent-color: var(--color-accent);
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+.choice-dialog-desc {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-left: var(--space-2);
+}

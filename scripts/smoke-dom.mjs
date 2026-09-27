@@ -381,6 +381,134 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(toolbar.querySelector(".sheet-toolbar__group") === leftGroup, "left group sits inside toolbar");
 }
 
+// --- Shared choice dialog: classifier --------------------------------------
+{
+  const kindOf = (label) => wizard.choiceDialogKindFor({ label });
+  assert(kindOf("Barbarian Skill Proficiencies") === "skills", "classifier maps skill groups");
+  assert(kindOf("Artificer Tool Proficiency: one artisan's tool") === "tools", "classifier maps tool groups");
+  assert(kindOf("Fighting Style") === "styles", "classifier maps fighting styles");
+  assert(kindOf("Expertise — pick 2 of your proficiencies") === "expertise", "classifier maps expertise");
+  assert(kindOf("Languages") === null, "classifier leaves language groups alone");
+  assert(wizard.choiceDialogKindFor(null) === null, "classifier tolerates null");
+}
+
+// --- Shared choice dialog: open / search / accept / caps / cancel ---------
+function openTestDialog(host, overrides = {}) {
+  let accepted = null;
+  wizard.openChoiceDialog({
+    title: "Choose 2 Skills",
+    multi: true,
+    maxSelections: 2,
+    options: [
+      { id: "s1", name: "Arcana", description: "Magic lore" },
+      { id: "s2", name: "Stealth" },
+      { id: "s3", name: "Perception" },
+      { id: "s4", name: "Athletics" },
+    ],
+    lockedIds: ["s3"],
+    initialSelected: ["s1"],
+    onAccept: (ids) => { accepted = ids; },
+    host,
+    ...overrides,
+  });
+  const overlay = host.children.find((c) => (c.className || "").includes("choice-dialog-overlay"));
+  const acceptBtn = overlay?.querySelector(".btn--primary");
+  const optionInputs = () => overlay?.querySelectorAll(".choice-dialog-option").map((l) => l.children[0]) || [];
+  const fireChange = (input, checked) => {
+    input.checked = checked;
+    (input.listeners.change || []).forEach((f) => f({ target: input }));
+  };
+  const clickButton = (btn) => (btn.listeners.click || []).forEach((f) => f({ target: btn, preventDefault() {}, stopPropagation() {} }));
+  return { overlay, acceptBtn, optionInputs, fireChange, clickButton, accepted: () => accepted };
+}
+{
+  const host = document.createElement("div");
+  const t = openTestDialog(host);
+  assert(!!t.overlay, "choice dialog mounts in host");
+  assert(t.overlay.textContent.includes("Choose 2 Skills"), "dialog shows title");
+  assert(t.overlay.textContent.includes("Magic lore"), "dialog shows option descriptions");
+  assert(t.overlay.textContent.includes("1/2 picked"), "dialog shows pick count");
+  // Search filters.
+  const search = t.overlay.querySelector(".input-group__control");
+  search.value = "ath";
+  (search.listeners.input || []).forEach((f) => f({ target: search }));
+  assert(t.optionInputs().length === 1, "search narrows to matching option");
+  search.value = "";
+  (search.listeners.input || []).forEach((f) => f({ target: search }));
+  assert(t.optionInputs().length === 4, "clearing search restores all options");
+  // Accept writes locked + picks.
+  const [, s2] = t.optionInputs();
+  t.fireChange(s2, true);
+  t.clickButton(t.acceptBtn);
+  assert(JSON.stringify(t.accepted()) === JSON.stringify(["s1", "s2", "s3"]), "accept writes locked plus picks");
+  assert(!host.children.includes(t.overlay), "accept closes dialog");
+}
+{
+  // Max cap: third pick is denied.
+  const host = document.createElement("div");
+  const t = openTestDialog(host);
+  const [, s2, , s4] = t.optionInputs();
+  t.fireChange(s2, true);
+  t.fireChange(s4, true);
+  assert(s4.checked === false, "pick beyond max is denied");
+  t.clickButton(t.acceptBtn);
+  assert(JSON.stringify(t.accepted()) === JSON.stringify(["s1", "s2", "s3"]), "denied pick never reaches accept");
+}
+{
+  // Cancel discards without writing.
+  const host = document.createElement("div");
+  const t = openTestDialog(host);
+  const [, s2] = t.optionInputs();
+  t.fireChange(s2, true);
+  const cancelBtn = t.overlay.querySelectorAll(".btn").find((b) => !b.className.includes("btn--primary"));
+  t.clickButton(cancelBtn);
+  assert(t.accepted() === null, "cancel writes nothing");
+  assert(!host.children.includes(t.overlay), "cancel closes dialog");
+}
+{
+  // Radio mode: picking replaces.
+  const host = document.createElement("div");
+  let accepted = null;
+  wizard.openChoiceDialog({
+    title: "Choose a Fighting Style", multi: false, maxSelections: 1,
+    options: [{ id: "archery", name: "Archery" }, { id: "dueling", name: "Dueling", description: "Plus two." }],
+    initialSelected: ["archery"],
+    onAccept: (ids) => { accepted = ids; },
+    host,
+  });
+  const overlay = host.children.find((c) => (c.className || "").includes("choice-dialog-overlay"));
+  const inputs = overlay.querySelectorAll(".choice-dialog-option").map((l) => l.children[0]);
+  assert(inputs.every((i) => i.type === "radio"), "single-pick renders radios");
+  inputs[1].checked = true;
+  (inputs[1].listeners.change || []).forEach((f) => f({ target: inputs[1] }));
+  const acceptBtn = overlay.querySelector(".btn--primary");
+  (acceptBtn.listeners.click || []).forEach((f) => f({ target: acceptBtn, preventDefault() {}, stopPropagation() {} }));
+  assert(JSON.stringify(accepted) === JSON.stringify(["dueling"]), "radio pick replaces");
+}
+{
+  // Second open replaces the first: ever one dialog object.
+  const host = document.createElement("div");
+  openTestDialog(host);
+  openTestDialog(host);
+  assert(host.children.filter((c) => (c.className || "").includes("choice-dialog-overlay")).length === 1, "one dialog object at a time");
+}
+
+// --- Inline bullet ? opener -------------------------------------------------
+{
+  let opened = 0;
+  const box = document.createElement("div");
+  box.append(wizard.renderLiveBulletItem({
+    topic: "Skills",
+    lead: [{ text: "Arcana" }],
+    dialogOpener: () => { opened++; },
+  }));
+  const help = box.querySelector(".inline-pick-help");
+  assert(!!help && help.textContent.includes("?"), "choice bullet renders superscript ?");
+  const anchor = help.children[0];
+  (anchor.listeners.click || []).forEach((f) => f({ target: anchor, preventDefault() {}, stopPropagation() {} }));
+  assert(opened === 1, "? opens the shared dialog");
+}
+
 if (failures) {
   console.error(`smoke-dom: ${failures} failure(s)`);
   process.exit(1);

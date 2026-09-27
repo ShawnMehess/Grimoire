@@ -130,6 +130,21 @@ for (let step = 0; step < 22; step++) {
     await page.keyboard.press("Escape"); // close any overlay the click opened
     await page.waitForTimeout(200);
   }
+  // Superscript ? dialogs (shared choice picker, feat picker, tool
+  // picker): open each one to prove it renders error-free, then close
+  // without picking (Escape, else its Cancel button) so state is
+  // untouched.
+  const helpCount = await page.$$eval(".wizard .inline-pick-help a", (els) => els.length).catch(() => 0);
+  for (let i = 0; i < Math.min(helpCount, 8); i++) {
+    await sweep(`wizard:${label}`, "open ? dialog", () => page.locator(".wizard .inline-pick-help a").nth(i).click({ timeout: 3000 }));
+    await page.waitForTimeout(400);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    if (await page.$(".modal-overlay")) {
+      await sweep(`wizard:${label}`, "cancel dialog", () => click(".modal-overlay .btn:not(.btn--primary)", 3000));
+      await page.waitForTimeout(200);
+    }
+  }
   // Spell-picker cards (Spells step): click-to-learn rows, capped per
   // level — cantrips list first, so burn rounds round-robin across the
   // level sections (else capped cantrips eat the whole budget and the
@@ -210,6 +225,37 @@ for (let step = 0; step < 22; step++) {
     await act(`wizard:${label}`, "refill after reselect", fillStep);
     await page.waitForTimeout(800);
   }
+  // 2b) Complete through ? dialogs: some steps can only finish inside
+  // the shared choice dialogs (skills/tools/styles/expertise live
+  // there now). Open each ?, check everything checkable (max caps deny
+  // the rest), Accept, repeat until Next enables or nothing changes.
+  const completeViaDialogs = async (tag) => {
+    for (let r = 0; r < 16; r++) {
+      if (await page.$(".wizard button.wizard__next:not([disabled])")) return true;
+      if (await page.$(".wizard button:has-text('Finish'), .wizard button:has-text('Complete'), .wizard button:has-text('Create'), .wizard button:has-text('Apply'):not(.wizard__dot)")) return true;
+      const helpCount = await page.$$eval(".wizard .inline-pick-help a", (els) => els.length).catch(() => 0);
+      if (!helpCount) return false;
+      const idx = r % helpCount;
+      await sweep(`wizard:${label}`, `dialog-complete ${tag} round ${r}`, () => page.locator(".wizard .inline-pick-help a").nth(idx).click({ timeout: 3000 }));
+      await page.waitForTimeout(400);
+      if (!(await page.$(".choice-dialog-overlay, .modal-overlay"))) continue;
+      await page.evaluate(() => {
+        const root = document.querySelector(".choice-dialog-overlay, .modal-overlay");
+        if (!root) return;
+        root.querySelectorAll("input[type='checkbox']:not(:checked)").forEach((c) => { if (!c.disabled) c.click(); });
+        const radios = [...root.querySelectorAll("input[type='radio']")].filter((x) => !x.disabled);
+        if (radios.length && !radios.some((x) => x.checked)) radios[0].click();
+      });
+      await page.waitForTimeout(300);
+      const accept = await page.$(".choice-dialog-overlay .btn--primary, .modal-overlay .btn--primary");
+      if (accept) await sweep(`wizard:${label}`, `dialog-accept ${tag}`, () => accept.click({ timeout: 3000 }));
+      else await page.keyboard.press("Escape");
+      await page.waitForTimeout(600);
+    }
+    return false;
+  };
+  await act(`wizard:${label}`, "complete via dialogs", () => completeViaDialogs("fill"));
+  await page.waitForTimeout(800);
   // 3) Advance, or finish, or report blocked. If the canonical pick
   // doesn't enable Next (e.g. a class with intricate level-1 choices),
   // try every row — the first one that unlocks Next wins.
@@ -220,6 +266,8 @@ for (let step = 0; step < 22; step++) {
       await sweep(`wizard:${label}`, `try pick ${name}`, () => click(`.choice-row[data-row-name="${name}"]`, 3000));
       await page.waitForTimeout(500);
       await act(`wizard:${label}`, "refill after try", fillStep);
+      await page.waitForTimeout(600);
+      await act(`wizard:${label}`, "dialogs after try", () => completeViaDialogs(`try-${name}`));
       await page.waitForTimeout(600);
       finishBtn = await page.$(".wizard button:has-text('Finish'), .wizard button:has-text('Complete'), .wizard button:has-text('Create'), .wizard button:has-text('Apply'):not(.wizard__dot)");
       nextBtn = await page.$(".wizard button.wizard__next:not([disabled])");
