@@ -466,11 +466,13 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   }
   // A "(override)" Darkvision replaces the base range rather than
   // listing alongside it (today only Duergar has both). The three
-  // fixed slots always appear outside classDisplay — a race with no
-  // value shows the standard default (30 ft. walking speed, no
-  // darkvision, no resistances) instead of skipping the line. Class
-  // rows lead with hit lines instead (see classDisplay above).
-  if (!classDisplay) {
+  // fixed slots always appear outside classDisplay/backgroundDisplay —
+  // a race with no value shows the standard default (30 ft. walking
+  // speed, no darkvision, no resistances) instead of skipping the
+  // line. Class rows lead with hit lines instead (see classDisplay
+  // above); background rows omit the whole section (backgrounds have
+  // no speed/senses of their own).
+  if (!classDisplay && !backgroundDisplay) {
     if (speedBits.length === 0) speedBits.push("Speed: 30 feet");
     if (darkvisionBits.length === 0) darkvisionBits.push("Darkvision: none");
     if (resistanceBits.length === 0) resistanceBits.push("Resistances: none");
@@ -498,7 +500,7 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     .map(({ mod }) => summarize(mod));
 
   const out = [];
-  if (traits.length) out.push({ title: classDisplay ? "Class Traits" : "Racial Traits", items: traits });
+  if (traits.length && !backgroundDisplay) out.push({ title: classDisplay ? "Class Traits" : "Racial Traits", items: traits });
   if (scores.length) out.push({ title: "Ability Score Increases", items: scores });
   if (profs.length) out.push({ title: "Proficiencies", items: [profs.join(", ")] });
   if (innate.length) out.push({ title: "Innate Abilities", items: innate });

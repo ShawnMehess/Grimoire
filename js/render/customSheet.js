@@ -4381,7 +4381,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const toolGroups = isBg ? bgInlineTool : [];
     const asiGroups = isRace ? raceInlineAsi : [];
     const featGroups = isRace ? raceInlineFeat : bgInlineFeat;
-    if (!langGroups.length && !toolGroups.length && !asiGroups.length && !featGroups.length) return statik;
+    // Dialog-pick leftovers (skills, tools, fighting styles, expertise)
+    // count here too — otherwise a row whose ONLY groups take the
+    // dialog returns the static preview and its choices vanish.
+    const dialogGroups = (isRace ? raceChoiceGroups : backgroundChoiceGroups).filter((g) => choiceDialogKindFor(g));
+    if (!langGroups.length && !toolGroups.length && !asiGroups.length && !featGroups.length && !dialogGroups.length) return statik;
     const full = bundleFor(category, name, includedRulesetIds(state));
     if (!full) return statik;
     const liveFeatLabels = new Set(featGroups.map((g) => (g.label || "").trim()));
@@ -4403,10 +4407,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         ? { section: SHARED_MECHANICS_TITLES.scores, bullet: liveAsiBullet(asiGroups, saveRules), after: SHARED_MECHANICS_TITLES.traits }
         : null,
       ...liveFeatureBullets(featGroups, saveRules).map((bullet) => ({ section: SHARED_MECHANICS_TITLES.innate, bullet })),
-      // Dialog-pick leftovers (skills, tools, fighting styles,
-      // expertise) render here in the row — inlineChoiceBullets keeps
-      // only dialog kinds, so the full per-pick lists are safe to pass.
-      ...inlineChoiceBullets(isRace ? raceChoiceGroups : backgroundChoiceGroups, saveRules).map((bullet) => ({ section: SHARED_MECHANICS_TITLES.innate, bullet })),
+      ...inlineChoiceBullets(dialogGroups, saveRules).map((bullet) => ({ section: SHARED_MECHANICS_TITLES.innate, bullet })),
     ].filter(Boolean));
   }
 
