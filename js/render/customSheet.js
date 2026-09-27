@@ -714,7 +714,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   root.innerHTML = "";
 
   // --- Toolbar: mode toggle + add-block (edit mode only) --------------
-  const { toolbar, modeBtn, undoBtn, redoBtn, addBlockBtn } = buildToolbarShell();
+  const { toolbar, leftGroup, modeBtn, undoBtn, redoBtn, addBlockBtn } = buildToolbarShell();
 
   // --- Play/View mode toggle ---
   let playMode = false;
@@ -745,7 +745,11 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       renderAll();
     }
   });
-  toolbar.insertBefore(playViewBtn, modeBtn);
+  // modeBtn lives inside leftGroup, not directly under toolbar —
+  // inserting against toolbar throws NotFoundError and aborts the
+  // rest of this function (leaving later consts like pageGrid in TDZ
+  // for the async library/catalog refreshes).
+  leftGroup.insertBefore(playViewBtn, modeBtn);
 
   // Toggles the Stat Blocks sidebar closed — mainly useful on
   // narrower screens (see the @media rule for .sheet-block-frame in

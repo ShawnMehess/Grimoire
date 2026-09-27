@@ -39,6 +39,19 @@ function makeNode(tag) {
       return this;
     },
     appendChild(k) { return this.append(k); },
+    insertBefore(k, ref) {
+      if (k === null || k === undefined || k === false) return k;
+      // Real DOM throws when the reference node isn't a child —
+      // keep that so mis-targeted insertions fail loudly here too.
+      if (ref !== null && ref !== undefined && ref.parent !== this) {
+        throw new Error("insertBefore: reference node is not a child of this node");
+      }
+      if (k.parent) k.remove();
+      k.parent = this;
+      const i = ref ? this.children.indexOf(ref) : this.children.length;
+      this.children.splice(i < 0 ? this.children.length : i, 0, k);
+      return k;
+    },
     remove() {
       if (!this.parent) return;
       this.parent.children = this.parent.children.filter((c) => c !== this);
@@ -315,6 +328,27 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
     choiceLines: ["Skills: Arcana"],
   });
   assert(sections.includes("ASI: STR, CON") && sections.includes("Skills: Arcana"), "review sections");
+}
+
+// --- Toolbar shell: Play View insertion point -----------------------------
+{
+  const shell = await import("../js/render/sheet/sheetToolbar.js");
+  const { toolbar, leftGroup, modeBtn } = shell.buildToolbarShell();
+  // Regression guard: customSheet inserts the Play View button before
+  // modeBtn — that only works against modeBtn's actual parent. It once
+  // targeted `toolbar` instead of `leftGroup`, throwing NotFoundError
+  // and aborting the whole sheet render (blank creator for new chars).
+  const extra = document.createElement("button");
+  let threw = null;
+  try {
+    leftGroup.insertBefore(extra, modeBtn);
+  } catch (err) { threw = err; }
+  assert(threw === null, "toolbar shell accepts insertBefore(modeBtn)");
+  assert(
+    leftGroup.children.indexOf(extra) === leftGroup.children.indexOf(modeBtn) - 1,
+    "inserted button lands immediately before mode button"
+  );
+  assert(toolbar.querySelector(".sheet-toolbar__group") === leftGroup, "left group sits inside toolbar");
 }
 
 if (failures) {
