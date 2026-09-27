@@ -1019,7 +1019,6 @@
 .is-edit-mode .grid-node.is-resizing > .node-handle {
   display: flex;
 }
-}
 
 .drag-handle {
   position: absolute;

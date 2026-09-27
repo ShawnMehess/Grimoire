@@ -126,6 +126,14 @@
   .print-dialog__tabs .print-dialog__label { order: 1; }
   .print-dialog__tabs .print-dialog__tab-label { flex-direction: column; width: 100%; }
 }
+
+/* --- Print: US Letter (8.5" x 11") portrait --- */
+@page {
+  size: 8.5in 11in;
+  margin: 0.5in;
+}
+
+@media print {
   /* Ink-friendly light palette regardless of the on-screen theme. */
   :root {
     --color-bg: #ffffff;

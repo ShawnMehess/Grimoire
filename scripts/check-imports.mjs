@@ -6,6 +6,10 @@
 //      error in an entry file fails in the browser before any app code
 //      runs, so this gates what smoke-imports (which can't import
 //      DOM-dependent modules) never sees.
+//   3. css: every repo CSS file must have balanced braces, and a bare
+//      `button { display: none }` rule must live inside `@media print`
+//      — a dropped `@media print {` line once applied the whole print
+//      block globally and hid every button site-wide.
 // Run: node scripts/check-imports.mjs
 import { readdirSync, readFileSync, existsSync, mkdtempSync, copyFileSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -87,4 +91,45 @@ if (syntaxErrors.length) {
   process.exit(1);
 } else {
   console.log("syntax: all parse");
+}
+
+function cssFilesUnder(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...cssFilesUnder(full));
+    else if (entry.name.endsWith(".css")) out.push(full);
+  }
+  return out;
+}
+const cssErrors = [];
+const cssFiles = cssFilesUnder(join(ROOT, "css"));
+for (const file of cssFiles) {
+  const src = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  let depth = 0;
+  let balanced = true;
+  for (const ch of src) {
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth < 0) { balanced = false; break; }
+    }
+  }
+  if (!balanced || depth !== 0) {
+    cssErrors.push(`${file}: unbalanced braces`);
+    continue;
+  }
+  // Strip @media print blocks (one nesting level: selector { decls }),
+  // then a bare-button display:none left over is global — fail loudly.
+  const withoutPrint = src.replace(/@media\s+print\s*\{((?:[^{}]|\{[^{}]*\})*)\}/g, "");
+  if (/(^|[,{\s])button\s*\{[^}]*display\s*:\s*none/.test(withoutPrint)) {
+    cssErrors.push(`${file}: bare 'button { display: none }' outside @media print`);
+  }
+}
+console.log(`checked ${cssFiles.length} css files`);
+if (cssErrors.length) {
+  console.error("CSS ERRORS:\n" + cssErrors.join("\n"));
+  process.exit(1);
+} else {
+  console.log("css: braces balanced, screen chrome visible");
 }
