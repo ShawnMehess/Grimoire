@@ -1463,25 +1463,31 @@ export function renderLiveBulletItem(item) {
   const li = el("li", { class: "mechanics-pick" });
   const lead = item.lead || [];
   const slots = item.slots || [];
-  // A ? opener lives either on the whole bullet (choice-summary bullets
-  // whose picks live in the shared dialog) or on individual slots (the
-  // older language/tool dropdown bullets) — same superscript either way.
-  const opener = typeof item.dialogOpener === "function"
-    ? item.dialogOpener
-    : (slots.some((s) => s.dialogOpener) ? () => slots.forEach((s) => s.dialogOpener?.()) : null);
+  // Choice-summary bullets open the shared dialog from their own summary
+  // text ("Choose 2" is the link) — no superscript. The older
+  // language/tool dropdown bullets keep their slot-level ? instead.
+  const slotOpener = slots.some((s) => s.dialogOpener) ? () => slots.forEach((s) => s.dialogOpener?.()) : null;
   if (item.topic) {
     const topicEl = el("strong", { text: item.topic });
-    if (opener) {
+    if (!item.dialogOpener && slotOpener) {
       const helpBtn = el("sup", { class: "inline-pick-help", title: "Open picker dialog" },
-        el("a", { href: "#", onclick: (e) => { e.preventDefault(); e.stopPropagation(); opener(); } }, "?"));
+        el("a", { href: "#", onclick: (e) => { e.preventDefault(); e.stopPropagation(); slotOpener(); } }, "?"));
       topicEl.append(document.createTextNode(" "), helpBtn);
     }
     li.append(topicEl, document.createTextNode(" — "));
   }
-  lead.forEach(({ text, title }, i) => {
-    if (i > 0) li.append(document.createTextNode(", "));
-    li.append(el("span", { class: "inline-pick-known", text, title }));
-  });
+  if (typeof item.dialogOpener === "function") {
+    const summary = lead.map((l) => l.text).join(", ") || "Choose";
+    li.append(el("a", {
+      href: "#", class: "inline-pick-link", text: summary, title: "Change picks",
+      onclick: (e) => { e.preventDefault(); e.stopPropagation(); item.dialogOpener(); },
+    }));
+  } else {
+    lead.forEach(({ text, title }, i) => {
+      if (i > 0) li.append(document.createTextNode(", "));
+      li.append(el("span", { class: "inline-pick-known", text, title }));
+    });
+  }
   if (item.collective && slots.length) {
     if (lead.length) li.append(document.createTextNode(", "));
     li.append(el("span", { class: "inline-pick-collective", text: `${item.collective} ` }));
@@ -1780,16 +1786,15 @@ export function choiceDialogKindFor(group) {
 /** One shared choice dialog for every inlined pick list (skills, tools,
  *  fighting styles, expertise) — a single dialog object reused across
  *  all instances of a kind, configured per open. Modeled on the feat
- *  picker: searchable option list with per-option descriptions, max
- *  enforcement, locked (pre-granted) options, Accept writes/Cancel
- *  discards. `options` is a snapshot taken at open; `host` defaults to
+ *  picker: option list with per-option descriptions, max enforcement,
+ *  locked (pre-granted) options, Accept writes/Cancel discards.
+ *  `options` is a snapshot taken at open; `host` defaults to
  *  document.body (pass a container in tests).
  *
- *  opts: { title, searchPlaceholder, multi, maxSelections, options,
+ *  opts: { title, multi, maxSelections, options,
  *    lockedIds, initialSelected, onAccept(ids), host } */
 export function openChoiceDialog({
   title,
-  searchPlaceholder = "Search options…",
   multi = true,
   maxSelections = 1,
   options = [],
@@ -1800,7 +1805,7 @@ export function openChoiceDialog({
 }) {
   const mount = host || document.body;
   // Singleton: opening a second dialog replaces the first, so there is
-  // ever one dialog object no matter how many ? buttons exist. Done by
+  // ever one dialog object no matter how many openers exist. Done by
   // direct child scan (not a :scope selector) so stub-DOM harnesses
   // enforce the same invariant as browsers.
   [...(mount.children || [])]
@@ -1812,7 +1817,6 @@ export function openChoiceDialog({
   const selected = new Set(initialSelected || []);
   const locked = new Set(lockedIds || []);
   const usable = (options || []).filter((o) => o && o.name);
-  const searchInput = el("input", { type: "search", class: "input-group__control", placeholder: searchPlaceholder, style: "margin-bottom: var(--space-2); width: 100%;" });
   const countNote = el("p", { class: "leveling-tab__intro" });
   const listWrap = el("div", { class: "choice-dialog-list", style: "max-height: 50vh; overflow-y: auto;" });
   const updateCount = () => {
@@ -1821,9 +1825,7 @@ export function openChoiceDialog({
   };
   const renderList = () => {
     listWrap.innerHTML = "";
-    const query = (searchInput.value || "").toLowerCase();
-    const visible = usable.filter((o) => o.name.toLowerCase().includes(query));
-    visible.forEach((opt) => {
+    usable.forEach((opt) => {
       const isSelected = selected.has(opt.id);
       const isLocked = locked.has(opt.id);
       const input = el("input", {
@@ -1853,11 +1855,10 @@ export function openChoiceDialog({
       listWrap.append(label);
     });
     if (!listWrap.children.length) {
-      listWrap.append(el("p", { class: "leveling-tab__intro", text: query ? "No options match your search." : "No options available." }));
+      listWrap.append(el("p", { class: "leveling-tab__intro", text: "No options available." }));
     }
     updateCount();
   };
-  searchInput.addEventListener("input", renderList);
   renderList();
   const close = () => {
     if (typeof document.removeEventListener === "function") document.removeEventListener("keydown", onKeyDown);
@@ -1875,7 +1876,7 @@ export function openChoiceDialog({
   });
   const cancel = el("button", { type: "button", class: "btn", text: "Cancel", onclick: () => close() });
   actions.append(cancel, accept);
-  box.append(heading, searchInput, countNote, listWrap, actions);
+  box.append(heading, countNote, listWrap, actions);
   overlay.append(box);
   mount.append(overlay);
   // Escape closes (document-level: the overlay itself never takes

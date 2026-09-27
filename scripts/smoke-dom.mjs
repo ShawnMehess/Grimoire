@@ -428,14 +428,7 @@ function openTestDialog(host, overrides = {}) {
   assert(t.overlay.textContent.includes("Choose 2 Skills"), "dialog shows title");
   assert(t.overlay.textContent.includes("Magic lore"), "dialog shows option descriptions");
   assert(t.overlay.textContent.includes("1/2 picked"), "dialog shows pick count");
-  // Search filters.
-  const search = t.overlay.querySelector(".input-group__control");
-  search.value = "ath";
-  (search.listeners.input || []).forEach((f) => f({ target: search }));
-  assert(t.optionInputs().length === 1, "search narrows to matching option");
-  search.value = "";
-  (search.listeners.input || []).forEach((f) => f({ target: search }));
-  assert(t.optionInputs().length === 4, "clearing search restores all options");
+  assert(t.optionInputs().length === 4, "dialog lists every option with no search");
   // Accept writes locked + picks.
   const [, s2] = t.optionInputs();
   t.fireChange(s2, true);
@@ -493,20 +486,36 @@ function openTestDialog(host, overrides = {}) {
   assert(host.children.filter((c) => (c.className || "").includes("choice-dialog-overlay")).length === 1, "one dialog object at a time");
 }
 
-// --- Inline bullet ? opener -------------------------------------------------
+// --- Slot-level ? opener is preserved -----------------------------------------
+{
+  let opened = 0;
+  const box = document.createElement("div");
+  box.append(wizard.renderLiveBulletItem({
+    topic: "Languages",
+    lead: [{ text: "Common" }],
+    slots: [{ key: "k", value: "", placeholder: "Choose…", options: [], dialogOpener: () => { opened++; } }],
+  }));
+  const help = box.querySelector(".inline-pick-help");
+  assert(!!help, "dropdown bullets keep their superscript ?");
+  const anchor = help.children[0];
+  (anchor.listeners.click || []).forEach((f) => f({ target: anchor, preventDefault() {}, stopPropagation() {} }));
+  assert(opened === 1, "slot ? still opens its dialog");
+}
+
+// --- Inline bullet summary link ---------------------------------------------
 {
   let opened = 0;
   const box = document.createElement("div");
   box.append(wizard.renderLiveBulletItem({
     topic: "Skills",
-    lead: [{ text: "Arcana" }],
+    lead: [{ text: "Choose 2" }],
     dialogOpener: () => { opened++; },
   }));
-  const help = box.querySelector(".inline-pick-help");
-  assert(!!help && help.textContent.includes("?"), "choice bullet renders superscript ?");
-  const anchor = help.children[0];
-  (anchor.listeners.click || []).forEach((f) => f({ target: anchor, preventDefault() {}, stopPropagation() {} }));
-  assert(opened === 1, "? opens the shared dialog");
+  assert(box.querySelector(".inline-pick-help") === null, "choice bullets have no superscript ?");
+  const link = box.querySelector(".inline-pick-link");
+  assert(!!link && link.textContent.includes("Choose 2"), "choice summary itself is the link");
+  (link.listeners.click || []).forEach((f) => f({ target: link, preventDefault() {}, stopPropagation() {} }));
+  assert(opened === 1, "summary link opens the shared dialog");
 }
 
 if (failures) {

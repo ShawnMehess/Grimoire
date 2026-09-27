@@ -56,7 +56,7 @@
 //     compresses/resizes them yet. Offline keeps data URLs (with the
 //     old oversize warning, since the cap still applies there).
 
-import { createStarterLayout, createBlock, createField, findNode, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS, ARMOR_PROFICIENCIES, WEAPON_PROFICIENCIES, TOOL_PROFICIENCIES, VEHICLE_PROFICIENCIES } from "../data/blockModel.js";
+import { createStarterLayout, createBlock, createField, findNode, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS, ARMOR_PROFICIENCIES, WEAPON_PROFICIENCIES, TOOL_PROFICIENCIES, TOOL_DESCRIPTIONS, VEHICLE_PROFICIENCIES } from "../data/blockModel.js";
 import { contentHeight } from "./gridEngine.js";
 import { computeAllFormulas, evaluateFormulaNode, formatComputedValue } from "../data/formula.js";
 import { openFormulaEditor } from "./formulaEditor.js";
@@ -4306,13 +4306,25 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     });
   }
 
+  /** Description for one dialog option: the bundle's own text wins,
+   *  else the proficiency reference (skills and expertise share skill
+   *  names; tools have their own map). */
+  function describeChoiceOption(kind, option) {
+    if (option.description) return option.description;
+    if (kind === "skills" || kind === "expertise") {
+      return SKILLS.find((s) => s.label === option.name)?.description || null;
+    }
+    if (kind === "tools") return TOOL_DESCRIPTIONS[option.name] || null;
+    return null;
+  }
+
   /** Inline summary bullets for choice groups that moved out of the
    *  bottom "Your choices" sections into their row — "Skills — Arcana,
-   *  Stealth" plus a superscript ? opening the one shared dialog for
-   *  that choice kind (skills/tools/styles/expertise). Writes the same
-   *  choicesStore keys the bottom renderer used, so wizard gating and
-   *  hints are untouched. Already-granted options lock exactly like
-   *  the flat renderer. */
+   *  Stealth", where the summary itself links the one shared dialog
+   *  for that choice kind (skills/tools/styles/expertise). Writes the
+   *  same choicesStore keys the bottom renderer used, so wizard gating
+   *  and hints are untouched. Already-granted options lock exactly
+   *  like the flat renderer. */
   function inlineChoiceBullets(choiceGroups, saveRules) {
     const store = character.rules?.choices || {};
     return (choiceGroups || []).filter((g) => choiceDialogKindFor(g)).map((group) => {
@@ -4322,22 +4334,15 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       const lockedIds = [...new Set([...(group.lockedOptionIds || []), ...opts.filter((o) => optionIsOwned(o, owned)).map((o) => o.id)])];
       const stored = store[group.key] || [];
       const pickedNames = stored.map((id) => opts.find((o) => o.id === id)?.name).filter(Boolean);
-      const placeholders = {
-        skills: "Search skills…",
-        tools: "Search tools…",
-        styles: "Search fighting styles…",
-        expertise: "Search your proficiencies…",
-      };
       return {
         live: true,
         topic: group.label || "Choose",
         lead: [{ text: pickedNames.length ? pickedNames.join(", ") : `Choose ${group.maxSelections}` }],
         dialogOpener: () => openChoiceDialog({
           title: group.label || "Choose an option",
-          searchPlaceholder: placeholders[kind] || "Search options…",
           multi: group.maxSelections !== 1,
           maxSelections: group.maxSelections,
-          options: opts.map((o) => ({ id: o.id, name: o.name, description: o.description || null })),
+          options: opts.map((o) => ({ id: o.id, name: o.name, description: describeChoiceOption(kind, o) })),
           lockedIds,
           initialSelected: stored,
           onAccept: (ids) => {

@@ -905,6 +905,17 @@
   min-width: 0;
 }
 
+/* Inline choice summary ("Choose 2", "Arcana, Stealth") — the link
+   that opens the shared choice dialog. */
+.inline-pick-link {
+  color: var(--color-accent);
+  cursor: pointer;
+  text-decoration: none;
+}
+.inline-pick-link:hover {
+  text-decoration: underline;
+}
+
 /* Shared choice dialog (skills, tools, fighting styles, expertise) —
    one dialog object reused across all instances of a kind. Same
    visual grammar as the feat picker above. */

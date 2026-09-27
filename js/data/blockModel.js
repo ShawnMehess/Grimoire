@@ -49,6 +49,48 @@ export const TOOL_PROFICIENCIES = [
   "Bagpipes", "Drum", "Dulcimer", "Flute", "Horn", "Lute", "Lyre", "Pan Flute", "Shawm", "Viol",
 ];
 
+/** One-line proficiency descriptions for the wizard's shared choice
+ *  dialog — what being proficient with each tool lets you do. */
+export const TOOL_DESCRIPTIONS = {
+  "Alchemist's Supplies": "Brew potions and identify substances.",
+  "Brewer's Supplies": "Brew ale and run a brewery.",
+  "Calligrapher's Supplies": "Elegant writing; spot forged writing.",
+  "Carpenter's Tools": "Woodwork, furniture, and structures.",
+  "Cartographer's Tools": "Draft accurate maps; read them well.",
+  "Cobbler's Tools": "Make and repair footwear.",
+  "Cook's Utensils": "Cook filling meals from meager fare.",
+  "Glassblower's Tools": "Craft glass objects and lenses.",
+  "Jeweler's Tools": "Cut gems and appraise jewelry.",
+  "Leatherworker's Tools": "Work leather into goods and armor.",
+  "Mason's Tools": "Stonework; spot weak masonry.",
+  "Painter's Supplies": "Paint portraits; spot art forgeries.",
+  "Potter's Tools": "Shape clay into vessels.",
+  "Smith's Tools": "Forge metal arms and armor.",
+  "Tinker's Tools": "Repair and craft small mechanisms.",
+  "Weaver's Tools": "Weave cloth; judge fine textiles.",
+  "Woodcarver's Tools": "Carve wood tools, arrows, and art.",
+  "Disguise Kit": "Alter your appearance convincingly.",
+  "Forgery Kit": "Forge documents; spot fakes.",
+  "Herbalism Kit": "Identify herbs; brew antitoxins.",
+  "Navigator's Tools": "Navigate by stars and charts.",
+  "Poisoner's Kit": "Brew poisons; spot poisoned fare.",
+  "Thieves' Tools": "Pick locks and disarm traps.",
+  "Dice Set": "Play dice games — and cheat at them.",
+  "Dragonchess Set": "Play the draconic strategy game.",
+  "Playing Card Set": "Play card games — and cheat at them.",
+  "Three-Dragon Ante Set": "Play the gambling card game.",
+  "Bagpipes": "Perform stirring music on the bagpipes.",
+  "Drum": "Keep rhythm and signal on the drum.",
+  "Dulcimer": "Perform folk tunes on the dulcimer.",
+  "Flute": "Perform melodies on the flute.",
+  "Horn": "Sound calls and fanfares on the horn.",
+  "Lute": "Perform songs on the lute.",
+  "Lyre": "Perform on the lyre.",
+  "Pan Flute": "Perform pastoral tunes on pan pipes.",
+  "Shawm": "Perform loud reed music on the shawm.",
+  "Viol": "Perform refined pieces on the viol.",
+};
+
 /** Grouped view of the tool vocabulary for the sheet's taglist
  *  dropdown (optgroups): artisan's tools, instruments, gaming sets,
  *  and specialty kits. Same entries as TOOL_PROFICIENCIES, only

@@ -130,13 +130,14 @@ for (let step = 0; step < 22; step++) {
     await page.keyboard.press("Escape"); // close any overlay the click opened
     await page.waitForTimeout(200);
   }
-  // Superscript ? dialogs (shared choice picker, feat picker, tool
-  // picker): open each one to prove it renders error-free, then close
-  // without picking (Escape, else its Cancel button) so state is
-  // untouched.
-  const helpCount = await page.$$eval(".wizard .inline-pick-help a", (els) => els.length).catch(() => 0);
+  // Choice dialogs (summary links for the shared picker, superscript ?
+  // for feat/tool pickers): open each one to prove it renders
+  // error-free, then close without picking (Escape, else its Cancel
+  // button) so state is untouched.
+  const helpSel = ".wizard .inline-pick-link, .wizard .inline-pick-help a";
+  const helpCount = await page.$$eval(helpSel, (els) => els.length).catch(() => 0);
   for (let i = 0; i < Math.min(helpCount, 8); i++) {
-    await sweep(`wizard:${label}`, "open ? dialog", () => page.locator(".wizard .inline-pick-help a").nth(i).click({ timeout: 3000 }));
+    await sweep(`wizard:${label}`, "open choice dialog", () => page.locator(helpSel).nth(i).click({ timeout: 3000 }));
     await page.waitForTimeout(400);
     await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
@@ -230,13 +231,14 @@ for (let step = 0; step < 22; step++) {
   // there now). Open each ?, check everything checkable (max caps deny
   // the rest), Accept, repeat until Next enables or nothing changes.
   const completeViaDialogs = async (tag) => {
+    const helpSel = ".wizard .inline-pick-link, .wizard .inline-pick-help a";
     for (let r = 0; r < 16; r++) {
       if (await page.$(".wizard button.wizard__next:not([disabled])")) return true;
       if (await page.$(".wizard button:has-text('Finish'), .wizard button:has-text('Complete'), .wizard button:has-text('Create'), .wizard button:has-text('Apply'):not(.wizard__dot)")) return true;
-      const helpCount = await page.$$eval(".wizard .inline-pick-help a", (els) => els.length).catch(() => 0);
+      const helpCount = await page.$$eval(helpSel, (els) => els.length).catch(() => 0);
       if (!helpCount) return false;
       const idx = r % helpCount;
-      await sweep(`wizard:${label}`, `dialog-complete ${tag} round ${r}`, () => page.locator(".wizard .inline-pick-help a").nth(idx).click({ timeout: 3000 }));
+      await sweep(`wizard:${label}`, `dialog-complete ${tag} round ${r}`, () => page.locator(helpSel).nth(idx).click({ timeout: 3000 }));
       await page.waitForTimeout(400);
       if (!(await page.$(".choice-dialog-overlay, .modal-overlay"))) continue;
       await page.evaluate(() => {

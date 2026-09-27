@@ -166,10 +166,10 @@ try {
   if (changeling) {
     await changeling.click();
     await page.waitForTimeout(1500);
-    check(await page.$(".choice-row--selected .inline-pick-help"), "Changeling choice shows inline ?");
+    check(await page.$(".choice-row--selected .inline-pick-link"), "Changeling choice summary is the dialog link");
     check(!((await page.$$(".level-guide__choices")).length), "no bottom choice sections for Changeling");
-    // The ? opens the shared skills dialog; Escape closes it untouched.
-    await page.click(".choice-row--selected .inline-pick-help a");
+    // The summary opens the shared skills dialog; Escape closes it untouched.
+    await page.click(".choice-row--selected .inline-pick-link");
     await page.waitForTimeout(400);
     check(await page.$(".choice-dialog-overlay"), "shared choice dialog opens");
     await page.screenshot({ path: path.join(shotDir, "changeling.png") });
