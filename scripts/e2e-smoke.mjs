@@ -85,23 +85,30 @@ const base = `http://127.0.0.1:${server.address().port}`;
 const shotDir = path.join(os.tmpdir(), "grimoire-e2e");
 mkdirSync(shotDir, { recursive: true });
 
+const viewportSizes = [
+  { name: "desktop", width: 1440, height: 900 },
+  { name: "mobile", width: 392, height: 844 },
+];
+
 const browser = await chromium.launch({
   executablePath: chromePath,
   headless: true,
   args: ["--no-sandbox", "--disable-dev-shm-usage"],
 });
-const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+
 const problems = [];
 const failures = [];
-page.on("pageerror", (e) => problems.push(`PAGEERROR: ${e.message}`));
-page.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE: ${m.text()}`); });
 
-const check = (cond, msg) => {
-  if (!cond) failures.push(msg);
-  console.log(`${cond ? "ok" : "FAIL"}: ${msg}`);
-};
+async function runViewportTests(viewport) {
+  const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height } });
+  page.on("pageerror", (e) => problems.push(`PAGEERROR [${viewport.name}]: ${e.message}`));
+  page.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [${viewport.name}]: ${m.text()}`); });
 
-try {
+  const check = (cond, msg) => {
+    if (!cond) failures.push(`[${viewport.name}] ${msg}`);
+    console.log(`${cond ? "ok" : "FAIL"} [${viewport.name}]: ${msg}`);
+  };
+
   // A: demo sheet (mock store) — toolbar, Play View toggle, print dialog.
   await page.goto(`${base}/demo.html`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1200);
@@ -112,7 +119,7 @@ try {
     await playBtn.click();
     await page.waitForTimeout(400);
     check(await page.$(".page-grid.play-mode"), "demo Play View mode engages");
-    await page.screenshot({ path: path.join(shotDir, "play-view.png") });
+    await page.screenshot({ path: path.join(shotDir, `play-view-${viewport.name}.png`) });
     await playBtn.click();
     await page.waitForTimeout(400);
     check(!(await page.$(".page-grid.play-mode")), "demo Sheet View restores");
@@ -130,11 +137,29 @@ try {
       await printBtn.click();
       await page.waitForTimeout(400);
       check(await page.$(".print-dialog"), "demo print dialog opens");
-      await page.screenshot({ path: path.join(shotDir, "print-dialog.png") });
+      await page.screenshot({ path: path.join(shotDir, `print-dialog-${viewport.name}.png`) });
       await page.keyboard.press("Escape");
       await page.waitForTimeout(300);
       check(!(await page.$(".print-dialog")), "demo print dialog closes on Escape");
     }
+  }
+
+  // Play View overflow check at mobile viewport
+  if (viewport.name === "mobile") {
+    await playBtn.click();
+    await page.waitForTimeout(400);
+    const overflow = await page.evaluate(() => {
+      const grid = document.querySelector(".page-grid.play-mode");
+      if (!grid) return { hasOverflow: true, reason: "no grid" };
+      return {
+        hasOverflow: grid.scrollWidth > grid.clientWidth,
+        scrollWidth: grid.scrollWidth,
+        clientWidth: grid.clientWidth,
+      };
+    });
+    check(!overflow.hasOverflow || overflow.scrollWidth - overflow.clientWidth <= 5, `Play View has minimal horizontal overflow at ${viewport.width}px (scrollWidth: ${overflow.scrollWidth}, clientWidth: ${overflow.clientWidth}, diff: ${overflow.scrollWidth - overflow.clientWidth}px)`);
+    await playBtn.click();
+    await page.waitForTimeout(400);
   }
 
   // B: offline vault — the exact flow that once crashed new-character
@@ -146,7 +171,7 @@ try {
   if (newBtn) await newBtn.click();
   await page.waitForTimeout(2000);
   check(await page.$(".wizard"), "creator wizard renders after + New Character");
-  await page.screenshot({ path: path.join(shotDir, "creator.png") });
+  await page.screenshot({ path: path.join(shotDir, `creator-${viewport.name}.png`) });
   // Advance one wizard step to prove the wizard is alive, not paint.
   const nextBtn = await page.$(".wizard button:has-text('Next')");
   if (nextBtn) {
@@ -154,7 +179,7 @@ try {
     await page.waitForTimeout(800);
     const stepText = (await page.textContent("body")).includes("Step 2 of 7");
     check(stepText, "creator wizard advances to step 2");
-    await page.screenshot({ path: path.join(shotDir, "creator-step2.png") });
+    await page.screenshot({ path: path.join(shotDir, `creator-step2-${viewport.name}.png`) });
   }
   // Changeling regression: picking a race with real choice groups once
   // crashed the creator (a bare categorizeChoiceGroup reference with no
@@ -172,15 +197,67 @@ try {
     await page.click(".choice-row--selected .inline-pick-link");
     await page.waitForTimeout(400);
     check(await page.$(".choice-dialog-overlay"), "shared choice dialog opens");
-    await page.screenshot({ path: path.join(shotDir, "changeling.png") });
+    await page.screenshot({ path: path.join(shotDir, `changeling-${viewport.name}.png`) });
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
     check(!(await page.$(".choice-dialog-overlay")), "shared choice dialog closes on Escape");
   }
-} finally {
-  await browser.close();
-  server.close();
 }
+
+for (const viewport of viewportSizes) {
+  await runViewportTests(viewport);
+}
+
+const vaultPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+vaultPage.on("pageerror", (e) => problems.push(`PAGEERROR [vault]: ${e.message}`));
+vaultPage.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [vault]: ${m.text()}`); });
+
+const vaultCheck = (cond, msg) => {
+  if (!cond) failures.push(`[vault] ${msg}`);
+  console.log(`${cond ? "ok" : "FAIL"} [vault]: ${msg}`);
+};
+
+await vaultPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+await vaultPage.waitForTimeout(1200);
+const newBtn = await vaultPage.$("button:has-text('+ New Character')");
+vaultCheck(!!newBtn && (await newBtn.isVisible()), "vault + New Character button visible");
+if (newBtn) await newBtn.click();
+await vaultPage.waitForTimeout(2000);
+vaultCheck(await vaultPage.$(".wizard"), "creator wizard renders after + New Character");
+await vaultPage.screenshot({ path: path.join(shotDir, "creator.png") });
+// Advance one wizard step to prove the wizard is alive, not paint.
+const nextBtn = await vaultPage.$(".wizard button:has-text('Next')");
+if (nextBtn) {
+  await nextBtn.click();
+  await vaultPage.waitForTimeout(800);
+  const stepText = (await vaultPage.textContent("body")).includes("Step 2 of 7");
+  vaultCheck(stepText, "creator wizard advances to step 2");
+  await vaultPage.screenshot({ path: path.join(shotDir, "creator-step2.png") });
+}
+// Changeling regression: picking a race with real choice groups once
+// crashed the creator (a bare categorizeChoiceGroup reference with no
+// binding). Step 2 is Identity, which lists the race rows. Its skill
+// pick renders inline in the row (summary + superscript ?) through
+// the shared choice dialog — never as a bottom section.
+const changeling = await vaultPage.$(`.choice-row[data-row-name="Changeling"]`);
+vaultCheck(!!changeling, "Identity step lists Changeling");
+if (changeling) {
+  await changeling.click();
+  await vaultPage.waitForTimeout(1500);
+  vaultCheck(await vaultPage.$(".choice-row--selected .inline-pick-link"), "Changeling choice summary is the dialog link");
+  vaultCheck(!((await vaultPage.$$(".level-guide__choices")).length), "no bottom choice sections for Changeling");
+  // The summary opens the shared skills dialog; Escape closes it untouched.
+  await vaultPage.click(".choice-row--selected .inline-pick-link");
+  await vaultPage.waitForTimeout(400);
+  vaultCheck(await vaultPage.$(".choice-dialog-overlay"), "shared choice dialog opens");
+  await vaultPage.screenshot({ path: path.join(shotDir, "changeling.png") });
+  await vaultPage.keyboard.press("Escape");
+  await vaultPage.waitForTimeout(300);
+  vaultCheck(!(await vaultPage.$(".choice-dialog-overlay")), "shared choice dialog closes on Escape");
+}
+
+await browser.close();
+server.close();
 
 console.log(`screenshots: ${shotDir}`);
 if (problems.length) {

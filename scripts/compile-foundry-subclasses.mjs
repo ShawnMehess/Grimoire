@@ -47,11 +47,83 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
 const INPUT = path.join(ROOT, "docs", "New Info", "5e-subclasses.txt");
 const OUTPUT = path.join(ROOT, "js", "data", "subclassContent.js");
+const SUMMARIES_PATH = path.join(__dirname, "..", "data", "subclass-feature-summaries.json");
 
 const log = [];
-const normName = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-const slug = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "subclass";
-const titleCaseId = (s) => String(s || "").split("-").map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(" ");
+// Apply curated summaries to feature grants, replacing placeholder descriptions.
+function applyFeatureSummaries(grants, subclassKey) {
+  const summaries = featureSummaries.get(subclassKey);
+  if (!summaries) return grants;
+  
+  for (const grant of grants) {
+    const summary = summaries.get(grant.id);
+    if (summary) {
+      // Verify the minLevel matches
+      if (summary.minLevel !== grant.minLevel) {
+        console.warn(`  minLevel mismatch for ${grant.id}: summary has ${summary.minLevel}, grant has ${grant.minLevel}`);
+      }
+      grant.description = summary.summary;
+      // Mark as curated so we can track which ones were fixed
+      grant.curated = true;
+    }
+  }
+  return grants;
+}
+
+function checkForPlaceholders(grants) {
+  const placeholders = [];
+  for (const grant of grants) {
+    const desc = grant.description || "";
+    // Detect placeholder patterns
+    if (desc.includes("feature.") || 
+        desc.includes("placeholder") || 
+        desc.match(/\b(feature|feature\.)\b/i) ||
+        desc === `${grant.name} (${grant.minLevel})` ||
+        desc === `${grant.name} (${grant.minLevel}${grant.minLevel === 1 ? "st" : grant.minLevel === 2 ? "nd" : grant.minLevel === 3 ? "rd" : "th"}-level feature.)` ||
+        desc.includes("TODO") ||
+        desc.includes("FIXME") ||
+        desc.includes("placeholder")) {
+      placeholders.push({ id: grant.id, description: desc });
+    }
+  }
+  if (placeholders.length > 0) {
+    throw new Error(`Placeholder feature descriptions found: ${placeholders.map(p => `${p.id}: ${p.description}`).join("\n")}`);
+  }
+  return grants;
+}
+
+// Feature summaries loaded from JSON file
+let featureSummaries = new Map();
+
+function loadFeatureSummaries() {
+  try {
+    const raw = require("node:fs").readFileSync(SUMMARIES_PATH, "utf8");
+    const data = JSON.parse(raw);
+    // Validate required fields
+    for (const [subclassKey, features] of Object.entries(data)) {
+      if (!features || typeof features !== "object") {
+        throw new Error(`Invalid feature summaries for subclass ${subclassKey}: expected object`);
+      }
+      for (const [featureId, summary] of Object.entries(features)) {
+        if (!summary.summary || typeof summary.summary !== "string" || summary.summary.length < 10) {
+          throw new Error(`Invalid summary for ${featureId} in ${subclassKey}: missing or too short summary`);
+        }
+        if (typeof summary.minLevel !== "number" || summary.minLevel < 1 || summary.minLevel > 20) {
+          throw new Error(`Invalid minLevel for ${featureId} in ${subclassKey}: must be 1-20`);
+        }
+      }
+    }
+    // Convert to Map for faster lookups
+    for (const [subclassKey, features] of Object.entries(data)) {
+      data[subclassKey] = new Map(Object.entries(features));
+    }
+    featureSummaries = new Map(Object.entries(data));
+    console.log(`Loaded feature summaries for ${Object.keys(data).length} subclasses`);
+  } catch (err) {
+    console.warn("Could not load subclass-feature-summaries.json:", err.message);
+    featureSummaries = new Map();
+  }
+}
 
 function getSystem(d) {
   return d.system || d.data || {};
@@ -342,6 +414,11 @@ function compileSubclass(entry, childrenByParent) {
     });
   }
 
+  // Apply curated feature summaries, replacing placeholder descriptions.
+  const subclassKey = normName(entry.name);
+  featureGrants = applyFeatureSummaries(featureGrants, normName(entry.name));
+  checkForPlaceholders(featureGrants);
+
   return {
     key: normName(entry.name),
     name: entry.name,
@@ -353,6 +430,9 @@ function compileSubclass(entry, childrenByParent) {
 }
 
 async function main() {
+  // Load curated feature summaries before compiling subclasses.
+  loadFeatureSummaries();
+
   const raw = [];
   for (const line of (await readFile(INPUT, "utf8")).split("\n")) {
     const trimmed = line.trim();

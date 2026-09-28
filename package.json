@@ -6,9 +6,9 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/**/*.mjs",
-    "test:smoke": "node --test tests/smoke-imports.mjs tests/smoke-dom.mjs",
-    "test:imports": "node --test tests/imports.test.mjs 2>/dev/null || echo 'No imports test file'",
-    "test:content": "node --test tests/content.test.mjs 2>/dev/null || echo 'No content test file'",
+    "test:smoke": "node --test scripts/smoke-imports.mjs scripts/smoke-dom.mjs",
+    "test:imports": "node --test scripts/check-imports.mjs",
+    "test:content": "node scripts/verify-content.mjs",
     "test:e2e": "node scripts/e2e-smoke.mjs",
     "test:crawl": "node scripts/crawl.mjs",
     "verify": "node scripts/verify-content.mjs"

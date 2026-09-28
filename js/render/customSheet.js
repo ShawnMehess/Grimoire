@@ -57,6 +57,7 @@
 //     old oversize warning, since the cap still applies there).
 
 import { createStarterLayout, createBlock, createField, findNode, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS, ARMOR_PROFICIENCIES, WEAPON_PROFICIENCIES, TOOL_PROFICIENCIES, TOOL_DESCRIPTIONS, VEHICLE_PROFICIENCIES } from "../data/blockModel.js";
+import { calculatePrintScale, getTabsToPrint, buildPrintCss } from "./print-helpers.js";
 import { contentHeight } from "./gridEngine.js";
 import { computeAllFormulas, evaluateFormulaNode, formatComputedValue } from "../data/formula.js";
 import { openFormulaEditor } from "./formulaEditor.js";
@@ -984,41 +985,64 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       el("span", { class: "print-dialog__label", text: "Orientation" }),
       orientationSelect);
 
-    // Scale (percent — applied as print-only zoom on the sheet canvas)
+// Scale — "Fit to page" or explicit percentage
+    const scaleModeSelect = el("select", { class: "print-dialog__select" },
+      el("option", { value: "fit", text: "Fit to page" }),
+      el("option", { value: "actual", text: "Actual size" }),
+      el("option", { value: "custom", text: "Custom scale…" }));
     const scaleInput = el("input", {
       class: "print-dialog__input", type: "range", min: "50", max: "200", value: "100",
       title: "Percentage of page size",
+      style: "display: none;",
     });
     const scaleRow = el("div", { class: "print-dialog__row" },
       el("span", { class: "print-dialog__label", text: "Scale" }),
-      scaleInput);
+      scaleModeSelect, scaleInput);
 
-    // Which tab to print — the sheet renders one tab at a time, so
-    // printing means printing one tab (default: the active one).
-    // NOTE: findTab looks tabs up by id, not kind, so list the real
-    // tabs instead of guessing kind strings.
+    // Show/hide custom scale input based on mode
+    scaleModeSelect.addEventListener("change", () => {
+      scaleInput.style.display = scaleModeSelect.value === "custom" ? "" : "none";
+    });
+
+    // Which tabs to print
     const currentTabId = activeTab().id;
-    const tabInputs = (character.sheetTabs || []).map((tab, index) =>
+    const tabOptions = [
+      { id: "current", label: "Current tab only" },
+      { id: "all", label: "All tabs" },
+      ...(character.sheetTabs || []).map((tab, index) => ({
+        id: tab.id,
+        label: tab.name || defaultTabName(tab, index),
+      })),
+    ];
+    const tabInputs = tabOptions.map((opt) =>
       el("label", { class: "print-dialog__label print-dialog__tab-label" },
         el("input", {
-          type: "radio", name: "print-tab", value: tab.id,
-          checked: tab.id === currentTabId, class: "print-dialog__tab-radio",
+          type: "radio", name: "print-tab", value: opt.id,
+          checked: opt.id === currentTabId, class: "print-dialog__tab-radio",
         }),
-        el("span", { class: "print-dialog__tab-text" }, tab.name || defaultTabName(tab, index))));
+        el("span", { class: "print-dialog__tab-text" }, opt.label)));
 
     const tabsRow = el("div", { class: "print-dialog__row print-dialog__tabs" },
       el("span", { class: "print-dialog__label", text: "Tab" }),
       ...tabInputs);
 
     // Background images
-    const bgInput = el("input", { type: "checkbox", checked: true });
+    const bgInput = el("input", { type: "checkbox", checked: false });
     const bgRow = el("div", { class: "print-dialog__row" },
       el("span", { class: "print-dialog__label", text: "Background images" }),
       el("label", { class: "print-dialog__checkbox-label" },
         bgInput,
         " Include background images"));
 
-    const closeDialog = () => {
+    // Hidden/calculation-only fields
+    const hiddenInput = el("input", { type: "checkbox", checked: false });
+    const hiddenRow = el("div", { class: "print-dialog__row" },
+      el("span", { class: "print-dialog__label", text: "Hidden/calculation fields" }),
+      el("label", { class: "print-dialog__checkbox-label" },
+        hiddenInput,
+        " Include hidden/calculation fields"));
+
+const closeDialog = () => {
       document.removeEventListener("keydown", onDialogKeyDown);
       if (dialog.parentElement) dialog.parentElement.removeChild(dialog);
     };
@@ -1030,36 +1054,54 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const actions = el("div", { class: "print-dialog__actions" },
       el("button", {
         class: "btn btn--primary", text: "Print",
-        onclick: () => {
+        onclick: async () => {
           const orientation = orientationSelect.value === "landscape" ? "landscape" : "portrait";
-          const scale = Math.min(200, Math.max(50, parseInt(scaleInput.value, 10) || 100));
+          const scaleMode = scaleModeSelect.value;
+          const scale = calculatePrintScale(scaleModeSelect.value, scaleInput.value);
+
           const picked = dialog.querySelector("input.print-dialog__tab-radio:checked");
           const pickedTabId = (picked && picked.value) || currentTabId;
           const includeBg = bgInput.checked;
+          const includeHidden = hiddenInput.checked;
 
-          // The sheet renders one tab at a time — switch to the picked
-          // tab for the print, then switch back afterward.
+          // Determine which tabs to print
+          const tabsToPrint = getTabsToPrint(pickedTabId, currentTabId, character.sheetTabs || []);
+
+          // Build print styles for each tab
           const previousTabId = activeTabId;
-          if (pickedTabId !== previousTabId && (character.sheetTabs || []).some((t) => t.id === pickedTabId)) {
-            activeTabId = pickedTabId;
-            renderAll();
-          }
-          // The dialog lives inside the sheet root, so it must be
-          // hidden explicitly — otherwise it lands on the paper.
           const styleEl = document.createElement("style");
-          styleEl.textContent = `
-          @media print {
-            .print-dialog { display: none !important; }
-            .page-grid-scroll { zoom: ${scale / 100}; }
-            ${includeBg
-              ? ".page-grid, .page-grid * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }"
-              : ".page-grid, .page-grid * { background-image: none !important; }"}
-            @page { size: ${orientation}; margin: 0.5in; }
-          }
-        `;
-          document.head.append(styleEl);
-          try {
+          styleEl.textContent = buildPrintCss({
+            orientation,
+            scaleMode,
+            scale,
+            includeBg,
+            includeHidden,
+          });
+
+          // Function to print a single tab
+          const printTab = async (tabId) => {
+            if (tabId !== activeTabId && (character.sheetTabs || []).some((t) => t.id === tabId)) {
+              activeTabId = tabId;
+              renderAll();
+              await new Promise(r => setTimeout(r, 100)); // wait for render
+            }
+            await new Promise(r => setTimeout(r, 50)); // small delay
             window.print();
+            await new Promise(r => setTimeout(r, 500)); // wait for print dialog
+          };
+
+          try {
+            if (tabsToPrint.length === 1) {
+              await printTab(tabsToPrint[0]);
+            } else {
+              // Print multiple tabs - open print dialog for each
+              for (let i = 0; i < tabsToPrint.length; i++) {
+                await printTab(tabsToPrint[i]);
+                if (i < tabsToPrint.length - 1) {
+                  await new Promise(r => setTimeout(r, 1000)); // delay between prints
+                }
+              }
+            }
           } finally {
             styleEl.remove();
             if (activeTabId !== previousTabId) {
@@ -1072,7 +1114,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       }),
       el("button", { class: "btn btn--secondary", text: "Cancel", onclick: () => closeDialog() }));
 
-    dialogContent.append(orientationRow, scaleRow, tabsRow, bgRow, actions);
+    dialogContent.append(orientationRow, scaleRow, tabsRow, bgRow, hiddenRow, actions);
     dialog.append(dialogContent);
     root.append(dialog);
 

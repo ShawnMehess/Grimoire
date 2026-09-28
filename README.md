@@ -78,8 +78,11 @@ size whether you're looking at the page or inside a block. See
   occasionally shuffles more than strictly necessary.
 - **Images upload to Firebase Storage, but nothing resizes them.**
   Big uploads work (no more 1MB document pressure), but a 10MB photo
-  still costs 10MB of Storage and bandwidth — client-side
-  downscaling is a good follow-up. Catalog images and replaced-but-
+  still costs 10MB of Storage and bandwidth — **client-side
+  downscaling is applied** (max 500px width, WebP 0.7 quality) before
+  upload, keeping storage and bandwidth costs low. Offline keeps data
+  URLs (with the old oversize warning, since the cap still applies
+  there). Catalog images and replaced-but-
   never-deleted field images are also still stored, not cleaned up
   (character delete wipes that character's Storage prefix).
 - **No importer for outside characters.** A character built elsewhere
@@ -154,6 +157,25 @@ storage.rules         Storage rules mirroring the above for character images
                         (deploy: firebase deploy --only storage)
 docs/                 notes, raw import sources, and working files (see below)
 index.html
+```
+
+## Browser Testing
+
+To run the browser-based tests (Playwright):
+
+```
+npm install          # installs playwright-core
+npm run test:e2e     # runs smoke test in headless Chrome
+npm run test:crawl   # full click-through crawl
+```
+
+**Requirements:** Google Chrome installed at one of the standard paths, or set `PLAYWRIGHT_CHROME_PATH` to point to your Chrome executable.
+
+The tests run in headless mode and save screenshots to the OS temp directory (`grimoire-e2e` / `grimoire-crawl` folders).
+
+```
+npm run test:smoke   # fast static + DOM smoke tests
+npm run verify       # content verification (creation-to-20 simulation)
 ```
 
 ## Viewing it locally
