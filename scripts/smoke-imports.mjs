@@ -818,12 +818,15 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
     assert(layouts.applyLayoutPresetTo(mk(), "nope")[0].x === 5, "unknown preset no-op");
   }
   {
-    // Built-in public-domain portraits for picker rows.
+    // AI-generated portraits for picker rows (see assets/portraits/SOURCES.md).
     const portraits = await import("../js/data/portraitArt.js");
     assert(portraits.portraitArtFor("Wizard") === "assets/portraits/class-wizard.jpg", "portraitArtFor class");
     assert(portraits.portraitArtFor("HALF-ELF") === "assets/portraits/race-half-elf.jpg", "portraitArtFor case-insensitive");
     assert(portraits.portraitArtFor("Urban Bounty Hunter") === "assets/portraits/bg-urban-bounty-hunter.jpg", "portraitArtFor background");
-    assert(portraits.portraitArtFor("Champion") === null && portraits.portraitArtFor("") === null, "portraitArtFor miss");
+    assert(portraits.portraitArtFor("Artificer") === "assets/portraits/class-artificer.jpg", "portraitArtFor new class");
+    assert(portraits.portraitArtFor("Drow") === "assets/portraits/race-drow.jpg", "portraitArtFor subrace");
+    assert(portraits.portraitArtFor("Champion") === "assets/portraits/sub-champion.jpg", "portraitArtFor subclass");
+    assert(portraits.portraitArtFor("No Such Thing") === null && portraits.portraitArtFor("") === null, "portraitArtFor miss");
   }
 }
 
