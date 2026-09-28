@@ -431,6 +431,9 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(kindOf("Expertise — pick 2 of your proficiencies") === "expertise", "classifier maps expertise");
   assert(kindOf("Choose a Feat") === "feats", "classifier maps feat groups");
   assert(wizard.choiceDialogKindFor({ label: "Pick 1", category: "feats" }) === "feats", "classifier maps feat category");
+  assert(wizard.describeFeatOption({ name: "Alert", description: "Act first." }) === "Act first.", "feat option keeps its own text");
+  assert(wizard.describeFeatOption({ name: "Lucky", featureGrants: [{ description: "Spend luck to reroll." }] }) === "Spend luck to reroll.", "feat option briefs its grant text");
+  assert(wizard.describeFeatOption({ name: "Mystery" }) === null, "feat option without text yields null");
   assert(kindOf("Languages") === null, "classifier leaves language groups alone");
   assert(wizard.choiceDialogKindFor(null) === null, "classifier tolerates null");
 }

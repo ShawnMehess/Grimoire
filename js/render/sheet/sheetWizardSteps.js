@@ -301,7 +301,7 @@ export function renderRowListStepInto(container, state, deps) {
 
 export function renderPreferencesStepInto(container, state, deps) {
   const { hpOptions, currentMethod, updateFn, selectableRowsFn } = deps;
-  container.append(el("p", { class: "wizard__preference-label", text: "HP on level-up" }));
+  container.append(el("p", { class: "wizard__preference-label", text: "Hit Points on Level Up" }));
 
   const selected = hpOptions.find((opt) => opt.value === currentMethod);
   selectableRowsFn(container, hpOptions.map((opt) => opt.label), {

@@ -202,6 +202,32 @@ async function runViewportTests(viewport) {
     await page.waitForTimeout(300);
     check(!(await page.$(".choice-dialog-overlay")), "shared choice dialog closes on Escape");
   }
+  // Custom Lineage regression: the "Feat — Gain 1 feat(s) of your
+  // choice." mention is a link opening the feats picker (same shared
+  // table as proficiencies), and the Racial feat rows sit on Identity.
+  const lineage = await page.$(`.choice-row[data-row-name="Custom Lineage"]`);
+  check(!!lineage, "Identity step lists Custom Lineage");
+  if (lineage) {
+    await lineage.click();
+    await page.waitForTimeout(1500);
+    const featLink = await page.$(".choice-row--selected .inline-pick-link");
+    const featText = featLink ? await featLink.textContent() : "";
+    check(!!featLink && /choose a feat/i.test(featText || ""), "lineage feat mention is the picker link");
+    check((await page.textContent("body")).includes("Racial feat"), "Racial feat picker sits on Identity");
+    if (featLink) {
+      await featLink.click();
+      await page.waitForTimeout(400);
+      const featDlg = await page.$(".choice-dialog-overlay");
+      check(!!featDlg, "feat picker dialog opens from lineage link");
+      if (featDlg) {
+        check(/alert/i.test((await featDlg.textContent()) || ""), "feat picker lists feats as a table");
+        await page.screenshot({ path: path.join(shotDir, `lineage-feat-${viewport.name}.png`) });
+      }
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      check(!(await page.$(".choice-dialog-overlay")), "feat picker closes on Escape");
+    }
+  }
 }
 
 for (const viewport of viewportSizes) {
@@ -254,6 +280,29 @@ if (changeling) {
   await vaultPage.keyboard.press("Escape");
   await vaultPage.waitForTimeout(300);
   vaultCheck(!(await vaultPage.$(".choice-dialog-overlay")), "shared choice dialog closes on Escape");
+}
+const vaultLineage = await vaultPage.$(`.choice-row[data-row-name="Custom Lineage"]`);
+vaultCheck(!!vaultLineage, "Identity step lists Custom Lineage");
+if (vaultLineage) {
+  await vaultLineage.click();
+  await vaultPage.waitForTimeout(1500);
+  const vaultFeatLink = await vaultPage.$(".choice-row--selected .inline-pick-link");
+  const vaultFeatText = vaultFeatLink ? await vaultFeatLink.textContent() : "";
+  vaultCheck(!!vaultFeatLink && /choose a feat/i.test(vaultFeatText || ""), "lineage feat mention is the picker link");
+  vaultCheck((await vaultPage.textContent("body")).includes("Racial feat"), "Racial feat picker sits on Identity");
+  if (vaultFeatLink) {
+    await vaultFeatLink.click();
+    await vaultPage.waitForTimeout(400);
+    const vaultFeatDlg = await vaultPage.$(".choice-dialog-overlay");
+    vaultCheck(!!vaultFeatDlg, "feat picker dialog opens from lineage link");
+    if (vaultFeatDlg) {
+      vaultCheck(/alert/i.test((await vaultFeatDlg.textContent()) || ""), "feat picker lists feats as a table");
+      await vaultPage.screenshot({ path: path.join(shotDir, "lineage-feat.png") });
+    }
+    await vaultPage.keyboard.press("Escape");
+    await vaultPage.waitForTimeout(300);
+    vaultCheck(!(await vaultPage.$(".choice-dialog-overlay")), "feat picker closes on Escape");
+  }
 }
 
 await browser.close();

@@ -4345,6 +4345,46 @@ const closeDialog = () => {
     });
   }
 
+  /** Live racial-feat bullet ("Feat — Alert", where the summary itself
+   *  links the feats picker dialog): for a staged race granting a feat
+   *  of its own (today: Custom Lineage's "Feat" trait). The dialog is
+   *  the same shared table proficiencies use — single-pick, every feat
+   *  with its description — and writes the same rules.feats lineage
+   *  entry the Identity "Racial feat" rows use, so both pickers stay
+   *  in sync. Null when the staged race grants no feat. */
+  function liveLineageFeatBullet(saveRules) {
+    if (!lineageFeatOffered()) return null;
+    const pick = lineageFeatPick();
+    const feats = FEAT_BUNDLES.filter((b) => b?.name).map((b) => ({
+      id: b.name,
+      name: b.name,
+      description: b.featureGrants?.[0]?.description
+        ? sharedBriefDescription(b.featureGrants[0].description, 160)
+        : null,
+    })).sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      live: true,
+      topic: "Feat",
+      lead: [{ text: pick?.name || "Choose a feat" }],
+      dialogOpener: () => openChoiceDialog({
+        title: `Racial feat — ${state.species}`,
+        multi: false,
+        maxSelections: 1,
+        options: feats,
+        lockedIds: [],
+        initialSelected: pick?.name ? [pick.name] : [],
+        onAccept: (ids) => {
+          character.rules.feats = [
+            ...(character.rules.feats || []).filter((f) => f.source !== "lineage"),
+            ...(ids[0] ? [{ name: ids[0], level: state.level, source: "lineage" }] : []),
+          ];
+          saveRules();
+          renderPageGrid();
+        },
+      }),
+    };
+  }
+
   /** Description for one dialog option: the bundle's own text wins,
    *  else the proficiency reference (skills and expertise share skill
    *  names; tools have their own map; feats resolve from their own
@@ -4430,18 +4470,23 @@ const closeDialog = () => {
     const toolGroups = isBg ? bgInlineTool : [];
     const asiGroups = isRace ? raceInlineAsi : [];
     const featGroups = isRace ? raceInlineFeat : bgInlineFeat;
-    // Dialog-pick leftovers (skills, tools, fighting styles, expertise)
-    // count here too — otherwise a row whose ONLY groups take the
-    // dialog returns the static preview and its choices vanish.
+    // Dialog-pick leftovers (skills, tools, fighting styles, expertise,
+    // feats) count here too — otherwise a row whose ONLY groups take
+    // the dialog returns the static preview and its choices vanish.
     const dialogGroups = (isRace ? raceChoiceGroups : backgroundChoiceGroups).filter((g) => choiceDialogKindFor(g));
-    if (!langGroups.length && !toolGroups.length && !asiGroups.length && !featGroups.length && !dialogGroups.length) return statik;
+    // A race-granted feat (Custom Lineage's "Feat" trait) renders as a
+    // link opening the feats picker dialog instead of a static note.
+    const lineageFeat = isRace ? liveLineageFeatBullet(saveRules) : null;
+    if (!langGroups.length && !toolGroups.length && !asiGroups.length && !featGroups.length && !dialogGroups.length && !lineageFeat) return statik;
     const full = bundleFor(category, name, includedRulesetIds(state));
     if (!full) return statik;
     const liveFeatLabels = new Set(featGroups.map((g) => (g.label || "").trim()));
     const stripped = {
       ...full,
       statModifiers: (full?.statModifiers || []).filter((m) => !(m.op === "grantTag" && isLangFieldId(m.targetFieldId))),
-      featureGrants: (full?.featureGrants || []).filter((f) => !liveFeatLabels.has((f.name || "").trim())),
+      featureGrants: (full?.featureGrants || []).filter((f) =>
+        !liveFeatLabels.has((f.name || "").trim())
+        && !(lineageFeat && /^feat$/i.test((f.name || "").trim()))),
     };
     const sections = mechanicsListFor(category, name, state.level, stripped);
     const fixedBundle = isRace ? creationFixedBundles(state)[0] : creationFixedBundles(state)[3];
@@ -4457,6 +4502,7 @@ const closeDialog = () => {
         : null,
       ...liveFeatureBullets(featGroups, saveRules).map((bullet) => ({ section: SHARED_MECHANICS_TITLES.innate, bullet })),
       ...inlineChoiceBullets(dialogGroups, saveRules).map((bullet) => ({ section: SHARED_MECHANICS_TITLES.innate, bullet })),
+      ...(lineageFeat ? [{ section: SHARED_MECHANICS_TITLES.traits, bullet: lineageFeat }] : []),
     ].filter(Boolean));
   }
 
@@ -4622,8 +4668,8 @@ const closeDialog = () => {
             },
           });
           // No section title here: renderPreferencesStepInto already
-          // labels the picker ("HP on level-up"), so a second header
-          // would read as a duplicate. A separator divides the
+          // labels the picker ("Hit Points on Level Up"), so a second
+          // header would read as a duplicate. A separator divides the
           // Ruleset + Content selection above from the HP rule below.
           container.append(el("hr", { class: "wizard__separator" }));
           const hpWrap = el("div", { class: "wizard__subsection" });
