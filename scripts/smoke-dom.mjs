@@ -334,6 +334,9 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
 // Regression guard: renderChoiceGroupsInto once called a bare
 // `categorizeChoiceGroup` it never imported, crashing the creator the
 // moment any race with real choice groups (e.g. Changeling) rendered.
+// Feat groups render as a summary link opening the shared choice
+// dialog (exact same pattern as proficiencies) — no superscript,
+// no inline checkbox wall.
 {
   const groups = [
     {
@@ -356,8 +359,46 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(threw === null, "choice-group list renders without missing bindings");
   if (threw === null) {
     assert(box.querySelectorAll(".level-guide__choices").length === 2, "both choice groups render fieldsets");
-    assert(box.querySelector(".inline-pick-help") !== null, "feat group gets the feat-picker help");
+    assert(box.querySelector(".inline-pick-help") === null, "feat group has no superscript help");
+    const featLink = box.querySelectorAll(".inline-pick-link")[0];
+    assert(!!featLink && featLink.textContent.includes("Choose 1"), "feat group renders summary link");
   }
+}
+// --- Feat summary link opens the shared dialog -------------------------
+{
+  const host = document.createElement("div");
+  const store = {};
+  const groups = [
+    {
+      key: "g-feat2", label: "Choose a feat", source: "Test",
+      minSelections: 0, maxSelections: 1,
+      options: [
+        { id: "f1", name: "Alert", description: "Act first." },
+        { id: "f2", name: "Lucky" },
+      ],
+    },
+  ];
+  wizard.renderChoiceGroupsInto(host, groups, store, "test", () => {}, () => new Set());
+  const link = host.querySelector(".inline-pick-link");
+  assert(!!link, "feat summary link renders");
+  const dialogHost = document.createElement("div");
+  let accepted = null;
+  wizard.openChoiceDialog({
+    title: "Choose a feat", multi: false, maxSelections: 1,
+    options: [
+      { id: "f1", name: "Alert", description: "Act first." },
+      { id: "f2", name: "Lucky", description: wizard.describeFeatOption({ name: "Lucky" }) },
+    ],
+    initialSelected: [],
+    onAccept: (ids) => { accepted = ids; },
+    host: dialogHost,
+  });
+  const overlay = dialogHost.children.find((c) => (c.className || "").includes("choice-dialog-overlay"));
+  assert(!!overlay, "feat dialog opens via shared dialog");
+  assert(overlay.textContent.includes("Alert"), "feat dialog lists feats as a table");
+  const inputs = overlay.querySelectorAll(".choice-dialog-option").map((l) => l.children[0]);
+  assert(inputs.every((i) => i.type === "radio"), "single feat pick renders radios like proficiencies");
+  assert(accepted === null, "feat dialog writes nothing before accept");
 }
 
 // --- Toolbar shell: Play View insertion point -----------------------------
@@ -388,6 +429,8 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(kindOf("Artificer Tool Proficiency: one artisan's tool") === "tools", "classifier maps tool groups");
   assert(kindOf("Fighting Style") === "styles", "classifier maps fighting styles");
   assert(kindOf("Expertise — pick 2 of your proficiencies") === "expertise", "classifier maps expertise");
+  assert(kindOf("Choose a Feat") === "feats", "classifier maps feat groups");
+  assert(wizard.choiceDialogKindFor({ label: "Pick 1", category: "feats" }) === "feats", "classifier maps feat category");
   assert(kindOf("Languages") === null, "classifier leaves language groups alone");
   assert(wizard.choiceDialogKindFor(null) === null, "classifier tolerates null");
 }

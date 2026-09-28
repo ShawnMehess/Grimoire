@@ -4350,23 +4350,33 @@ const closeDialog = () => {
 
   /** Description for one dialog option: the bundle's own text wins,
    *  else the proficiency reference (skills and expertise share skill
-   *  names; tools have their own map). */
+   *  names; tools have their own map; feats resolve from their own
+   *  grant text or the baked feat catalog). */
   function describeChoiceOption(kind, option) {
     if (option.description) return option.description;
     if (kind === "skills" || kind === "expertise") {
       return SKILLS.find((s) => s.label === option.name)?.description || null;
     }
     if (kind === "tools") return TOOL_DESCRIPTIONS[option.name] || null;
+    if (kind === "feats" || /\bfeat\b/i.test(option.name || "")) {
+      const grantText = option.featureGrants?.[0]?.description;
+      if (grantText) return sharedBriefDescription(grantText, 160);
+      const norm = (s) => (s || "").trim().toLowerCase();
+      const bundle = FEAT_BUNDLES.find((entry) => norm(entry.name) === norm(option.name));
+      const bundleText = bundle?.featureGrants?.[0]?.description;
+      if (bundleText) return sharedBriefDescription(bundleText, 160);
+      return null;
+    }
     return null;
   }
 
   /** Inline summary bullets for choice groups that moved out of the
    *  bottom "Your choices" sections into their row — "Skills — Arcana,
    *  Stealth", where the summary itself links the one shared dialog
-   *  for that choice kind (skills/tools/styles/expertise). Writes the
-   *  same choicesStore keys the bottom renderer used, so wizard gating
-   *  and hints are untouched. Already-granted options lock exactly
-   *  like the flat renderer. */
+   *  for that choice kind (skills/tools/styles/expertise/feats).
+   *  Writes the same choicesStore keys the bottom renderer used, so
+   *  wizard gating and hints are untouched. Already-granted options
+   *  lock exactly like the flat renderer. */
   function inlineChoiceBullets(choiceGroups, saveRules) {
     const store = character.rules?.choices || {};
     return (choiceGroups || []).filter((g) => choiceDialogKindFor(g)).map((group) => {

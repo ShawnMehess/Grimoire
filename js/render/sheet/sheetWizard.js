@@ -1766,17 +1766,23 @@ function renderMultiPickerRows(container, names, { selectedSet, onToggle, getInf
 }
 
 /** Which shared choice dialog (if any) a bottom-section group belongs
- *  in once inlined into its row: skills, tools, fighting styles, or
- *  expertise. Returns null for groups with their own inline rendering
- *  (languages, ASI slots, feature picks, subraces) or no options.
- *  Pure — customSheet uses it both to build inline bullets and to
- *  decide what stays in the bottom sections (nothing, these days). */
+ *  in once inlined into its row: skills, tools, fighting styles,
+ *  expertise, or feats. Returns null for groups with their own inline
+ *  rendering (languages, ASI slots, feature picks, subraces) or no
+ *  options. Pure — customSheet uses it both to build inline bullets
+ *  and to decide what stays in the bottom sections (nothing, these
+ *  days). Feat groups open the same shared dialog as proficiencies:
+ *  the summary itself is the link, the dialog lists every feat as a
+ *  table with per-option descriptions, max enforcement, and
+ *  Accept writes/Cancel discards. */
 export function choiceDialogKindFor(group) {
   if (!group) return null;
   const label = `${group.label || ""} ${group.source || ""}`;
   if (/fighting style/i.test(label)) return "styles";
   if (/expertise/i.test(label)) return "expertise";
   const category = typeof categorizeChoiceGroup === "function" ? categorizeChoiceGroup(group) : null;
+  if (category === "feats") return "feats";
+  if (/\bfeat\b/i.test(label)) return "feats";
   if (category === "skills") return "skills";
   if (category === "tools") return "tools";
   if (group.fieldId === "toolProf") return "tools";
@@ -1784,12 +1790,12 @@ export function choiceDialogKindFor(group) {
 }
 
 /** One shared choice dialog for every inlined pick list (skills, tools,
- *  fighting styles, expertise) — a single dialog object reused across
- *  all instances of a kind, configured per open. Modeled on the feat
- *  picker: option list with per-option descriptions, max enforcement,
- *  locked (pre-granted) options, Accept writes/Cancel discards.
- *  `options` is a snapshot taken at open; `host` defaults to
- *  document.body (pass a container in tests).
+ *  fighting styles, expertise, feats) — a single dialog object reused
+ *  across all instances of a kind, configured per open. Option list
+ *  with per-option descriptions, max enforcement, locked (pre-granted)
+ *  options, Accept writes/Cancel discards. `options` is a snapshot
+ *  taken at open; `host` defaults to document.body (pass a container
+ *  in tests).
  *
  *  opts: { title, multi, maxSelections, options,
  *    lockedIds, initialSelected, onAccept(ids), host } */
@@ -1885,59 +1891,46 @@ export function openChoiceDialog({
   return overlay;
 }
 
-/** Opens a dialog with all available feats for a feat choice group. */
-function openFeatDialog(group, choicesStore, namePrefix, onChange, rerender) {
-  const overlay = el("div", { class: "modal-overlay" });
-  const box = el("div", { class: "modal-box feat-picker-dialog", onclick: (e) => e.stopPropagation() });
-  const heading = el("h3", { text: `Choose ${group.maxSelections === 1 ? "a Feat" : group.maxSelections + " Feats"}` });
-  const selected = new Set(choicesStore[group.key] || []);
-  const locked = new Set(group.lockedOptionIds || []);
-  // Get all feat options from the group
-  const featOptions = groupOptionsOf(group).filter((o) => o.name);
-  const searchInput = el("input", { type: "search", class: "input-group__control", placeholder: "Search feats…", style: "margin-bottom: var(--space-2); width: 100%;" });
-  const listWrap = el("div", { class: "feat-picker-list", style: "max-height: 50vh; overflow-y: auto;" });
-  const renderFeatList = () => {
-    listWrap.innerHTML = "";
-    const query = searchInput.value.toLowerCase();
-    featOptions.filter((f) => f.name.toLowerCase().includes(query)).forEach((feat) => {
-      const isSelected = selected.has(feat.id);
-      const isLocked = locked.has(feat.id);
-      const label = el("label", { class: "feat-picker-option" },
-        el("input", { type: "checkbox", checked: isSelected || isLocked, disabled: isLocked, value: feat.id, onchange: (e) => {
-          if (isLocked) return;
-          const max = group.maxSelections;
-          const counted = [...selected].filter((id) => !locked.has(id));
-          if (e.target.checked) {
-            if (counted.length >= max) { e.target.checked = false; return; }
-            selected.add(feat.id);
-          } else {
-            selected.delete(feat.id);
-          }
-        }}),
-        el("span", { text: feat.name, style: "flex: 1;" }),
-        feat.description ? el("span", { class: "feat-picker-desc", text: feat.description, style: "font-size: var(--text-xs); color: var(--color-text-muted); margin-left: var(--space-2);" }) : null
-      );
-      listWrap.append(label);
-    });
-    if (!listWrap.children.length) {
-      listWrap.append(el("p", { class: "leveling-tab__intro", text: "No feats match your search." }));
+/** One-line description for a feat option inside the shared choice
+ *  dialog — the option's own text wins, else its first feature
+ *  grant's text briefed to a table-friendly length. Pure. */
+export function describeFeatOption(option) {
+  if (option?.description) return option.description;
+  const grantText = option?.featureGrants?.[0]?.description;
+  if (grantText) {
+    try {
+      return briefDescription(grantText, 160);
+    } catch {
+      return String(grantText).slice(0, 160);
     }
-  };
-  searchInput.addEventListener("input", renderFeatList);
-  renderFeatList();
-  const actions = el("div", { class: "modal-actions" });
-  const accept = el("button", { type: "button", class: "btn btn--primary", text: "Accept", onclick: () => {
-    const picks = [...selected].filter((id) => !locked.has(id)).sort();
-    choicesStore[group.key] = [...locked, ...picks];
-    if (onChange) onChange();
-    rerender();
-    overlay.remove();
-  }});
-  const cancel = el("button", { type: "button", class: "btn", text: "Cancel", onclick: () => overlay.remove() });
-  actions.append(cancel, accept);
-  box.append(heading, searchInput, listWrap, actions);
-  overlay.append(box);
-  document.body.append(overlay);
+  }
+  return null;
+}
+
+/** Opens the shared choice dialog for a feat choice group — the
+ *  exact same dialog proficiencies use: summary link opens, table
+ *  lists every feat with per-option descriptions, max enforced,
+ *  Accept writes/Cancel discards. */
+function openFeatChoiceDialog(group, choicesStore, onChange, rerender, owned) {
+  const opts = groupOptionsOf(group).filter((o) => o?.name);
+  const lockedIds = [...new Set([
+    ...(group.lockedOptionIds || []),
+    ...opts.filter((o) => optionIsOwned(o, owned)).map((o) => o.id),
+  ])];
+  const stored = choicesStore[group.key] || [];
+  openChoiceDialog({
+    title: group.label || "Choose a feat",
+    multi: group.maxSelections !== 1,
+    maxSelections: group.maxSelections,
+    options: opts.map((o) => ({ id: o.id, name: o.name, description: describeFeatOption(o) })),
+    lockedIds,
+    initialSelected: stored,
+    onAccept: (ids) => {
+      choicesStore[group.key] = ids;
+      if (onChange) onChange();
+      rerender();
+    },
+  });
 }
 
 /** Shared renderer for a choiceGroups list's checkboxes/radios.
@@ -1974,20 +1967,32 @@ export function renderChoiceGroupsInto(container, groups, choicesStore, namePref
     const count = group.minSelections === group.maxSelections
       ? `Choose ${group.maxSelections}`
       : `Choose up to ${group.maxSelections}`;
-    const isFeatGroup = categorizeChoiceGroup(group) === "feats";
-    if (isFeatGroup) {
-      const helpBtn = el("sup", { class: "inline-pick-help", title: "Open feat picker dialog" },
-        el("a", { href: "#", onclick: (e) => { e.preventDefault(); e.stopPropagation(); openFeatDialog(group, choicesStore, namePrefix, onChange, rerender); } }, "?"));
-      legend.textContent = `${group.label || "Choose an option"} (${count} — ${counted.length}/${group.maxSelections} picked)`;
-      legend.append(document.createTextNode(" "), helpBtn);
-    } else {
-      legend.textContent = `${group.label || "Choose an option"} (${count} — ${counted.length}/${group.maxSelections} picked)`;
-    }
+    legend.textContent = `${group.label || "Choose an option"} (${count} — ${counted.length}/${group.maxSelections} picked)`;
     choiceGroup.append(legend);
     const source = document.createElement("p");
     source.className = "level-guide__choice-source";
     source.textContent = group.source;
     choiceGroup.append(source);
+    // Feat groups render as a summary link opening the shared choice
+    // dialog — the exact same pattern proficiencies use — instead of
+    // an inline checkbox wall. The dialog lists every feat as a
+    // table with per-option descriptions; Accept writes, Cancel
+    // discards. Choice bullets carry no superscript (see
+    // renderLiveBulletItem): the summary itself is the link.
+    if (choiceDialogKindFor(group) === "feats") {
+      const opts = groupOptionsOf(group).filter((o) => o?.name);
+      const pickedNames = (choicesStore[group.key] || [])
+        .map((id) => opts.find((o) => o.id === id)?.name)
+        .filter(Boolean);
+      const summary = pickedNames.length ? pickedNames.join(", ") : `Choose ${group.maxSelections}`;
+      const link = el("a", {
+        href: "#", class: "inline-pick-link", text: summary, title: "Choose feats",
+        onclick: (e) => { e.preventDefault(); e.stopPropagation(); openFeatChoiceDialog(group, choicesStore, onChange, rerender, owned); },
+      });
+      choiceGroup.append(el("p", { class: "level-guide__feat-pick" }, link));
+      container.append(choiceGroup);
+      return;
+    }
     if (group.categories) {
       renderCrossCategoryChoiceInto(choiceGroup, group, choicesStore, rerender, onChange);
     } else {
