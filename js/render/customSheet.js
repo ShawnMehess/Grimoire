@@ -90,7 +90,6 @@ import {
 } from "./sheet/sheetConstants.js";
 import { debounce, valuesMatch, mergeTextStyle, clone, newId, el } from "./sheet/sheetHelpers.js";
 import {
-  CREATION_CHOICE_CATEGORIES as SHARED_CREATION_CHOICE_CATEGORIES,
   categorizeChoiceGroup as sharedCategorizeChoiceGroup,
   statModifierLabel as sharedStatModifierLabel,
   statModifierSummary as sharedStatModifierSummary,
@@ -299,13 +298,11 @@ import {
 } from "./sheet/sheetStyles.js";
 import {
   wizardUnavailableMessageFor,
-  bucketGroupsByCategory,
   renderRulesetStepInto,
   renderIdentityStepInto,
   renderClassStepInto,
   renderRowListStepInto,
   renderPreferencesStepInto,
-  renderChoicePageStepInto,
   renderInnateAbilitiesStepInto,
   renderAbilitiesStepInto,
   reviewLinesFor,
@@ -3104,8 +3101,6 @@ const closeDialog = () => {
   // bundle library editor). "proficiencies" is the catch-all so an
   // unrecognized label still surfaces somewhere rather than silently
   // vanishing from the wizard.
-  const CREATION_CHOICE_CATEGORIES = SHARED_CREATION_CHOICE_CATEGORIES;
-
   function categorizeChoiceGroup(group) {
     return sharedCategorizeChoiceGroup(group);
   }
@@ -3912,7 +3907,7 @@ const closeDialog = () => {
     /** A race-granted feat (today: Custom Lineage) lives in
      *  rules.feats with source "lineage" — switching species drops it
      *  so a stale feat can't outlive the race that granted it (the new
-     *  race's own feat, if any, gets picked fresh on the Feats page). */
+     *  race's own feat, if any, gets picked fresh on Identity). */
     function cleanStaleLineageFeat() {
       const feats = character.rules.feats || [];
       if (!feats.some((f) => f.source === "lineage")) return;
@@ -3986,22 +3981,20 @@ const closeDialog = () => {
     // Choices offered by whichever Race/Class/Subclass/Background are
     // currently picked, rendered as "Your choices" sections under the
     // pick that granted them (see renderYourChoicesSections) — choices
-    // appear where they originate, not on separate later pages. Only
-    // feat-granting groups keep their own conditional page, since a
-    // feat pick reads better as one list. See
-    // creationChoiceGroupsFor and categorizeChoiceGroup above.
+    // appear where they originate, not on separate later pages. Feat
+    // groups render through the shared feats picker dialog (see
+    // choiceDialogKindFor/inlineChoiceBullets), same as proficiencies.
+    // See creationChoiceGroupsFor and categorizeChoiceGroup above.
     const creationGroups = creationChoiceGroupsFor(state);
-    const creationGroupsByCategory = bucketGroupsByCategory(creationGroups.filter((g) => !g.subrace), CREATION_CHOICE_CATEGORIES, categorizeChoiceGroup);
-    // Per-step sections: a pick's own non-feat groups (subrace groups
-    // render nested under their race, never standalone). Feat-category
-    // groups from every source share the conditional Feats page.
-    const nonFeatGroupsFor = (...sources) => creationGroups.filter((g) =>
-      !g.subrace && sources.includes(g.source) && categorizeChoiceGroup(g) !== "feats");
+    // Per-step sections: a pick's own groups (subrace groups render
+    // nested under their race, never standalone).
+    const pickGroupsFor = (...sources) => creationGroups.filter((g) =>
+      !g.subrace && sources.includes(g.source));
     // Full per-pick lists — gating always counts everything, wherever
     // each group renders.
-    const raceChoiceGroups = nonFeatGroupsFor(state.species);
-    const classChoiceGroups = nonFeatGroupsFor(state.className, state.subclass);
-    const backgroundChoiceGroups = nonFeatGroupsFor(state.background);
+    const raceChoiceGroups = pickGroupsFor(state.species);
+    const classChoiceGroups = pickGroupsFor(state.className, state.subclass);
+    const backgroundChoiceGroups = pickGroupsFor(state.background);
     // Groups rendered inline in the picker tables (not in the generic
     // "Your choices" sections): language groups and ASI slot groups
     // nested under their race/background rows. Class tables render no
@@ -4009,9 +4002,13 @@ const closeDialog = () => {
     // language groups — should any ever appear — keep the generic
     // rendering rather than vanishing.
     const isInlineLangGroup = (g) => categorizeChoiceGroup(g) === "languages";
+    // Feature-pick dropdowns yield to the shared dialog: a feat group
+    // that happens to match the single-pick shape still opens the
+    // feats picker link (see inlineChoiceBullets), never a dropdown.
+    const isInlineFeatDropdown = (g) => isFeaturePickGroup(g) && !choiceDialogKindFor(g);
     const raceInlineLang = raceChoiceGroups.filter(isInlineLangGroup);
     const raceInlineAsi = raceChoiceGroups.filter(isAsiSlotGroup);
-    const raceInlineFeat = raceChoiceGroups.filter(isFeaturePickGroup);
+    const raceInlineFeat = raceChoiceGroups.filter(isInlineFeatDropdown);
     // Whatever is left over renders in the row itself through the
     // shared choice dialog (see inlineChoiceBullets) — the bottom
     // "Your choices" sections below are now permanently empty, so
@@ -4020,7 +4017,7 @@ const closeDialog = () => {
     const raceSectionGroups = raceChoiceGroups.filter((g) => !isInlineLangGroup(g) && !isAsiSlotGroup(g) && !isFeaturePickGroup(g) && !choiceDialogKindFor(g));
     const bgInlineLang = backgroundChoiceGroups.filter(isInlineLangGroup);
     const bgInlineTool = backgroundChoiceGroups.filter((g) => g.fieldId === "toolProf");
-    const bgInlineFeat = backgroundChoiceGroups.filter(isFeaturePickGroup);
+    const bgInlineFeat = backgroundChoiceGroups.filter(isInlineFeatDropdown);
     const bgSectionGroups = backgroundChoiceGroups.filter((g) => !isInlineLangGroup(g) && g.fieldId !== "toolProf" && !isFeaturePickGroup(g) && !choiceDialogKindFor(g));
     // The race bundle's pick-1 subrace group (Elf/Dwarf) renders nested
     // under its race — the same pattern as subclasses under their
@@ -4548,8 +4545,8 @@ const closeDialog = () => {
       return wizardUnavailableMessageFor(state);
     }
     /** Whether the staged race grants a feat of its own (today:
-     *  Custom Lineage's "Feat" trait) — when it does, the Feats page
-     *  offers a real feat picker instead of staying disabled. */
+     *  Custom Lineage's "Feat" trait) — when it does, Identity offers
+     *  a real feat picker below the race rows. */
     function lineageFeatOffered() {
       const bundle = creationFixedBundles(state)[0];
       return ((bundle || {}).featureGrants || []).some((g) => /^feat$/i.test((g.name || "").trim()));
@@ -4624,7 +4621,13 @@ const closeDialog = () => {
               } else if (syncMessage) statusEl.textContent = syncMessage;
             },
           });
-          const hpWrap = sectionInto(container, "Hit Points on Level-Up");
+          // No section title here: renderPreferencesStepInto already
+          // labels the picker ("HP on level-up"), so a second header
+          // would read as a duplicate. A separator divides the
+          // Ruleset + Content selection above from the HP rule below.
+          container.append(el("hr", { class: "wizard__separator" }));
+          const hpWrap = el("div", { class: "wizard__subsection" });
+          container.append(hpWrap);
           renderPreferencesStepInto(hpWrap, state, {
             hpOptions: HP_METHOD_OPTIONS,
             currentMethod: character.rules.hpMethod || "average",
@@ -4641,7 +4644,8 @@ const closeDialog = () => {
           if (!((character.name || "").trim()) || !state.species) return false;
           const sub = subraceGroupFor(state.species);
           if (sub && !groupPicksSatisfied(sub, state.choices?.[sub.key])) return false;
-          return choicesComplete(raceChoiceGroups);
+          if (!choicesComplete(raceChoiceGroups)) return false;
+          return !lineageFeatOffered() || Boolean(lineageFeatPick());
         },
         render(container) {
           renderIdentityStepInto(container, state, {
@@ -4700,6 +4704,34 @@ const closeDialog = () => {
           // call stays as a safety net so a future/homebrew group no
           // dialog covers still surfaces instead of vanishing.
           renderYourChoicesSections(container, "identity", raceSectionGroups, saveRules, raceChoiceGroups);
+          if (lineageFeatOffered()) {
+            const pickWrap = sectionInto(container, `Racial feat — ${state.species}`);
+            // Same single-pick rows as the level-up ASI feat picker:
+            // choosing replaces the previous racial feat (there is
+            // ever at most one), and the pick flows into rules.feats
+            // so every feat-aware path (choice groups, sheet mods,
+            // review) treats it like any other feat.
+            renderPickerRows(pickWrap, rulesetOptionNames(state.rulesetId, "Feat"), {
+              selectedName: lineageFeatPick()?.name,
+              getInfo: (name) => catalogEntryInfo(["feat"], name),
+              collapsible: true,
+              getSummary: (name) => sharedMechanicsSummaryForPicker(
+                bundleFor("Feat", name, includedRulesetIds(state)),
+                state.level,
+                { abilityIds: ABILITY_IDS, abilities: ABILITIES, skills: SKILLS, resolveLabel: (id) => resolveFieldById(id)?.label }
+              ),
+              onSelect: (name) => {
+                // De-select (second click on the open row) drops the
+                // lineage feat rather than recording a blank one.
+                character.rules.feats = [
+                  ...(character.rules.feats || []).filter((f) => f.source !== "lineage"),
+                  ...(name ? [{ name, level: state.level, source: "lineage" }] : []),
+                ];
+                saveRules();
+                renderPageGrid();
+              },
+            });
+          }
         },
       },
       {
@@ -4836,46 +4868,6 @@ const closeDialog = () => {
           const spellWrap = sectionInto(container, "Spells");
           renderSpellPicker(spellWrap, { rulesetId: state.rulesetId, className: state.className, level: state.level });
           renderSecretsSectionInto(container, state.className, state.level, state.subclass);
-        },
-      },
-      {
-        id: "feats",
-        title: "Feats",
-        description: "Pick feats granted by your race or background. Feats are permanent talents that bend the rules in your favor.",
-        isApplicable: () => creationGroupsByCategory.feats.length > 0 || lineageFeatOffered(),
-        unavailableMessage: wizardUnavailableMessage,
-        isComplete: () => creationGroupsByCategory.feats.every((g) => creationGroupSatisfied(g, state))
-          && (!lineageFeatOffered() || Boolean(lineageFeatPick())),
-        render(container) {
-          if (creationGroupsByCategory.feats.length) renderChoicePageStepInto(container, creationGroupsByCategory.feats, saveRules, (c, groups, save) => renderCreationChoiceGroups(c, groups, save, state));
-          if (lineageFeatOffered()) {
-            const pickWrap = sectionInto(container, `Racial feat — ${state.species}`);
-            // Same single-pick rows as the level-up ASI feat picker:
-            // choosing replaces the previous racial feat (there is
-            // ever at most one), and the pick flows into rules.feats
-            // so every feat-aware path (choice groups, sheet mods,
-            // review) treats it like any other feat.
-            renderPickerRows(pickWrap, rulesetOptionNames(state.rulesetId, "Feat"), {
-              selectedName: lineageFeatPick()?.name,
-              getInfo: (name) => catalogEntryInfo(["feat"], name),
-              collapsible: true,
-              getSummary: (name) => sharedMechanicsSummaryForPicker(
-                bundleFor("Feat", name, includedRulesetIds(state)),
-                state.level,
-                { abilityIds: ABILITY_IDS, abilities: ABILITIES, skills: SKILLS, resolveLabel: (id) => resolveFieldById(id)?.label }
-              ),
-              onSelect: (name) => {
-                // De-select (second click on the open row) drops the
-                // lineage feat rather than recording a blank one.
-                character.rules.feats = [
-                  ...(character.rules.feats || []).filter((f) => f.source !== "lineage"),
-                  ...(name ? [{ name, level: state.level, source: "lineage" }] : []),
-                ];
-                saveRules();
-                renderPageGrid();
-              },
-            });
-          }
         },
       },
       {
