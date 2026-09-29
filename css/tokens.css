@@ -41,6 +41,12 @@
   --radius-lg: 10px;
   --border-width: 1px;
 
+  /* Selection is drawn OUTSIDE the node's own border (an outline, not a
+     border-color change) so an element's border and its selection are
+     visible at the same time instead of one replacing the other. */
+  --selection-width: 2px;
+  --selection-gap: 2px;
+
   /* --- Type --- */
   --font-display: "Cinzel", "Georgia", serif;
   --font-body:    "Inter", system-ui, sans-serif;

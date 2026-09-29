@@ -298,26 +298,35 @@ export function renderFieldInnerInto(fieldEl, field, parentBlock, deps) {
   const labelEl = document.createElement("div");
   labelEl.className = "field-label";
   labelEl.contentEditable = "true";
-  labelEl.textContent = field.label;
+  labelEl.innerHTML = labelElToText(field.label);
   labelEl.title = field.label;
   let labelBeforeEdit = field.label;
   labelEl.addEventListener("focus", () => {
     labelBeforeEdit = field.label;
   });
   labelEl.addEventListener("keydown", (e) => {
-    // Plain Enter = done editing (blur); Shift+Enter = an actual new
-    // line in the label, left to the browser's normal contenteditable
-    // behavior.
+    // Enter adds a line. An earlier version had Enter blur the label
+    // instead, which made a multi-line label impossible to write without
+    // a modifier; Escape is the way out instead. Shift+Enter falls
+    // through to the browser, which breaks the line the same way.
     if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      // insertLineBreak is the one execCommand that reliably produces a
+      // <br> across browsers; the default Enter on a contenteditable div
+      // is inconsistent (some insert a wrapping <div> instead).
+      document.execCommand("insertLineBreak");
+      return;
+    }
+    if (e.key === "Escape") {
       e.preventDefault();
       labelEl.blur();
     }
   });
   labelEl.addEventListener("input", () => {
     commitFn(() => {
-      field.label = labelEl.textContent;
+      field.label = labelTextFromEl(labelEl);
     }, { render: false });
-    labelEl.title = labelEl.textContent;
+    labelEl.title = field.label;
     frameFn();
     visibilityFn(field, labelEl);
     growFn(labelEl, field, fieldEl, parentBlock);
@@ -329,13 +338,15 @@ export function renderFieldInnerInto(fieldEl, field, parentBlock, deps) {
     // fields sharing one would be genuinely ambiguous in both
     // places. Dragging a COPY of a field in (from the sidebar) is
     // exempt — that never goes through this rename path.
-    const current = field.label.trim();
+    // Only the first line can name a field for formulas/dragging, so
+    // that's what's compared for duplicates.
+    const current = (field.label || "").split("\n")[0].trim();
     if (isDuplicateLabel(current, labelBeforeEdit, field, labelInUseFn)) {
       toastFn(`The label "${current}" is already in use by another field — reverted to "${labelBeforeEdit}".`, { isError: true });
       commitFn(() => {
         field.label = labelBeforeEdit;
       }, { render: false });
-      labelEl.textContent = labelBeforeEdit;
+      labelEl.innerHTML = labelElToText(labelBeforeEdit);
       labelEl.classList.toggle("is-ghost-default", labelBeforeEdit === "Stat");
       visibilityFn(field, labelEl);
     } else {
@@ -388,6 +399,41 @@ export function buildTextValueInto(field, onValueChange, deps) {
     });
   }
   return el;
+}
+
+/** Multi-line labels: a contenteditable div stores a hard line break as
+ *  a <br> element, which `textContent` silently drops (it reads a <br> as
+ *  nothing), so a second line would run into the first the moment it's
+ *  saved. Labels persist as plain "\n"-separated text instead, converted
+ *  on the way in and out. */
+export function labelTextFromEl(el) {
+  // innerHTML is only used to find the breaks; nothing from it is ever
+  // interpreted as markup, since the result is assigned via textContent
+  // on the way back in (see labelElToText).
+  return (el.innerHTML || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(div|p)>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\n$/, "");
+}
+
+export function labelElToText(text) {
+  // Trailing newlines are dropped here so this is an exact inverse of
+  // labelTextFromEl. A contenteditable always leaves a trailing <br>
+  // artifact once edited, and a trailing empty line has nothing to show,
+  // so normalizing it away at the boundary keeps the pair symmetric
+  // instead of round-tripping a phantom line.
+  const lines = (text || "").replace(/\n+$/, "").split("\n");
+  return lines.map((line, i) => (i ? "<br>" : "") + escapeHtml(line)).join("");
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 export function buildLabelValueInto(field, deps) {

@@ -404,18 +404,20 @@
   box-shadow: var(--shadow-md);
 }
 
-/* Selection is shown by recoloring the node's OWN border, not a
-   separate outline drawn around it — requested explicitly so that a
-   future "hide this element's border" style option can still have
-   selection show through: the border comes back (in accent color)
-   the moment it's selected, even if it's otherwise set invisible.
+/* Selection is drawn as an OUTLINE just outside the node's own border,
+   not by recoloring that border — so the element's own border and its
+   selection are both visible at the same time, rather than the selection
+   replacing the border. `outline` is used (not box-shadow) because the
+   node's box-shadow is already spoken for by the elevation/shadow tokens,
+   and because outline follows border-radius without a second property.
    .is-selected (see paintSelection/selectOnly/selectWithChildren in
-   customSheet.js) is the real source of truth; :focus-within rides
-   along as a fallback for keyboard-only navigation (Tab), which
-   doesn't go through that selection code at all. */
+   customSheet.js) is the real source of truth; :focus-within rides along
+   as a fallback for keyboard-only navigation (Tab), which doesn't go
+   through that selection code at all. */
 .grid-node.is-selected,
 .grid-node:focus-within {
-  border-color: var(--color-accent);
+  outline: var(--selection-width) solid var(--color-accent);
+  outline-offset: var(--selection-gap);
   z-index: 4;
 }
 
@@ -425,20 +427,18 @@
 .is-edit-mode .grid-node.is-selected:has(:hover),
 .is-edit-mode .grid-node.is-selected.is-dragging,
 .is-edit-mode .grid-node.is-selected.is-resizing {
-  border-color: var(--color-accent);
+  outline: var(--selection-width) solid var(--color-accent);
+  outline-offset: var(--selection-gap);
   z-index: 5;
 }
 
 /* A block/field can have its own border turned off (see the ▢ toggle
-   in its toolbar / buildBorderToggleButton) — selection still shows
-   through even then, via the compound selector below outweighing
-   this one regardless of source order. */
+   in its toolbar / buildBorderToggleButton). The selection outline is
+   drawn outside that border, so selection stays visible either way with
+   no override needed here — previously selection recolored the border and
+   this rule had to be outweighed by a compound .is-selected variant. */
 .grid-node.border-hidden {
   border-color: transparent;
-}
-.grid-node.border-hidden.is-selected,
-.grid-node.border-hidden:focus-within {
-  border-color: var(--color-accent);
 }
 
 /* Calc-only nodes hidden in play mode (toolbar eye toggle) — still
@@ -656,6 +656,18 @@
   justify-content: center;
   text-align: center;
   padding: 2px;
+  /* Wrap between words, never inside one: `overflow-wrap: normal` and
+     `word-break: normal` together mean a long single word is never
+     hyphenated/split — instead it overflows and trips the JS
+     grow-on-overflow path (growFieldToFitLabel), which widens the field
+     a grid cell at a time until the word fits. `anywhere` (used by
+     .field-value--textarea) would split it instead of widening. */
+  overflow-wrap: normal;
+  word-break: normal;
+  /* A hard break is the user asking for a new line, so it must survive
+     even when centering — `pre-line` keeps "\n", `normal` would fold it
+     back into a space and silently swallow the line. */
+  white-space: pre-line;
   overflow: hidden;
   /* Stable dimensions: reserve space even when empty so grid doesn't jump */
   min-height: 1.3em;
