@@ -342,6 +342,14 @@ import {
 import { gridCanvasSize, renderMainGridInto } from "./sheet/sheetRender.js";
 import { LAYOUT_PRESETS, applyLayoutPresetTo } from "./sheet/sheetLayouts.js";
 import {
+  ASPECT_PRESETS,
+  DEFAULT_ASPECT_PRESET_ID,
+  aspectPresetById,
+  detectAspectPreset,
+  stashedLayoutFor,
+  switchTabToPreset,
+} from "./sheet/aspectPresets.js";
+import {
   ROLL_SIDES,
   rollCheck,
   openRollResultDialog,
@@ -988,6 +996,65 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     });
   });
   displayRow("Layout", layoutSelect);
+
+  // Aspect-ratio presets: reflow blocks to match a target screen shape
+  // (16:9, phone portrait, tablet landscape, ...).
+  //
+  // Two things this deliberately does NOT do:
+  //  - It never applies anything on load. The detected preset is only
+  //    OFFERED as the select's placeholder, because reflowing a sheet
+  //    behind the user's back is destructive and they may well be
+  //    resizing the window, not redesigning.
+  //  - It doesn't re-guess a shape the user has already adjusted. Each
+  //    (preset, tab) pair keeps its own snapshot, so coming back to a
+  //    preset restores their arrangement (switchTabToPreset handles that).
+  const applyAspect = (presetId, { force }) => {
+    const preset = aspectPresetById(presetId);
+    if (!preset) return;
+    const willReflow = force || !(character.sheetTabs || []).some(
+      (t) => stashedLayoutFor(character, presetId, t.id)
+    );
+    if (force && !window.confirm(
+      `Re-flow every tab into ${preset.name}, replacing any hand-arranged version? (Undo restores it.)`
+    )) return;
+    if (!force && !willReflow && !window.confirm(
+      `You have a hand-arranged ${preset.name} layout — use that, or re-flow from scratch?`
+    )) return;
+    commitMutation(() => {
+      (character.sheetTabs || []).forEach((tab) => {
+        if (Array.isArray(tab.layout)) switchTabToPreset(character, tab, presetId, { force });
+      });
+      mirrorFirstTabLayout();
+    });
+  };
+
+  const aspectSelect = document.createElement("select");
+  aspectSelect.className = "input-group__control";
+  aspectSelect.title = "Switch to a target screen shape; a shape you've already arranged is restored, not re-guessed";
+  const detected = detectAspectPreset();
+  aspectSelect.append(el("option", {
+    value: "",
+    text: detected ? `Screen looks like ${detected.name} — pick a shape…` : "Screen shape…",
+  }));
+  ASPECT_PRESETS.forEach((preset) => {
+    aspectSelect.append(el("option", { value: preset.id, text: preset.name }));
+  });
+  aspectSelect.addEventListener("change", () => {
+    const presetId = aspectSelect.value;
+    aspectSelect.value = "";
+    applyAspect(presetId, { force: false });
+  });
+
+  const aspectReflowBtn = el("button", {
+    type: "button", class: "btn", text: "Re-flow",
+    title: "Re-run the automatic arrangement for the chosen shape, discarding your hand-arranged version",
+    onclick: () => {
+      const presetId = aspectSelect.value || detectAspectPreset()?.id || DEFAULT_ASPECT_PRESET_ID;
+      applyAspect(presetId, { force: true });
+    },
+  });
+  const aspectActions = el("div", { class: "modal-actions" }, aspectSelect, aspectReflowBtn);
+  displayPanel.append(aspectActions);
 
   const printBtn = el("button", {
     type: "button", class: "btn", text: "Print",
