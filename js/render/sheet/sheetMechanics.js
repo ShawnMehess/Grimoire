@@ -459,6 +459,17 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   const isProficiencyNote = (grant) => /proficienc/i.test(grant?.name || "");
   const isEquipmentGrant = (grant) => /^starting equipment$/i.test((grant?.name || "").trim());
 
+  // Class/background rows show the whole current description: their
+  // texts are concise replacements written to be read whole (audit
+  // systemic fixes), so sentence-snipping them would shorten sourced
+  // wording. Race rows keep the legacy first-sentence brief.
+  const detailFor = (description) => {
+    const flat = humanizeGameText(String(description || "").replace(/\s+/g, " ").trim());
+    if (!flat) return "";
+    if (classDisplay || backgroundDisplay) return flat;
+    return briefDescription(description, 120);
+  };
+
   const tagsByField = new Map();
   for (const mod of (bundle.statModifiers || []).filter(atLevel)) {
     if (mod.op === "grantTag") {
@@ -509,7 +520,7 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     // Proficiency notes and equipment split out on class/background
     // rows; race rows keep the legacy single-list behavior.
     if ((classDisplay || backgroundDisplay) && isProficiencyNote(grant)) {
-      const why = briefDescription(grant.description, 120);
+      const why = detailFor(grant.description);
       const line = `${name}${why ? `: ${why}` : ""}`;
       if (classDisplay) classProfLines.push(line);
       else bgProfLines.push(line);
@@ -524,7 +535,7 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
       continue;
     }
     if (backgroundDisplay) {
-      const why = briefDescription(grant.description, 120);
+      const why = detailFor(grant.description);
       bgFeatures.push(`${name}${why ? `: ${why}` : ""}`);
       continue;
     }
@@ -536,10 +547,10 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
       const why = briefDescription(grant.description, 120);
       resistanceBits.push(`${name}${why ? `: ${why}` : ""}`);
     } else if (classDisplay && /^hit (die|points)/i.test(name)) {
-      const why = briefDescription(grant.description, 120);
+      const why = detailFor(grant.description);
       hitBits.push(`${name}${why ? `: ${why}` : ""}`);
     } else {
-      const why = briefDescription(grant.description, 120);
+      const why = detailFor(grant.description);
       if (classDisplay) classFeatures.push(`${name}${why ? `: ${why}` : ""}`);
       else innate.push(`${name}${why ? `: ${why}` : ""}`);
     }
