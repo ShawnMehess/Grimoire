@@ -331,7 +331,16 @@ function featListWith(namesAndLevels) {
   selectByText(clericFields, "Subclass", "Light Domain");
   const l1 = applyLevel(clericFields, 1, {}, []);
   if (!l1.items.flatMap((g) => g.items).includes("Burning Hands")) fail("Light Domain: Burning Hands not granted at level 1");
-  if (!l1.features.some((f) => f.name === "Warding Flare")) fail("Light Domain: Warding Flare not granted at level 1");
+  // Warding Flare is unsourced (no mechanics in the Foundry export), so
+  // it is omitted from the Features list until sourced (audit 2b) — but
+  // its level-gated grant stays in the data, traceable via gaps.
+  if (l1.features.some((f) => f.name === "Warding Flare")) fail("Light Domain: unsourced Warding Flare leaks into display");
+  {
+    const { SUBCLASS_BUNDLE_MAP, normSubclassKey } = await import("../js/data/contentFixups.js");
+    const light = SUBCLASS_BUNDLE_MAP.get(normSubclassKey("Light Domain"));
+    const flare = (light?.featureGrants || []).find((g) => g.name === "Warding Flare");
+    if (!flare || flare.minLevel !== 1 || !flare.unsourced) fail("Light Domain: Warding Flare grant not level-gated + unsourced in data");
+  }
 
   const palFields = freshFields();
   selectByText(palFields, "Class", "Paladin");
@@ -342,7 +351,15 @@ function featListWith(namesAndLevels) {
   selectByText(palFields, "Subclass", "Oath of Devotion");
   const p3 = applyLevel(palFields, 3, {}, []);
   if (!p3.items.flatMap((g) => g.items).includes("Sanctuary")) fail("Devotion: Sanctuary not granted at level 3");
-  if (!p3.features.some((f) => f.name === "Sacred Weapon")) fail("Devotion: Sacred Weapon not granted at level 3");
+  // Sacred Weapon is unsourced (audit 2b): omitted from display, but
+  // its level-gated grant stays in the data, traceable via gaps.
+  if (p3.features.some((f) => f.name === "Sacred Weapon")) fail("Devotion: unsourced Sacred Weapon leaks into display");
+  {
+    const { SUBCLASS_BUNDLE_MAP, normSubclassKey } = await import("../js/data/contentFixups.js");
+    const devotion = SUBCLASS_BUNDLE_MAP.get(normSubclassKey("Oath of Devotion"));
+    const sacred = (devotion?.featureGrants || []).find((g) => g.name === "Sacred Weapon");
+    if (!sacred || sacred.minLevel !== 3 || !sacred.unsourced) fail("Devotion: Sacred Weapon grant not level-gated + unsourced in data");
+  }
 
   // Light sweep: every class selects + subclass narrows + L1/L20 apply.
   for (const e of DEFAULT_CONTENT.classEntries) {
@@ -596,8 +613,15 @@ function featListWith(namesAndLevels) {
   }
   const features = collectGrantedFeaturesIn(fields, 6, [], [], levelFor, extra);
   const names = features.map((f) => f.name);
-  for (const want of ["Action Surge", "Lay on Hands", "Divine Sense", "Improved Critical"]) {
+  for (const want of ["Action Surge", "Lay on Hands", "Divine Sense"]) {
     if (!names.includes(want)) fail(`multiclass: missing ${want}`);
+  }
+  // Improved Critical is unsourced (audit 2b): omitted from display,
+  // but its level-gated grant stays in the Champion data.
+  if (names.includes("Improved Critical")) fail("multiclass: unsourced Improved Critical leaks into display");
+  {
+    const grant = (SUBCLASS_SUPPLEMENT.find((s) => s.name === "Champion")?.bundle?.featureGrants || []).find((g) => g.name === "Improved Critical");
+    if (!grant || grant.minLevel !== 3 || !grant.unsourced) fail("multiclass: Improved Critical grant not level-gated + unsourced in data");
   }
   // Per-class gating proofs (total level is 6 — a total-level gate
   // would wrongly include all of these):
@@ -926,6 +950,118 @@ function applyStatModifiersForTest(fields, vm, cb, tags, levelFor, extra) {
   if (!CLASS_STARTING_EQUIPMENT.Fighter) fail("phase1: class equipment packages missing");
 
   console.log("phase1: 26 categories, 28 verbatim texts + sources, drops, Tasha gating, L1 rows, equipment links all hold");
+}
+
+// --- 9b. Phase 2 subclass content (docs/SUBCLASS-CONTENT-AUDIT-2026-09.md) ---
+{
+  const { checkSubclassSourcing } = await import("./check-subclass-sourcing.mjs");
+  const { failures: sourceFailures } = checkSubclassSourcing();
+  for (const f of sourceFailures) fail(`subclass-sourcing: ${f}`);
+  if (!sourceFailures.length) console.log("subclass-sourcing: build-time gate passes, zero orphaned summaries");
+
+  const gapsDoc = readFileSync(new URL("../docs/subclass-gaps.md", import.meta.url), "utf8");
+  const gapsTotal = gapsDoc.match(/Total unsourced: (\d+) of (\d+) grants/);
+  if (!gapsDoc.includes("docs/subclass-gaps.md") && !gapsTotal) fail("subclass gaps doc missing its total line");
+  if (!gapsTotal) fail("subclass gaps doc has no total line");
+  else console.log(`subclass gaps: ${gapsTotal[1]} unsourced of ${gapsTotal[2]} grants (see docs/subclass-gaps.md)`);
+
+  const { SUBCLASS_BUNDLE_MAP, normSubclassKey } = await import("../js/data/contentFixups.js");
+  const { mechanicsBulletsFor: subBullets } = await import("../js/render/sheet/sheetMechanics.js");
+  const { ABILITIES: SUB_ABILITIES, SKILLS: SUB_SKILLS } = await import("../js/data/schema.js");
+  const subVocab = { abilityIds: SUB_ABILITIES.map((a) => a.id), abilities: SUB_ABILITIES, skills: SUB_SKILLS };
+  const subBundle = (n) => SUBCLASS_BUNDLE_MAP.get(normSubclassKey(n));
+
+  // Every subclass choice group has a category and a choiceKind.
+  for (const s of SUBCLASS_SUPPLEMENT) {
+    for (const g of ((SUBCLASS_BUNDLE_MAP.get(s.key) || s.bundle)?.choiceGroups || [])) {
+      if (!g.category) fail(`phase2: subclass ${s.name} group ${g.id} lacks a category`);
+      if (!["build", "levelUp", "playTime"].includes(g.choiceKind)) fail(`phase2: subclass ${s.name} group ${g.id} lacks a choiceKind`);
+    }
+  }
+  // No top-level grant is level-less without an explicit alwaysActive
+  // reason (option-level grants inherit their group's level gate).
+  for (const s of SUBCLASS_SUPPLEMENT) {
+    for (const g of ((s.bundle || {}).featureGrants || [])) {
+      if (g.minLevel == null && !(g.alwaysActive === true)) {
+        fail(`phase2: subclass ${s.name} grant ${g.id} has minLevel null without alwaysActive`);
+      }
+    }
+  }
+
+  // Spot-check 1: Light Domain at level 1 shows only L1 domain spells.
+  {
+    const light = subBundle("Light Domain");
+    const sections = subBullets(light, 1, { ...subVocab, subclassDisplay: true });
+    const titles = sections.map((s) => s.title);
+    if (!titles.includes("Subclass Features")) fail("phase2: Light Domain row misses the Subclass Features heading");
+    if (titles.some((t) => /Racial Traits|Innate Abilities/.test(t))) fail("phase2: Light Domain row uses a race/innate heading");
+    const text = sections.flatMap((s) => s.items).join(" || ");
+    for (const want of ["Burning Hands", "Faerie Fire", "always prepared", "do not count"]) {
+      if (!text.includes(want)) fail(`phase2: Light Domain L1 line misses ${want}`);
+    }
+    for (const banned of ["Flaming Sphere", "Fireball", "level-feature", "3rd, 5th"]) {
+      if (text.includes(banned)) fail(`phase2: Light Domain L1 line leaks ${banned}`);
+    }
+  }
+  // Spot-check 2: Oath of Devotion at level 3 shows only L3 oath spells.
+  {
+    const devo = subBundle("Oath of Devotion");
+    const sections = subBullets(devo, 3, { ...subVocab, subclassDisplay: true });
+    const text = sections.flatMap((s) => s.items).join(" || ");
+    for (const want of ["Protection from Evil and Good", "Sanctuary", "always prepared"]) {
+      if (!text.includes(want)) fail(`phase2: Devotion L3 line misses ${want}`);
+    }
+    for (const banned of ["Lesser Restoration", "Beacon of Hope", "level-feature"]) {
+      if (text.includes(banned)) fail(`phase2: Devotion L3 line leaks ${banned}`);
+    }
+  }
+  // Spot-check 3: Circle of the Land — malformed text gone, terrain
+  // choice categorized, L2 shows no future rows.
+  {
+    const land = subBundle("Circle of the Land");
+    const terrain = (land?.choiceGroups || []).find((g) => g.id === "circle-of-the-land-focus");
+    if (!terrain || terrain.category !== "features" || terrain.minLevel !== 2) {
+      fail("phase2: Land terrain choice not category-gated at level 2");
+    }
+    const sections = subBullets(land, 2, { ...subVocab, subclassDisplay: true });
+    const text = sections.flatMap((s) => s.items).join(" || ");
+    if (/3rd, 5th, 7th,/.test(text)) fail("phase2: Land malformed spell-row text survives");
+    if (/-level feature\./.test(text)) fail("phase2: Land placeholder survives");
+  }
+  // Spot-check 4: Eldritch Knight — one level-3 Spellcasting grant with
+  // third-caster context, no placeholder, no duplicate.
+  {
+    const ek = subBundle("Eldritch Knight");
+    const casting = (ek?.featureGrants || []).filter((g) => g.name === "Spellcasting");
+    if (casting.length !== 1) fail(`phase2: Eldritch Knight has ${casting.length} Spellcasting grants (want 1)`);
+    if (casting[0]?.minLevel !== 3) fail("phase2: Eldritch Knight Spellcasting not gated at 3");
+    if (!/Third-caster spellcasting using Intelligence/.test(casting[0]?.description || "")) {
+      fail("phase2: Eldritch Knight Spellcasting lacks third-caster context");
+    }
+    const sections = subBullets(ek, 3, { ...subVocab, subclassDisplay: true });
+    if (/-level feature\./.test(sections.flatMap((s) => s.items).join(" "))) fail("phase2: Eldritch Knight placeholder survives");
+  }
+  // Warlock patrons expand available options, never automatically
+  // known spells (audit choice review): no patron auto-grants spells.
+  for (const s of SUBCLASS_SUPPLEMENT) {
+    if (s.className !== "Warlock") continue;
+    const auto = ((s.bundle || {}).statModifiers || []).filter((m) => m.op === "addItem" && m.targetFieldId === "spellsKnown");
+    if (auto.length) fail(`phase2: warlock patron ${s.name} auto-grants spells (${auto.map((m) => m.value).join(", ")})`);
+  }
+  // Artificer reachability (audit 2d gate): a full Artificer character
+  // builds end-to-end (bundle, equipment, spell progression, subclass).
+  {
+    const { FIXED_CLASS_ENTRIES } = await import("../js/data/contentFixups.js");
+    const { CLASS_STARTING_EQUIPMENT, resolveStartingEquipmentPick: resolveEq } = await import("../js/data/startingEquipment.js");
+    const { getLevelUpPlan: planFor } = await import("../js/data/dnd5e.js");
+    const art = FIXED_CLASS_ENTRIES.find((e) => e.name === "Artificer");
+    if (!art || art.subclassLevel !== 3 || art.caster !== "half") fail("phase2: Artificer base bundle misshapen");
+    if (!CLASS_STARTING_EQUIPMENT.Artificer) fail("phase2: Artificer has no equipment model");
+    if (!resolveEq("Artificer", "Sailor", { picks: { armor: "scale-mail" } }).items.length) fail("phase2: Artificer equipment does not resolve");
+    if (!planFor("dnd5e-2014", "Artificer", 20)) fail("phase2: Artificer has no spell progression");
+    if (!subBundle("Alchemist")) fail("phase2: Alchemist subclass unreachable");
+  }
+  console.log("phase2: sourcing gate, gaps total, categories, level gates, 4 spot-checks, artificer reachability all hold");
 }
 
 // --- 7. Catalogs ------------------------------------------------------------

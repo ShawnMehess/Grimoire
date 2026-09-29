@@ -91,6 +91,11 @@ Regenerate (never hand-edit the list below):
 - Divine Soul affinity — gaps (choiceKind build): affinity option list unsourced.
 - Aberrant Mind / Clockwork Soul spell replacements — gaps (choiceKind levelUp): replacement spell mechanics unsourced (not auto-known).
 
+### Warlock
+
+- Genie vessel form — by-design (choiceKind build): saved cosmetic choice only if it affects display; it does not change mechanics, so no group.
+- Patron expanded spell lists — by-design (choiceKind build): expand available options, never automatically known spells — correctly absent from auto-grants.
+
 ## Artificer
 
 ### Alchemist

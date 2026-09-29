@@ -133,6 +133,10 @@ const CHOICE_REVIEW = {
     ["Divine Soul affinity", "gaps", "build", "affinity option list unsourced"],
     ["Aberrant Mind / Clockwork Soul spell replacements", "gaps", "levelUp", "replacement spell mechanics unsourced (not auto-known)"],
   ],
+  Warlock: [
+    ["Genie vessel form", "by-design", "build", "saved cosmetic choice only if it affects display; it does not change mechanics, so no group"],
+    ["Patron expanded spell lists", "by-design", "build", "expand available options, never automatically known spells — correctly absent from auto-grants"],
+  ],
 };
 
 let total = 0;
