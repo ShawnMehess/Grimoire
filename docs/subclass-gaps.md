@@ -26,6 +26,11 @@ Regenerate (never hand-edit the list below):
 
 ## Choice-review dispositions
 
+### Artificer
+
+- Reachability gate — done (choiceKind build): full Artificer character builds end-to-end (base bundle, equipment model, half-caster progression, 4 subclass bundles); subclasses stay visible.
+- Alchemist/Armorer/Artillerist/Battle Smith features — gaps (choiceKind build): all feature mechanics unsourced.
+
 ### Barbarian
 
 - Storm Herald environment — gaps (choiceKind playTime): environment chosen each rage; option list unsourced.
@@ -95,6 +100,12 @@ Regenerate (never hand-edit the list below):
 
 - Genie vessel form — by-design (choiceKind build): saved cosmetic choice only if it affects display; it does not change mechanics, so no group.
 - Patron expanded spell lists — by-design (choiceKind build): expand available options, never automatically known spells — correctly absent from auto-grants.
+
+### Wizard
+
+- Bladesinger proficiency grants — gaps (choiceKind build): proficiency option list unsourced (validate against source records when sourced).
+- Order of Scribes spellbook choices — gaps (choiceKind build): spellbook option mechanics unsourced.
+- School specialization features — by-design (choiceKind build): automatic grants unless the source creates a player choice (none does in the export).
 
 ## Artificer
 

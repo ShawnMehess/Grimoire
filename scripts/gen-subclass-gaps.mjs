@@ -137,6 +137,15 @@ const CHOICE_REVIEW = {
     ["Genie vessel form", "by-design", "build", "saved cosmetic choice only if it affects display; it does not change mechanics, so no group"],
     ["Patron expanded spell lists", "by-design", "build", "expand available options, never automatically known spells — correctly absent from auto-grants"],
   ],
+  Wizard: [
+    ["Bladesinger proficiency grants", "gaps", "build", "proficiency option list unsourced (validate against source records when sourced)"],
+    ["Order of Scribes spellbook choices", "gaps", "build", "spellbook option mechanics unsourced"],
+    ["School specialization features", "by-design", "build", "automatic grants unless the source creates a player choice (none does in the export)"],
+  ],
+  Artificer: [
+    ["Reachability gate", "done", "build", "full Artificer character builds end-to-end (base bundle, equipment model, half-caster progression, 4 subclass bundles); subclasses stay visible"],
+    ["Alchemist/Armorer/Artillerist/Battle Smith features", "gaps", "build", "all feature mechanics unsourced"],
+  ],
 };
 
 let total = 0;
