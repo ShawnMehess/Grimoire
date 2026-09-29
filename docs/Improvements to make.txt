@@ -81,6 +81,12 @@ Elements
 
 Custom Mounts (technically just a custom character page for something else, but the actual information is contained in this character sheet)
 	Although, I guess the user could just create a tab for the mount and put in the full info. Still, I would also like if a given tab could be used to link to another character sheet
+	DONE as a new tab type (js/render/sheet/linkedSheet.js):
+	  { type: "linkedSheet", characterId: "...", displayFields: [...] }
+	Created from the tab bar's "+" menu, which now offers a blank tab or a linked sheet. The tab's `type` is this feature's own field; the existing `kind` values (main/rules/leveling) are untouched.
+	READ-ONLY is the choice made, and the spec left it open. Editing through a link would write to a DIFFERENT character record from a tab on this one, and undo/redo is per-character - so an edit made here would be undoable in the other document's history and not in this one. The user would undo something that doesn't appear to have changed, or lose an edit. Read-only keeps one tab meaning one document, which is what makes undo trustworthy. The rendered values are text, not inputs, and a smoke-dom check pins that.
+	OWNERSHIP NEEDS NO SEPARATE CHECK: resolution only goes through the owner's own character list, already filtered by owner server-side, so an id that isn't in that list doesn't resolve. Hand-editing the id can't point a link at someone else's sheet. "not-owned" is a distinct, reportable state rather than a blank pane, as are "self" and "missing" (listed as owned but the document didn't come back) - the first two are fixed by re-picking a character, the last isn't.
+	displayFields is a small fixed table (name, size, type, speed, AC, HP, attacks, abilities, senses, languages, features) rather than arbitrary field names: a mount sheet is a few facts, and letting a link name arbitrary fields would make it a second editor with none of the undo guarantees. A half-configured link falls back to a default set rather than rendering nothing.
 
 Making the site easier for newbies
 - Initial character creation walkthrough

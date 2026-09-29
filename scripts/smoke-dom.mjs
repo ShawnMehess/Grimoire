@@ -783,6 +783,45 @@ function openTestDialog(host, overrides = {}) {
   assert(described.bar.dataset.opened === "1", "clicking it opens the editor");
 }
 
+// --- Linked sheet tab -----------------------------------------------------
+//
+// Read-only by design (see linkedSheet.js): the rendered values must be
+// text, not inputs, or the pane would be a second editor with none of the
+// per-character undo guarantees. And every unresolved state has to say
+// something rather than showing a blank pane.
+{
+  const linked = await import("../js/render/sheet/linkedSheet.js");
+  const box = document.createElement("div");
+  const owned = [{ id: "m1", name: "Shadow" }, { id: "m2", name: "Rope" }];
+
+  const render = (over) => {
+    const host = document.createElement("div");
+    linked.renderLinkedSheetInto(host, { ownedCharacters: owned, ...over });
+    return host;
+  };
+
+  // Unresolved states explain themselves, and offer the picker.
+  for (const status of ["unset", "self", "not-owned", "missing"]) {
+    const host = render({ status, config: { characterId: status === "unset" ? null : "x", displayFields: ["name"] }, linkedCharacter: null, onPick: () => {} });
+    assert(host.textContent.length > 10, `a ${status} link explains itself`);
+    assert(host.querySelector(".linked-sheet__picker") !== null, `a ${status} link still offers the picker`);
+  }
+
+  // A good link renders values as text, not as controls.
+  const good = render({
+    status: "ok",
+    config: { characterId: "m1", displayFields: ["name", "size", "armorClass"] },
+    linkedCharacter: { id: "m1", name: "Shadow", rules: { speed: "40 ft." } },
+    onPick: () => {},
+  });
+  assert(good.textContent.includes("Shadow"), "a resolved link shows the linked character's name");
+  const inputs = [];
+  (function walk(n) { for (const c of n.children || []) { if (c.tag === "input" || c.tag === "textarea") inputs.push(c); walk(c); } })(good);
+  assert(inputs.length === 0, "a linked sheet renders no editable controls");
+  // Armor Class has no value here, so it should be absent rather than blank.
+  assert(!good.textContent.includes("Armor Class"), "fields with no value are omitted, not shown blank");
+}
+
 if (failures) {
   console.error(`smoke-dom: ${failures} failure(s)`);
   process.exit(1);

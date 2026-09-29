@@ -1055,3 +1055,39 @@
   gap: var(--space-2);
   margin: var(--space-2) 0;
 }
+
+/* --- Linked sheet tab (mounts / companions) ---
+   A read-only list of facts about another character. Deliberately plain:
+   it's a reference view, not an editor, and it shouldn't borrow the
+   editable field chrome that implies "you can type here". */
+.linked-sheet {
+  padding: var(--space-3);
+  max-width: 640px;
+}
+.linked-sheet__picker {
+  margin-bottom: var(--space-3);
+}
+.linked-sheet__name {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-lg);
+  color: var(--color-text);
+}
+.linked-sheet__fields {
+  display: grid;
+  /* Label column sized to its content, value column takes the rest -
+     a long feature list needs the width, not the labels. */
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+.linked-sheet__fields dt {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  padding-top: 2px;
+}
+.linked-sheet__fields dd {
+  margin: 0;
+  white-space: pre-wrap;
+}

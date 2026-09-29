@@ -352,6 +352,15 @@ import {
 import { applySimpleViewOrder } from "./sheet/simpleView.js";
 import { featRowModels, renderFeatListInto } from "./sheet/featList.js";
 import {
+  LINKED_DISPLAY_FIELDS,
+  DEFAULT_LINKED_FIELDS,
+  isLinkedSheetTab,
+  linkedTabConfig,
+  linkedSheetStatus,
+  linkedSheetMessage,
+  renderLinkedSheetInto,
+} from "./sheet/linkedSheet.js";
+import {
   ROLL_SIDES,
   rollCheck,
   openRollResultDialog,
@@ -2937,6 +2946,16 @@ const closeDialog = () => {
     // the page itself provides the scroll either way.
     const availableHeight = editMode ? availableViewportHeight() : 0;
 
+    if (isLinkedSheetTab(activeTab())) {
+      pageGrid.classList.add("page-grid--leveling");
+      pageGrid.style.width = "";
+      pageGrid.style.height = "";
+      pageGrid.style.backgroundImage = "";
+      pageGrid.style.backgroundPosition = "";
+      renderLinkedSheetTab();
+      window.scrollTo(0, preservedScrollTop);
+      return;
+    }
     if (activeTab().kind === "leveling" || activeTab().kind === "rules") {
       pageGrid.classList.add("page-grid--leveling");
       pageGrid.style.width = "";
@@ -2967,6 +2986,76 @@ const closeDialog = () => {
       isEdit: editMode,
     });
     window.scrollTo(0, preservedScrollTop);
+  }
+
+  // --- Linked sheet tab (mounts / companions) ---
+  //
+  // Read-only by design - see the note at the top of linkedSheet.js for
+  // why editing through a link would break undo. The linked character is
+  // resolved ONLY through the owner's own character list, which is
+  // already filtered by owner, so ownership needs no separate check: an
+  // id that isn't in that list simply doesn't resolve.
+  function renderLinkedSheetTab() {
+    const tab = activeTab();
+    const config = linkedTabConfig(tab);
+    const ownedCharacters = linkedCharacterList();
+    const ownedIds = ownedCharacters.map((c) => c.id);
+    const status = linkedSheetStatus(config, { ownedIds, selfId: character.id });
+    // Only a character the user actually owns is ever read. The list is
+    // the same list the picker offers, so what resolves is exactly what
+    // can be chosen.
+    const linkedCharacter = status === "ok"
+      ? ownedCharacters.find((c) => c.id === config.characterId) || null
+      : null;
+    const wrap = el("div", { class: "linked-sheet" });
+    renderLinkedSheetInto(wrap, {
+      status,
+      config,
+      linkedCharacter,
+      ownedCharacters,
+      fieldById: (id) => findStarterField(null, linkedFieldLabelFor(id)),
+      fieldByLabel: (id) => findStarterField(null, linkedFieldLabelFor(id)),
+      onPick: (id) => {
+        commitMutation(() => {
+          tab.characterId = id;
+        });
+      },
+    });
+    pageGrid.append(wrap);
+    if (status === "ok" && !linkedCharacter) {
+      // Listed as owned but the document didn't come back with the list.
+      // Distinct from "not-owned" so the message can say "pick another"
+      // rather than "isn't yours".
+      wrap.append(el("p", { class: "leveling-tab__intro", text: linkedSheetMessage("missing", config) }));
+    }
+  }
+
+  function linkedFieldLabelFor(id) {
+    return LINKED_DISPLAY_FIELDS.find((f) => f.id === id)?.label || id;
+  }
+
+  // The owner's own characters, for the linked-sheet picker. Cached after
+  // the first load because a linked tab re-renders on every grid paint
+  // and this is a network call; a stale list is fine, since the picker
+  // re-reads it whenever a link changes and an id that has since been
+  // deleted simply stops resolving.
+  let ownedCharactersCache = null;
+  function linkedCharacterList() {
+    if (ownedCharactersCache) return ownedCharactersCache;
+    ownedCharactersCache = [];
+    if (typeof store?.listMyCharacters === "function") {
+      Promise.resolve(store.listMyCharacters())
+        .then((list) => {
+          ownedCharactersCache = (list || [])
+            // Only what the picker needs: an id and a name. Keeping the
+            // full documents around would hold every other character's
+            // whole sheet in memory for the life of this one.
+            .map((c) => ({ id: c.id, name: c.name }));
+          if (activeTab() && isLinkedSheetTab(activeTab())) renderPageGrid();
+        })
+        .catch((err) => console.error("Failed to list characters for linking:", err));
+    }
+    return ownedCharactersCache;
   }
 
   // --- Leveling tab --------------------------------------------------
@@ -6110,12 +6199,52 @@ const closeDialog = () => {
           activeTabId = character.sheetTabs[0].id;
         });
       },
-      onAdd: () => {
-        commitMutation(() => {
-          const tab = { id: newId(), name: `Tab ${character.sheetTabs.length + 1}`, layout: [] };
-          character.sheetTabs.push(tab);
-          activeTabId = tab.id;
-        });
+      onAdd: (anchor) => {
+        // The "+" now offers both kinds of tab, since a linked sheet is
+        // a tab too and creating one by hand-editing JSON is no way to
+        // use the feature.
+        const overlay = document.createElement("div");
+        overlay.className = "modal-overlay";
+        const box = document.createElement("div");
+        box.className = "modal-box";
+        box.addEventListener("click", (e) => e.stopPropagation());
+        const heading = document.createElement("h3");
+        heading.textContent = "Add a tab";
+        const list = document.createElement("div");
+        list.className = "modal-actions";
+        const add = (tab) => {
+          overlay.remove();
+          commitMutation(() => {
+            character.sheetTabs.push(tab);
+            activeTabId = tab.id;
+          });
+        };
+        const blankBtn = document.createElement("button");
+        blankBtn.type = "button";
+        blankBtn.className = "btn btn--primary";
+        blankBtn.textContent = "Blank tab";
+        blankBtn.title = "An editable grid tab like the others";
+        blankBtn.addEventListener("click", () => add({
+          id: newId(), name: `Tab ${character.sheetTabs.length + 1}`, layout: [],
+        }));
+        const linkedBtn = document.createElement("button");
+        linkedBtn.type = "button";
+        linkedBtn.className = "btn";
+        linkedBtn.textContent = "Linked sheet";
+        linkedBtn.title = "Show another one of your characters here, read-only - a mount or companion";
+        linkedBtn.addEventListener("click", () => add({
+          id: newId(),
+          name: "Linked sheet",
+          type: "linkedSheet",
+          characterId: null,
+          displayFields: [...DEFAULT_LINKED_FIELDS],
+          layout: [],
+        }));
+        list.append(blankBtn, linkedBtn);
+        box.append(heading, list);
+        overlay.append(box);
+        root.append(overlay);
+        overlay.addEventListener("click", () => overlay.remove());
       },
     });
   }
