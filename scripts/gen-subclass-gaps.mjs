@@ -94,6 +94,12 @@ const CHOICE_REVIEW = {
     ["Nature Domain druid cantrip", "gaps", "build", "cantrip option list unsourced"],
     ["Domain spells (all 14 domains)", "done", "build", "level-gated grants + computed Domain Spells line"],
   ],
+  Druid: [
+    ["Circle of the Land terrain", "done", "build", "real group (category features, level 2) with level-gated circle-spell modifiers per option"],
+    ["Circle of Wildfire bonus cantrip", "gaps", "build", "cantrip option list unsourced"],
+    ["Circle of Stars star-map form", "gaps", "playTime", "form chosen on use; option mechanics unsourced"],
+    ["Circle spells (Spores/Land/Wildfire)", "gaps", "build", "audit templates cover domain/oath spells only"],
+  ],
 };
 
 let total = 0;

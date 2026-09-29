@@ -45,6 +45,13 @@ Regenerate (never hand-edit the list below):
 - Nature Domain druid cantrip — gaps (choiceKind build): cantrip option list unsourced.
 - Domain spells (all 14 domains) — done (choiceKind build): level-gated grants + computed Domain Spells line.
 
+### Druid
+
+- Circle of the Land terrain — done (choiceKind build): real group (category features, level 2) with level-gated circle-spell modifiers per option.
+- Circle of Wildfire bonus cantrip — gaps (choiceKind build): cantrip option list unsourced.
+- Circle of Stars star-map form — gaps (choiceKind playTime): form chosen on use; option mechanics unsourced.
+- Circle spells (Spores/Land/Wildfire) — gaps (choiceKind build): audit templates cover domain/oath spells only.
+
 ## Artificer
 
 ### Alchemist
