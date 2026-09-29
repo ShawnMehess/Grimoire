@@ -970,7 +970,7 @@ export function renderGuideSubclassStepInto(container, pending, subclassChoices,
 }
 
 export function renderGuideAsiStepInto(container, pending, deps) {
-  const { abilityIds, rulesetId, takenFeats, featNamesFn, catalogInfoFn, selectableRowsFn, gridFn, abilityScores = null, modifierFn = null, formatFn = null } = deps;
+  const { abilityIds, rulesetId, takenFeats, featNamesFn, catalogInfoFn, selectableRowsFn, gridFn, featListFn = null, abilityScores = null, modifierFn = null, formatFn = null } = deps;
   // Ability options carry their live score + modifier (like the
   // creator's ability rows), so the pick isn't blind. Optional deps —
   // bare "STR" labels when unwired (tests, fallbacks).
@@ -998,12 +998,25 @@ export function renderGuideAsiStepInto(container, pending, deps) {
         featWrap.append(el("p", { class: "leveling-tab__intro", text: `Already taken: ${takenFeats.join(", ")}.` }));
       }
       if (names.length) {
-        selectableRowsFn(featWrap, names, {
-          selectedName: pending.featChoice,
-          getInfo: (name) => catalogInfoFn(["feat"], name),
-          onSelect: (name) => { pending.featChoice = name; gridFn(); },
-          collapsible: true,
-        });
+        // The spec'd feat list (checkbox / icon / name / summary, with
+        // the mechanical effect and a derived "= modifies" line beneath)
+        // rather than the generic picker rows: the generic rows hide the
+        // effect text behind a click, which is the one thing this list
+        // exists to show up front. Falls back to the generic rows if the
+        // caller didn't wire the feat bundles in.
+        if (typeof featListFn === "function") {
+          featListFn(featWrap, names, {
+            selectedName: pending.featChoice,
+            onSelect: (name) => { pending.featChoice = name; gridFn(); },
+          });
+        } else {
+          selectableRowsFn(featWrap, names, {
+            selectedName: pending.featChoice,
+            getInfo: (name) => catalogInfoFn(["feat"], name),
+            onSelect: (name) => { pending.featChoice = name; gridFn(); },
+            collapsible: true,
+          });
+        }
       } else {
         const input = el("input", {
           type: "text", class: "input-group__control",

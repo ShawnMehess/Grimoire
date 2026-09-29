@@ -350,6 +350,7 @@ import {
   switchTabToPreset,
 } from "./sheet/aspectPresets.js";
 import { applySimpleViewOrder } from "./sheet/simpleView.js";
+import { featRowModels, renderFeatListInto } from "./sheet/featList.js";
 import {
   ROLL_SIDES,
   rollCheck,
@@ -5235,6 +5236,40 @@ const closeDialog = () => {
     if (wizard) pageGrid.append(wizard);
   }
 
+  /** Adapter: the level guide's ASI step knows only a list of feat NAMES.
+   *  This resolves each to its bundle + catalog entry, builds the row
+   *  model, and renders the spec'd feat list. The single-select behaviour
+   *  of an ASI pick is a radio, not a checkbox — the guide's own
+   *  "Feat" mode is one pick, unlike the list on a Feats page where
+   *  several can be held. */
+  function renderFeatListPicker(container, names, { selectedName, onSelect } = {}) {
+    const catalogEntries = FEAT_CATALOG.tabs.flatMap((t) => t.entries || []);
+    const bundles = (names || [])
+      .map((name) => LINKED_FEAT_BUNDLES.find((b) => b.name === name))
+      .filter(Boolean);
+    const takenFeats = character.rules?.feats || [];
+    const rows = featRowModels(bundles, catalogEntries, { takenFeats, remaining: Infinity })
+      .map((row) => ({ ...row, taken: row.id === selectedName }));
+    renderFeatListInto(container, rows, {
+      takenFeats,
+      remaining: Infinity,
+      doc: document,
+      onToggle: (id, isTaken) => {
+        // Radio semantics: checking one unchecks the other, so this is
+        // a pick, not a toggle.
+        if (isTaken) onSelect?.(id);
+        else if (id === selectedName) onSelect?.(null);
+      },
+    });
+    // Collapse the checkboxes into a single-choice group, since an ASI
+    // buys exactly one feat.
+    container.querySelectorAll(".feat-list__check").forEach((input, i) => {
+      input.type = "radio";
+      input.name = "level-guide-asi-feat";
+      input.checked = rows[i]?.id === selectedName;
+    });
+  }
+
   function renderRulesetLevelGuide() {
     const primaryName = selectedChoiceName("class", "Class");
     const level = currentCharacterLevel();
@@ -5548,6 +5583,7 @@ const closeDialog = () => {
             featNamesFn: (rulesetId) => rulesetOptionNames(rulesetId, "Feat"),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
             selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
+            featListFn: (c, names, opts) => renderFeatListPicker(c, names, opts),
             gridFn: () => renderPageGrid(),
             abilityScores: character.rules?.abilityScores,
             modifierFn: (score) => sharedAbilityModifier(score),

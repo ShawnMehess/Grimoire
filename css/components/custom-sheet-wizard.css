@@ -966,3 +966,92 @@
   color: var(--color-text-muted);
   margin-left: var(--space-2);
 }
+
+/* --- Feats list ---
+   One row per feat: an unlabelled checkbox, an icon, the name and a
+   summary on the top line, the mechanical effect in words beneath it,
+   and a derived "= what it modifies" line.
+
+   Full row width rather than a two-column table: the effect text is long
+   and multi-line, and wrapping it into a fixed second column made it
+   unreadable at narrow widths. */
+.feat-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+.feat-list__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-inset);
+}
+.feat-list__row.is-taken {
+  border-color: var(--color-accent);
+}
+.feat-list__row.is-locked {
+  opacity: 0.6;
+}
+.feat-list__top {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.feat-list__check {
+  flex: 0 0 auto;
+  accent-color: var(--color-accent);
+}
+.feat-list__icon {
+  flex: 0 0 auto;
+  color: var(--color-accent);
+}
+.feat-list__main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.feat-list__name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.feat-list__summary {
+  flex: 1 1 12rem;
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.feat-list__effect {
+  margin: 0;
+  /* Indented to sit under the text column rather than under the
+     checkbox, so the eye tracks the effect to its name. */
+  padding-left: 1.8em;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  white-space: pre-line;
+}
+.feat-list__modifies {
+  margin: 0;
+  padding-left: 1.8em;
+  font-size: var(--text-xs);
+  color: var(--color-accent);
+}
+.feat-list__source {
+  margin-left: auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+/* The DM override. Sits above the list because the gate below it says no
+   is the whole reason it exists. */
+.feat-list__grantbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}

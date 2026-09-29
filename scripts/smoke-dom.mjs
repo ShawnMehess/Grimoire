@@ -681,6 +681,53 @@ function openTestDialog(host, overrides = {}) {
   assert(body && body.style.top === "0px", "the body takes the row the deleted name vacated");
 }
 
+// --- Feat list rows ------------------------------------------------------
+//
+// The spec'd row is checkbox / icon / name / summary, with the mechanical
+// effect and a derived "= modifies" line beneath. Two of those are easy to
+// get wrong silently: the effect text disappearing (the row is just a
+// name, which is the one thing the list exists to avoid), and the
+// "= modifies" line claiming something the feat doesn't do.
+{
+  const featList = await import("../js/render/sheet/featList.js");
+  const bundle = {
+    name: "Alert",
+    statModifiers: [{ targetFieldId: "initiative", op: "add", value: 5 }],
+    featureGrants: [{ name: "Alert", description: "You gain a +5 bonus to initiative.\n\nSheet notes: internal bookkeeping." }],
+  };
+  const catalog = { name: "Alert", description: "Always on the lookout for danger." };
+  const rows = featList.featRowModels([bundle], [catalog], { takenFeats: [{ name: "Alert" }] });
+
+  const box = document.createElement("div");
+  featList.renderFeatListInto(box, rows, { takenFeats: [{ name: "Alert" }], remaining: 0, doc: document });
+
+  assert(box.querySelector(".feat-list__intro") !== null || box.textContent.includes("No feat picks left"),
+    "the list shows a pickable counter");
+  const item = box.querySelector(".feat-list__row");
+  assert(!!item, "a feat renders a row");
+  assert(item.dataset.featId === "Alert", "the row is keyed by feat name");
+  assert(item.className.includes("is-taken"), "a held feat reads as taken");
+
+  const effect = item.querySelector(".feat-list__effect");
+  assert(!!effect && effect.textContent.includes("+5 bonus to initiative"),
+    "the row shows the mechanical effect in words");
+  assert(!effect.textContent.includes("Sheet notes"), "the sheet's own notes block is not shown as rules text");
+  const modifies = item.querySelector(".feat-list__modifies");
+  assert(!!modifies && modifies.textContent === "= Initiative +5",
+    "the row says what the feat modifies, derived from its own statModifiers");
+
+  // A feat whose whole effect is a feature note has no statModifiers, so
+  // it gets no "=" line — but it still has readable text underneath.
+  const noteOnly = featList.featRowModel({
+    name: "Resilient",
+    statModifiers: [],
+    featureGrants: [{ name: "Resilient", description: "Choose one ability score. You gain +1 to it." }],
+  }, null);
+  assert(noteOnly.modifies === "", "nothing to say means no modifies line");
+  assert(noteOnly.summary.length > 0, "but it still gets a summary line");
+  assert(noteOnly.effect.includes("+1 to it"), "and its real rules text");
+}
+
 if (failures) {
   console.error(`smoke-dom: ${failures} failure(s)`);
   process.exit(1);
