@@ -75,7 +75,7 @@ import { RACE_EXTRA_CATALOG_ENTRIES } from "../data/extraRaces.js";
 import { flavorFor } from "../data/pickerFlavor.js";
 import { portraitArtFor } from "../data/portraitArt.js";
 import { SHEET_THEMES, applySheetTheme, normalizeThemeId, normalizeThemeMode } from "../data/themes.js";
-import { CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT, goldOptionIdFor, slugId, resolveStartingEquipmentPick } from "../data/startingEquipment.js";
+import { CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT, BG_EQUIPMENT_LINKS, goldOptionIdFor, slugId, resolveStartingEquipmentPick, linkedEquipmentNames, bgDisplayItems } from "../data/startingEquipment.js";
 import { ABILITIES, SKILLS } from "../data/schema.js";
 import { EXPRESS_CLASS_DEFAULTS } from "../data/expressDefaults.js";
 import {
@@ -3486,7 +3486,15 @@ const closeDialog = () => {
     const bg = BG_STARTING_EQUIPMENT[state.background];
     if (bg && state.background) {
       container.append(el("p", { class: "wizard__section-label", text: `Background equipment — ${state.background} (fixed, added automatically)` }));
-      noteInto(container, `${bg.items.join(", ")}${bg.gp ? `, plus ${bg.gp} gp` : ""}.`);
+      // Linked picks (Acolyte prayer focus, Entertainer/Folk Hero/Guild
+      // Artisan tools) resolve into the package here, so the display
+      // always shows what Finish Setup will actually grant.
+      const bgBundle = bundleFor("Background", state.background, includedRulesetIds(state));
+      const linked = linkedEquipmentNames(state.background, bgBundle, character.rules?.choices || {});
+      const shown = bgDisplayItems(state.background, linked);
+      const link = BG_EQUIPMENT_LINKS[state.background];
+      const hint = link && !linked.length ? " (your linked choice fills the (your choice) line once picked)" : "";
+      noteInto(container, `${shown.join(", ")}${bg.gp ? `, plus ${bg.gp} gp` : ""}.${hint}`);
     }
     const entry = CLASS_STARTING_EQUIPMENT[state.className];
     if (!entry) {
@@ -3551,8 +3559,12 @@ const closeDialog = () => {
     if (!se || se.applied) return { items: [], gp: 0, missing: [] };
     const itemsField = findSetupField(null, "Items");
     const gpField = findSetupField(null, "GP") || detectMoneyFieldByName();
+    // One pick drives both proficiency and equipment: resolve the
+    // background's linked tool/prayer choice into the package.
+    const bgBundle = bundleFor("Background", character.rules.background, includedRulesetIds(character.rules));
+    const linked = linkedEquipmentNames(character.rules.background, bgBundle, character.rules?.choices || {});
     const { items, gp } = resolveStartingEquipmentPick(
-      character.rules.className, character.rules.background, se
+      character.rules.className, character.rules.background, se, linked
     );
     const missing = [];
     if (itemsField && itemsField.fieldType === "textlist") {

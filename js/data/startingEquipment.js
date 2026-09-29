@@ -380,7 +380,7 @@ const LEGACY_EQUIPMENT_OPTIONS = {
  *  (or { gold: true }) for fresh picks, { classOptionId } for legacy
  *  flattened picks (see LEGACY_EQUIPMENT_OPTIONS). Used by Finish
  *  Setup and by tests; the renderer only collects the pick. */
-export function resolveStartingEquipmentPick(className, background, pick) {
+export function resolveStartingEquipmentPick(className, background, pick, linkedNames = []) {
   const items = [];
   let gp = 0;
   const entry = CLASS_STARTING_EQUIPMENT[className];
@@ -401,7 +401,7 @@ export function resolveStartingEquipmentPick(className, background, pick) {
   }
   const bg = BG_STARTING_EQUIPMENT[background];
   if (bg) {
-    items.push(...bg.items);
+    items.push(...bgDisplayItems(background, linkedNames));
     gp += bg.gp || 0;
   }
   return { items, gp };
@@ -420,3 +420,52 @@ export const BG_STARTING_EQUIPMENT = {
   // of the Criminal package it was printed alongside.
   "Urban Bounty Hunter": { gp: 15, items: ["Dark hooded common clothes", "50 feet of hempen rope", "Set of manacles"] },
 };
+
+// One pick driving both proficiency and equipment (audit systemic fix
+// 7): the background tool/prayer choice's selected option name
+// replaces the package's placeholder line at resolution time, so the
+// player is never asked twice. `match` identifies the placeholder
+// line (case-insensitive); with no pick the printed line stands.
+export const BG_EQUIPMENT_LINKS = {
+  Acolyte: { groupId: "acolyte-prayer-focus", match: /^prayer (book|wheel)$/i },
+  Entertainer: { groupId: "entertainer-toolProf-1", match: /musical instrument/i },
+  "Folk Hero": { groupId: "folk-hero-toolProf-0", match: /artisan's tools/i },
+  "Guild Artisan": { groupId: "guild-artisan-toolProf-0", match: /artisan's tools/i },
+};
+
+/** Selected option names for a background's linked equipment group,
+ *  across both choices-store key formats (`creation:Background:<bg>:
+ *  <groupId>` from Setup, `<fieldId>:<choiceId>:<groupId>` after).
+ *  Pure — `bgBundle` is the background's bundle, `choicesStore` is
+ *  rules.choices. */
+export function linkedEquipmentNames(bgName, bgBundle, choicesStore = {}) {
+  const link = BG_EQUIPMENT_LINKS[bgName];
+  if (!link) return [];
+  const group = ((bgBundle || {}).choiceGroups || []).find((g) => g.id === link.groupId);
+  if (!group) return [];
+  const namesById = new Map();
+  for (const o of (group.options || [])) namesById.set(o.id, o.name);
+  for (const cats of (group.categories || [])) for (const o of (cats.options || [])) namesById.set(o.id, o.name);
+  const picked = [];
+  for (const [key, ids] of Object.entries(choicesStore || {})) {
+    if (key !== link.groupId && !key.endsWith(`:${link.groupId}`)) continue;
+    for (const id of (Array.isArray(ids) ? ids : [])) {
+      if (namesById.has(id)) picked.push(namesById.get(id));
+    }
+  }
+  return [...new Set(picked)];
+}
+
+/** Background package items with the linked pick substituted in (or
+ *  the printed lines when nothing is picked yet). Pure. */
+export function bgDisplayItems(bgName, linkedNames = []) {
+  const bg = BG_STARTING_EQUIPMENT[bgName];
+  if (!bg) return [];
+  const items = [...(bg.items || [])];
+  const link = BG_EQUIPMENT_LINKS[bgName];
+  if (link && linkedNames.length) {
+    const at = items.findIndex((line) => link.match.test(line || ""));
+    if (at !== -1) items.splice(at, 1, ...linkedNames);
+  }
+  return items;
+}
