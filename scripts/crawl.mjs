@@ -194,13 +194,27 @@ for (let step = 0; step < 22; step++) {
   const fillStep = async () => {
     await page.evaluate(() => {
       document.querySelectorAll(".wizard input[type='text'], .wizard input:not([type])").forEach((i) => { if (!i.value) { i.value = "Crawl"; i.dispatchEvent(new Event("input", { bubbles: true })); } });
-      document.querySelectorAll(".wizard select").forEach((s) => {
-        if (!s.value) {
-          const opt = [...s.options].find((o) => o.value && !/choose|select|none/i.test(o.text));
-          if (opt) { s.value = opt.value; s.dispatchEvent(new Event("change", { bubbles: true })); }
-        }
-      });
     });
+    // Cross-category dropdowns share ONE pick budget and re-render their
+    // group on every change (evicting the oldest pick when over budget),
+    // so bulk-setting every empty select in one pass stomps sibling
+    // picks — fill exactly one select per round and re-query until no
+    // empty select remains (same one-at-a-time rule as the radios
+    // below). Capped: a full budget stays full, so extra rounds only
+    // churn within the budget, never below it.
+    for (let sround = 0; sround < 8; sround++) {
+      const filled = await page.evaluate(() => {
+        const s = [...document.querySelectorAll(".wizard select")].find((el) => !el.value && el.isConnected);
+        if (!s) return false;
+        const opt = [...s.options].find((o) => o.value && !/choose|select|none/i.test(o.text));
+        if (!opt) return false;
+        s.value = opt.value;
+        s.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      });
+      if (!filled) break;
+      await page.waitForTimeout(250);
+    }
     for (let round = 0; round < 40; round++) {
       const clicked = await page.evaluate(() => {
         const radioNames = new Set([...document.querySelectorAll(".wizard input[type='radio']")].map((r) => r.name));
