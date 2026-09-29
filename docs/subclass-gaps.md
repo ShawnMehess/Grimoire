@@ -32,6 +32,12 @@ Regenerate (never hand-edit the list below):
 - Totem Warrior totem choices (3rd/6th/14th) — gaps (choiceKind levelUp): totem options unsourced.
 - Form of the Beast (per-rage) — by-design (choiceKind playTime): chosen each rage in play state, never a saved build pick.
 
+### Bard
+
+- College of Lore bonus skill proficiencies — gaps (choiceKind build): skill option list unsourced.
+- College of Swords Fighting Style — gaps (choiceKind build): style option list unsourced.
+- Magical Secrets selections — done (choiceKind levelUp): real picker in the wizard (see MAGICAL_SECRETS_UNLOCKS + Bard spell steps).
+
 ## Artificer
 
 ### Alchemist

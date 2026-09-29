@@ -83,6 +83,11 @@ const CHOICE_REVIEW = {
     ["Totem Warrior totem choices (3rd/6th/14th)", "gaps", "levelUp", "totem options unsourced"],
     ["Form of the Beast (per-rage)", "by-design", "playTime", "chosen each rage in play state, never a saved build pick"],
   ],
+  Bard: [
+    ["College of Lore bonus skill proficiencies", "gaps", "build", "skill option list unsourced"],
+    ["College of Swords Fighting Style", "gaps", "build", "style option list unsourced"],
+    ["Magical Secrets selections", "done", "levelUp", "real picker in the wizard (see MAGICAL_SECRETS_UNLOCKS + Bard spell steps)"],
+  ],
 };
 
 let total = 0;
