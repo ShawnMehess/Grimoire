@@ -1,0 +1,102 @@
+{
+  "arcana-domain-bonus-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 122-125 (Domain Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "death-domain-bonus-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 122-125 (Domain Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "forge-domain-bonus-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 122-125 (Domain Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "grave-domain-bonus-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 122-125 (Domain Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "knowledge-domain-bonus-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 122-125 (Domain Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "life-domain-bonus-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 122-125 (Domain Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "light-domain-bonus-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 122-125 (Domain Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "nature-domain-bonus-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 122-125 (Domain Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "order-domain-bonus-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 122-125 (Domain Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "peace-domain-bonus-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 122-125 (Domain Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "tempest-domain-bonus-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 122-125 (Domain Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "trickery-domain-bonus-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 122-125 (Domain Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "twilight-domain-bonus-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 122-125 (Domain Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "war-domain-bonus-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 122-125 (Domain Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "oath-of-conquest-oath-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 194-197 (Oath Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "oath-of-devotion-oath-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 194-197 (Oath Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "oath-of-glory-oath-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 194-197 (Oath Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "oath-of-redemption-oath-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 194-197 (Oath Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "oath-of-the-ancients-oath-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 194-197 (Oath Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "oath-of-the-crown-oath-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 194-197 (Oath Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "oath-of-the-watchers-oath-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 194-197 (Oath Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "oath-of-vengeance-oath-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 194-197 (Oath Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "oathbreaker-oath-spells": {
+    "sourceFile": "docs/SUBCLASS-CONTENT-AUDIT-2026-09.md",
+    "locator": "lines 194-197 (Oath Spells template); spell names computed at display from this grant's level-gated addItem modifiers"
+  },
+  "eldritch-knight-spellcasting": {
+    "sourceFile": "docs/New Info/5e-subclasses.txt",
+    "locator": "line 125 (system.spellcasting: progression third, ability int); presentation per docs/SUBCLASS-CONTENT-AUDIT-2026-09.md lines 61-63"
+  },
+  "arcane-trickster-spellcasting": {
+    "sourceFile": "docs/New Info/5e-subclasses.txt",
+    "locator": "line 121 (system.spellcasting: progression third, ability int); presentation per docs/SUBCLASS-CONTENT-AUDIT-2026-09.md lines 61-63"
+  }
+}

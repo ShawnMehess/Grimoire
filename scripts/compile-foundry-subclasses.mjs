@@ -32,93 +32,109 @@
 //     level that grants them (Light Domain L1 table rows are cleric
 //     levels; Land circle rows are spell levels mapped to druid levels).
 //
-// Skipped + logged, never silently dropped: the 5 artificer subclasses
-// (no Artificer class exists on the sheet, so they'd be unreachable),
-// entries with no parseable level headings.
+// Skipped + logged, never silently dropped: entries whose class is
+// not on the sheet, entries with no parseable level headings, and the
+// Mastermaker (a fifth artificer entry the sheet's four-subclass
+// Artificer model has no selectable bundle for).
 //
 // Re-run after updating docs/New Info/:
 //   node scripts/compile-foundry-subclasses.mjs
 
 import { readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+const require = createRequire(import.meta.url);
+
+// ID helpers. These reproduce the committed output's identifiers
+// exactly (verified by byte-diffing a re-run): slug feeds grant ids
+// and choiceIds (`circle-of-the-land-2-natural-recovery`,
+// `subclass-circle-of-the-land`), normName feeds supplement keys
+// (`circleoftheland`), titleCaseId turns a classIdentifier
+// ("fighter") into its display base name ("Fighter").
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
 const INPUT = path.join(ROOT, "docs", "New Info", "5e-subclasses.txt");
 const OUTPUT = path.join(ROOT, "js", "data", "subclassContent.js");
-const SUMMARIES_PATH = path.join(__dirname, "..", "data", "subclass-feature-summaries.json");
+const SUMMARIES_PATH = path.join(ROOT, "data", "subclass-feature-summaries.json");
 
 const log = [];
-// Apply curated summaries to feature grants, replacing placeholder descriptions.
-function applyFeatureSummaries(grants, subclassKey) {
-  const summaries = featureSummaries.get(subclassKey);
-  if (!summaries) return grants;
-  
+
+// Curated summaries keyed FLAT by feature id (see
+// data/subclass-feature-summaries.json):
+//   { "<feature-id>": { summary, minLevel, optional, choice } }
+// A summary containing "{spells}" is an auto-spell template: display
+// layers substitute the bundle's currently-granted spells for the
+// token (never the full tier list). Grants with no entry render with
+// NO mechanics text (description null + unsourced flag) and are
+// omitted from player-facing display until sourced.
+function applyFeatureSummaries(grants) {
   for (const grant of grants) {
-    const summary = summaries.get(grant.id);
+    const summary = featureSummaries.get(grant.id);
     if (summary) {
-      // Verify the minLevel matches
+      // The summary's level gate must agree with the compiled grant.
       if (summary.minLevel !== grant.minLevel) {
         console.warn(`  minLevel mismatch for ${grant.id}: summary has ${summary.minLevel}, grant has ${grant.minLevel}`);
       }
       grant.description = summary.summary;
-      // Mark as curated so we can track which ones were fixed
       grant.curated = true;
+    } else {
+      grant.description = null;
+      grant.unsourced = true;
     }
   }
   return grants;
 }
 
-function checkForPlaceholders(grants) {
-  const placeholders = [];
+// Output-model check (also enforced at runtime by
+// scripts/check-subclass-sourcing.mjs): every top-level grant is
+// either a curated summary (description exactly the summaries-file
+// text) or explicitly unsourced (no description at all). Placeholder
+// patterns never reach player-facing content.
+function checkCompiledGrants(grants) {
   for (const grant of grants) {
     const desc = grant.description || "";
-    // Detect placeholder patterns
-    if (desc.includes("feature.") || 
-        desc.includes("placeholder") || 
-        desc.match(/\b(feature|feature\.)\b/i) ||
-        desc === `${grant.name} (${grant.minLevel})` ||
-        desc === `${grant.name} (${grant.minLevel}${grant.minLevel === 1 ? "st" : grant.minLevel === 2 ? "nd" : grant.minLevel === 3 ? "rd" : "th"}-level feature.)` ||
-        desc.includes("TODO") ||
-        desc.includes("FIXME") ||
-        desc.includes("placeholder")) {
-      placeholders.push({ id: grant.id, description: desc });
+    if (grant.unsourced && desc) {
+      throw new Error(`Unsourced grant with text: ${grant.id}: ${desc}`);
     }
-  }
-  if (placeholders.length > 0) {
-    throw new Error(`Placeholder feature descriptions found: ${placeholders.map(p => `${p.id}: ${p.description}`).join("\n")}`);
+    if (!grant.unsourced && desc !== (featureSummaries.get(grant.id) || {}).summary) {
+      throw new Error(`Grant text bypassed the summaries file: ${grant.id}: ${desc}`);
+    }
+    if (/-level feature\.\s*$/.test(desc) || /placeholder/i.test(desc) || /TODO|FIXME/.test(desc)) {
+      throw new Error(`Placeholder feature description: ${grant.id}: ${desc}`);
+    }
+    if (/\b3rd, 5th, 7th,/.test(desc)) {
+      throw new Error(`Malformed spell-row description: ${grant.id}: ${desc}`);
+    }
   }
   return grants;
 }
 
-// Feature summaries loaded from JSON file
+// Feature summaries loaded from JSON file (flat by feature id).
 let featureSummaries = new Map();
 
 function loadFeatureSummaries() {
   try {
     const raw = require("node:fs").readFileSync(SUMMARIES_PATH, "utf8");
     const data = JSON.parse(raw);
-    // Validate required fields
-    for (const [subclassKey, features] of Object.entries(data)) {
-      if (!features || typeof features !== "object") {
-        throw new Error(`Invalid feature summaries for subclass ${subclassKey}: expected object`);
+    for (const [featureId, summary] of Object.entries(data)) {
+      if (!summary || typeof summary.summary !== "string" || summary.summary.length < 10) {
+        throw new Error(`Invalid summary for ${featureId}: missing or too short summary`);
       }
-      for (const [featureId, summary] of Object.entries(features)) {
-        if (!summary.summary || typeof summary.summary !== "string" || summary.summary.length < 10) {
-          throw new Error(`Invalid summary for ${featureId} in ${subclassKey}: missing or too short summary`);
-        }
-        if (typeof summary.minLevel !== "number" || summary.minLevel < 1 || summary.minLevel > 20) {
-          throw new Error(`Invalid minLevel for ${featureId} in ${subclassKey}: must be 1-20`);
-        }
+      if (typeof summary.minLevel !== "number" || summary.minLevel < 1 || summary.minLevel > 20) {
+        throw new Error(`Invalid minLevel for ${featureId}: must be 1-20`);
       }
-    }
-    // Convert to Map for faster lookups
-    for (const [subclassKey, features] of Object.entries(data)) {
-      data[subclassKey] = new Map(Object.entries(features));
+      if (typeof summary.optional !== "boolean") {
+        throw new Error(`Invalid optional flag for ${featureId}: must be boolean`);
+      }
+      if (summary.choice !== null && typeof summary.choice !== "object") {
+        throw new Error(`Invalid choice for ${featureId}: must be null or an object`);
+      }
     }
     featureSummaries = new Map(Object.entries(data));
-    console.log(`Loaded feature summaries for ${Object.keys(data).length} subclasses`);
+    console.log(`Loaded ${featureSummaries.size} curated feature summaries`);
   } catch (err) {
     console.warn("Could not load subclass-feature-summaries.json:", err.message);
     featureSummaries = new Map();
@@ -128,6 +144,10 @@ function loadFeatureSummaries() {
 function getSystem(d) {
   return d.system || d.data || {};
 }
+
+const slug = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "item";
+const normName = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const titleCaseId = (s) => String(s || "").split(/[-_]+/).filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 
 // @Compendium/@UUID refs -> display label (shared convention).
 function resolveRefs(text) {
@@ -267,9 +287,17 @@ function compileSubclass(entry, childrenByParent) {
   const system = getSystem(entry);
   const classId = system.classIdentifier || "";
   const baseName = titleCaseId(classId);
+  // Pre-existing hand fixes, now compiler-owned instead of re-applied
+  // by hand after every run:
+  // - The export spells this entry "Shephard"; the supplement's
+  //   display name and match key use the corrected "Shepherd"
+  //   (matching DEFAULT_CONTENT.subclassChoices), while slugs,
+  //   choiceId, and grant ids keep the committed typo'd bytes so
+  //   stored references stay stable.
+  const displayName = normName(entry.name) === "circleoftheshephard" ? "Circle of the Shepherd" : entry.name;
   const rawHtml = ((system.description || {}).value) || "";
   const sections = splitSections(rawHtml);
-  const featureGrants = [];
+  let featureGrants = [];
   const statModifiers = [];
   const seen = new Set();
 
@@ -363,16 +391,24 @@ function compileSubclass(entry, childrenByParent) {
 
   // Odd-identifier children (Land terrains, Hunter focuses) become a
   // real pick on the parent instead of unreachable pseudo-subclasses.
+  // The terrain/focus pick is permanent (made once), hence choiceKind
+  // "build"; the level gate derives from the parent's earliest grant
+  // (Land unlocks at 2nd, Hunter at 3rd) rather than a hardcoded list.
   const choiceGroups = [];
   const children = childrenByParent[entry.name] || childrenByParent[normName(entry.name)] || [];
   if (children.length) {
     const label = /circle/i.test(entry.name) ? "Circle Land (circle spells)" : `${entry.name} Focus`;
+    const childGate = featureGrants
+      .map((g) => g.minLevel)
+      .filter((n) => Number.isFinite(n));
     choiceGroups.push({
       id: `${slug(entry.name)}-focus`,
       label,
-      minLevel: null,
+      minLevel: childGate.length ? Math.min(...childGate) : null,
       minSelections: 1,
       maxSelections: 1,
+      category: "features",
+      choiceKind: "build",
       options: children.map((child) => {
         const csys = getSystem(child);
         const chtml = ((csys.description || {}).value) || "";
@@ -403,28 +439,46 @@ function compileSubclass(entry, childrenByParent) {
   }
 
   // Spellcasting note (e.g. Eldritch Knight third-caster progression).
+  // When the section parse ALSO produced a placeholder Spellcasting
+  // grant for the same subclass, the note wins and inherits the
+  // section's level gate (3rd for both the Eldritch Knight and the
+  // Arcane Trickster) — one Spellcasting grant, correctly gated,
+  // instead of a placeholder plus an ungated note.
   const sc = system.spellcasting || {};
   if (sc.progression && sc.progression !== "none") {
     const ability = { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" }[sc.ability] || sc.ability || "";
+    const noteId = `${slug(entry.name)}-spellcasting`;
+    const sectionDupes = featureGrants.filter((g) =>
+      g.name === "Spellcasting" && g.id !== noteId && /-level feature\.\s*$/.test(g.description || ""));
+    let gate = null;
+    for (const dupe of sectionDupes) {
+      if (Number.isFinite(dupe.minLevel)) gate = gate == null ? dupe.minLevel : Math.min(gate, dupe.minLevel);
+      log.push(`merged duplicate Spellcasting placeholder into note: ${dupe.id}`);
+    }
+    for (const dupe of sectionDupes) featureGrants.splice(featureGrants.indexOf(dupe), 1);
     featureGrants.push({
-      id: `${slug(entry.name)}-spellcasting`,
+      id: noteId,
       name: "Spellcasting",
       description: `${entry.name} spellcasting: ${sc.progression}${ability ? ` (${ability})` : ""}.`,
-      minLevel: null,
+      minLevel: gate,
     });
   }
 
-  // Apply curated feature summaries, replacing placeholder descriptions.
-  const subclassKey = normName(entry.name);
-  featureGrants = applyFeatureSummaries(featureGrants, normName(entry.name));
-  checkForPlaceholders(featureGrants);
+  // Attach curated summaries (unmatched grants go explicitly
+  // unsourced) and enforce the output model.
+  featureGrants = applyFeatureSummaries(featureGrants);
+  checkCompiledGrants(featureGrants);
 
   return {
-    key: normName(entry.name),
-    name: entry.name,
+    key: normName(displayName),
+    name: displayName,
     className: baseName,
     classIdentifier: classId,
-    choiceId: `subclass-${slug(entry.name)}`,
+    // choiceId is write-only metadata ("stable id for newly added
+    // choices" — no reader consumes it), but the committed
+    // Battle Smith id lacks its hyphen, so keep that exact byte for
+    // stability rather than re-emitting it.
+    choiceId: normName(entry.name) === "battlesmith" ? "subclass-battlesmith" : `subclass-${slug(entry.name)}`,
     bundle: { statModifiers, dropdownAccess: [], featureGrants, resourceGrants: [], choiceGroups },
   };
 }
@@ -472,13 +526,23 @@ async function main() {
     (childrenByParent[parentName] = childrenByParent[parentName] || []).push(e);
   }
 
-  const BASE_CLASSES = new Set(["barbarian", "bard", "cleric", "druid", "fighter", "monk", "paladin", "ranger", "rogue", "sorcerer", "warlock", "wizard"]);
+  const BASE_CLASSES = new Set(["barbarian", "bard", "cleric", "druid", "fighter", "monk", "paladin", "ranger", "rogue", "sorcerer", "warlock", "wizard", "artificer"]);
+  // Entries with no selectable bundle on the sheet: the Mastermaker is
+  // a fifth artificer entry in the export, but the sheet's Artificer
+  // offers exactly Alchemist/Armorer/Artillerist/Battle Smith (see the
+  // Artificer dropdownAccess in contentFixups.js) — an unreferenced
+  // fifth would orphan, so it stays out, loudly.
+  const SKIP_SUBCLASS_NAMES = new Set(["mastermaker"]);
   const supplement = [];
   for (const e of topLevel) {
     const sys = getSystem(e);
     const classId = (sys.classIdentifier || "").toLowerCase();
     if (!BASE_CLASSES.has(classId)) {
       log.push(`skipped (no such class on the sheet): ${e.name} [${sys.classIdentifier}]`);
+      continue;
+    }
+    if (SKIP_SUBCLASS_NAMES.has(normName(e.name))) {
+      log.push(`skipped (no selectable bundle on the sheet): ${e.name} [${sys.classIdentifier}]`);
       continue;
     }
     if (e.type && e.type !== "subclass") {
