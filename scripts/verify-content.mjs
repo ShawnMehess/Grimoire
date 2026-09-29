@@ -16,10 +16,15 @@
 import { readFileSync } from "node:fs";
 import { DEFAULT_CONTENT } from "../js/data/defaultContent.js";
 import { SUBCLASS_SUPPLEMENT } from "../js/data/subclassContent.js";
-import { FEAT_BUNDLES } from "../js/data/featBundles.js";
+import { FEAT_BUNDLES, FEAT_CATALOG } from "../js/data/featBundles.js";
 import { RACE_EXTRA_ENTRIES } from "../js/data/extraRaces.js";
 import { SPELL_CATALOG, WEAPONS_ARMOR_CATALOG, GEAR_CATALOG } from "../js/data/contentCatalogs.js";
 import { createStarterLayout } from "../js/data/blockModel.js";
+import { assignCatalogEntryIds, migrateBundleCatalogLinks, LINKED_FEAT_BUNDLES } from "../js/data/catalogLinks.js";
+import { FIXED_RACE_ENTRIES, FIXED_CLASS_ENTRIES, FIXED_BG_ENTRIES, SUBCLASS_BUNDLE_MAP } from "../js/data/contentFixups.js";
+import { catalogEntryInfoIn } from "../js/render/sheet/sheetWizard.js";
+import { CHOICE_GROUP_CATEGORY_KEYS, categorizeChoiceGroup } from "../js/render/sheet/sheetMechanics.js";
+import { inferChoiceCategory, CATCH_ALL_CATEGORY } from "../js/data/choiceCategories.js";
 import { stripBundlesFromPatch, hydrateCharacter } from "../js/state/bundleMaps.js";
 import {
   activeChoiceGroupsFor,
@@ -1084,6 +1089,182 @@ function applyStatModifiersForTest(fields, vm, cb, tags, levelFor, extra) {
   for (const e of DEFAULT_CONTENT.classEntries) scan(e.bundle?.featureGrants);
   for (const s of SUBCLASS_SUPPLEMENT) scan(s.bundle?.featureGrants);
   console.log(`known hand-tracked gaps: ${notes} feature notes (intentional, see docs/RESCUE-NOTES.md)`);
+}
+
+// --- 9. Bundle <-> catalog links (Phase 4) ----------------------------------
+//
+// The wizard used to pair a bundle (mechanics) with a catalog entry
+// (portrait/description) by matching names, so a rename on either side
+// silently dropped the row's flavor. Bundles now carry an explicit
+// catalogEntryId. These checks keep that link honest: every linkable bundle
+// has one, every id resolves, and the id-based lookup actually finds what
+// the old name match found.
+{
+  // The app mints these ids at load time (customSheet.js, right after the
+  // catalog cache is built); do the same here so this block checks the
+  // same state the app sees.
+  assignCatalogEntryIds(DEFAULT_CONTENT.catalogs);
+  assignCatalogEntryIds([FEAT_CATALOG]);
+
+  const ids = new Set();
+  for (const cat of DEFAULT_CONTENT.catalogs) {
+    for (const tab of cat.tabs || []) {
+      for (const e of tab.entries || []) {
+        if (!e.id) fail(`catalog entry "${e.name}" (${cat.name}/${tab.name}) has no id`);
+        else if (ids.has(e.id)) fail(`duplicate catalog entry id: ${e.id}`);
+        else ids.add(e.id);
+      }
+    }
+  }
+  for (const tab of FEAT_CATALOG.tabs || []) {
+    for (const e of tab.entries || []) {
+      if (!e.id) fail(`feat catalog entry "${e.name}" has no id`);
+      else if (ids.has(e.id)) fail(`duplicate catalog entry id: ${e.id}`);
+      else ids.add(e.id);
+    }
+  }
+
+  // Bundles that legitimately have no catalog counterpart: the base
+  // Genasi is a container whose four elemental subraces are the real
+  // pickable options, and no flavor entry exists for it (sourcing rule —
+  // see docs/subclass-gaps.md). Its rows fall back to placeholder art,
+  // exactly as they did before the link existed.
+  const NO_CATALOG_ENTRY = new Set(["race:genasi"]);
+
+  const linked = [];
+  const collect = (kind, entries, getBundle) => {
+    for (const e of entries) linked.push({ kind, name: e.name, id: getBundle(e)?.catalogEntryId });
+  };
+  collect("race", FIXED_RACE_ENTRIES, (e) => e.bundle);
+  collect("class", FIXED_CLASS_ENTRIES, (e) => e.bundle);
+  collect("background", FIXED_BG_ENTRIES, (e) => e.bundle);
+  // Subclass bundles are keyed by a normalized name in the map and don't
+  // carry a name field themselves, so pair each with its supplement entry
+  // to get the display name (and confirm the two stay in step).
+  const subclassBundles = SUBCLASS_SUPPLEMENT.map((s) => {
+    const bundle = SUBCLASS_BUNDLE_MAP.get(s.key);
+    if (!bundle) fail(`SUBCLASS_BUNDLE_MAP has no bundle for "${s.name}" (key ${s.key})`);
+    return { name: s.name, bundle };
+  });
+  collect("subclass", subclassBundles, (e) => e.bundle);
+  collect("feat", LINKED_FEAT_BUNDLES, (b) => b);
+
+  let unlinked = 0;
+  let dangling = 0;
+  for (const { kind, name, id } of linked) {
+    if (!id) { unlinked++; fail(`${kind} "${name}" has no catalogEntryId`); continue; }
+    if (ids.has(id)) continue;
+    if (NO_CATALOG_ENTRY.has(id)) continue;
+    dangling++;
+    fail(`${kind} "${name}" links to ${id}, which resolves to no catalog entry`);
+  }
+
+  // The link must actually work, not merely exist: re-running the id
+  // lookup has to return the same flavor the old name match did.
+  const byName = (catalogs, tabName, name) => {
+    for (const cat of catalogs) {
+      if (cat.name !== tabName) continue;
+      for (const tab of cat.tabs || []) {
+        const e = (tab.entries || []).find((x) => norm(x.name) === norm(name));
+        if (e) return e;
+      }
+    }
+    return null;
+  };
+  const probes = [
+    ["Classes", "Barbarian"], ["Classes", "Champion"],
+    ["Races", "Elf"], ["Backgrounds", "Acolyte"],
+  ];
+  for (const [catalogName, entryName] of probes) {
+    const expected = byName(DEFAULT_CONTENT.catalogs, catalogName, entryName);
+    if (!expected) { fail(`probe target ${catalogName}/${entryName} not in catalog`); continue; }
+    const got = catalogEntryInfoIn(DEFAULT_CONTENT.catalogs, ["class"], "no-such-name", expected.id);
+    if (!got) fail(`catalogEntryInfoIn failed to resolve ${catalogName}/${entryName} by its id ${expected.id}`);
+    else if (expected.description && got.description !== expected.description) {
+      fail(`id lookup returned the wrong entry for ${expected.id}`);
+    }
+  }
+
+  // Migration: a legacy name-only library entry gets linked, an already
+  // linked one is left alone, and an entry with no catalog counterpart is
+  // reported rather than guessed at.
+  const legacy = [
+    { name: "Barbarian", category: "Class" },
+    { name: "Elf", category: "Race" },
+    { name: "Champion", category: "Subclass" },
+    { name: "Alert", category: "Feat" },
+    { name: "Not A Real Thing", category: "Class" },
+  ];
+  const catalogs = [FEAT_CATALOG, ...DEFAULT_CONTENT.catalogs];
+  const { bundles: migrated, linked: newly, unresolved } = migrateBundleCatalogLinks(legacy, catalogs);
+  const byNameAfter = (n) => migrated.find((b) => b.name === n);
+  for (const n of ["Barbarian", "Elf", "Champion", "Alert"]) {
+    if (!byNameAfter(n)?.catalogEntryId) fail(`migration did not link legacy entry "${n}"`);
+  }
+  if (byNameAfter("Not A Real Thing")?.catalogEntryId) fail("migration guessed a link for an entry with no catalog counterpart");
+  if (newly.length !== 4) fail(`migration linked ${newly.length} entries, expected 4`);
+  if (unresolved.length !== 1) fail(`migration reported ${unresolved.length} unresolved, expected 1`);
+  // Inputs are never mutated — the caller's stored objects stay untouched.
+  if (legacy.some((b) => b.catalogEntryId)) fail("migrateBundleCatalogLinks mutated its input");
+
+  console.log(`phase4: catalog links — ${ids.size} catalog ids, ${linked.length} bundles linked (${dangling} dangling, ${NO_CATALOG_ENTRY.size} known no-entry, ${unlinked} unlinked); migration + id-lookup probes hold`);
+}
+
+// --- 10. Choice-group categories are explicit (Phase 4) ----------------------
+//
+// The wizard used to sort a bundle's choice groups onto its own creation
+// pages by keyword-matching each group's free-text label. That's now a
+// stored `category` on every group the repo ships, so a rename can't
+// silently move a group to a different page. The label regex survives only
+// as an import-compat net for homebrew, which arrives with no category.
+{
+  const groups = [];
+  for (const e of FIXED_RACE_ENTRIES) for (const g of e.bundle?.choiceGroups || []) groups.push([`race "${e.name}"`, g]);
+  for (const e of FIXED_CLASS_ENTRIES) for (const g of e.bundle?.choiceGroups || []) groups.push([`class "${e.name}"`, g]);
+  for (const e of FIXED_BG_ENTRIES) for (const g of e.bundle?.choiceGroups || []) groups.push([`background "${e.name}"`, g]);
+  for (const s of SUBCLASS_SUPPLEMENT) {
+    for (const g of SUBCLASS_BUNDLE_MAP.get(s.key)?.choiceGroups || []) groups.push([`subclass "${s.name}"`, g]);
+  }
+  for (const b of LINKED_FEAT_BUNDLES) for (const g of b.choiceGroups || []) groups.push([`feat "${b.name}"`, g]);
+
+  for (const [src, g] of groups) {
+    if (!g.pageCategory) fail(`${src} choice group "${g.label}" has no explicit pageCategory — the label fallback would be doing real work`);
+    else if (!CHOICE_GROUP_CATEGORY_KEYS.has(g.pageCategory)) fail(`${src} choice group "${g.label}" has unknown pageCategory "${g.pageCategory}"`);
+    // The renderer already resolved the page the same way before, so the
+    // assigned value must match what it computed — anything else means
+    // this "cleanup" moved a group to a different page, which is a
+    // player-visible change nobody asked for.
+    else if (g.pageCategory !== inferChoiceCategory(g)) {
+      fail(`${src} choice group "${g.label}" changed page: was ${inferChoiceCategory(g)}, now ${g.pageCategory}`);
+    }
+  }
+
+  // `category` belongs to a different vocabulary (class-feature markers
+  // like "features") and must survive this pass untouched.
+  const CATEGORY_CODES = new Set(["features"]);
+  for (const [src, g] of groups) {
+    if (g.category && !CHOICE_GROUP_CATEGORY_KEYS.has(g.category) && !CATEGORY_CODES.has(g.category)) {
+      fail(`${src} choice group "${g.label}" has unrecognized category "${g.category}"`);
+    }
+  }
+  const marked = groups.filter(([, g]) => g.category === "features").length;
+  if (!marked) fail("no class-feature groups carry category \"features\" — the marker was clobbered");
+
+  // The fallback still has to work for homebrew, which has no page.
+  const unlabeled = categorizeChoiceGroup({ label: "Pick 2 skills" });
+  if (unlabeled !== "skills") fail(`import fallback stopped resolving a bare skill group (got "${unlabeled}")`);
+  const uncategorizable = categorizeChoiceGroup({ label: "Mystery Choice" });
+  if (uncategorizable !== CATCH_ALL_CATEGORY) fail(`import fallback no longer falls back to ${CATCH_ALL_CATEGORY} (got "${uncategorizable}")`);
+  // An explicit page beats the label, even a contradictory one.
+  if (categorizeChoiceGroup({ label: "Pick 2 skills", pageCategory: "spells" }) !== "spells") {
+    fail("an explicit pageCategory was overridden by the label heuristic");
+  }
+  // A group carrying only the inert "features" marker still resolves by label.
+  if (categorizeChoiceGroup({ label: "Pick 2 skills", category: "features" }) !== "skills") {
+    fail("the \"features\" marker stopped deferring to page resolution");
+  }
+
+  console.log(`phase4: choice pages — all ${groups.length} shipped groups carry an explicit pageCategory, none moved page, ${marked} "features" markers intact; import fallback intact`);
 }
 
 if (failures) {

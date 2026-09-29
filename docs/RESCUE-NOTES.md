@@ -186,8 +186,45 @@ instead of a combined list or a flattened note:
   phrasing and resolving each part to either a known tool/instrument/
   gaming-set category or a single literal item (like "thieves' tools").
 
-## Regenerating this later
+## Wizard data-linking (bundle ↔ catalog, choice-group pages)
 
+Two things the creation wizard used to work out by guessing, now stored
+explicitly. Both fixes live in the fixup layer rather than in
+`defaultContent.js` / `featBundles.js`, so regenerating those files still
+works — nothing was hand-edited into a generated file.
+
+- **Flavor/portrait by id, not by name.** A bundle is the mechanical side
+  of a race/class/subclass/background; a catalog entry is the flavor side
+  (description + portrait). They were paired by comparing names, so
+  renaming either one silently dropped the row's portrait. Now every
+  catalog entry gets a stable id (`class:barbarian`,
+  `subclass:champion`) in `js/data/catalogLinks.js`, and every bundle
+  records the id it should read flavor from. All 236 shipped bundles
+  link, none dangle. Bundle libraries that predate the field are backfilled
+  once at load (`migrateBundleCatalogLinks`), which reports anything it
+  couldn't match instead of guessing — guessing wrong would point a bundle
+  at another entry's portrait, which is worse than having no portrait.
+  Name matching survives only as a fallback, for subrace option rows and
+  the base Genasi (a container whose four elemental subraces are the real
+  options — no catalog entry exists for it, and inventing one would break
+  the sourcing rule).
+- **Choice-group pages are declared, not inferred.** The wizard sorts a
+  bundle's choice groups onto its Spells/Languages/Ability Scores/… pages
+  by keyword-matching each group's free-text label. That guess now runs
+  once, at load, in `js/data/choiceCategories.js`, and the answer is stored
+  as `pageCategory` — same table, so the placement is identical today
+  (`verify-content.mjs` asserts no group moved page), but a later rename
+  can no longer move a group to a different page behind your back.
+  It's a new field rather than the existing `category`, because `category`
+  already carries class-feature markers (`"features"`) that mean nothing
+  for routing but are asserted by the sourcing checks.
+  The label heuristic is kept purely for imported homebrew, which arrives
+  as JSON with no page; homebrew can pin one by setting `pageCategory` to
+  any key of `CHOICE_GROUP_CATEGORY_KEYS`. Known UI gap: the Bundle
+  Library editor still has no choiceGroup editor at all (groups arrive via
+  JSON import), so there's no dropdown for setting a page by hand yet.
+
+## Regenerating this later
 If you get updated JSON, the compiler is a plain Python script (not
 checked into the repo, since it's a one-off build step, not part of
 the site) — ask me to rerun it and rewrite

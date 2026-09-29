@@ -32,8 +32,19 @@ import {
   RANGER_FAVORED_TERRAINS,
   RANGER_VARIANT_OPTION,
 } from "./phase1Replacements.js";
+import { withCatalogLink } from "./catalogLinks.js";
+import { withChoiceGroupCategories } from "./choiceCategories.js";
 
 const clone = (obj) => JSON.parse(JSON.stringify(obj));
+
+/** The two fixups every baked-in bundle needs before it's handed to the
+ *  sheet: an explicit link to its flavor/portrait catalog entry, and
+ *  explicit categories on its choice groups (so the wizard doesn't have to
+ *  guess either one at render time). One helper so all four entry lists
+ *  below stay in step — see js/data/catalogLinks.js and
+ *  js/data/choiceCategories.js. */
+const finalizeBundle = (bundle, kind, name) =>
+  withChoiceGroupCategories(withCatalogLink(bundle, kind, name));
 
 function textOption(prefix, name, description) {
   return {
@@ -1084,7 +1095,9 @@ function patchBackgroundEntry(entry) {
   return out;
 }
 
-export const FIXED_BG_ENTRIES = DEFAULT_CONTENT.bgEntries.map(patchBackgroundEntry);
+export const FIXED_BG_ENTRIES = DEFAULT_CONTENT.bgEntries
+  .map(patchBackgroundEntry)
+  .map((entry) => ({ ...entry, bundle: finalizeBundle(entry.bundle, "background", entry.name) }));
 
 export const FIXED_CLASS_ENTRIES = [
   ...DEFAULT_CONTENT.classEntries.map(patchClassEntry),
@@ -1169,7 +1182,7 @@ export const FIXED_CLASS_ENTRIES = [
       ],
     },
   },
-];
+].map((entry) => ({ ...entry, bundle: finalizeBundle(entry.bundle, "class", entry.name) }));
 
 function patchRaceEntry(entry) {
   const out = { ...entry, bundle: clone(entry.bundle) };
@@ -1265,7 +1278,7 @@ export const FIXED_RACE_ENTRIES = [
   ...RACE_EXTRA_ENTRIES,
   // Base Genasi with its four elemental subraces.
   genasiBaseEntry(),
-];
+].map((entry) => ({ ...entry, bundle: finalizeBundle(entry.bundle, "race", entry.name) }));
 
 const SUBCLASS_PATCHERS = {
   "Hunter Conclave": patchHunterConclave,
@@ -1304,7 +1317,7 @@ export function stripSecondaryClassBundle(bundle) {
 // single source blockModel (starter choices) and bundleMaps
 // (save/load canonicals) both read from.
 export const SUBCLASS_BUNDLE_MAP = new Map(
-  SUBCLASS_SUPPLEMENT.map((s) => [s.key, patchedSubclassBundle(s.name, s.bundle)])
+  SUBCLASS_SUPPLEMENT.map((s) => [s.key, finalizeBundle(patchedSubclassBundle(s.name, s.bundle), "subclass", s.name)])
 );
 
 // Alias for the historical "Shephard" misspelling: older saves (and

@@ -277,6 +277,7 @@ function bundleLibraryPayload(entry, ownerId) {
     name: entry.name || "Unnamed Bundle",
     category: entry.category || "",
     rulesetId: entry.rulesetId || null,
+    catalogEntryId: entry.catalogEntryId || null,
     statModifiers: entry.statModifiers || [],
     dropdownAccess: entry.dropdownAccess || [],
     featureGrants: entry.featureGrants || [],

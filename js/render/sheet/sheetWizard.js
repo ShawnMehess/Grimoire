@@ -1384,14 +1384,33 @@ export function renderSpellPickerInto(container, { rulesetId, className, level }
 
 // --- Catalog flavor + bundle lookup ---------------------------------------------------
 //
-// Migration of catalogEntryInfo / bundleFor (+ CATEGORY_FIELD) from
-// customSheet.js. Best-effort flavor lookup matches by keyword since
-// no stored link exists between bundle-library entries (mechanical)
-// and catalog entries (flavor/portrait) yet.
+// Flavor/portrait lookup. Bundles (the mechanical side) carry an explicit
+// `catalogEntryId` pointing at a catalog entry (the flavor/portrait side),
+// so a rename on either side no longer breaks the pairing — the link
+// survives independently of the name. Legacy bundles imported before that
+// field existed have no link, so `name` remains as a fallback lookup.
 
 export const CATEGORY_FIELD = { Race: ["race", "Race"], Class: ["class", "Class"], Background: ["background", "Background"], Subclass: ["subclass", "Subclass"] };
 
-export function catalogEntryInfoIn(catalogs = [], keywords = [], name) {
+function catalogEntryFromId(catalogs, entryId) {
+  const id = (entryId || "").trim().toLowerCase();
+  if (!id) return null;
+  for (const cat of catalogs) {
+    for (const tab of cat.tabs || []) {
+      const entry = (tab.entries || []).find((e) => (e.id || "").trim().toLowerCase() === id);
+      if (entry) return entry;
+    }
+  }
+  return null;
+}
+
+/** Resolve flavor/portrait for a bundle. Prefers the explicit
+ *  `catalogEntryId` link; falls back to matching by name (bundles saved
+ *  before the link existed). Returns null when neither resolves. */
+export function catalogEntryInfoIn(catalogs = [], keywords = [], name, catalogEntryId = null) {
+  const byId = catalogEntryFromId(catalogs, catalogEntryId);
+  if (byId) return { description: byId.description || "", imageData: byId.imageData || null };
+
   if (!name) return null;
   const norm = (s) => (s || "").trim().toLowerCase();
   const catalog = catalogs.find((c) => keywords.some((kw) => norm(c.name).includes(kw)));

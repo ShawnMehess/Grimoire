@@ -52,9 +52,19 @@ was written — the item is logged here instead.
   pack-gated: they list spells from levels 1-9 and are never grants at
   character creation; the Spells step and spell catalog own spell
   access (audit systemic fixes 3 and 6).
-- `categorizeChoiceGroup`'s label-keyword fallback is RETAINED for now:
-  subclass/race groups are still uncategorized (Phases 2-3 add real
-  categories); Phase 4 removes the fallback once nothing needs it.
+- `categorizeChoiceGroup`'s label-keyword fallback is now only reachable by
+  imported homebrew: every one of the 129 choice groups the repo ships
+  carries an explicit `pageCategory` (assigned in
+  js/data/choiceCategories.js, reproducing the old guess exactly —
+  verify-content.mjs asserts no group changed page). Kept rather than
+  deleted, because homebrew arrives as JSON with no page and dropping the
+  heuristic would silently dump those groups onto the catch-all page with
+  no signal. Homebrew can set `pageCategory` (any key of
+  CHOICE_GROUP_CATEGORY_KEYS) to pin a page. Note this is a NEW field:
+  `category` was already spoken for, carrying class-feature markers like
+  `"features"`, which are inert for page routing but asserted by the
+  sourcing checks — so overwriting it was not an option. Status: closed
+  for repo content, open for imports.
 - Tasha's optional fighting styles stay in the single pick-1 group
   with pack-gated OPTIONS (not a second group): a second group would
   wrongly grant two styles to Tasha's characters.

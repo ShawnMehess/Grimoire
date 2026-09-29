@@ -28,15 +28,30 @@ export const CHOICE_GROUP_CATEGORY_KEYS = new Set(
 );
 
 /**
- * Categorize a choice group by explicit `category` field if present,
- * falling back to the heuristic regex match on the label.
+ * Which page of the creation flow a choice group belongs on.
  * Pure — no side effects.
+ *
+ * Prefers an explicit `pageCategory`, then an explicit `category` that's
+ * already a valid page key, and only then falls back to keyword-matching
+ * the label. Every group the repo ships now carries a `pageCategory`
+ * (assigned in js/data/choiceCategories.js), so the label heuristic does
+ * no work for our own content — verify-content.mjs asserts that, which is
+ * what stops it quietly becoming load-bearing again.
+ *
+ * The heuristic is kept for imported homebrew, which arrives as JSON with
+ * no page: dropping it would silently dump those groups onto the catch-all
+ * page, where a label like "Pick 2 skills" would have sorted correctly.
+ * Homebrew that wants a guaranteed page sets `pageCategory` to one of
+ * CHOICE_GROUP_CATEGORY_KEYS.
  */
 export function categorizeChoiceGroup(group) {
+  if (group?.pageCategory && CHOICE_GROUP_CATEGORY_KEYS.has(group.pageCategory)) {
+    return group.pageCategory;
+  }
   if (group?.category && CHOICE_GROUP_CATEGORY_KEYS.has(group.category)) {
     return group.category;
   }
-  // Compatibility fallback: heuristic based on label (legacy content)
+  // Import-compat fallback: heuristic based on label (homebrew content).
   const label = group?.label || "";
   const found = CREATION_CHOICE_CATEGORIES.find((cat) => cat.test && cat.test.test(label));
   return (found || CREATION_CHOICE_CATEGORIES[CREATION_CHOICE_CATEGORIES.length - 1]).key;

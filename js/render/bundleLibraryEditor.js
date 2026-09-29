@@ -37,6 +37,7 @@ function blankLibraryEntry() {
     scope: "personal",
     name: "",
     category: "",
+    catalogEntryId: null,
     statModifiers: [],
     dropdownAccess: [],
     // No editor UI here yet for feature grants (name/description/minLevel
@@ -273,7 +274,25 @@ export function openBundleLibraryManager(store, onChange) {
     catSelect.addEventListener("change", () => { selected.category = catSelect.value; });
     catRow.append(catLabel, catSelect);
 
-    editorCol.append(nameRow, catRow);
+    // Explicit link to the flavor/portrait catalog entry. The wizard used
+    // to re-derive this by matching names, which silently broke whenever
+    // either side was renamed. Blank means "no catalog entry" — the
+    // bundle still applies mechanically, it just shows no portrait/description.
+    const linkRow = document.createElement("div");
+    linkRow.className = "bundle-library-field-row";
+    const linkLabel = document.createElement("label");
+    linkLabel.textContent = "Catalog Entry ID";
+    linkLabel.title = "ID of the catalog entry holding this bundle's portrait and flavor text";
+    const linkInput = document.createElement("input");
+    linkInput.type = "text";
+    linkInput.placeholder = "optional — e.g. elf";
+    linkInput.value = selected.catalogEntryId || "";
+    linkInput.addEventListener("input", () => {
+      selected.catalogEntryId = linkInput.value.trim() || null;
+    });
+    linkRow.append(linkLabel, linkInput);
+
+    editorCol.append(nameRow, catRow, linkRow);
 
     // --- Stat modifiers ---
     const statHeader = document.createElement("div");

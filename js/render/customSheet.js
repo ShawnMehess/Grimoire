@@ -69,7 +69,8 @@ import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor, cla
 import { SUBCLASS_SUPPLEMENT } from "../data/subclassContent.js";
 import { stripSecondaryClassBundle, FIXED_RACE_ENTRIES, SUPERSEDED_RACE_NAMES, legacyRaceBundles, SUBCLASS_BUNDLE_MAP, normSubclassKey, LEGACY_ASI_COMBOS } from "../data/contentFixups.js";
 import { DEFAULT_CONTENT } from "../data/defaultContent.js";
-import { FEAT_BUNDLES, FEAT_CATALOG, FEAT_NAMES } from "../data/featBundles.js";
+import { assignCatalogEntryIds, migrateBundleCatalogLinks, LINKED_FEAT_BUNDLES } from "../data/catalogLinks.js";
+import { FEAT_CATALOG, FEAT_NAMES } from "../data/featBundles.js";
 import { SPELL_CATALOG, WEAPONS_ARMOR_CATALOG, GEAR_CATALOG } from "../data/contentCatalogs.js";
 import { RACE_EXTRA_CATALOG_ENTRIES } from "../data/extraRaces.js";
 import { flavorFor } from "../data/pickerFlavor.js";
@@ -645,6 +646,21 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     if (!store.listBundleLibraries) return;
     try {
       bundleLibraryCache = await store.listBundleLibraries();
+      // Backfill the explicit bundle -> catalog link on any library entry
+      // saved before that field existed. Purely a one-time read-time fixup:
+      // the link is recomputed from the name here, and every later lookup
+      // goes through the id, so a rename later can't break the pairing.
+      // Nothing is written back to storage — the in-memory copy carries the
+      // link, and re-saving the entry from the editor persists it.
+      if (bundleLibraryCache.length) {
+        const { bundles, linked, unresolved } = migrateBundleCatalogLinks(bundleLibraryCache, catalogCache);
+        bundleLibraryCache = bundles;
+        if (linked.length) console.info(`[catalogLinks] linked ${linked.length} bundle(s): ${linked.join(", ")}`);
+        // Left unlinked rather than guessed at: the flavor lookup still
+        // falls back to matching by name, which is exactly today's
+        // behavior, so these render as they always have.
+        if (unresolved.length) console.info(`[catalogLinks] no catalog entry for ${unresolved.length} bundle(s): ${unresolved.join(", ")}`);
+      }
       // The creation wizard's Race/Class/Background row-lists (and the
       // choice-group pages derived from them) render synchronously off
       // this cache the first time the Rules tab is opened, which can
@@ -657,7 +673,6 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       console.error("Failed to load bundle libraries:", err);
     }
   }
-  refreshBundleLibraryCache();
   // One-off cleanup, run once when the sheet first loads (not on every
   // refreshBundleLibraryCache() call — repeat uploads are prevented up
   // front instead, see bundleLibraryEditor.js) to clear out duplicate
@@ -698,6 +713,18 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       catalogCache = [...catalogCache, { id, scope: "default", ...catalog }];
     }
   }
+  // Mint a stable id on every baked-in catalog entry that lacks one, so
+  // bundles can point at their flavor/portrait entry by id instead of by
+  // name — a rename on either side then can't silently break the pairing.
+  // Runs last so it also covers RACE_EXTRA_CATALOG_ENTRIES, appended
+  // above. User-imported catalogs (merged in by refreshCatalogCache) keep
+  // whatever ids they arrived with; they're another person's data.
+  assignCatalogEntryIds(catalogCache);
+  // Bundle libraries load AFTER the catalogs above, because loading them is
+  // also where legacy entries (saved before bundles carried an explicit
+  // link) get backfilled — see migrateBundleCatalogLinks, which matches
+  // those old name-only entries against the ids just minted.
+  refreshBundleLibraryCache();
   async function refreshCatalogCache() {
     if (!store.listCatalogs) return;
     try {
@@ -2956,18 +2983,56 @@ const closeDialog = () => {
     return rulesetOptionNamesIn(bundleLibraryCache, [...new Set(ids)], category, fallback);
   }
 
-  /** Best-effort flavor lookup for the character-creation wizard's
-   *  row-list pickers (Race/Class/Subclass/Background) — the
-   *  MECHANICAL source of truth for "what's selectable" is always
-   *  bundleLibraryCache (see rulesetOptionNames above), but a Catalog
-   *  (see catalogLibraryEditor.js) with a matching name, if one's been
-   *  imported, supplies the description/portrait shown beside it.
-   *  Matches by keyword against the catalog's own name rather than a
-   *  stored link, since no such link exists yet — see the "Stuff to
-   *  do later" note about wiring these two systems together properly.
-   *  Degrades gracefully (name + placeholder icon) when nothing matches. */
-  function catalogEntryInfo(keywords, name) {
-    const info = catalogEntryInfoIn(catalogCache, keywords, name);
+  /** Which catalog kind a picker's keywords are asking about. Subraces
+   *  map to "race" — the subrace rows read flavor from the same Races
+   *  catalog. */
+  const CATALOG_LINK_KIND = {
+    race: "Race", species: "Race", subrace: "Race",
+    class: "Class",
+    subclass: "Subclass",
+    background: "Background",
+    feat: "Feat",
+  };
+
+  /** Find the `catalogEntryId` a bundle carries for this name, so flavor
+   *  resolves through the explicit link rather than by re-deriving it from
+   *  the name on every render. Deliberately a quiet, narrow scan of the two
+   *  places a bundle can live (the library cache and the baked-in starter
+   *  dropdown choices) — not a call through bundleFor, which logs a warning
+   *  per miss and would fire once per picker row. */
+  function catalogEntryIdForName(keywords, name) {
+    if (!name) return null;
+    const norm = (s) => (s || "").trim().toLowerCase();
+    const target = norm(name);
+    const fromLibrary = (bundleLibraryCache || []).find(
+      (entry) => norm(entry.name) === target && entry.catalogEntryId
+    );
+    if (fromLibrary) return fromLibrary.catalogEntryId;
+    const kind = (keywords || []).map((kw) => CATALOG_LINK_KIND[norm(kw)]).find(Boolean);
+    const fieldIds = kind && CATEGORY_FIELD[kind];
+    const choice = fieldIds
+      ? (findStarterField(...fieldIds)?.choices || []).find((c) => norm(c.text) === target)
+      : null;
+    return choice?.bundle?.catalogEntryId || null;
+  }
+
+  /** Flavor lookup for the character-creation wizard's row-list pickers
+   *  (Race/Class/Subclass/Background) — the MECHANICAL source of truth
+   *  for "what's selectable" is always bundleLibraryCache (see
+   *  rulesetOptionNames above), while a Catalog (see
+   *  catalogLibraryEditor.js) supplies the description/portrait.
+   *  Resolves through the bundle's explicit `catalogEntryId` link first, so
+   *  renaming either side no longer breaks the pairing, and falls back to
+   *  matching by name for bundles with no link (subrace option rows, and
+   *  anything hand-built before the link existed). Degrades gracefully
+   *  (name + placeholder icon) when nothing matches. */
+  function catalogEntryInfo(keywords, name, catalogEntryId = null) {
+    const info = catalogEntryInfoIn(
+      catalogCache,
+      keywords,
+      name,
+      catalogEntryId || catalogEntryIdForName(keywords, name)
+    );
     // Portrait priority: an imported catalog's own image first, then
     // the built-in public-domain portrait set (races, classes,
     // backgrounds) — never the placeholder initial when art exists.
@@ -3136,7 +3201,7 @@ const closeDialog = () => {
           && norm(entry.category) === "feat" && norm(entry.name) === norm(name));
         if (fromLibrary) return fromLibrary;
       }
-      return FEAT_BUNDLES.find((entry) => norm(entry.name) === norm(name)) || null;
+      return LINKED_FEAT_BUNDLES.find((entry) => norm(entry.name) === norm(name)) || null;
     }
     for (const id of lookupIds) {
       const fromLibrary = (bundleLibraryCache || []).find((entry) =>
@@ -4387,7 +4452,7 @@ const closeDialog = () => {
   function liveLineageFeatBullet(saveRules) {
     if (!lineageFeatOffered()) return null;
     const pick = lineageFeatPick();
-    const feats = FEAT_BUNDLES.filter((b) => b?.name).map((b) => ({
+    const feats = LINKED_FEAT_BUNDLES.filter((b) => b?.name).map((b) => ({
       id: b.name,
       name: b.name,
       description: b.featureGrants?.[0]?.description
@@ -4431,7 +4496,7 @@ const closeDialog = () => {
       const grantText = option.featureGrants?.[0]?.description;
       if (grantText) return sharedBriefDescription(grantText, 160);
       const norm = (s) => (s || "").trim().toLowerCase();
-      const bundle = FEAT_BUNDLES.find((entry) => norm(entry.name) === norm(option.name));
+      const bundle = LINKED_FEAT_BUNDLES.find((entry) => norm(entry.name) === norm(option.name));
       const bundleText = bundle?.featureGrants?.[0]?.description;
       if (bundleText) return sharedBriefDescription(bundleText, 160);
       return null;
