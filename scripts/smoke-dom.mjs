@@ -822,6 +822,86 @@ function openTestDialog(host, overrides = {}) {
   assert(!good.textContent.includes("Armor Class"), "fields with no value are omitted, not shown blank");
 }
 
+// --- Leveling sub-tabs ----------------------------------------------------
+//
+// Both panels are built up front with one hidden. Worth pinning that the
+// switcher actually swaps them, that aria follows the visible panel (a
+// tab that says "selected" while showing the other one is a lie to a
+// screen reader), and that a one-panel tab doesn't render a switcher at
+// all - a single tab is just a label.
+{
+  const leveling = await import("../js/render/sheet/sheetLeveling.js");
+
+  // The glance panel reads the model and says something when it's empty.
+  const empty = leveling.renderLevelingGlanceInto([], { currentLevel: 1 });
+  assert(empty.textContent.length > 10, "an empty glance explains itself");
+  const steps = leveling.renderLevelingGlanceInto([
+    { level: 3, grants: [{ id: "g1", type: "ability", effect: { name: "Keen Eye" }, source: "Elf" }] },
+  ], { currentLevel: 3 });
+  assert(steps.textContent.includes("Level 3"), "a step shows its level");
+  assert(steps.textContent.includes("Keen Eye"), "and its grants");
+
+  const buildTabs = (withGlance) => {
+    const glance = document.createElement("div");
+    glance.textContent = "GLANCE";
+    const host = document.createElement("div");
+    leveling.renderLevelingTabInto(host, {
+      guideEl: null,
+      glanceEl: withGlance ? glance : null,
+      // The tab builds its own walkthrough panel from this note plus the
+      // per-level rows, so the note is what identifies that panel.
+      emptyGuideNote: "NO GUIDE HERE",
+      resourcesEl: null,
+      currentLevel: 3,
+      expandedSet: new Set(),
+      gridFn: () => {},
+      rowFn: () => document.createElement("div"),
+      scrollFn: () => {},
+    });
+    return { host, glance };
+  };
+
+  const withGlance = buildTabs(true);
+  const tabButtons = (n) => {
+    const out = [];
+    (function walk(x) { for (const c of x.children || []) { if (c.tag === "button") out.push(c); walk(c); } })(n);
+    return out;
+  };
+  const tabBar = withGlance.host.querySelector(".leveling-subtabs__bar");
+  assert(!!tabBar, "two sub-tabs are offered");
+  const [glanceBtn, walkBtn] = tabButtons(tabBar);
+  assert(glanceBtn.textContent === "At a Glance" && walkBtn.textContent === "Walkthrough", "and labelled as such");
+  assert(walkBtn.getAttribute("aria-selected") === "true", "the walkthrough is selected to start");
+  assert(walkBtn.className.includes("is-active"), "and its class agrees with its aria");
+  assert(glanceBtn.getAttribute("aria-selected") === "false", "the other is not");
+
+  // Both panels exist; one is hidden. Clicking swaps which.
+  // The glance element is passed straight through as a panel, but the
+  // walkthrough is wrapped in a div the tab builds (it holds the guide,
+  // the feature uses and 20 level rows), so read the panels back off the
+  // DOM rather than off the elements that went in.
+  const panels = withGlance.host.querySelectorAll(".leveling-subtabs__panel");
+  assert(panels.length === 2, "both panels are present in the document");
+  const [glancePanel, walkPanel] = panels;
+  assert(glancePanel.textContent.includes("GLANCE"), "one panel is the glance");
+  assert(walkPanel.textContent.includes("NO GUIDE HERE"), "the other is the walkthrough");
+  assert(glancePanel.hidden === true, "the glance panel starts hidden");
+  assert(walkPanel.hidden === false, "the walkthrough panel starts shown");
+  (glanceBtn.listeners.click || []).forEach((f) => f({ target: glanceBtn }));
+  assert(glancePanel.hidden === false, "clicking swaps the glance in");
+  assert(walkPanel.hidden === true, "and hides the walkthrough");
+  assert(glanceBtn.getAttribute("aria-selected") === "true", "aria follows the visible panel");
+  assert(walkBtn.getAttribute("aria-selected") === "false", "for both tabs");
+
+  // Without a glance view there's nothing to switch to, so no switcher —
+  // a single tab would just be a label taking up a row.
+  const single = buildTabs(false);
+  assert(single.host.querySelector(".leveling-subtabs__bar") === null,
+    "one panel means no tab switcher");
+  assert(single.host.textContent.includes("NO GUIDE HERE"),
+    "and the walkthrough is still shown");
+}
+
 if (failures) {
   console.error(`smoke-dom: ${failures} failure(s)`);
   process.exit(1);

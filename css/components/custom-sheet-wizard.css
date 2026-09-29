@@ -1060,6 +1060,62 @@
    A read-only list of facts about another character. Deliberately plain:
    it's a reference view, not an editor, and it shouldn't borrow the
    editable field chrome that implies "you can type here". */
+/* --- Leveling sub-tabs (At a Glance / Walkthrough) ---
+   Both panels are built up front and one is hidden, because a
+   walkthrough with 20 collapsed level rows sitting under a glance table
+   would leave the tab mostly empty space. */
+.leveling-subtabs__bar {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+.leveling-subtabs__tab {
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.leveling-subtabs__tab:hover {
+  color: var(--color-text);
+}
+.leveling-subtabs__tab.is-active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+.leveling-subtabs__panel[hidden] {
+  display: none;
+}
+/* At a glance: one section per level, grants as a plain list. */
+.leveling-glance__level {
+  margin-bottom: var(--space-4);
+}
+.leveling-glance__level h3 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-accent);
+}
+.leveling-glance__list {
+  margin: 0;
+  padding-left: 1.5em;
+  list-style: disc outside;
+}
+.leveling-glance__item {
+  margin-bottom: 2px;
+}
+.leveling-glance__name {
+  color: var(--color-text);
+}
+.leveling-glance__from {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
 .linked-sheet {
   padding: var(--space-3);
   max-width: 640px;

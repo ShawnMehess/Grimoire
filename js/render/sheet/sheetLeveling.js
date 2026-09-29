@@ -754,8 +754,121 @@ export function renderLevelUpRowInto(level, isCurrent, data, fieldDefs, deps) {
   return row;
 }
 
+/** The "at a glance" panel: a straight read of the unified grant model
+ *  (js/render/sheet/levelingModel.js), grouped by the level each thing
+ *  unlocks at. No interaction on purpose - this is the answer to "what
+ *  does my character have, and when", and the walkthrough next door is
+ *  where you act on it.
+ *
+ *  Built from `steps` (levelingStepsIn output) rather than re-deriving
+ *  anything, so both sub-tabs read the same model and can't disagree. */
+export function renderLevelingGlanceInto(steps, { currentLevel = 1 } = {}) {
+  const wrap = document.createElement("div");
+  wrap.className = "leveling-glance";
+  if (!steps.length) {
+    const note = document.createElement("p");
+    note.className = "leveling-tab__intro";
+    note.textContent = currentLevel > 1
+      ? "Nothing in your class data is gated behind a level yet — everything you've earned is already on your sheet."
+      : "Nothing ahead of level 1 yet. Pick a class and this fills in with what each level gives you.";
+    wrap.append(note);
+    return wrap;
+  }
+  steps.forEach((step) => {
+    const section = document.createElement("section");
+    section.className = "leveling-glance__level";
+    const heading = document.createElement("h3");
+    heading.textContent = `Level ${step.level}`;
+    section.append(heading);
+    const list = document.createElement("ul");
+    list.className = "leveling-glance__list";
+    for (const grant of step.grants) {
+      const item = document.createElement("li");
+      item.className = "leveling-glance__item";
+      item.dataset.type = grant.type;
+      item.dataset.grantId = grant.id;
+      const name = grant.effect?.name
+        || grant.effect?.label
+        || grant.effect?.targetFieldId
+        || grant.type;
+      item.append(Object.assign(document.createElement("span"), {
+        className: "leveling-glance__name",
+        textContent: String(name),
+      }));
+      const from = document.createElement("span");
+      from.className = "leveling-glance__from";
+      from.textContent = grant.source ? ` (${grant.source})` : "";
+      item.append(from);
+      list.append(item);
+    }
+    section.append(list);
+    wrap.append(section);
+  });
+  return wrap;
+}
+
+/** The two sub-tabs the spec asks for, and the switcher between them.
+ *
+ *  "At a glance" is a straight read of the grant model ordered by level;
+ *  "Walkthrough" is the step-by-step UI over the same model. Both are
+ *  built up-front and only one is shown, because a walkthrough with
+ *  20 collapsed level rows and a glance table would otherwise both be in
+ *  the document and the tab would be mostly empty space.
+ *
+ *  Defaults to the walkthrough, not the glance: the walkthrough is the
+ *  part people act on, and the Leveling tab already IS the walkthrough,
+ *  so defaulting the other way would hide the main tool behind a tab
+ *  click. The glance is one click away.
+ */
+export function renderLevelingSubTabsInto(deps) {
+  const { glanceEl, walkthroughEl, currentLevel = 1, initial = "walkthrough" } = deps;
+  const wrap = document.createElement("div");
+  wrap.className = "leveling-subtabs";
+  const bar = document.createElement("div");
+  bar.className = "leveling-subtabs__bar";
+  bar.setAttribute("role", "tablist");
+
+  const panels = { glance: glanceEl, walkthrough: walkthroughEl };
+  const buttons = {};
+  for (const [id, label, hint] of [
+    ["glance", "At a Glance", "What your character has, and at which level"],
+    ["walkthrough", "Walkthrough", "Step through each level and make your picks"],
+  ]) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "leveling-subtabs__tab";
+    btn.textContent = label;
+    btn.title = hint;
+    btn.setAttribute("role", "tab");
+    btn.setAttribute("aria-selected", String(id === initial));
+    btn.addEventListener("click", () => {
+      for (const [otherId, otherBtn] of Object.entries(buttons)) {
+        const on = otherId === id;
+        otherBtn.setAttribute("aria-selected", String(on));
+        otherBtn.classList.toggle("is-active", on);
+      }
+      for (const [otherId, panel] of Object.entries(panels)) {
+        if (panel) panel.hidden = otherId !== id;
+      }
+    });
+    buttons[id] = btn;
+    bar.append(btn);
+  }
+  wrap.append(bar);
+  for (const [id, panel] of Object.entries(panels)) {
+    if (!panel) continue;
+    panel.classList.add("leveling-subtabs__panel");
+    panel.hidden = id !== initial;
+    wrap.append(panel);
+  }
+  // Set the initial visual state through the same path the click uses, so
+  // the classes and aria can't disagree with what's actually shown.
+  buttons[initial].classList.add("is-active");
+  return wrap;
+}
+
 export function renderLevelingTabInto(pageGrid, deps) {
-  const { guideEl, resourcesEl, currentLevel, expandedSet, gridFn, rowFn, scrollFn, emptyGuideNote = null } = deps;
+  const { guideEl, resourcesEl, currentLevel, expandedSet, gridFn, rowFn, scrollFn, emptyGuideNote = null, glanceEl = null } = deps;
   const wrap = document.createElement("div");
   wrap.className = "leveling-tab";
 
@@ -764,14 +877,19 @@ export function renderLevelingTabInto(pageGrid, deps) {
   intro.textContent = "Come back here whenever your level goes up. Fill in whatever applies for your class at that level — leave the rest blank.";
   wrap.append(intro);
 
-  if (guideEl) wrap.append(guideEl);
+  // Everything the walkthrough shows (guide, feature uses, the per-level
+  // rows) goes in one panel; the at-a-glance read of the grant model goes
+  // in the other. Both are built now, one is shown.
+  const walkthrough = document.createElement("div");
+  walkthrough.className = "leveling-tab__walkthrough";
+  if (guideEl) walkthrough.append(guideEl);
   else if (emptyGuideNote) {
     const note = document.createElement("p");
     note.className = "leveling-tab__intro leveling-tab__empty-guide";
     note.textContent = emptyGuideNote;
-    wrap.append(note);
+    walkthrough.append(note);
   }
-  if (resourcesEl) wrap.append(resourcesEl);
+  if (resourcesEl) walkthrough.append(resourcesEl);
 
   if (currentLevel) {
     const jumpBtn = document.createElement("button");
@@ -783,11 +901,19 @@ export function renderLevelingTabInto(pageGrid, deps) {
       gridFn();
       scrollFn(currentLevel);
     });
-    wrap.append(jumpBtn);
+    walkthrough.append(jumpBtn);
   }
 
   for (let level = 1; level <= 20; level++) {
-    wrap.append(rowFn(level, level === currentLevel));
+    walkthrough.append(rowFn(level, level === currentLevel));
+  }
+
+  // Only offer the switcher when there's a glance view to switch to —
+  // a one-tab "tab list" is just a label.
+  if (glanceEl) {
+    wrap.append(renderLevelingSubTabsInto({ glanceEl, walkthroughEl: walkthrough, currentLevel }));
+  } else {
+    wrap.append(walkthrough);
   }
 
   pageGrid.append(wrap);

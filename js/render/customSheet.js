@@ -202,6 +202,7 @@ normalizeChoiceGroup,
   renderResourceTrackersInto,
   renderLevelUpRowInto,
   renderLevelingTabInto,
+  renderLevelingGlanceInto,
 } from "./sheet/sheetLeveling.js";
 import {
   ensureBundleShape,
@@ -351,6 +352,11 @@ import {
 } from "./sheet/aspectPresets.js";
 import { applySimpleViewOrder } from "./sheet/simpleView.js";
 import { featRowModels, renderFeatListInto } from "./sheet/featList.js";
+import {
+  allGrantsIn,
+  levelingContextFor,
+  levelingStepsIn,
+} from "./sheet/levelingModel.js";
 import {
   LINKED_DISPLAY_FIELDS,
   DEFAULT_LINKED_FIELDS,
@@ -6101,6 +6107,34 @@ const closeDialog = () => {
     );
   }
 
+  /** The "at a glance" half of the Leveling tab: every level-gated grant
+   *  this character has coming, read straight off the unified model
+   *  (js/render/sheet/levelingModel.js). Same model the walkthrough is
+   *  built from, so the two can't disagree about what a level gives you.
+   *
+   *  Gathered from the same bundle sources the sheet applies, including
+   *  secondary classes and taken feats, so a multiclassed character sees
+   *  all of it rather than just their first class. */
+  function renderLevelingGlance() {
+    const level = currentCharacterLevel() ?? 1;
+    const bundles = [];
+    const addBundle = (kind, name) => {
+      const bundle = bundleFor(kind, name, currentRulesetId());
+      if (bundle) bundles.push({ name, kind, bundle });
+    };
+    addBundle("Race", selectedChoiceName("species", "Race"));
+    addBundle("Background", selectedChoiceName("background", "Background"));
+    for (const entry of multiclassEntries()) {
+      addBundle("Class", entry.name);
+      if (entry.subclass) addBundle("Subclass", entry.subclass);
+    }
+    for (const feat of character.rules?.feats || []) {
+      addBundle("Feat", feat.name);
+    }
+    const grants = allGrantsIn(bundles, { includedPacks: includedRulesetIds() });
+    return renderLevelingGlanceInto(levelingStepsIn(grants, levelingContextFor(character, level)), { currentLevel: level });
+  }
+
   function renderLevelingTab() {
     const currentLevel = currentCharacterLevel();
     const guideEl = renderRulesetLevelGuide();
@@ -6120,6 +6154,7 @@ const closeDialog = () => {
     renderLevelingTabInto(pageGrid, {
       guideEl,
       emptyGuideNote,
+      glanceEl: renderLevelingGlance(),
       resourcesEl: renderResourceTrackers(),
       currentLevel,
       expandedSet: expandedLevelUpRows,
