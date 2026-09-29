@@ -191,14 +191,15 @@ describe("mechanics previews", () => {
     assert.equal(humanizeGameText(humanizeGameText("heal @profd4 HP with Strength.")), "heal a number of d4 hit points equal to your proficiency bonus with STR.");
   });
 
-  it("omits Racial Traits on background rows but keeps race defaults", () => {
+  it("uses background sections on background rows but keeps race defaults", () => {
     const bg = mechanicsBulletsFor(
       { statModifiers: [{ targetFieldId: "toolProf", op: "grantTag", value: "Disguise Kit" }], featureGrants: [] },
       1,
       { backgroundDisplay: true }
     );
     assert.ok(!bg.some((s) => s.title === "Racial Traits"), "no Racial Traits section for backgrounds");
-    assert.ok(bg.some((s) => s.title === "Innate Abilities"), "background tool tags still list as innate");
+    assert.ok(!bg.some((s) => s.title === "Innate Abilities"), "no Innate Abilities section for backgrounds");
+    assert.ok(bg.some((s) => s.title === "Background Proficiencies"), "background tool tags list under Background Proficiencies");
     const race = mechanicsBulletsFor({ statModifiers: [], featureGrants: [] }, 1, {});
     const traits = race.find((s) => s.title === "Racial Traits");
     assert.ok(traits && traits.items.join(" ").includes("Speed: 30 feet"), "races keep standard defaults");

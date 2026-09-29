@@ -228,12 +228,21 @@ const TAG_FIELD_LABELS = {
 export const LANGUAGE_BULLET_LABEL = TAG_FIELD_LABELS.languages;
 
 /** Picker-profile section titles, exported so embedded pickers can
- *  target sections without duplicating literals. */
+ *  target sections without duplicating literals. "Racial Traits" and
+ *  "Innate Abilities" are race-only: classes use "Level 1 Class
+ *  Features" + "Class Proficiencies", backgrounds use "Background
+ *  Proficiencies" + "Starting Equipment" + "Background Feature"
+ *  (see docs/CONTENT-AUDIT-2026-09.md systemic fix 1). */
 export const MECHANICS_TITLES = {
   traits: "Racial Traits",
   scores: "Ability Score Increases",
   proficiencies: "Proficiencies",
   innate: "Innate Abilities",
+  classFeatures: "Level 1 Class Features",
+  classProficiencies: "Class Proficiencies",
+  bgProficiencies: "Background Proficiencies",
+  bgEquipment: "Starting Equipment",
+  bgFeature: "Background Feature",
 };
 
 /** Plain-language ability reference, moved here from
@@ -347,7 +356,31 @@ function abilityIdFor(mod, abilityIds = []) {
 }
 
 function isProfGrant(mod) {
+  // Saving-throw grants have their own bucket (full-name "Saving
+  // Throws" line) — they never count as plain proficiency grants.
+  if (/SaveProf$/.test(mod.targetFieldId || "")) return false;
   return mod.op === "grant" && /Prof$/.test(mod.targetFieldId || "") && !/Score$/.test(mod.targetFieldId || "");
+}
+
+/** A saving-throw grant (`<abilityId>SaveProf`) — rendered with the
+ *  full ability name ("Saving Throws: Strength, Constitution"), never
+ *  the raw field id. Pure. */
+function isSaveGrant(mod) {
+  return mod.op === "grant" && /SaveProf$/.test(mod.targetFieldId || "");
+}
+
+/** Full ability name for a saving-throw grant's target, e.g.
+ *  "strSaveProf" → "Strength". Prefers the caller's `abilities`
+ *  vocabulary, then the built-in glossary; unknown ids are prettified
+ *  (never echoed raw, so generated picker text contains no field ids). */
+function saveAbilityName(targetFieldId, abilities = []) {
+  const m = /^(.*)SaveProf$/.exec(targetFieldId || "");
+  const raw = (m ? m[1] : String(targetFieldId || "")).toLowerCase();
+  const fromDeps = (abilities || []).find((a) => String(a.id || "").toLowerCase() === raw);
+  if (fromDeps?.label) return fromDeps.label;
+  if (ABILITY_GLOSSARY[raw]) return ABILITY_GLOSSARY[raw].name;
+  const pretty = raw.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[^a-z0-9 ]/gi, " ").trim();
+  return pretty ? pretty.charAt(0).toUpperCase() + pretty.slice(1) : "Unknown";
 }
 
 /** Canonical ability order for the Ability Score Increases list —
@@ -357,30 +390,37 @@ const SCORE_DISPLAY_ORDER = ["str", "dex", "con", "int", "wis", "cha"];
 
 /** Categorized, bulleted mechanics for a picker row — the structured
  *  replacement for the one-line mechanicsPreviewFor on Race/Class/
- *  Background/Subclass rows. Fixed category order (traits →
- *  Ability Score Increases → Proficiencies → Innate Abilities); a
- *  category with nothing in it is omitted outright. The traits section
- *  is titled "Racial Traits", or "Class Traits" with the `classDisplay`
- *  dep. Inside Racial Traits the order is fixed too — Speed, then
- *  Darkvision, then Resistances, then any remaining traits (numeric
- *  modifiers and proficiency tag groups, in data order) — so every
- *  race reads the same way. Those three always appear: a race with no
- *  value for one shows the standard default instead (Speed: 30 feet,
- *  Darkvision: none, Resistances: none). A superseded Darkvision
- *  ("Senses (override)") replaces the base one rather than listing
- *  twice. Ability Score Increases always run
- *  STR → DEX → CON → INT → WIS → CHA, omitting unboosted abilities.
- *  With the `backgroundDisplay` dep, proficiency tag grants (tools,
- *  languages, armor, weapons) list under Innate Abilities instead of
- *  Racial Traits, and the Racial Traits section is omitted — backgrounds
- *  have no innate speed/senses/resistances of their own, so the section
+ *  Background/Subclass rows. Fixed category order; a category with
+ *  nothing in it is omitted outright.
+ *
+ *  Races read: Racial Traits (fixed order — Speed, then Darkvision,
+ *  then Resistances, then any remaining traits) → Ability Score
+ *  Increases (STR → DEX → CON → INT → WIS → CHA) → Proficiencies →
+ *  Innate Abilities. The three fixed trait slots always appear with
+ *  standard defaults when empty (30 ft. walking speed, no darkvision,
+ *  no resistances).
+ *
+ *  Classes read: "Level 1 Class Features" (hit lines lead, then every
+ *  other current feature) → "Class Proficiencies" ("Saving Throws:
+ *  <full names>" first, then skill proficiencies, proficiency notes
+ *  such as non-metal shield restrictions, then armor/weapon/tool
+ *  tag groups) → Ability Score Increases. Shared movement/senses/
+ *  resistances and spell lists ("Learn the X spell" grants and
+ *  Spellcasting/Pact Magic features, which the Spells step covers)
+ *  are omitted outright — every class shares them, so they carry no
+ *  information on a picker row.
+ *
+ *  Backgrounds read: "Background Proficiencies" (skill proficiencies,
+ *  proficiency notes, tool/language tag groups) → "Starting
+ *  Equipment" (the equipment grant split into structured items) →
+ *  "Background Feature" (the named feature) → Ability Score
+ *  Increases. The Racial Traits section is omitted — backgrounds have
+ *  no innate speed/senses/resistances of their own, so the section
  *  would only ever restate proficiencies.
- *  With the `classDisplay` dep, Speed/Darkvision/Resistances (and their
- *  defaults) are omitted outright — every class shares them, so they
- *  carry no information — as are spell lists ("Learn the X spell"
- *  grants and Spellcasting/Pact Magic features, which the Spells step
- *  covers). "Hit Die" and "Hit Points at 1st Level" lead the traits
- *  instead, since that's what a class picker most needs at a glance.
+ *
+ *  "Racial Traits" and "Innate Abilities" never head a class or
+ *  background section (audit systemic fix 1); saving throws always
+ *  render with full ability names, never raw field ids (fix 2).
  *  Returns [{ title, items: [string] }]. Only grants at or below
  *  `level` are listed (default Infinity = everything, for contexts
  *  with no level yet); label and detail always join with a colon. */
@@ -405,6 +445,19 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   const scoreMods = [];
   const profs = [];
   const innate = [];
+  // Class/background buckets (race path keeps the legacy buckets above).
+  const saveNames = [];
+  const classFeatures = [];
+  const classProfLines = [];
+  const bgProfLines = [];
+  const bgEquipment = [];
+  const bgFeatures = [];
+
+  // A proficiency-note grant ("Tool Proficiencies (note)", "Armor
+  // Proficiencies (note)") belongs with proficiencies, never with
+  // features, on class/background rows.
+  const isProficiencyNote = (grant) => /proficienc/i.test(grant?.name || "");
+  const isEquipmentGrant = (grant) => /^starting equipment$/i.test((grant?.name || "").trim());
 
   const tagsByField = new Map();
   for (const mod of (bundle.statModifiers || []).filter(atLevel)) {
@@ -413,6 +466,8 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
       if (mod.value) tagsByField.get(mod.targetFieldId).push(mod.value);
     } else if (abilityIdFor(mod, abilityIds)) {
       scoreMods.push(mod);
+    } else if (isSaveGrant(mod)) {
+      saveNames.push(saveAbilityName(mod.targetFieldId, abilities));
     } else if (isProfGrant(mod)) {
       profs.push(summarize(mod));
     } else if (mod.op === "addItem") {
@@ -436,9 +491,11 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     const unique = [...new Set(values)];
     if (!unique.length) continue;
     const line = `${tagLabel(fieldId)}: ${unique.join(", ")}`;
-    // Background rows show proficiencies as innate abilities, never
-    // as racial traits (see backgroundDisplay above).
-    if (backgroundDisplay) innate.push(line);
+    // Class/background rows shelve tag proficiencies into their own
+    // proficiency sections (see the assembly below); race rows keep
+    // the legacy behavior of listing them among the traits.
+    if (classDisplay) classProfLines.push(line);
+    else if (backgroundDisplay) bgProfLines.push(line);
     else otherTraits.push(line);
   }
   for (const grant of (bundle.featureGrants || []).filter(atLevel)) {
@@ -446,9 +503,31 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     if (!name) continue;
     // Class rows skip shared movement/senses/resistances and spell
     // access (see classDisplay) — hit lines are collected below for
-    // the head of Class Traits instead.
+    // the head of Level 1 Class Features instead.
     if (classDisplay && (/^speed$/i.test(name) || isDarkvisionGrant(grant) || isResistanceGrant(grant))) continue;
     if (classDisplay && /spellcasting|pact magic|spell lists?|spells known|spell slots|ritual casting/i.test(name)) continue;
+    // Proficiency notes and equipment split out on class/background
+    // rows; race rows keep the legacy single-list behavior.
+    if ((classDisplay || backgroundDisplay) && isProficiencyNote(grant)) {
+      const why = briefDescription(grant.description, 120);
+      const line = `${name}${why ? `: ${why}` : ""}`;
+      if (classDisplay) classProfLines.push(line);
+      else bgProfLines.push(line);
+      continue;
+    }
+    if (backgroundDisplay && isEquipmentGrant(grant)) {
+      // Structured items, not one long sentence: the compiled text
+      // joins pieces with semicolons, so split them back apart.
+      const pieces = String(grant.description || "").split(";").map((s) => s.trim()).filter(Boolean);
+      if (pieces.length) bgEquipment.push(...pieces);
+      else if (String(grant.description || "").trim()) bgEquipment.push(String(grant.description).trim());
+      continue;
+    }
+    if (backgroundDisplay) {
+      const why = briefDescription(grant.description, 120);
+      bgFeatures.push(`${name}${why ? `: ${why}` : ""}`);
+      continue;
+    }
     if (/^speed$/i.test(name)) {
       speedBits.push(featureBit(grant));
     } else if (isDarkvisionGrant(grant)) {
@@ -461,7 +540,8 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
       hitBits.push(`${name}${why ? `: ${why}` : ""}`);
     } else {
       const why = briefDescription(grant.description, 120);
-      innate.push(`${name}${why ? `: ${why}` : ""}`);
+      if (classDisplay) classFeatures.push(`${name}${why ? `: ${why}` : ""}`);
+      else innate.push(`${name}${why ? `: ${why}` : ""}`);
     }
   }
   // A "(override)" Darkvision replaces the base range rather than
@@ -499,11 +579,35 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     .sort((a, b) => scoreRank(a.mod) - scoreRank(b.mod) || a.i - b.i)
     .map(({ mod }) => summarize(mod));
 
+  // Full-name saving-throw line, in bundle order without duplicates —
+  // shared by every display below that has save grants to show.
+  const savesLine = [...new Set(saveNames)].length
+    ? `Saving Throws: ${[...new Set(saveNames)].join(", ")}`
+    : null;
+
   const out = [];
-  if (traits.length && !backgroundDisplay) out.push({ title: classDisplay ? "Class Traits" : "Racial Traits", items: traits });
-  if (scores.length) out.push({ title: "Ability Score Increases", items: scores });
-  if (profs.length) out.push({ title: "Proficiencies", items: [profs.join(", ")] });
-  if (innate.length) out.push({ title: "Innate Abilities", items: innate });
+  if (classDisplay) {
+    const features = [...hitBits, ...otherTraits, ...classFeatures];
+    if (features.length) out.push({ title: MECHANICS_TITLES.classFeatures, items: features });
+    const classProfs = [...(savesLine ? [savesLine] : []), ...(profs.length ? [profs.join(", ")] : []), ...classProfLines];
+    if (classProfs.length) out.push({ title: MECHANICS_TITLES.classProficiencies, items: classProfs });
+    if (scores.length) out.push({ title: "Ability Score Increases", items: scores });
+  } else if (backgroundDisplay) {
+    const bgProfs = [...(profs.length ? [profs.join(", ")] : []), ...bgProfLines];
+    if (bgProfs.length) out.push({ title: MECHANICS_TITLES.bgProficiencies, items: bgProfs });
+    if (bgEquipment.length) out.push({ title: MECHANICS_TITLES.bgEquipment, items: bgEquipment });
+    if (bgFeatures.length) out.push({ title: MECHANICS_TITLES.bgFeature, items: bgFeatures });
+    if (scores.length) out.push({ title: "Ability Score Increases", items: scores });
+  } else {
+    // Races (and any display without a context flag) keep the legacy
+    // section order: traits → scores → proficiencies → innate. Stray
+    // save grants, if any, read as a traits line.
+    const raceTraits = [...traits, ...(savesLine ? [savesLine] : [])];
+    if (raceTraits.length) out.push({ title: MECHANICS_TITLES.traits, items: raceTraits });
+    if (scores.length) out.push({ title: "Ability Score Increases", items: scores });
+    if (profs.length) out.push({ title: MECHANICS_TITLES.proficiencies, items: [profs.join(", ")] });
+    if (innate.length) out.push({ title: MECHANICS_TITLES.innate, items: innate });
+  }
   return out;
 }
 

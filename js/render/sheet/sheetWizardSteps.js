@@ -323,7 +323,7 @@ export function renderChoicePageStepInto(container, groups, saveRules, renderCho
 export function renderInnateAbilitiesStepInto(container, sections) {
   const shown = (sections || []).filter((s) => (s.features || []).length);
   if (!shown.length) {
-    container.append(el("p", { class: "leveling-tab__intro", text: "No innate abilities from your current Race/Class/Background selections yet — Pick those first, then come back." }));
+    container.append(el("p", { class: "leveling-tab__intro", text: "No automatic grants from your current Race/Class/Background selections yet — Pick those first, then come back." }));
     return;
   }
   shown.forEach((section) => {

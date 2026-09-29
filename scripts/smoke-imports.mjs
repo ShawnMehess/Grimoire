@@ -747,12 +747,16 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
     }, 1, { abilityIds: ["str", "dex", "con", "int", "wis", "cha"] });
     assert(humanLike[0].items.join(" | ") === "Speed: 30 feet | Darkvision: none | Resistances: none", "mechanicsBullets trait defaults");
   }
-  // Class Traits display: hit lines lead, shared speed/senses/
-  // resistances and spell lists are omitted, section renamed.
+  // Level 1 Class Features display: hit lines lead, shared speed/senses/
+  // resistances and spell lists are omitted, sections renamed per the
+  // content audit (no Racial Traits / Class Traits / Innate Abilities
+  // on class rows; saves render with full ability names).
   {
     const cls = mechanics.mechanicsBulletsFor({
       statModifiers: [
         { targetFieldId: "spellsKnown", op: "addItem", value: "Fireball", minLevel: null },
+        { targetFieldId: "strSaveProf", op: "grant", minLevel: null },
+        { targetFieldId: "conSaveProf", op: "grant", minLevel: null },
       ],
       featureGrants: [
         { name: "Speed", description: "30 ft. walking", minLevel: 1 },
@@ -763,11 +767,15 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
         { name: "Spellcasting", description: "You know many spells.", minLevel: 1 },
         { name: "Rage", description: "Fight harder.", minLevel: 1 },
       ],
-    }, 1, { abilityIds: ["str"], classDisplay: true });
-    assert(cls[0].title === "Class Traits", "classDisplay title");
+    }, 1, { abilityIds: ["str"], abilities: [{ id: "str", label: "Strength" }, { id: "con", label: "Constitution" }], classDisplay: true });
+    assert(cls[0].title === "Level 1 Class Features", "classDisplay features title");
     assert(cls[0].items[0].startsWith("Hit Die") && cls[0].items[1].startsWith("Hit Points"), "classDisplay hit lines first");
     assert(!cls[0].items.some((i) => /Speed|Darkvision|Resistances/.test(i)), "classDisplay drops shared senses lines");
+    assert(cls.some((s) => s.title === "Class Proficiencies"), "classDisplay proficiencies title");
     const flat = cls.flatMap((s) => s.items).join(" | ");
+    assert(/Saving Throws: Strength, Constitution/.test(flat), "classDisplay saves use full names");
+    assert(!/strSaveProf|conSaveProf/.test(flat), "classDisplay leaks no raw save ids");
+    assert(!cls.some((s) => /Racial Traits|Class Traits|Innate Abilities/.test(s.title)), "classDisplay uses no race/innate titles");
     assert(!/Fireball|Spellcasting/.test(flat), "classDisplay drops spell lists");
     assert(/Rage/.test(flat), "classDisplay keeps other class features");
   }

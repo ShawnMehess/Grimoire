@@ -2981,9 +2981,11 @@ const closeDialog = () => {
 
   /** Categorized bulleted mechanics for a Race/Class/Subclass/
    *  Background picker row (replaces the one-line preview): fixed
-   *  order, empty categories omitted. Classes render in Class Traits
-   *  display (no shared speed/senses/resistances or spell lists; hit
-   *  lines lead) — see mechanicsBulletsFor. `bundleOverride` renders
+   *  order, empty categories omitted. Classes render with Level 1
+   *  Class Features + Class Proficiencies sections (no shared
+   *  speed/senses/resistances or spell lists; hit lines lead);
+   *  backgrounds render Background Proficiencies + Starting Equipment
+   *  + Background Feature — see mechanicsBulletsFor. `bundleOverride` renders
    *  a modified bundle through the same pipeline (the live-profile
    *  path strips superseded fixed grants before previewing). */
   function mechanicsListFor(category, name, level, bundleOverride = null) {
@@ -3205,9 +3207,9 @@ const closeDialog = () => {
   }
 
   /** Fixed feature grants from the staged Race/Class/Subclass/
-   *  Background, one section per source, for the Innate Abilities
+   *  Background, one section per source, for the automatic-grants
    *  reference step. Picks made on other pages are decisions, not
-   *  innate abilities, so only fixed grants appear here. */
+   *  automatic grants, so only fixed grants appear here. */
   function innateAbilitySections(state) {
     const bundles = creationFixedBundles(state);
     const names = [state.species, state.className, state.subclass, state.background];
