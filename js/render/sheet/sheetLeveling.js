@@ -4,6 +4,8 @@
 // All functions take explicit args (no character closure) so they are
 // testable; customSheet.js thin-wraps them with its own state.
 
+import { autoSpellParts } from "./sheetMechanics.js";
+
 export function levelFromMap(levelFieldId, valueMap) {
   if (!levelFieldId) return Infinity;
   const v = valueMap[levelFieldId];
@@ -361,39 +363,41 @@ export function applyBundleModifiersIn(fields, valueMap, grantedCheckboxes, gran
 }
 
 export function collectGrantedFeaturesIn(fields, level, ruleOptions, featBundles, levelFor = null, extraBundles = [], includedPacks = null) {  const features = [];
+  // Subclass grants without a sourced summary are omitted from
+  // player-facing display until sourced (audit 2b); auto-spell
+  // templates resolve to the currently-granted spells only.
+  const pushGrant = (grant, lvl, source, bundle) => {
+    if (grant.unsourced) return;
+    if (String(grant.description || "").includes("{spells}")) {
+      const parts = autoSpellParts(grant, bundle, lvl);
+      features.push({ name: parts.name, description: parts.description, level: lvl, source });
+      return;
+    }
+    features.push({
+      name: grant.name,
+      description: grant.description || "",
+      level: lvl,
+      source,
+    });
+  };
   dropdownBundleEntries(fields).forEach(({ field, choice, bundle }) => {
     const lvl = effectiveLevel(levelFor, level, field, choice, bundle);
     (bundle.featureGrants || []).forEach((grant) => {
       if (grant.minLevel && lvl < grant.minLevel) return; // not unlocked yet
       if (!packAllowsLocal(grant, includedPacks)) return; // optional source not included
-      features.push({
-        name: grant.name,
-        description: grant.description || "",
-        level: Number.isFinite(grant.minLevel) ? grant.minLevel : 0,
-        source: field.label,
-      });
+      pushGrant(grant, Number.isFinite(grant.minLevel) ? grant.minLevel : 0, field.label, bundle);
     });
   });
   ruleOptions.forEach(({ option, group }) => {
     if (!packAllowsLocal(option, includedPacks)) return;
     (option.featureGrants || []).forEach((grant) => {
       if (!packAllowsLocal(grant, includedPacks)) return;
-      features.push({
-        name: grant.name,
-        description: grant.description || "",
-        level: group.minLevel,
-        source: option.name || group.label || group.source,
-      });
+      pushGrant(grant, group.minLevel, option.name || group.label || group.source, null);
     });
   });
   featBundles.forEach(({ name, bundle }) => {
     (bundle.featureGrants || []).forEach((grant) => {
-      features.push({
-        name: grant.name,
-        description: grant.description || "",
-        level: Number.isFinite(grant.minLevel) ? grant.minLevel : 0,
-        source: name,
-      });
+      pushGrant(grant, Number.isFinite(grant.minLevel) ? grant.minLevel : 0, name, bundle);
     });
   });
   (extraBundles || []).forEach(({ bundle, level: extraLevel, source }) => {
@@ -401,12 +405,7 @@ export function collectGrantedFeaturesIn(fields, level, ruleOptions, featBundles
     (bundle?.featureGrants || []).forEach((grant) => {
       if (grant.minLevel && lvl < grant.minLevel) return;
       if (!packAllowsLocal(grant, includedPacks)) return;
-      features.push({
-        name: grant.name,
-        description: grant.description || "",
-        level: Number.isFinite(grant.minLevel) ? grant.minLevel : 0,
-        source: source || "Multiclass",
-      });
+      pushGrant(grant, Number.isFinite(grant.minLevel) ? grant.minLevel : 0, source || "Multiclass", bundle);
     });
   });
   features.sort((a, b) => a.level - b.level || a.source.localeCompare(b.source));

@@ -52,7 +52,7 @@ Regenerate (never hand-edit the list below):
 
 ### Druid
 
-- Circle of the Land terrain — done (choiceKind build): real group (category features, level 2) with level-gated circle-spell modifiers per option.
+- Circle of the Land terrain — done (choiceKind build): real group (category features, level 2) with level-gated circle-spell modifiers per option; option descriptions are input-derived reference text (contain future tier rows), not concise sourced summaries.
 - Circle of Wildfire bonus cantrip — gaps (choiceKind build): cantrip option list unsourced.
 - Circle of Stars star-map form — gaps (choiceKind playTime): form chosen on use; option mechanics unsourced.
 - Circle spells (Spores/Land/Wildfire) — gaps (choiceKind build): audit templates cover domain/oath spells only.
@@ -78,7 +78,7 @@ Regenerate (never hand-edit the list below):
 
 ### Ranger
 
-- Hunter's Prey — done (choiceKind build): real group (category features, level 3).
+- Hunter's Prey — done (choiceKind build): real group (category features, level 3); option summaries are pre-existing hand text needing source verification.
 - Hunter follow-up selections (7th/15th) — gaps (choiceKind levelUp): tactic/defense option lists unsourced.
 - Beast Master companion — gaps (choiceKind build): needs a deliberate pet/companion data model, not a text field.
 - Drakewarden companion customization — gaps (choiceKind levelUp): needs a deliberate pet/companion data model, not a text field.

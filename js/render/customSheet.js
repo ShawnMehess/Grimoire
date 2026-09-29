@@ -94,6 +94,7 @@ import {
   statModifierLabel as sharedStatModifierLabel,
   statModifierSummary as sharedStatModifierSummary,
   mechanicsBulletsFor as sharedMechanicsBulletsFor,
+  autoSpellParts as sharedAutoSpellParts,
   briefDescription as sharedBriefDescription,
   abilityTooltip as sharedAbilityTooltip,
   MECHANICS_TITLES as SHARED_MECHANICS_TITLES,
@@ -2993,13 +2994,15 @@ const closeDialog = () => {
   function mechanicsListFor(category, name, level, bundleOverride = null) {
     const bundle = bundleOverride ?? bundleFor(category, name, includedRulesetIdsFor());
     if (!bundle) return [];
+    const key = (category || "").toLowerCase();
     return sharedMechanicsBulletsFor(bundle, level, {
       abilityIds: ABILITY_IDS,
       abilities: ABILITIES,
       skills: SKILLS,
       resolveLabel: (id) => resolveFieldById(id)?.label,
-      backgroundDisplay: (category || "").toLowerCase() === "background",
-      classDisplay: (category || "").toLowerCase() === "class",
+      backgroundDisplay: key === "background",
+      classDisplay: key === "class",
+      subclassDisplay: key === "subclass",
       includedPacks: includedRulesetIdsFor(),
     });
   }
@@ -3227,10 +3230,18 @@ const closeDialog = () => {
         // Only grants at or below the chosen level — anything later
         // belongs to the Leveling tab, not here. Grants without a
         // level gate always show. Pack-gated optional grants (Tasha's)
-        // show only when their source book is included.
+        // show only when their source book is included; unsourced
+        // subclass grants are omitted until sourced (audit 2b), and
+        // auto-spell templates resolve to the currently-granted spells.
         features: (((bundles[i] || {}).featureGrants || [])
-          .filter((g) => (!g.minLevel || g.minLevel <= level) && (!g.requiresPack || packs.includes(g.requiresPack)))
-          .map((g) => ({ name: g.name, description: g.description }))),
+          .filter((g) => (!g.minLevel || g.minLevel <= level) && (!g.requiresPack || packs.includes(g.requiresPack)) && !g.unsourced)
+          .map((g) => {
+            if (String(g.description || "").includes("{spells}")) {
+              const parts = sharedAutoSpellParts(g, bundles[i], level);
+              return { name: parts.name, description: parts.description };
+            }
+            return { name: g.name, description: g.description };
+          })),
       }))
       .filter((section) => section.features.length);
   }
@@ -5334,6 +5345,8 @@ const closeDialog = () => {
                   abilities: ABILITIES,
                   skills: SKILLS,
                   resolveLabel: (id) => resolveFieldById(id)?.label,
+                  subclassDisplay: true,
+                  includedPacks: includedRulesetIds(character.rules),
                 }
               );
             },

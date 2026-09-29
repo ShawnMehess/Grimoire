@@ -166,12 +166,14 @@ function packAllowsLocal(item, includedPacks) {
 
 /** The preview's content bits for one bundle (collapsed, optionally
  *  minus page-common traits) — without the "+N more at higher
- *  levels" tail. */
+ *  levels" tail. Unsourced subclass grants never contribute bits. */
 export function previewBitsFor(bundle, level, { summarize = (m) => statModifierSummary(m), exclude = null } = {}) {
   if (!bundle) return [];
   let bits = [
     ...activeAtLevel(bundle.statModifiers || [], level).map((m) => summarize(m)),
-    ...activeAtLevel(bundle.featureGrants || [], level).map((g) => featureBit(g)).filter(Boolean),
+    ...activeAtLevel(bundle.featureGrants || [], level)
+      .filter((g) => !g.unsourced)
+      .map((g) => featureBit(g)).filter(Boolean),
   ];
   if (exclude && exclude.size > 0) bits = bits.filter((bit) => !exclude.has(bit));
   return collapseBits(bits);
@@ -242,8 +244,10 @@ export const LANGUAGE_BULLET_LABEL = TAG_FIELD_LABELS.languages;
  *  target sections without duplicating literals. "Racial Traits" and
  *  "Innate Abilities" are race-only: classes use "Level 1 Class
  *  Features" + "Class Proficiencies", backgrounds use "Background
- *  Proficiencies" + "Starting Equipment" + "Background Feature"
- *  (see docs/CONTENT-AUDIT-2026-09.md systemic fix 1). */
+ *  Proficiencies" + "Starting Equipment" + "Background Feature",
+ *  subclasses use "Subclass Features"
+ *  (see docs/CONTENT-AUDIT-2026-09.md systemic fix 1 and
+ *  docs/SUBCLASS-CONTENT-AUDIT-2026-09.md display rule 5). */
 export const MECHANICS_TITLES = {
   traits: "Racial Traits",
   scores: "Ability Score Increases",
@@ -254,6 +258,7 @@ export const MECHANICS_TITLES = {
   bgProficiencies: "Background Proficiencies",
   bgEquipment: "Starting Equipment",
   bgFeature: "Background Feature",
+  subclassFeatures: "Subclass Features",
 };
 
 /** Plain-language ability reference, moved here from
@@ -373,6 +378,53 @@ function isProfGrant(mod) {
   return mod.op === "grant" && /Prof$/.test(mod.targetFieldId || "") && !/Score$/.test(mod.targetFieldId || "");
 }
 
+/** Spells a subclass bundle currently grants (level-gated `addItem`
+ *  modifiers into Spells Known), deduped in data order. The display
+ *  substitutes these for the "{spells}" token in auto-spell summaries
+ *  (domain/oath templates), so the shown list is computed from
+ *  individual grants — never a full tier list. Pure. */
+export function currentSpellsFor(bundle, level = Infinity) {
+  const seen = new Set();
+  const out = [];
+  for (const mod of (bundle?.statModifiers || [])) {
+    if (mod?.op !== "addItem" || mod?.targetFieldId !== "spellsKnown") continue;
+    if (mod.minLevel && mod.minLevel > level) continue;
+    const name = String(mod.value || "").trim();
+    if (name && !seen.has(name)) {
+      seen.add(name);
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+/** A grant summary with its "{spells}" token resolved (auto-spell
+ *  templates only — anything else passes through untouched). Pure. */
+export function resolveSpellSummary(summary, bundle, level = Infinity) {
+  const text = String(summary ?? "");
+  if (!text.includes("{spells}")) return text;
+  const spells = currentSpellsFor(bundle, level);
+  return text.replace("{spells}", spells.length ? spells.join(", ") : "(none currently granted)");
+}
+
+/** Whether a grant carries an auto-spell template (its description
+ *  holds the "{spells}" token substituted at display from the
+ *  bundle's own level-gated spell grants). Pure. */
+export function isAutoSpellGrant(grant) {
+  return String(grant?.description || "").includes("{spells}");
+}
+
+/** Name/description parts for an auto-spell grant with its token
+ *  resolved: the sourced template's own prefix ("Domain Spells")
+ *  becomes the name, the rest the description — both verbatim from
+ *  the summaries file, never rewritten. Pure. */
+export function autoSpellParts(grant, bundle, level = Infinity) {
+  const resolved = resolveSpellSummary(grant?.description || "", bundle, level);
+  const cut = resolved.indexOf(": ");
+  if (cut <= 0) return { name: grant?.name || "Spells", description: resolved };
+  return { name: resolved.slice(0, cut), description: resolved.slice(cut + 2) };
+}
+
 /** A saving-throw grant (`<abilityId>SaveProf`) — rendered with the
  *  full ability name ("Saving Throws: Strength, Constitution"), never
  *  the raw field id. Pure. */
@@ -437,7 +489,7 @@ const SCORE_DISPLAY_ORDER = ["str", "dex", "con", "int", "wis", "cha"];
  *  with no level yet); label and detail always join with a colon. */
 export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   if (!bundle) return [];
-  const { abilityIds = [], abilities = [], skills = [], resolveLabel = null, backgroundDisplay = false, classDisplay = false, includedPacks = null } = deps;
+  const { abilityIds = [], abilities = [], skills = [], resolveLabel = null, backgroundDisplay = false, classDisplay = false, subclassDisplay = false, includedPacks = null } = deps;
   const summarize = (m) => statModifierSummary(m, { abilityIds, abilities, skills, resolveLabel });
   const tagLabel = (fieldId) => TAG_FIELD_LABELS[fieldId]
     || (typeof resolveLabel === "function" && resolveLabel(fieldId))
@@ -457,13 +509,15 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   const scoreMods = [];
   const profs = [];
   const innate = [];
-  // Class/background buckets (race path keeps the legacy buckets above).
+  // Class/background/subclass buckets (race path keeps the legacy buckets above).
   const saveNames = [];
   const classFeatures = [];
   const classProfLines = [];
   const bgProfLines = [];
   const bgEquipment = [];
   const bgFeatures = [];
+  const subFeatures = [];
+  const subProfLines = [];
 
   // A proficiency-note grant ("Tool Proficiencies (note)", "Armor
   // Proficiencies (note)") belongs with proficiencies, never with
@@ -471,14 +525,15 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   const isProficiencyNote = (grant) => /proficienc/i.test(grant?.name || "");
   const isEquipmentGrant = (grant) => /^starting equipment$/i.test((grant?.name || "").trim());
 
-  // Class/background rows show the whole current description: their
-  // texts are concise replacements written to be read whole (audit
-  // systemic fixes), so sentence-snipping them would shorten sourced
-  // wording. Race rows keep the legacy first-sentence brief.
+  // Class/background/subclass rows show the whole current
+  // description: their texts are concise replacements written to be
+  // read whole (audit systemic fixes), so sentence-snipping them
+  // would shorten sourced wording. Race rows keep the legacy
+  // first-sentence brief.
   const detailFor = (description) => {
     const flat = humanizeGameText(String(description || "").replace(/\s+/g, " ").trim());
     if (!flat) return "";
-    if (classDisplay || backgroundDisplay) return flat;
+    if (classDisplay || backgroundDisplay || subclassDisplay) return flat;
     return briefDescription(description, 120);
   };
 
@@ -495,11 +550,18 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
       profs.push(summarize(mod));
     } else if (mod.op === "addItem") {
       // Class rows skip spell access entirely (see classDisplay) —
-      // the Spells step, not the picker row, covers it.
+      // the Spells step, not the picker row, covers it. Subclass rows
+      // skip Spells-Known grants too — the computed Domain/Oath line
+      // already lists the currently-granted spells, so per-spell lines
+      // would duplicate it.
       // Skip a redundant "Learn the X spell" line when a feature grant
       // already describes that same spell (e.g. Tiefling Infernal Legacy
       // already says "You know the Thaumaturgy cantrip").
-      if (!classDisplay) {
+      if (subclassDisplay && mod.targetFieldId === "spellsKnown") {
+        // Covered by the computed auto-spell line; nothing to add.
+      } else if (subclassDisplay) {
+        subFeatures.push(`Learn the ${mod.value} ${tagLabel(mod.targetFieldId)}`);
+      } else if (!classDisplay) {
         const spellName = String(mod.value || "").trim().toLowerCase();
         const described = (bundle.featureGrants || []).some((g) =>
           String(g?.description || "").toLowerCase().includes(spellName) && spellName
@@ -507,23 +569,28 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
         if (!described) innate.push(`Learn the ${mod.value} spell`);
       }
     } else if (["add", "subtract", "multiply", "set"].includes(mod.op)) {
-      otherTraits.push(summarize(mod));
+      if (subclassDisplay) subFeatures.push(summarize(mod));
+      else otherTraits.push(summarize(mod));
     }
   }
   for (const [fieldId, values] of tagsByField) {
     const unique = [...new Set(values)];
     if (!unique.length) continue;
     const line = `${tagLabel(fieldId)}: ${unique.join(", ")}`;
-    // Class/background rows shelve tag proficiencies into their own
-    // proficiency sections (see the assembly below); race rows keep
-    // the legacy behavior of listing them among the traits.
+    // Class/background/subclass rows shelve tag proficiencies into
+    // their own proficiency sections (see the assembly below); race
+    // rows keep the legacy behavior of listing them among the traits.
     if (classDisplay) classProfLines.push(line);
     else if (backgroundDisplay) bgProfLines.push(line);
+    else if (subclassDisplay) subProfLines.push(line);
     else otherTraits.push(line);
   }
   for (const grant of (bundle.featureGrants || []).filter(atLevel)) {
     const name = (grant.name || "").trim();
     if (!name) continue;
+    // Unsourced subclass grants are omitted from player-facing display
+    // until sourced (audit 2b) — traceable via docs/subclass-gaps.md.
+    if (grant.unsourced) continue;
     // Class rows skip shared movement/senses/resistances and spell
     // access (see classDisplay) — hit lines are collected below for
     // the head of Level 1 Class Features instead.
@@ -549,6 +616,21 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     if (backgroundDisplay) {
       const why = detailFor(grant.description);
       bgFeatures.push(`${name}${why ? `: ${why}` : ""}`);
+      continue;
+    }
+    if (subclassDisplay) {
+      // One concise summary per current feature (audit 2c); auto-spell
+      // templates resolve to the currently-granted spells only.
+      // Proficiency notes still read as proficiencies.
+      if (isProficiencyNote(grant)) {
+        const why = detailFor(grant.description);
+        subProfLines.push(`${name}${why ? `: ${why}` : ""}`);
+      } else if (isAutoSpellGrant(grant)) {
+        subFeatures.push(resolveSpellSummary(grant.description, bundle, level));
+      } else {
+        const why = detailFor(grant.description);
+        subFeatures.push(`${name}${why ? `: ${why}` : ""}`);
+      }
       continue;
     }
     if (/^speed$/i.test(name)) {
@@ -620,6 +702,16 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     if (bgProfs.length) out.push({ title: MECHANICS_TITLES.bgProficiencies, items: bgProfs });
     if (bgEquipment.length) out.push({ title: MECHANICS_TITLES.bgEquipment, items: bgEquipment });
     if (bgFeatures.length) out.push({ title: MECHANICS_TITLES.bgFeature, items: bgFeatures });
+    if (scores.length) out.push({ title: "Ability Score Increases", items: scores });
+  } else if (subclassDisplay) {
+    // Subclass rows: one concise summary per current sourced feature
+    // under the single "Subclass Features" heading (audit display
+    // rules 1-2, 5); unsourced grants were filtered above. Longer
+    // reference text, if any, lives in the row's expandable details
+    // alongside these bullets.
+    if (subFeatures.length) out.push({ title: MECHANICS_TITLES.subclassFeatures, items: subFeatures });
+    const subProfs = [...(savesLine ? [savesLine] : []), ...(profs.length ? [profs.join(", ")] : []), ...subProfLines];
+    if (subProfs.length) out.push({ title: MECHANICS_TITLES.proficiencies, items: subProfs });
     if (scores.length) out.push({ title: "Ability Score Increases", items: scores });
   } else {
     // Races (and any display without a context flag) keep the legacy

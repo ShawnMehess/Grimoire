@@ -95,7 +95,7 @@ const CHOICE_REVIEW = {
     ["Domain spells (all 14 domains)", "done", "build", "level-gated grants + computed Domain Spells line"],
   ],
   Druid: [
-    ["Circle of the Land terrain", "done", "build", "real group (category features, level 2) with level-gated circle-spell modifiers per option"],
+    ["Circle of the Land terrain", "done", "build", "real group (category features, level 2) with level-gated circle-spell modifiers per option; option descriptions are input-derived reference text (contain future tier rows), not concise sourced summaries"],
     ["Circle of Wildfire bonus cantrip", "gaps", "build", "cantrip option list unsourced"],
     ["Circle of Stars star-map form", "gaps", "playTime", "form chosen on use; option mechanics unsourced"],
     ["Circle spells (Spores/Land/Wildfire)", "gaps", "build", "audit templates cover domain/oath spells only"],
@@ -117,7 +117,7 @@ const CHOICE_REVIEW = {
     ["Channel Divinity options", "by-design", "playTime", "chosen when used, not a permanent subclass-build selection"],
   ],
   Ranger: [
-    ["Hunter's Prey", "done", "build", "real group (category features, level 3)"],
+    ["Hunter's Prey", "done", "build", "real group (category features, level 3); option summaries are pre-existing hand text needing source verification"],
     ["Hunter follow-up selections (7th/15th)", "gaps", "levelUp", "tactic/defense option lists unsourced"],
     ["Beast Master companion", "gaps", "build", "needs a deliberate pet/companion data model, not a text field"],
     ["Drakewarden companion customization", "gaps", "levelUp", "needs a deliberate pet/companion data model, not a text field"],

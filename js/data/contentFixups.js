@@ -1017,6 +1017,11 @@ function patchHunterConclave(bundle) {
   if ((bundle.choiceGroups || []).some((g) => /hunter-s-prey|hunters-prey/.test(g.id))) return bundle;
   bundle.choiceGroups.push({
     id: "hunter-conclave-prey", label: "Hunter's Prey", minLevel: 3, minSelections: 1, maxSelections: 1,
+    category: "features",
+    // Chosen once at 3rd level (a permanent build decision; later Hunter
+    // picks are separate level-gated groups, still unsourced — see
+    // docs/subclass-gaps.md).
+    choiceKind: "build",
     options: [
       textOption("hunter-conclave-prey", "Colossus Slayer", "Once per turn, deal an extra 1d8 damage to a creature below its hit point maximum."),
       textOption("hunter-conclave-prey", "Giant Killer", "When a Large or larger creature within 5 feet attacks you, use your reaction to attack it back."),
@@ -1031,7 +1036,15 @@ function patchChampion(bundle) {
   const hasGroup = (bundle.choiceGroups || []).some((g) => g.id === "champion-fighting-style");
   if (!levels.length && hasGroup) return bundle;
   if (!hasGroup) {
-    bundle.choiceGroups.push(fightingStyleGroup("champion", levels.length ? Math.min(...levels.filter(Number.isFinite)) : 10, FS_LISTS.Fighter));
+    const group = fightingStyleGroup("champion", levels.length ? Math.min(...levels.filter(Number.isFinite)) : 10, FS_LISTS.Fighter);
+    group.category = "features";
+    // Chosen once at 10th level (a permanent build decision).
+    group.choiceKind = "build";
+    bundle.choiceGroups.push(group);
+  } else {
+    const group = (bundle.choiceGroups || []).find((g) => g.id === "champion-fighting-style");
+    if (group && !group.category) group.category = "features";
+    if (group && !group.choiceKind) group.choiceKind = "build";
   }
   return bundle;
 }
