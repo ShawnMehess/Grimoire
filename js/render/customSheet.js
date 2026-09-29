@@ -1029,26 +1029,44 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       scaleInput.style.display = scaleModeSelect.value === "custom" ? "" : "none";
     });
 
-    // Which tabs to print
+    // Which tabs to print — a checklist, so any number of tabs can be
+    // picked and each lands on its own printed page. Defaults to the tab
+    // you're looking at, since that's almost always the one you want.
     const currentTabId = activeTab().id;
-    const tabOptions = [
-      { id: "current", label: "Current tab only" },
-      { id: "all", label: "All tabs" },
-      ...(character.sheetTabs || []).map((tab, index) => ({
-        id: tab.id,
-        label: tab.name || defaultTabName(tab, index),
-      })),
-    ];
-    const tabInputs = tabOptions.map((opt) =>
+    const tabList = (character.sheetTabs || []).map((tab, index) => ({
+      id: tab.id,
+      label: tab.name || defaultTabName(tab, index),
+    }));
+    const tabInputs = tabList.map((opt) =>
       el("label", { class: "print-dialog__label print-dialog__tab-label" },
         el("input", {
-          type: "radio", name: "print-tab", value: opt.id,
-          checked: opt.id === currentTabId, class: "print-dialog__tab-radio",
+          type: "checkbox", value: opt.id,
+          checked: opt.id === currentTabId, class: "print-dialog__tab-checkbox",
         }),
         el("span", { class: "print-dialog__tab-text" }, opt.label)));
 
+    const allTabsBtn = el("button", {
+      class: "btn btn--secondary print-dialog__linkbtn",
+      type: "button",
+      text: "All",
+      title: "Check every tab",
+      onclick: () => {
+        tabInputs.forEach((wrap) => { wrap.querySelector("input").checked = true; });
+      },
+    });
+    const noTabsBtn = el("button", {
+      class: "btn btn--secondary print-dialog__linkbtn",
+      type: "button",
+      text: "None",
+      title: "Uncheck every tab",
+      onclick: () => {
+        tabInputs.forEach((wrap) => { wrap.querySelector("input").checked = false; });
+      },
+    });
+
     const tabsRow = el("div", { class: "print-dialog__row print-dialog__tabs" },
-      el("span", { class: "print-dialog__label", text: "Tab" }),
+      el("span", { class: "print-dialog__label", text: "Tabs" }),
+      el("span", { class: "print-dialog__tab-bulk" }, allTabsBtn, noTabsBtn),
       ...tabInputs);
 
     // Background images
@@ -1083,56 +1101,65 @@ const closeDialog = () => {
           const orientation = orientationSelect.value === "landscape" ? "landscape" : "portrait";
           const scaleMode = scaleModeSelect.value;
           const scale = calculatePrintScale(scaleModeSelect.value, scaleInput.value);
-
-          const picked = dialog.querySelector("input.print-dialog__tab-radio:checked");
-          const pickedTabId = (picked && picked.value) || currentTabId;
           const includeBg = bgInput.checked;
           const includeHidden = hiddenInput.checked;
 
-          // Determine which tabs to print
-          const tabsToPrint = getTabsToPrint(pickedTabId, currentTabId, character.sheetTabs || []);
+          const picked = [...dialog.querySelectorAll("input.print-dialog__tab-checkbox:checked")]
+            .map((input) => input.value);
+          const tabsToPrint = getTabsToPrint(picked, currentTabId, character.sheetTabs || []);
+          if (!tabsToPrint.length) {
+            showToast("Pick at least one tab to print.", { isError: true });
+            return;
+          }
 
-          // Build print styles for each tab
+          // Build every selected tab into its own page container, then
+          // print ONCE. Previously this looped window.print() per tab,
+          // which popped a separate dialog (and usually a separate job)
+          // per tab and left the user stitching pages together by hand.
+          //
+          // Each tab is rendered by pointing the live grid at it and
+          // MOVING the result into the stage, rather than reimplementing
+          // the per-tab renderers here — the rules and leveling tabs
+          // don't go through the block grid at all, and duplicating
+          // three render paths would guarantee they drift.
+          //
+          // Unselected tabs are never rendered into the stage, so they're
+          // absent from the printed document entirely rather than
+          // present-but-hidden (see buildPrintCss).
           const previousTabId = activeTabId;
+          const stageHome = scrollWrapper.parentNode;
+          const stage = el("div", { class: "print-stage" });
           const styleEl = document.createElement("style");
-          styleEl.textContent = buildPrintCss({
-            orientation,
-            scaleMode,
-            scale,
-            includeBg,
-            includeHidden,
-          });
-
-          // Function to print a single tab
-          const printTab = async (tabId) => {
-            if (tabId !== activeTabId && (character.sheetTabs || []).some((t) => t.id === tabId)) {
-              activeTabId = tabId;
-              renderAll();
-              await new Promise(r => setTimeout(r, 100)); // wait for render
-            }
-            await new Promise(r => setTimeout(r, 50)); // small delay
-            window.print();
-            await new Promise(r => setTimeout(r, 500)); // wait for print dialog
-          };
-
           try {
-            if (tabsToPrint.length === 1) {
-              await printTab(tabsToPrint[0]);
-            } else {
-              // Print multiple tabs - open print dialog for each
-              for (let i = 0; i < tabsToPrint.length; i++) {
-                await printTab(tabsToPrint[i]);
-                if (i < tabsToPrint.length - 1) {
-                  await new Promise(r => setTimeout(r, 1000)); // delay between prints
-                }
-              }
+            for (const tabId of tabsToPrint) {
+              activeTabId = tabId;
+              renderPageGrid();
+              const page = el("div", { class: "print-stage__page" });
+              page.append(scrollWrapper);
+              stage.append(page);
             }
+            root.append(stage);
+            styleEl.textContent = buildPrintCss({
+              orientation,
+              scaleMode,
+              scale,
+              includeBg,
+              includeHidden,
+              pageCount: tabsToPrint.length,
+            });
+            root.append(styleEl);
+            // Let layout settle (the page boxes depend on measured
+            // widths) before handing off to the print pipeline.
+            await new Promise((r) => requestAnimationFrame(() => r()));
+            window.print();
           } finally {
             styleEl.remove();
-            if (activeTabId !== previousTabId) {
-              activeTabId = previousTabId;
-              renderAll();
-            }
+            if (stage.parentNode) stage.parentNode.removeChild(stage);
+            // Put the live grid back where it belongs and re-render the
+            // tab that was open before printing.
+            if (stageHome && !scrollWrapper.parentNode) stageHome.append(scrollWrapper);
+            activeTabId = previousTabId;
+            renderPageGrid();
             closeDialog();
           }
         },

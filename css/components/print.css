@@ -1,3 +1,13 @@
+/* --- Print stage ---
+   Built at print time: one container per selected tab, each holding that
+   tab's rendered grid. Hidden on screen so the live editor underneath
+   stays visible while the dialog is open and after printing; buildPrintCss
+   flips it on inside @media print. Unselected tabs are never built into
+   this tree at all, which is the point — see buildPrintCss. */
+.print-stage {
+  display: none;
+}
+
 /* ==========================================================================
    print.css
    Print output + small-screen reformatting. Imported last so these
@@ -106,6 +116,23 @@
 }
 .print-dialog__tab-checkbox {
   accent-color: var(--color-accent);
+}
+/* The tab picker is a checklist, so the tabs wrap into a compact
+   multi-column block beside the "Tabs" label rather than running down the
+   dialog as one long radio column. */
+.print-dialog__tabs {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.print-dialog__tab-bulk {
+  display: flex;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+}
+.print-dialog__linkbtn {
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  line-height: 1.6;
 }
 .print-dialog__actions {
   display: flex;

@@ -52,9 +52,28 @@ describe("Print helper functions", () => {
       assert.deepEqual(tabs, ["tab2"]);
     });
 
-    it("falls back to unknown selection as-is (no fallback)", () => {
+    // Changed from passing an unknown id straight through. Doing that
+    // printed a phantom page for a tab that doesn't exist; now an id that
+    // isn't a real tab is dropped, which is what "excluded entirely from
+    // print output" requires.
+    it("drops an id that isn't a real tab instead of printing a phantom page", () => {
       const tabs = getTabsToPrint("unknown", "tab1", mockTabs);
-      assert.deepEqual(tabs, ["unknown"]);
+      assert.deepEqual(tabs, []);
+    });
+
+    it("accepts a list of ids and returns them in tab-bar order", () => {
+      const tabs = getTabsToPrint(["tab3", "tab1"], "tab1", mockTabs);
+      assert.deepEqual(tabs, ["tab1", "tab3"]);
+    });
+
+    it("expands 'all' inside a list", () => {
+      const tabs = getTabsToPrint(["all"], "tab1", mockTabs);
+      assert.deepEqual(tabs, ["tab1", "tab2", "tab3"]);
+    });
+
+    it("dedupes repeated ids", () => {
+      const tabs = getTabsToPrint(["tab2", "tab2", "tab1"], "tab1", mockTabs);
+      assert.deepEqual(tabs, ["tab1", "tab2"]);
     });
   });
 
@@ -113,6 +132,36 @@ describe("Print helper functions", () => {
     it("sets page size and margins", () => {
       const css = buildPrintCss({ orientation: "landscape", scale: 100, includeBg: true, includeHidden: false });
       assert.ok(css.includes("@page { size: landscape; margin: 0.5in; }"));
+    });
+
+    // --- Multi-tab printing ---
+    it("puts each tab on its own page when more than one is selected", () => {
+      const css = buildPrintCss({ orientation: "portrait", scale: 100, includeBg: true, includeHidden: false, pageCount: 3 });
+      assert.ok(css.includes("page-break-after: always"), "tabs should be separated by a page break");
+    });
+
+    it("does not leave a trailing blank page after the last tab", () => {
+      const css = buildPrintCss({ orientation: "portrait", scale: 100, includeBg: true, includeHidden: false, pageCount: 3 });
+      assert.ok(css.includes(".print-stage__page:last-child { break-after: auto; page-break-after: auto; }"));
+    });
+
+    it("emits no page-break rule for a single tab", () => {
+      const css = buildPrintCss({ orientation: "portrait", scale: 100, includeBg: true, includeHidden: false, pageCount: 1 });
+      assert.ok(!css.includes("page-break-after: always"), "one tab needs no break");
+    });
+
+    it("suppresses the live editor and shows the print stage", () => {
+      const css = buildPrintCss({ orientation: "portrait", scale: 100, includeBg: true, includeHidden: false, pageCount: 2 });
+      assert.ok(css.includes(".page-grid, .page-grid-scroll { display: none !important; }"));
+      assert.ok(css.includes(".print-stage { display: block !important; }"));
+    });
+
+    it("applies background and zoom rules to the print stage too", () => {
+      // The stage holds the real grid nodes, so a rule scoped to
+      // .page-grid alone would leave printed tabs uncolored/unscaled.
+      const bg = buildPrintCss({ orientation: "portrait", scale: 120, includeBg: true, includeHidden: false, pageCount: 2 });
+      assert.ok(bg.includes(".print-stage, .print-stage *"), "color-adjust should reach the stage");
+      assert.ok(bg.includes(".print-stage { zoom: 1.2; }"), "zoom should reach the stage");
     });
   });
 });
