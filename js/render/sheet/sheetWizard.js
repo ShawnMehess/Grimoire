@@ -74,9 +74,22 @@ export function creationChoiceGroupsForState(state, bundleLookup, includedPacks 
       // neither has nothing to offer (and a cross-category group with
       // no flat list must NOT be mistaken for an empty group).
       if (groupOptionsOf(gated).length === 0) return;
+      const key = `creation:${category}:${name}:${group.id || index}`;
+      // A group can be a FOLLOW-UP to another pick in the same bundle:
+      // "Variable Trait → Skill Proficiency" needs a second row to
+      // actually choose the skill. It stays out of the list until its
+      // parent option is picked, so the user isn't shown a skill picker
+      // for a trait they didn't take. `requiresOption` names the option
+      // id; `requiresGroup` the group holding it (both relative to the
+      // same bundle, so no cross-bundle keys are needed).
+      if (gated.requiresOption) {
+        const parent = (lib.choiceGroups || []).find((g) => g.id === gated.requiresGroup);
+        const picked = choicesPickedFor(state, keyFor(parent, category, name));
+        if (!picked.includes(gated.requiresOption)) return;
+      }
       groups.push({
         ...gated,
-        key: `creation:${category}:${name}:${group.id || index}`,
+        key,
         source: name,
         minLevel: Number.isFinite(group.minLevel) ? group.minLevel : 0,
         maxSelections: Math.max(1, Number.parseInt(group.maxSelections, 10) || 1),
@@ -88,7 +101,39 @@ export function creationChoiceGroupsForState(state, bundleLookup, includedPacks 
   push("Class", state.className);
   push("Subclass", state.subclass);
   push("Background", state.background);
-  return groups;
+  return orderFollowUpGroups(groups);
+}
+
+/** Move each group carrying `sortAfter` to sit directly after the group it
+ *  names, so a follow-up row appears under the pick that caused it rather
+ *  than wherever the bundle happened to list it. A `sortAfter` naming a
+ *  group that isn't present (or that is itself gated out right now) is
+ *  left where it is rather than dropped — an unpicked follow-up simply
+ *  isn't in the list at all. */
+function orderFollowUpGroups(groups) {
+  const out = [...groups];
+  for (const group of groups) {
+    if (!group?.sortAfter) continue;
+    const anchor = out.findIndex((g) => g.id === group.sortAfter);
+    if (anchor === -1) continue;
+    const at = out.indexOf(group);
+    out.splice(at, 1);
+    // Recomputed after the removal: removing a group ahead of the anchor
+    // would otherwise shift it by one.
+    out.splice(out.findIndex((g) => g.id === group.sortAfter) + 1, 0, group);
+  }
+  return out;
+}
+
+/** The choicesStore key a bundle's group is stored under, matching the
+ *  shape built in creationChoiceGroupsForState. Shared so the follow-up
+ *  gate above looks in the same place the pick was written. */
+export function keyFor(group, category, name) {
+  return `creation:${category}:${name}:${group?.id ?? ""}`;
+}
+
+function choicesPickedFor(state, key) {
+  return state?.choices?.[key] || [];
 }
 
 export function creationFixedBundlesFor(state, bundleLookup) {
@@ -1997,13 +2042,35 @@ function openFeatChoiceDialog(group, choicesStore, onChange, rerender, owned) {
   });
 }
 
+/** The summary a picked flexible ASI reads as, e.g. "+2/+1: Strength,
+ *  Dexterity" or "Choose ability score increases" when nothing is picked
+ *  yet. Shared by both places that render the inline bullet (the profile
+ *  row and the creation-choice section) so they can't drift. */
+export function flexibleAsiSummary(pick) {
+  if (!pick?.pattern || !pick.abilities?.length) return "Choose ability score increases";
+  const patternDesc = pick.pattern === "2-1" ? "+2/+1" : "+1/+1/+1";
+  const names = pick.abilities.map((id) => {
+    const known = { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" }[id];
+    return known || String(id).toUpperCase();
+  }).join(", ");
+  return `${patternDesc}: ${names}`;
+}
+
 /** Opens a two-step dialog for flexible ability bonus (Phase 3b):
  *  1) Choose pattern: "2-1" (+2/+1) or "1-1-1" (+1/+1/+1)
  *  2) Pick the relevant abilities from the six
  *  The result is stored as a synthetic choice with pattern + abilities,
  *  and the actual +2/+1 or +1/+1/+1 stat modifiers are applied via
- *  the bundle's statModifiers when the character is hydrated. */
-function openFlexibleAsiDialog(group, choicesStore, onChange, rerender, owned) {
+ *  the bundle's statModifiers when the character is hydrated.
+ *
+ *  Exported because the flexible ASI has to be picked from TWO places -
+ *  the bottom "Your choices" section and the inline bullet in the race's
+ *  own row - and only the bottom path used this. Routing the row's bullet
+ *  through the generic dialog instead opened an empty one: a flexible
+ *  group's options are `{pattern, description}` descriptors, which the
+ *  generic dialog filters out (it lists options that have a `name`), so
+ *  the user got a dialog with nothing in it and no way to pick. */
+export function openFlexibleAsiDialog(group, choicesStore, onChange, rerender, owned) {
   const abilities = [
     { id: "str", name: "Strength" },
     { id: "dex", name: "Dexterity" },
@@ -2194,20 +2261,10 @@ export function renderChoiceGroupsInto(container, groups, choicesStore, namePref
     if (choiceDialogKindFor(group) === "flexibleAbilityBonus") {
       // Render as a summary link opening the two-step flexible ASI dialog
       const stored = choicesStore[group.key] || [];
-      const pick = stored[0];
-      let summary;
-      if (pick?.pattern && pick?.abilities?.length) {
-        const patternDesc = pick.pattern === "2-1" ? "+2/+1" : "+1/+1/+1";
-        const abilityNames = pick.abilities.map((id) => {
-          const abl = { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" }[id];
-          return abl || id.toUpperCase();
-        }).join(", ");
-        summary = `${patternDesc}: ${abilityNames}`;
-      } else {
-        summary = "Choose ability score increases";
-      }
       const link = el("a", {
-        href: "#", class: "inline-pick-link", text: summary, title: "Choose ability score increases",
+        href: "#", class: "inline-pick-link",
+        text: flexibleAsiSummary(stored[0]),
+        title: "Choose ability score increases",
         onclick: (e) => { e.preventDefault(); e.stopPropagation(); openFlexibleAsiDialog(group, choicesStore, onChange, rerender, owned); },
       });
       choiceGroup.append(el("p", { class: "level-guide__feat-pick" }, link));

@@ -265,6 +265,8 @@ import {
   renderLiveBulletItem,
   openChoiceDialog,
   choiceDialogKindFor,
+  flexibleAsiSummary,
+  openFlexibleAsiDialog,
   spellCountByLevel as sharedSpellCountByLevel,
   canLearnMore as sharedCanLearnMore,
   availableSpellLevels as sharedAvailableSpellLevels,
@@ -4720,8 +4722,28 @@ const closeDialog = () => {
     const store = character.rules?.choices || {};
     return (choiceGroups || []).filter((g) => choiceDialogKindFor(g)).map((group) => {
       const kind = choiceDialogKindFor(group);
-      const opts = groupOptionsOf(group).filter((o) => o.name);
       const owned = ownedSkillIdsFrom(creationFixedBundles(state), creationChoiceGroupsFor(state), group.key);
+      // A flexible ASI is not a list of options at all — its options are
+      // {pattern, description} descriptors, so the generic dialog below
+      // would filter them all out (it lists options with a `name`) and
+      // open EMPTY. Route it to its own two-step dialog instead, the same
+      // one the bottom "Your choices" section uses, so the ASI can be
+      // picked from the race's own row.
+      if (kind === "flexibleAbilityBonus") {
+        return {
+          live: true,
+          topic: group.label || "Ability Score Increase",
+          lead: [{ text: flexibleAsiSummary((store[group.key] || [])[0]) }],
+          dialogOpener: () => openFlexibleAsiDialog(
+            group,
+            store,
+            () => saveRules(),
+            () => renderPageGrid(),
+            owned,
+          ),
+        };
+      }
+      const opts = groupOptionsOf(group).filter((o) => o.name);
       const lockedIds = [...new Set([...(group.lockedOptionIds || []), ...opts.filter((o) => optionIsOwned(o, owned)).map((o) => o.id)])];
       const stored = store[group.key] || [];
       const pickedNames = stored.map((id) => opts.find((o) => o.id === id)?.name).filter(Boolean);

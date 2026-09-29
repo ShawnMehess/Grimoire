@@ -1208,11 +1208,56 @@ function patchRaceEntry(entry) {
       ],
     });
     patchLineageTraitNames(out.bundle);
+    // "Skill Proficiency" is a Variable Trait option that grants
+    // "proficiency in 1 skill of your choice" - but with nothing to pick
+    // from, the pick granted the note and no actual skill. A follow-up
+    // group, gated on that option being chosen, so the row appears
+    // directly beneath the trait only once the user has opted into it.
+    addLineageSkillFollowUp(out.bundle);
   }
   if (entry.name === "Changeling") {
     patchAbilityOptionAbbr(out.bundle, "changeling-asi-choice-1");
   }
   return out;
+}
+
+/** The skill pick behind Custom Lineage's "Skill Proficiency" Variable
+ *  Trait. `requiresGroup` / `requiresOption` gate it on that trait being
+ *  chosen (see creationChoiceGroupsForState), so it isn't offered to
+ *  someone who took Darkvision instead.
+ *
+ *  Options grant the proficiency checkbox directly, the same way every
+ *  other skill pick in the project does. */
+function addLineageSkillFollowUp(bundle) {
+  const groupId = "custom-lineage-variable_trait_skill";
+  const parentId = "custom-lineage-variable_trait";
+  const group = {
+    id: groupId,
+    label: "Skill Proficiency",
+    minLevel: 1,
+    minSelections: 1,
+    maxSelections: 1,
+    category: "skills",
+    requiresGroup: parentId,
+    requiresOption: "custom-lineage-variable_trait-skill_proficiency",
+    // Keeps the follow-up row directly beneath the trait that caused it,
+    // rather than at the end of the bundle's groups. See
+    // renderCreationChoiceGroups for how this is honored.
+    sortAfter: parentId,
+    options: SKILLS.map((s) => ({
+      id: `${groupId}-${s.id}`,
+      name: s.label,
+      description: s.description || "",
+      statModifiers: [{ targetFieldId: `${s.id}Prof`, op: "grant" }],
+    })),
+  };
+  const without = (bundle.choiceGroups || []).filter((g) => g.id !== groupId);
+  const at = without.findIndex((g) => g.id === parentId);
+  // Splice in right after the trait. If the trait is somehow absent the
+  // group still gets added, at the end, rather than being dropped.
+  if (at === -1) without.push(group);
+  else without.splice(at + 1, 0, group);
+  bundle.choiceGroups = without;
 }
 
 // Custom Lineage's variable-trait option reads "Darkvision 60" in

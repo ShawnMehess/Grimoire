@@ -285,6 +285,59 @@ async function runViewportTests(viewport) {
       await page.waitForTimeout(300);
       check(!(await page.$(".choice-dialog-overlay")), "feat picker closes on Escape");
     }
+
+    // Flexible ASI: the race's own row must open a dialog that actually
+    // lists the six abilities. It used to open the GENERIC choice dialog,
+    // which filters its list to options that have a `name` — and a
+    // flexible ASI's options are {pattern, description} descriptors, so
+    // the dialog opened empty and the player saw "no stats to increase".
+    const asiLink = await page.$('.choice-row--selected .inline-pick-link:has-text("Choose ability score increases")');
+    check(!!asiLink, "lineage ASI bullet is the flexible-ASI link");
+    if (asiLink) {
+      await asiLink.click();
+      await page.waitForTimeout(500);
+      const step1 = await page.evaluate(() => {
+        const box = document.querySelector(".choice-dialog-overlay");
+        return box ? [...box.querySelectorAll("label")].map((l) => l.textContent.trim()) : [];
+      });
+      check(step1.some((t) => /\+2 to one ability/.test(t)), "flexible ASI offers the +2/+1 pattern");
+      check(step1.some((t) => /\+1 to three different abilities/.test(t)), "flexible ASI offers the +1/+1/+1 pattern");
+      if (step1.length) {
+        await page.click(".choice-dialog-overlay .choice-dialog-list label");
+        await page.waitForTimeout(300);
+        await page.click(".choice-dialog button:has-text('Next')");
+        await page.waitForTimeout(400);
+        const step2 = await page.evaluate(() => {
+          const box = document.querySelector(".choice-dialog-overlay");
+          return box ? [...box.querySelectorAll("label")].map((l) => l.textContent.trim()) : [];
+        });
+        check(["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"].every((a) => step2.includes(a)),
+          "flexible ASI step 2 lists all six abilities");
+        await page.screenshot({ path: path.join(shotDir, `lineage-asi-${viewport.name}.png`) });
+      }
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      check(!(await page.$(".choice-dialog-overlay")), "flexible ASI dialog closes on Escape");
+    }
+
+    // Custom Lineage's "Skill Proficiency" trait needs a follow-up row to
+    // actually choose the skill, and it must only appear once that trait
+    // is picked — not for someone who took Darkvision.
+    const traitTopics = () => page.evaluate(() => [...document.querySelectorAll(".choice-row--selected .mechanics-pick")]
+      .map((b) => b.querySelector("strong")?.textContent?.trim()).filter(Boolean));
+    check(!(await traitTopics()).includes("Skill Proficiency"), "no skill row before the trait is chosen");
+    const traitSelect = '.choice-row--selected select[data-inline-slot$="custom-lineage-variable_trait"]';
+    if (await page.$(traitSelect)) {
+      await page.selectOption(traitSelect, "custom-lineage-variable_trait-skill_proficiency");
+      await page.waitForTimeout(1200);
+      const afterSkill = await traitTopics();
+      check(afterSkill.includes("Skill Proficiency"), "choosing the trait adds the skill row");
+      check(afterSkill.indexOf("Skill Proficiency") === afterSkill.indexOf("Variable Trait") + 1,
+        "the skill row sits directly beneath the trait");
+      await page.screenshot({ path: path.join(shotDir, `lineage-skill-${viewport.name}.png`) });
+    } else {
+      check(false, "the Variable Trait dropdown is present");
+    }
   }
 }
 
