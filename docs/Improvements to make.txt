@@ -71,14 +71,25 @@ Elements
 	- Add in an object that adds buffs and debuffs (ie, adds to or subtracts from stats and proficiencies); adds built-in spells, abilities, feats, languages, equipment proficiencies, etc.; and adds access to, or removes access from, options (so, for example, a cleric has access to different spells than a necromancer)
 		- This object needs to allow for more than one condition (ie, if someone is both an Orc AND a Rogue, then maybe they have access to specific Orc x Rogue abilities). This will also allow for leveling (ie, if you are a Rogue && Level 3, then you have the following options to choose from (list out options))
 	- Need a default tab for leveling info (ie, your character's racial/class/origin abilities, ordered by how they interact with your level)
+	DONE (js/render/sheet/levelingModel.js). One shape for every level-gated grant or removal regardless of category:
+	  { id, type, conditions: [...], effect, removalConditions: [...] }
+	with the spec's semantics: keys WITHIN one condition entry are AND'd, entries in the array are OR'd. A bundle's five existing shapes (statModifiers, featureGrants, resourceGrants, choiceGroups, dropdownAccess) all project into it, and the "at a glance" and walkthrough views read the projection.
+	IT IS A PROJECTION, NOT A CONTENT MIGRATION, deliberately. The data already exists in five shapes that each carry their own minLevel. Rewriting them would mean editing every line of compiled content and would put the sourcing gates (docs/SUBCLASS-CONTENT-AUDIT-2026-09.md) at risk - they check exact grant shapes and counts, and a silent bulk rewrite is precisely how unsourced text starts appearing. Every grant still flows through the model and is consumed in the spec's shape; only the source of truth is unchanged. If the content is migrated later this becomes a pass-through.
+	removalConditions is modelled and carried through but nothing populates it yet: no source shape expresses a removal (the only removal-like data today is a pack gate, which is an absence, not a removal condition). The field is honestly empty rather than guessed at.
+	Three real bugs the tests caught, all of which would have shown a player something false: a non-numeric minLevel passed its own gate (10 < NaN is false, so an unevaluable gate now FAILS); upcomingGrantsByLevel filtered to grants active now before looking ahead, so every future grant vanished; and grant ids collided because featureGrants and resourceGrants both project to type "ability".
+	NOT DONE: the two sub-tabs. The walkthrough exists (the guided level guide) and the model now supplies an ordered read for the "at a glance" side, but the two haven't been presented as a sub-tab switcher on the Leveling tab.
 
 Custom Mounts (technically just a custom character page for something else, but the actual information is contained in this character sheet)
 	Although, I guess the user could just create a tab for the mount and put in the full info. Still, I would also like if a given tab could be used to link to another character sheet
 
 Making the site easier for newbies
 - Initial character creation walkthrough
+	DONE already. The Character Setup step wizard (race -> class -> subclass -> background -> abilities -> equipment -> spells -> feats -> review) is the creation walkthrough, and the level-up guide is the per-level one.
 - Walkthrough for each level up
+	DONE already, as the "Leveling" tab's guided guide (renderRulesetLevelGuide): one step per level gained, with per-option context, choices, ASI, new features, HP, notes, and a review before applying.
 - Optional description fields next to elements and blocks (with default text, but this can be edited by the user)
+	DONE. Both fields and blocks carry a hover description on node.tooltip, edited through a "?" control in the node's toolbar, with the native title attribute as the hover surface. The field version existed already; blocks gained the same control and storage, and the shared editor now takes a name/subject so it can describe either without caring which it's editing.
+	Not done: the "with default text" part. No element ships with a default description, because inventing one per starter field would be exactly the unsourced-guessing the sourcing rules (docs/SUBCLASS-CONTENT-AUDIT-2026-09.md) forbid. The field is author-set and optional.
 
 Accessibility
 - Include fonts for people with dyslexia

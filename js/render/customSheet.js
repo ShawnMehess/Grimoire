@@ -6207,6 +6207,13 @@ const closeDialog = () => {
       typeMenuFn: (anchor, onChoose) => openFieldTypeMenu(anchor, onChoose),
       commitFn: (fn, opts) => commitMutation(fn, opts),
       sourceOf: (b) => sourceBlockFor(b),
+      // Same description editor fields use, pointed at the block's name
+      // instead of a field's label.
+      tooltipEditorFn: (b) => openFieldTooltipEditorInto(b, {
+        commitFn: (fn, opts) => commitMutation(fn, opts),
+        subject: "block",
+        nameFn: () => effectiveBlock(b)?.name,
+      }),
       defaultSize: DEFAULT_FIELD_SIZE,
       createFieldFn: (opts) => createField(opts),
       hoverFn: (trigger, bar) => wireHoverToolbar(trigger, bar),

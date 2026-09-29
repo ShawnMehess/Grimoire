@@ -1118,20 +1118,27 @@ export function hasLiveOptionCount(field, liveSlotCounts) {
     && (field.optionsFormula || Object.prototype.hasOwnProperty.call(liveSlotCounts, field.id));
 }
 
-/** Small modal to set/clear one field's hover tooltip
- *  (field.tooltip). Empty + Save clears it back to unset. */
+/** Small modal to set/clear one node's hover description
+ *  (node.tooltip). Empty + Save clears it back to unset.
+ *
+ *  Works for a field or a block: `nameFn` supplies the thing being
+ *  described, because a field is named `label` and a block is named
+ *  `name`, and the editor shouldn't have to care which it's editing. */
 export function openFieldTooltipEditorInto(field, deps) {
-  const { commitFn } = deps;
+  const { commitFn, nameFn = null, subject = "field" } = deps;
+  const nameOf = () => (nameFn ? nameFn() : field.label) || (subject === "block" ? "Block" : "Field");
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   const box = document.createElement("div");
   box.className = "modal-box";
   box.addEventListener("click", (e) => e.stopPropagation());
   const heading = document.createElement("h3");
-  heading.textContent = `Tooltip for "${field.label || "Field"}"`;
+  heading.textContent = `Description for "${nameOf()}"`;
   const copy = document.createElement("p");
   copy.className = "modal-copy";
-  copy.textContent = "Shows when anyone hovers this element. Keep it to what the field is for and how to use it.";
+  copy.textContent = subject === "block"
+    ? "Shows when anyone hovers this block. Keep it to what the block is for and how to fill it in."
+    : "Shows when anyone hovers this element. Keep it to what the field is for and how to use it.";
   const input = document.createElement("input");
   input.type = "text";
   input.className = "input-group__control";

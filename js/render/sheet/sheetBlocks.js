@@ -180,6 +180,7 @@ export function blockHeaderPx(headerRows, cw, gapPx) {
 //   buildBlockToolbarInto(block, wrapperEl, {
 //     styleBtnFn, borderBtnFn, viewOf,
 //     typeMenuFn, commitFn, sourceOf, defaultSize, createFieldFn, hoverFn,
+//     tooltipEditorFn,
 //   })
 
 export function buildBlockToolbarInto(block, wrapperEl, deps) {  const {
@@ -192,6 +193,7 @@ export function buildBlockToolbarInto(block, wrapperEl, deps) {  const {
     defaultSize,
     createFieldFn,
     hoverFn,
+    tooltipEditorFn,
   } = deps;
 
   const bar = document.createElement("div");
@@ -223,6 +225,24 @@ export function buildBlockToolbarInto(block, wrapperEl, deps) {  const {
           : Math.max(1, target.h || 2) - 1;
       }, opts),
     }));
+  }
+
+  // Hover description for the block itself — the same "?" control and the
+  // same storage (node.tooltip) that fields use, so a block and the fields
+  // inside it are described the same way.
+  if (typeof tooltipEditorFn === "function") {
+    const tipBtn = document.createElement("button");
+    tipBtn.type = "button";
+    tipBtn.title = viewOf(block).tooltip
+      ? `Edit description: "${viewOf(block).tooltip}"`
+      : "Set a hover description for this block";
+    tipBtn.textContent = "?";
+    if (viewOf(block).tooltip) tipBtn.className = "active";
+    tipBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      tooltipEditorFn(block);
+    });
+    bar.append(tipBtn);
   }
 
   if (viewOf(block).blockType !== "label") {
@@ -282,6 +302,8 @@ export function renderBlockNodeInto(block, cw, deps) {
   // sort (see applySimpleViewOrder in customSheet.js). Read-only.
   el.dataset.gridX = String(block.x ?? 0);
   el.dataset.gridY = String(block.y ?? 0);
+  // Author-set hover description (toolbar "?" button), same as a field's.
+  if (viewBlock.tooltip) el.title = viewBlock.tooltip;
   if (isEdit) el.tabIndex = 0;
   applyRectFn(el, block, cw);
   applyStyleFn(el, viewBlock.style);

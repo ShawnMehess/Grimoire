@@ -728,6 +728,61 @@ function openTestDialog(host, overrides = {}) {
   assert(noteOnly.effect.includes("+1 to it"), "and its real rules text");
 }
 
+// --- Block hover description ---------------------------------------------
+//
+// Blocks gained the same author-set hover description fields already
+// had. Worth pinning that the toolbar button appears and reflects
+// whether a description is set, since a block that silently lost the
+// control would leave its description uneditable.
+{
+  const blocks = await import("../js/render/sheet/sheetBlocks.js");
+  const build = (block) => {
+    const commits = [];
+    // The toolbar builder BUILDS AND RETURNS its bar; it doesn't append
+    // into the element passed as the wrapper.
+    const bar = blocks.buildBlockToolbarInto(block, document.createElement("div"), {
+      styleBtnFn: () => document.createElement("button"),
+      borderBtnFn: () => document.createElement("button"),
+      viewOf: (b) => b,
+      sourceOf: (b) => b,
+      typeMenuFn: () => {},
+      commitFn: (fn) => { commits.push(fn); fn(); },
+      tooltipEditorFn: () => { bar.dataset.opened = "1"; },
+      defaultSize: () => ({}),
+      createFieldFn: () => ({}),
+      hoverFn: () => {},
+    });
+    return { bar, commits };
+  };
+
+  // The stub DOM's querySelectorAll only understands class selectors, so
+  // find buttons by walking children rather than by tag selector.
+  const buttonsIn = (node) => {
+    const out = [];
+    const walk = (n) => {
+      for (const c of n.children || []) {
+        if (c.tag) out.push(c);
+        walk(c);
+      }
+    };
+    walk(node);
+    return out;
+  };
+
+  const plain = build({ id: "b1", kind: "block", blockType: "stat", name: "Combat" });
+  const tipBtn = buttonsIn(plain.bar).find((b) => b.textContent === "?");
+  assert(!!tipBtn, "a block's toolbar has a description button");
+  assert(tipBtn.title.includes("Set a hover description"), "and it offers to set one");
+  assert(tipBtn.className !== "active", "unset reads as inactive");
+
+  const described = build({ id: "b2", kind: "block", blockType: "stat", name: "Combat", tooltip: "Rolls and attacks." });
+  const setBtn = buttonsIn(described.bar).find((b) => b.textContent === "?");
+  assert(setBtn.className === "active", "a set description reads as active");
+  assert(setBtn.title.includes("Rolls and attacks."), "and its title shows the text");
+  setBtn.click();
+  assert(described.bar.dataset.opened === "1", "clicking it opens the editor");
+}
+
 if (failures) {
   console.error(`smoke-dom: ${failures} failure(s)`);
   process.exit(1);
