@@ -116,6 +116,13 @@ const CHOICE_REVIEW = {
     ["Oath spells (all 9 oaths)", "done", "build", "level-gated grants + computed Oath Spells line"],
     ["Channel Divinity options", "by-design", "playTime", "chosen when used, not a permanent subclass-build selection"],
   ],
+  Ranger: [
+    ["Hunter's Prey", "done", "build", "real group (category features, level 3)"],
+    ["Hunter follow-up selections (7th/15th)", "gaps", "levelUp", "tactic/defense option lists unsourced"],
+    ["Beast Master companion", "gaps", "build", "needs a deliberate pet/companion data model, not a text field"],
+    ["Drakewarden companion customization", "gaps", "levelUp", "needs a deliberate pet/companion data model, not a text field"],
+    ["Hunter variant focuses (Beast/Slayer/Deep Stalker)", "done", "build", "input-derived group (category features, level 3); companion mechanics still need the pet model"],
+  ],
 };
 
 let total = 0;

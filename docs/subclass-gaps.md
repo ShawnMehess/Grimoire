@@ -71,6 +71,14 @@ Regenerate (never hand-edit the list below):
 - Oath spells (all 9 oaths) — done (choiceKind build): level-gated grants + computed Oath Spells line.
 - Channel Divinity options — by-design (choiceKind playTime): chosen when used, not a permanent subclass-build selection.
 
+### Ranger
+
+- Hunter's Prey — done (choiceKind build): real group (category features, level 3).
+- Hunter follow-up selections (7th/15th) — gaps (choiceKind levelUp): tactic/defense option lists unsourced.
+- Beast Master companion — gaps (choiceKind build): needs a deliberate pet/companion data model, not a text field.
+- Drakewarden companion customization — gaps (choiceKind levelUp): needs a deliberate pet/companion data model, not a text field.
+- Hunter variant focuses (Beast/Slayer/Deep Stalker) — done (choiceKind build): input-derived group (category features, level 3); companion mechanics still need the pet model.
+
 ## Artificer
 
 ### Alchemist
