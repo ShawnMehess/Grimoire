@@ -681,6 +681,27 @@
   min-height: 1.3em;
 }
 
+/* Hide the editing chrome. Simple View is a read-only display mode, so a
+   hovered node's toolbar or a drag handle left on screen would invite an
+   edit the mode can't record (undo is per-character, and the layout isn't
+   a grid here). `!important` is load-bearing: .node-toolbar.is-visible
+   sets display:flex on hover, and a hovered node in Simple View would
+   otherwise still show its toolbar. e2e-smoke.mjs asserts this against a
+   real browser, forcing the hover class on first so the check isn't
+   passing merely because the toolbar is hidden by default.
+   Descendant-scoped rather than a bare `button { display: none }`, which
+   would leak outside this mode - the thing scripts/check-imports.mjs
+   exists to catch. */
+.page-grid.is-simple .node-toolbar,
+.page-grid.is-simple .drag-handle,
+.page-grid.is-simple .resize-handle,
+.page-grid.is-simple .grid-lines,
+.page-grid.is-simple .block-toolbar,
+.page-grid.is-simple .field-toolbar,
+.page-grid.is-simple .group-toolbar {
+  display: none !important;
+}
+
 
 /* --- Field internal layout: label position variants --- */
 

@@ -109,20 +109,75 @@ async function runViewportTests(viewport) {
     console.log(`${cond ? "ok" : "FAIL"} [${viewport.name}]: ${msg}`);
   };
 
-  // A: demo sheet (mock store) — toolbar, Play View toggle, print dialog.
+  // A: demo sheet (mock store) — toolbar, Simple View toggle, print dialog.
   await page.goto(`${base}/demo.html`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1200);
   check(await page.$(".sheet-toolbar"), "demo sheet toolbar renders (no aborted render)");
-  const playBtn = await page.$("button:has-text('Play View')");
-  check(!!playBtn, "demo Play View toggle exists");
+  // Was "Play View" / .page-grid.play-mode, which turned out to be a
+  // half-dead toggle: its CSS styled class names that no longer exist, so
+  // the class it set did nothing beyond the editor-chrome hiding. Replaced
+  // by a real stacked display mode under the spec's own "Simple View"
+  // name. The assertions below are unchanged in substance — same toggle,
+  // same engage/restore, same overflow check.
+  const playBtn = await page.$("button:has-text('Simple View')");
+  check(!!playBtn, "demo Simple View toggle exists");
   if (playBtn) {
     await playBtn.click();
     await page.waitForTimeout(400);
-    check(await page.$(".page-grid.play-mode"), "demo Play View mode engages");
-    await page.screenshot({ path: path.join(shotDir, `play-view-${viewport.name}.png`) });
+    check(await page.$(".page-grid.is-simple"), "demo Simple View mode engages");
+    // Simple View is a read-only display mode, so the editing chrome has
+    // to actually be gone. It was silently lost once already, when the
+    // half-dead Play View rules it inherited were deleted with them - the
+    // toggle still "engaged", it just left a hovered node's toolbar on
+    // screen inviting edits the mode can't record.
+    //
+    // The toolbar is display:none by default and only shown via .is-visible
+    // (set on hover), so a bare "is it hidden?" check would pass for the
+    // wrong reason and prove nothing. Force the hover state on first, then
+    // assert Simple View overrides it - which is exactly the rule that
+    // regressed.
+    const chrome = await page.evaluate(() => {
+      const toolbar = document.querySelector(".grid-node .node-toolbar");
+      if (!toolbar) return { ok: false, reason: "no toolbar in the document" };
+      toolbar.classList.add("is-visible");
+      return { ok: true, withMode: getComputedStyle(toolbar).display };
+    });
+    check(chrome.ok, `found a node toolbar to test${chrome.reason ? ` (${chrome.reason})` : ""}`);
+    if (chrome.ok) {
+      // Sanity: the hover state really does show it, otherwise the test
+      // below is measuring nothing again.
+      const hoverShows = await page.evaluate(() => {
+        const outside = document.createElement("div");
+        const bar = document.createElement("div");
+        bar.className = "node-toolbar is-visible";
+        outside.append(bar);
+        document.body.append(outside);
+        const display = getComputedStyle(bar).display;
+        outside.remove();
+        return display;
+      });
+      check(hoverShows !== "none", `hover alone shows a node toolbar (control check, got ${hoverShows})`);
+      check(chrome.withMode === "none", `Simple View hides it even while hovered (got ${chrome.withMode})`);
+    }
+    const nodes = await page.evaluate(() => {
+      const all = [...document.querySelectorAll(".grid-node")];
+      const ordered = all.filter((n) => n.style.order);
+      return {
+        total: all.length,
+        withKey: ordered.length,
+        keysAgree: ordered.every((n) => Number(n.style.order) === Number(n.dataset.gridY) * 16 + Number(n.dataset.gridX)),
+      };
+    });
+    check(nodes.withKey > 0, `Simple View stamps sort keys (${nodes.withKey} of ${nodes.total} nodes)`);
+    check(nodes.keysAgree, "Simple View sort keys are row-then-column, not DOM order");
+    await page.screenshot({ path: path.join(shotDir, `simple-view-${viewport.name}.png`) });
     await playBtn.click();
     await page.waitForTimeout(400);
-    check(!(await page.$(".page-grid.play-mode")), "demo Sheet View restores");
+    check(!(await page.$(".page-grid.is-simple")), "demo Sheet View restores");
+    // And the sort keys must be gone again — they live only on the DOM,
+    // so a stale one would reorder the grid the next time it's painted.
+    const stale = await page.evaluate(() => [...document.querySelectorAll(".grid-node")].filter((n) => n.style.order).length);
+    check(stale === 0, `Sheet View clears Simple View's sort keys (${stale} left)`);
   }
   // Print dialog opens, previews, and closes via Escape.
   // NOTE: the Display control is a <details>/<summary>, not a button.
@@ -144,12 +199,15 @@ async function runViewportTests(viewport) {
     }
   }
 
-  // Play View overflow check at mobile viewport
-  if (viewport.name === "mobile") {
+  // Simple View overflow check at mobile viewport. Guarded on playBtn:
+  // if the toggle is missing the check above has already failed, and
+  // clicking null here would throw and take every later check down with
+  // it instead of reporting them.
+  if (viewport.name === "mobile" && playBtn) {
     await playBtn.click();
     await page.waitForTimeout(400);
     const overflow = await page.evaluate(() => {
-      const grid = document.querySelector(".page-grid.play-mode");
+      const grid = document.querySelector(".page-grid.is-simple");
       if (!grid) return { hasOverflow: true, reason: "no grid" };
       return {
         hasOverflow: grid.scrollWidth > grid.clientWidth,
@@ -157,7 +215,7 @@ async function runViewportTests(viewport) {
         clientWidth: grid.clientWidth,
       };
     });
-    check(!overflow.hasOverflow || overflow.scrollWidth - overflow.clientWidth <= 5, `Play View has minimal horizontal overflow at ${viewport.width}px (scrollWidth: ${overflow.scrollWidth}, clientWidth: ${overflow.clientWidth}, diff: ${overflow.scrollWidth - overflow.clientWidth}px)`);
+    check(!overflow.hasOverflow || overflow.scrollWidth - overflow.clientWidth <= 5, `Simple View has minimal horizontal overflow at ${viewport.width}px (scrollWidth: ${overflow.scrollWidth}, clientWidth: ${overflow.clientWidth}, diff: ${overflow.scrollWidth - overflow.clientWidth}px)`);
     await playBtn.click();
     await page.waitForTimeout(400);
   }

@@ -121,31 +121,15 @@ for (const file of cssFiles) {
   }
   // Strip @media print blocks (one nesting level: selector { decls }),
   // then a bare-button display:none left over is global — fail loudly.
-  // Also strip @media print-like blocks for Play View (which also hides buttons
-  // but is not a print context — it's a legitimate screen-mode feature).
-  let withoutPrint = src
+  //
+  // Screen-mode rules are NOT stripped: they must be descendant-scoped to
+  // their mode, and a rule that reads as a global `button { display: none }`
+  // is the failure this catches. (An earlier version stripped every
+  // .page-grid.play-mode block wholesale to let that mode hide buttons;
+  // it was removed with the half-dead Play View mode itself.)
+  const withoutPrint = src
     .replace(/@media\s+print\s*\{((?:[^{}]|\{[^{}]*\})*)\}/g, "")
     .replace(/@media\s*\([^)]*\)\s*\{((?:[^{}]|\{[^{}]*\})*)\}/g, "");
-  // Remove all .page-grid.play-mode selector blocks (they can span multiple rules)
-  while (true) {
-    const idx = withoutPrint.indexOf(".page-grid.play-mode");
-    if (idx === -1) break;
-    // Find the end of this selector block
-    let depth = 0;
-    let start = -1;
-    for (let i = idx; i < withoutPrint.length; i++) {
-      if (withoutPrint[i] === "{") {
-        if (depth === 0) start = i;
-        depth++;
-      } else if (withoutPrint[i] === "}") {
-        depth--;
-        if (depth === 0) {
-          withoutPrint = withoutPrint.slice(0, idx) + withoutPrint.slice(i + 1);
-          break;
-        }
-      }
-    }
-  }
   if (/(^|[,{\s])button\s*\{[^}]*display\s*:\s*none/.test(withoutPrint)) {
     cssErrors.push(`${file}: bare 'button { display: none }' outside @media print`);
   }

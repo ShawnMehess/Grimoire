@@ -408,11 +408,11 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(accepted === null, "feat dialog writes nothing before accept");
 }
 
-// --- Toolbar shell: Play View insertion point -----------------------------
+// --- Toolbar shell: Simple View insertion point -------------------------------
 {
   const shell = await import("../js/render/sheet/sheetToolbar.js");
   const { toolbar, leftGroup, modeBtn } = shell.buildToolbarShell();
-  // Regression guard: customSheet inserts the Play View button before
+  // Regression guard: customSheet inserts the Simple View button before
   // modeBtn — that only works against modeBtn's actual parent. It once
   // targeted `toolbar` instead of `leftGroup`, throwing NotFoundError
   // and aborting the whole sheet render (blank creator for new chars).

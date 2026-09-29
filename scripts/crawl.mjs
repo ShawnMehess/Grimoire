@@ -351,10 +351,12 @@ if (wizardGone && toolbarVisible) {
     const id = await page.locator(".sheet-tab[data-tab-id]").nth(i).getAttribute("data-tab-id").catch(() => "?");
     await sweep("sheet", `tab ${id}`, () => page.locator(".sheet-tab[data-tab-id]").nth(i).click({ timeout: 5000 }));
   }
-  // Play View toggle round-trip.
-  if (await page.$(".sheet-toolbar button:has-text('Play View')")) {
-    await act("sheet", "Play View on", () => click(".sheet-toolbar button:has-text('Play View')", 5000));
-    await sweep("sheet", "Play View off", () => click(".sheet-toolbar button:has-text('Sheet View')", 5000));
+  // Simple View toggle round-trip. (Was "Play View", a half-dead mode
+  // whose CSS targeted class names that no longer existed; replaced by the
+  // real stacked display mode under the spec's own name.)
+  if (await page.$(".sheet-toolbar button:has-text('Simple View')")) {
+    await act("sheet", "Simple View on", () => click(".sheet-toolbar button:has-text('Simple View')", 5000));
+    await sweep("sheet", "Simple View off", () => click(".sheet-toolbar button:has-text('Sheet View')", 5000));
   }
   // Display panel controls (open dialog via Print, then Escape — never
   // actually print).
@@ -379,7 +381,7 @@ if (wizardGone && toolbarVisible) {
     const label = ((await loc.textContent().catch(() => "")) || "").trim().slice(0, 24);
     const title = ((await loc.getAttribute("title").catch(() => "")) || "");
     if (/delete|remove|trash|clear/i.test(label + " " + title)) continue;
-    if (/^(Play View|Sheet View)$/.test(label)) continue; // already covered
+    if (/^(Simple View|Sheet View)$/.test(label)) continue; // already covered
     await sweep("sheet", `toolbar ${label || title || "?"}`, () => page.locator(sel).nth(i).click({ timeout: 5000 }));
     await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
