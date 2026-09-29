@@ -4,7 +4,7 @@
 // customSheet.js owns DOM + commitMutation; it delegates array/set math
 // here so the rules live in one testable place with no DOM dependency.
 
-import { hideToggleBtnInto } from "./sheetStyles.js";
+import { hideToggleBtnInto, labelToggleBtnInto } from "./sheetStyles.js";
 import { humanizeGameText, splitAbilityTokens, abilityTooltip } from "./sheetMechanics.js";
 
 // --- Field node DOM ---------------------------------------------------------
@@ -289,6 +289,17 @@ export function renderFieldInnerInto(fieldEl, field, parentBlock, deps) {
   // "label" and "picture" fields are just one element filling the
   // whole box — no separate caption/value split.
   if (captionlessTypes.has(field.fieldType)) {
+    const valueEl = buildValueFn(field, () => {});
+    inner.append(valueEl);
+    fieldEl.prepend(inner);
+    return null;
+  }
+
+  // The Label element has been deleted (see labelToggleBtnInto). The
+  // value still expands to fill the whole box — the field keeps its
+  // `label` string for formulas, the LHS list, and the character card.
+  // `undefined` means "not yet chosen", so only an explicit false hides it.
+  if (field.showLabel === false) {
     const valueEl = buildValueFn(field, () => {});
     inner.append(valueEl);
     fieldEl.prepend(inner);
@@ -1225,6 +1236,14 @@ export function buildFieldToolbarInto(field, parentBlock, wrapperEl, deps) {
       cycleFn(field, parentBlock, wrapperEl);
     });
     bar.append(cycleLabelBtn);
+  }
+
+  // Delete / restore the Label element itself. Sits outside the
+  // captionless check on purpose: a textlist or dropdown still HAS a
+  // label, it's just not a separate caption box - so it can be removed
+  // too. (A label-type field has no caption to remove, hence no button.)
+  if (!captionlessTypes.has(field.fieldType)) {
+    bar.append(labelToggleBtnInto(field, { commitFn }));
   }
 
   if (field.fieldType === "dropdown") {

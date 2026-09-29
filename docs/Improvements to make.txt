@@ -2,6 +2,8 @@ UI Polish - Stat elements
 - Replace the default, hard-coded block label with a "Label" element
 - Replace the default, hard-coded label for Num Fields with a label element
 - All elements need to have a label element attached to them by default. This label element must be able to be deleted
+	DONE. Every field and block ships with a Label element, and a toolbar button (A) deletes or restores it. Deleting is a rendering choice only, not a rename: the field keeps its `label` string, because that string is also its formula variable name, its name in the LHS list, and the name you drag onto the character card -- removing the element must not orphan any of those. So the value simply expands to fill the box the caption vacated. A deleted block name hands its reserved header row (BLOCK_HEADER_ROWS) back to the body, and the stored `h` moves with it so the footprint stays true. A node saved before this existed has no `showLabel` property and reads as "has a label", so no existing sheet silently loses one.
+	Scope note: the Label is a child element inside its field's box, not an independent node on the grid. That was a deliberate call -- an independent node would compete for grid space, force a migration of every starter field's coordinates, and break the label-as-formula-name identity. A "detach to grid" action could be added later without changing any of this.
 
 UI Polish - LHS List
 - In the LHS list, make the default name of an unnamed element be whatever that element type is
@@ -12,29 +14,36 @@ UI Polish - Selections
 - Include the little icon, from the Add Element menu, that corresponds with the type of element, to the LHS list (so, for example, if the user places a checkbox, there should also be a checkbox icon for that checkbox element in the LHS list)
 - When actively dragging around something, it needs to show the selection color even if the mouse isn't hovering over it
 - Add a field to the Style sub-menu that lets the user select the color of the border
+	DONE. Selection is an outline offset past the element's own border rather than a border-color change, so the border and the selection are visible at the same time (previously they were mutually exclusive - one replaced the other). Uses outline rather than box-shadow because the node's box-shadow is already spoken for by the elevation tokens, and outline follows border-radius on its own. New --selection-width / --selection-gap tokens. A side effect is that .border-hidden no longer needs a compound .is-selected override to punch a selection through a hidden border, since the outline is drawn outside it either way. The LHS list already showed type icons and fell back to the element type for unnamed entries; the Style sub-menu already had a border-color field; and hover/drag/resize already kept selection visible.
 
 UI Polish - Num fields and Labels
 - Text in Num Fields and Labels need to be horizontally and vertically center-aligned
 - Even when Num Fields or Labels are empty, the cursor needs to be horizontally and vertically center-aligned
 - Num Fields and Labels' sizes need to be kept constant regardless of if there is text in the field or not (although, come to think of it, simply changing their built-in labels to a Label element might fix this on its own). Typing more than the label can show should expand the label out
 - Pressing return in a label should add another line. Allow word-wrapping (but do not break individual words to wrap. Widen the label if necessary)
+	DONE. Centering (including the empty-state caret, which needed the column-flex fix) and the stable reserved size were already in place, as was widening the field a grid cell at a time when a label overflows. Two changes here: Enter now adds a line with Escape as the way out, where it used to be Enter-blurs / Shift+Enter-breaks; and wrapping breaks between words but never inside one (overflow-wrap/word-break normal, not the `anywhere` the textarea uses), so a word too long for its cell still overflows and trips the existing widen-the-field path.
+	That surfaced a latent bug: a contenteditable div stores a hard break as a <br>, and textContent reads a <br> as nothing, so a second line would have silently run into the first the moment it saved. Labels now persist as plain \n-separated text (labelElToText / labelTextFromEl, exact inverses), and the duplicate-label check on blur compares only the first line, since that is the part that names a field for formulas and dragging.
 
 UI Polish - Styling Menu
 - Remove the text beside the Add Background button that says the name of the file loaded (or if nothing has been loaded). It's plainly obvious what, if anything, has been loaded
 - Make 'Bg image' --> 'BG Image' and 'Text color' --> 'Text Color'
 - Make sure all buttons and fields are vertically centered with respect to their labels on the left-hand side of the hover menu
 - Put a horizontal line separator between the fields that deal with the background, text, and hover selection color
+	Already done. The BG Image row uses a plain file input with no filename text beside it, the two labels are already title-cased, .style-popover__row is a grid with align-items:center so every control lines up with its label, and separators already sit between the background, text, and border/selection groups.
 
 UI Polish - Sizing
 - Make it so elements do not stretch past their block. They should be fully contained with their block/grouping
+	Already done. Growth on label overflow clamps to the parent block, and drag/resize position is clamped by clampPos/dragPos against the parent bounds.
 
 UI Polish - Resizing grab handles
 - Make sure the resizing grab handles are behind whatever menus should open in front of them
 - Add in resizing grab handles for all 4 corners
+	Already done. All four corners exist (.resize-handle--tl/tr/bl/br) and the style popover is pinned at z-index 200, well above the handles' 5.
 
 UI Polish - Moving elements
 - Allow elements to be dragged outside of their stat block, however do not allow them to be placed outside of their stat block (they should just stay where they originally were when the user grabbed them). This is intended for things like dragging over to the LHS list, to the top toolbar to be featured in the character block on the character selection screen, and to be dragged into other menus as needed
 - Draw a ghost of an element or block when it is being moved
+	Already done. A drag ghost renders with valid/invalid states, and the drop position is clamped to the parent block, so an element can be dragged anywhere on screen but can only ever come to rest inside its block.
 
 Useability/Portability
 - Format a page to be printed. Ask the user which tabs to print

@@ -39,6 +39,13 @@ function makeNode(tag) {
       return this;
     },
     appendChild(k) { return this.append(k); },
+    prepend(...kids) {
+      const kept = this.children.filter((c) => !kids.flat().includes(c));
+      this.children = [];
+      this.append(...kids);
+      this.children.push(...kept);
+      return this;
+    },
     insertBefore(k, ref) {
       if (k === null || k === undefined || k === false) return k;
       // Real DOM throws when the reference node isn't a child —
@@ -562,6 +569,116 @@ function openTestDialog(host, overrides = {}) {
   assert(!!link && link.textContent.includes("Choose 2"), "choice summary itself is the link");
   (link.listeners.click || []).forEach((f) => f({ target: link, preventDefault() {}, stopPropagation() {} }));
   assert(opened === 1, "summary link opens the shared dialog");
+}
+
+// --- Label element: every field/block has one, and it can be deleted -------
+//
+// The Label is a real element, but deleting it is a rendering choice only:
+// the field keeps its `label` string, which is also its formula variable
+// name, its name in the LHS list, and the name you drag onto the character
+// card. These checks pin both halves — the element goes away, the identity
+// stays.
+{
+  const styles = await import("../js/render/sheet/sheetStyles.js");
+
+  // Toggling flips showLabel and reports which way it went.
+  const field = { label: "Armor Class", showLabel: true };
+  let committed = 0;
+  const btn = styles.labelToggleBtnInto(field, { commitFn: (fn) => { committed++; fn(); } });
+  assert(btn.title.includes("Delete"), "label toggle offers to delete when the label is shown");
+  btn.click();
+  assert(committed === 1 && field.showLabel === false, "clicking the label toggle deletes the element");
+  assert(field.label === "Armor Class", "deleting the Label element keeps the field's name for formulas/character card");
+
+  const gone = styles.labelToggleBtnInto(field, { commitFn: (fn) => fn() });
+  assert(gone.className === "active", "a deleted label reads as active on its toggle");
+  assert(gone.title.includes("Restore"), "label toggle offers to restore when the label is deleted");
+  gone.click();
+  assert(field.showLabel === true, "clicking again restores the label element");
+
+  // A field saved before this control existed has no showLabel property at
+  // all; that must read as "has a label", not "label was deleted".
+  const legacy = { label: "Speed" };
+  const legacyBtn = styles.labelToggleBtnInto(legacy, { commitFn: (fn) => fn() });
+  assert(legacyBtn.title.includes("Delete"), "a node with no showLabel property still shows its label");
+  legacyBtn.click();
+  assert(legacy.showLabel === false, "first click on a legacy node deletes rather than restores");
+
+  // Block wording differs from field wording, since a block's label is
+  // its name.
+  const block = { name: "Combat", showLabel: true };
+  const blockBtn = styles.labelToggleBtnInto(block, { commitFn: (fn) => fn(), isBlock: true });
+  assert(blockBtn.title.includes("name"), "block toggle talks about the name");
+
+  // The renderer honors the flag: no .field-label element, and the value
+  // takes the whole box.
+  const fields = await import("../js/render/sheet/sheetFields.js");
+  const renderField = (f) => {
+    const el = document.createElement("div");
+    fields.renderFieldInnerInto(el, f, { w: 4, h: 1 }, {
+      captionlessTypes: new Set(["label", "picture"]),
+      buildValueFn: (field) => {
+        const v = document.createElement("div");
+        v.className = "field-value";
+        return v;
+      },
+      commitFn: () => {},
+      frameFn: () => {},
+      visibilityFn: () => {},
+      growFn: () => {},
+      ghostFn: () => {},
+      labelInUseFn: () => false,
+      toastFn: () => {},
+      moneyFn: () => {},
+    });
+    return el;
+  };
+  const withLabel = renderField({ id: "a", fieldType: "text", label: "HP" });
+  assert(!!withLabel.querySelector(".field-label"), "a field renders its Label element by default");
+  const noLabel = renderField({ id: "b", fieldType: "text", label: "HP", showLabel: false });
+  assert(noLabel.querySelector(".field-label") === null, "a deleted Label element is not rendered");
+  assert(!!noLabel.querySelector(".field-value"), "the value still renders after the label is deleted");
+
+  // And the same for a block header.
+  const blocks = await import("../js/render/sheet/sheetBlocks.js");
+  const renderBlock = (b) => {
+    // renderBlockNodeInto BUILDS AND RETURNS the node; it doesn't append
+    // into a container, so the return value is what gets inspected.
+    return blocks.renderBlockNodeInto(b, 40, {
+      viewOf: (n) => n,
+      sourceOf: (n) => n,
+      isEdit: true,
+      gapPx: 4,
+      headerRows: 1,
+      applyRectFn: () => {},
+      applyStyleFn: () => {},
+      ghostFn: () => {},
+      ownTextFn: () => {},
+      dragHandleFn: () => {},
+      resizeHandleFn: () => {},
+      toolbarFn: () => {},
+      fieldNodeFn: () => document.createElement("div"),
+      styleBtnFn: () => document.createElement("button"),
+      borderBtnFn: () => document.createElement("button"),
+      typeMenuFn: () => {},
+      commitFn: (fn) => fn(),
+      createFieldFn: () => ({}),
+      hoverFn: () => {},
+      defaultSize: () => ({}),
+      frameFn: () => {},
+      persistFn: () => {},
+      renderAllFn: () => {},
+      dragFn: () => {},
+      resizeFn: () => {},
+      onSelectBlockOrField: () => {},
+    });
+  };
+  const named = renderBlock({ id: "blk", kind: "block", blockType: "stat", name: "Combat", x: 0, y: 0, w: 2, h: 2, children: [] });
+  assert(!!named.querySelector(".block-name"), "a block renders its name element by default");
+  const unnamed = renderBlock({ id: "blk2", kind: "block", blockType: "stat", name: "Combat", showLabel: false, x: 0, y: 0, w: 2, h: 1, children: [] });
+  assert(unnamed.querySelector(".block-name") === null, "a deleted block name is not rendered");
+  const body = unnamed.querySelector(".block-body");
+  assert(body && body.style.top === "0px", "the body takes the row the deleted name vacated");
 }
 
 if (failures) {

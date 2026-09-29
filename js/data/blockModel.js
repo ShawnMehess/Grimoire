@@ -216,6 +216,14 @@ function createNode(overrides) {
     // Hidden in play mode (calc-only fields for online play) — always
     // visible while editing (ghosted) and in print.
     hidden: false,
+    // Whether this node's Label element is shown. Every field and block
+    // ships with one (see labelToggleBtnInto in sheetStyles.js for the
+    // delete/restore control); `true` is the default, stored explicitly
+    // so an existing saved sheet — which has no such property — reads as
+    // "has a label" rather than silently losing it. Deleting the element
+    // is a rendering choice only: `label`/`name` still names the field
+    // for formulas, the LHS list, and the character card.
+    showLabel: true,
     style: defaultStyle(),
     x: 0, y: 0, w: 3, h: 2,
     ...overrides,

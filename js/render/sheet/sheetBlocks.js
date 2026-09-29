@@ -5,7 +5,7 @@
 
 import { buildLabelValueInto } from "./sheetFields.js";
 import { previewForType, personIconSvgMarkup } from "./sheetFields.js";
-import { hideToggleBtnInto } from "./sheetStyles.js";
+import { hideToggleBtnInto, labelToggleBtnInto } from "./sheetStyles.js";
 
 export function resolveSourceBlock(block, globalLayout = []) {
   if (!block?.sourceBlockId) return block;
@@ -200,6 +200,30 @@ export function buildBlockToolbarInto(block, wrapperEl, deps) {  const {
   bar.append(styleBtnFn(block, wrapperEl));
   bar.append(borderBtnFn(block, wrapperEl));
   bar.append(hideToggleBtnInto(block, { commitFn }));
+  if (viewOf(block).blockType !== "label") {
+    // Deleting the name hands its reserved row back to the body, so the
+    // stored `h` has to move with it — `h` is documented as the node's
+    // TRUE total footprint (see BLOCK_HEADER_ROWS), and everything else
+    // (body offset, resize minimum, the L1 growth in blockModel.js) reads
+    // it as such. Done inside the same commit so the flag and the height
+    // can never disagree, and so it's one undo step.
+    bar.append(labelToggleBtnInto(block, {
+      isBlock: true,
+      commitFn: (fn, opts) => commitFn(() => {
+        const target = sourceOf(block);
+        const wasShown = target.showLabel !== false;
+        fn();
+        const isShown = target.showLabel !== false;
+        if (wasShown === isShown) return;
+        // Never below one row, so deleting the name off a 1-row block
+        // can't leave it with no content, and restoring one grows the
+        // block rather than stealing the body's only row.
+        target.h = isShown
+          ? Math.max(1, target.h || 1) + 1
+          : Math.max(1, target.h || 2) - 1;
+      }, opts),
+    }));
+  }
 
   if (viewOf(block).blockType !== "label") {
     const addFieldBtn = document.createElement("button");
@@ -301,7 +325,16 @@ export function renderBlockNodeInto(block, cw, deps) {
     return el;
   }
 
-  const headerPx = blockHeaderPx(headerRows, cw, gapPx);
+  // A block's declared `h` reserves one row at the top for its name
+  // (see BLOCK_HEADER_ROWS in blockModel.js). When the name element has
+  // been deleted that row goes back to the body, so the effective header
+  // height is 0 and the body starts at the very top. The matching `h`
+  // change happens where the toggle is handled (see the commit wrapper in
+  // renderBlockNodeInto's toolbar), so the stored footprint always equals
+  // the true one — this only reads it.
+  const nameShown = viewBlock.showLabel !== false;
+  const effHeaderRows = nameShown ? headerRows : 0;
+  const headerPx = blockHeaderPx(effHeaderRows, cw, gapPx);
 
   // .block-body sits flush against the inside of this block's own
   // border (it's absolutely positioned with left/right/bottom: 0,
@@ -320,29 +353,33 @@ export function renderBlockNodeInto(block, cw, deps) {
   // Block headers render through the same Label-element builder as
   // label-type fields (same look, editing, and ghost behavior) —
   // the text still lives on block.name, so every name lookup keeps
-  // working unchanged.
-  const nameEl = document.createElement("div");
-  nameEl.className = "block-name";
-  nameEl.style.height = `${headerPx}px`;
-  const nameField = { value: viewBlock.name || "" };
-  const nameLabelEl = buildLabelValueInto(nameField, {
-    commitFn: (fn, opts) => {
-      fn();
-      commitFn(() => {
-        sourceOf(block).name = nameField.value;
-      }, opts);
-      nameEl.title = nameField.value;
-      frameFn();
-    },
-    ghostFn: (labelEl, _defaultText, commit) => ghostFn(labelEl, "New Block", commit),
-  });
-  nameEl.title = viewBlock.name;
-  nameEl.append(nameLabelEl);
-  el.append(nameEl);
+  // working unchanged. Deleted name -> no element at all, and the body
+  // moves up into the row it vacated.
+  if (nameShown) {
+    const nameEl = document.createElement("div");
+    nameEl.className = "block-name";
+    nameEl.style.height = `${headerPx}px`;
+    const nameField = { value: viewBlock.name || "" };
+    const nameLabelEl = buildLabelValueInto(nameField, {
+      commitFn: (fn, opts) => {
+        fn();
+        commitFn(() => {
+          sourceOf(block).name = nameField.value;
+        }, opts);
+        nameEl.title = nameField.value;
+        frameFn();
+      },
+      ghostFn: (labelEl, _defaultText, commit) => ghostFn(labelEl, "New Block", commit),
+    });
+    nameEl.title = viewBlock.name;
+    nameEl.append(nameLabelEl);
+    el.append(nameEl);
+  }
 
   const body = document.createElement("div");
   body.className = "block-body";
-  body.style.top = `${headerPx + gapPx}px`;
+  // With no header there's no gap to leave below it either.
+  body.style.top = nameShown ? `${headerPx + gapPx}px` : "0px";
   // Grid lines for this body are applied once it's actually in the
   // DOM — see the post-append pass at the end of renderPageGrid.
   el.append(body);
@@ -360,7 +397,9 @@ export function renderBlockNodeInto(block, cw, deps) {
   dragFn(el, block, cw, () => renderAllFn());
   resizeFn(el, block, cw, {
     minW: 1,
-    minH: headerRows + 1,
+    // One row of header (when the name is showing) plus at least one row
+    // of body, so a block can never be resized to zero content.
+    minH: effHeaderRows + 1,
     onCommit: () => {
       persistFn();
       renderAllFn();

@@ -166,6 +166,39 @@ export function hideToggleBtnInto(node, { commitFn }) {
   return btn;
 }
 
+/** The Label element's delete/restore control — present on every field
+ *  and every block, since each ships with a Label by default.
+ *
+ *  Removing the Label is a rendering decision, NOT a rename: the field
+ *  keeps its `label` string, because that string is also its formula
+ *  variable name, the name shown in the LHS list, and the name you drag
+ *  onto the character card. Deleting the element must not orphan any of
+ *  those. So this toggles `showLabel`, and the value simply expands to
+ *  fill the box the caption vacated.
+ *
+ *  `hidden` rather than an absent property, so a node that predates this
+ *  control keeps its Label instead of silently losing it on load.
+ *  Takes { commitFn, isBlock } — re-render comes from the commit. */
+export function labelToggleBtnInto(node, { commitFn, isBlock = false } = {}) {
+  const what = isBlock ? "name" : "label";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  const shown = node.showLabel !== false;
+  const describe = (on) => (on
+    ? `Delete this ${what} (the element goes away; the name is kept for formulas and the character card)`
+    : `Restore this ${what} element`);
+  btn.title = describe(shown);
+  btn.textContent = "🅰";
+  if (!shown) btn.className = "active";
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    commitFn(() => {
+      node.showLabel = node.showLabel === false;
+    });
+  });
+  return btn;
+}
+
 export const FONT_OPTIONS = [
   ["", "Theme Default"],
   ["var(--font-body)", "Body"],
