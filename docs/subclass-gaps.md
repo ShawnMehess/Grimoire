@@ -60,6 +60,17 @@ Regenerate (never hand-edit the list below):
 - Eldritch Knight cantrips/spells — done (choiceKind build): chosen in the Spells step; grant carries third-caster context (minLevel 3).
 - Rune Knight runes — gaps (choiceKind levelUp): rune option list unsourced.
 
+### Monk
+
+- Four Elements disciplines — gaps (choiceKind levelUp): discipline option list unsourced.
+- Kensei weapons — gaps (choiceKind build): weapon option list unsourced.
+- Damage-type/target decisions on use — by-design (choiceKind playTime): chosen when the ability is used, never a saved build pick.
+
+### Paladin
+
+- Oath spells (all 9 oaths) — done (choiceKind build): level-gated grants + computed Oath Spells line.
+- Channel Divinity options — by-design (choiceKind playTime): chosen when used, not a permanent subclass-build selection.
+
 ## Artificer
 
 ### Alchemist

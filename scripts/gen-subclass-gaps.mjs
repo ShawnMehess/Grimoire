@@ -107,6 +107,15 @@ const CHOICE_REVIEW = {
     ["Eldritch Knight cantrips/spells", "done", "build", "chosen in the Spells step; grant carries third-caster context (minLevel 3)"],
     ["Rune Knight runes", "gaps", "levelUp", "rune option list unsourced"],
   ],
+  Monk: [
+    ["Four Elements disciplines", "gaps", "levelUp", "discipline option list unsourced"],
+    ["Kensei weapons", "gaps", "build", "weapon option list unsourced"],
+    ["Damage-type/target decisions on use", "by-design", "playTime", "chosen when the ability is used, never a saved build pick"],
+  ],
+  Paladin: [
+    ["Oath spells (all 9 oaths)", "done", "build", "level-gated grants + computed Oath Spells line"],
+    ["Channel Divinity options", "by-design", "playTime", "chosen when used, not a permanent subclass-build selection"],
+  ],
 };
 
 let total = 0;
