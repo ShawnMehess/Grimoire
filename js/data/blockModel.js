@@ -20,7 +20,7 @@
 import { ABILITIES, SKILLS, LANGUAGES } from "./schema.js";
 export { LANGUAGES };
 import { DEFAULT_CONTENT } from "./defaultContent.js";
-import { FIXED_CLASS_ENTRIES, FIXED_RACE_ENTRIES, SUBCLASS_BUNDLE_MAP, normSubclassKey } from "./contentFixups.js";
+import { FIXED_BG_ENTRIES, FIXED_CLASS_ENTRIES, FIXED_RACE_ENTRIES, SUBCLASS_BUNDLE_MAP, normSubclassKey } from "./contentFixups.js";
 
 // Standard 5e vocabularies for the four "pick from a dropdown, it
 // gets added to your list" fields below (Languages, Armor/Weapon/Tool
@@ -121,10 +121,11 @@ const byName = (a, b) => a.localeCompare(b);
 // these same orders, so pickers are alphabetical everywhere.
 const STARTER_RACES = FIXED_RACE_ENTRIES.map((r) => r.name).sort(byName);
 const STARTER_CLASSES = FIXED_CLASS_ENTRIES.map((c) => c.name).sort(byName);
-const STARTER_BACKGROUNDS = DEFAULT_CONTENT.bgEntries.map((b) => b.name).sort(byName);
+const STARTER_BACKGROUNDS = FIXED_BG_ENTRIES.map((b) => b.name).sort(byName);
 
 const RACE_BUNDLE_ENTRIES = FIXED_RACE_ENTRIES;
 const CLASS_BUNDLE_ENTRIES = FIXED_CLASS_ENTRIES;
+const BG_BUNDLE_ENTRIES = FIXED_BG_ENTRIES;
 
 function bundleForName(entries, name) {
   return entries.find((e) => e.name === name)?.bundle || null;
@@ -607,7 +608,7 @@ export function createStarterLayout() {
   const details = createBlock({ name: "Character Details", x: 4, y: 12, w: 6, h: 8 });
   details.children = [
     field({ fieldType: "dropdown", label: "Race", x: 0, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_RACES, RACE_BUNDLE_ENTRIES) }),
-    field({ fieldType: "dropdown", label: "Background", x: 2, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_BACKGROUNDS, DEFAULT_CONTENT.bgEntries) }),
+    field({ fieldType: "dropdown", label: "Background", x: 2, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_BACKGROUNDS, BG_BUNDLE_ENTRIES) }),
     field({ fieldType: "text", label: "Alignment", x: 4, y: 0, w: 2, h: 1 }),
     tagListField({ label: "Armor Prof.", x: 0, y: 1, w: 2, h: 2 }, ARMOR_PROFICIENCIES, "armorProf"),
     tagListField({ label: "Weapon Prof.", x: 2, y: 1, w: 2, h: 2 }, WEAPON_PROFICIENCIES, "weaponProf"),

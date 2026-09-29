@@ -18,7 +18,7 @@
 // imports here — pure data + the compiled content modules only.
 
 import { DEFAULT_CONTENT } from "../data/defaultContent.js";
-import { FIXED_CLASS_ENTRIES, FIXED_RACE_ENTRIES, SUBCLASS_BUNDLE_MAP, normSubclassKey } from "../data/contentFixups.js";
+import { FIXED_BG_ENTRIES, FIXED_CLASS_ENTRIES, FIXED_RACE_ENTRIES, SUBCLASS_BUNDLE_MAP, normSubclassKey } from "../data/contentFixups.js";
 
 function normBundleName(s) { return (s || "").trim().toLowerCase(); }
 const normSubclassName = normSubclassKey;
@@ -26,7 +26,7 @@ const normSubclassName = normSubclassKey;
 export const DEFAULT_BUNDLE_MAPS = {
   class: new Map(FIXED_CLASS_ENTRIES.map((e) => [normBundleName(e.name), e.bundle])),
   race: new Map(FIXED_RACE_ENTRIES.map((e) => [normBundleName(e.name), e.bundle])),
-  background: new Map(DEFAULT_CONTENT.bgEntries.map((e) => [normBundleName(e.name), e.bundle])),
+  background: new Map(FIXED_BG_ENTRIES.map((e) => [normBundleName(e.name), e.bundle])),
   // Subclass choices carry mechanics inline (blockModel attaches from
   // the patched supplement). Keyed by normalized choice text, which
   // matches supplement keys exactly (see scripts/verify-content.mjs).

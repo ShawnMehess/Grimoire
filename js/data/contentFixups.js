@@ -24,6 +24,14 @@ import { DEFAULT_CONTENT } from "./defaultContent.js";
 import { SUBCLASS_SUPPLEMENT } from "./subclassContent.js";
 import { RACE_EXTRA_ENTRIES } from "./extraRaces.js";
 import { SKILLS, ABILITIES } from "./schema.js";
+import {
+  CLASS_L1_REPLACEMENTS,
+  BG_FEATURE_REPLACEMENTS,
+  FIGHTER_STYLE_GROUP_TEXT,
+  RANGER_FAVORED_ENEMIES,
+  RANGER_FAVORED_TERRAINS,
+  RANGER_VARIANT_OPTION,
+} from "./phase1Replacements.js";
 
 const clone = (obj) => JSON.parse(JSON.stringify(obj));
 
@@ -302,6 +310,265 @@ const CLASS_PATCHERS = {
   Sorcerer: patchSorcerer,
   Warlock: patchWarlock,
 };
+
+// --- Phase 1 content audit (docs/CONTENT-AUDIT-2026-09.md) ----------------------
+// Compiled defaultContent.js is generated and its original inputs are
+// not in this repo, so audit fixes land in this patch layer — the same
+// layer blockModel.js (starter dropdowns) and bundleMaps.js (save/load
+// canonicals) already treat as canonical. Every replacement string
+// comes from js/data/phase1Replacements.js (verbatim audit-table
+// text); per-row sources live in docs/phase1-sources.md, unsourced
+// items in docs/phase1-gaps.md.
+
+// Explicit choice-group categories (audit systemic fix 5). Set by
+// exact group id — never inferred from label text. Groups created by
+// patchers above carry their category at birth; this fills in the
+// compiled groups. The 26 audit-listed ids are all here, plus the
+// Artificer's own skill/tool groups for consistency.
+const PHASE1_GROUP_CATEGORIES = {
+  "class-skills": "skills",
+  "monk-toolProf-0": "tools",
+  "bard-toolProf-0": "tools",
+  "artificer-toolProf-0": "tools",
+  "acolyte-languages-0": "languages",
+  "entertainer-toolProf-1": "tools",
+  "folk-hero-toolProf-0": "tools",
+  "guild-artisan-toolProf-0": "tools",
+  "guild-artisan-languages-0": "languages",
+  "noble-toolProf-0": "tools",
+  "noble-languages-0": "languages",
+  "outlander-toolProf-0": "tools",
+  "outlander-languages-0": "languages",
+  "sage-languages-0": "languages",
+  "urban-bounty-hunter-skills": "skills",
+  "urban-bounty-hunter-toolProf-0": "tools",
+};
+
+function applyPhase1Categories(bundle) {
+  for (const g of (bundle.choiceGroups || [])) {
+    if (!g.category && PHASE1_GROUP_CATEGORIES[g.id]) g.category = PHASE1_GROUP_CATEGORIES[g.id];
+  }
+  return bundle;
+}
+
+// Per-entry application report, consumed by scripts/verify-content.mjs:
+// every table row must land as replaced/added, never silently missing.
+export const PHASE1_CLASS_REPORT = {};
+export const PHASE1_BG_REPORT = {};
+
+// Replace one feature grant's description with verbatim audit text,
+// keeping the prior long text on `reference` so nothing is lost.
+function replaceGrant(bundle, grantName, text, report) {
+  const grant = (bundle.featureGrants || []).find((g) => (g.name || "") === grantName);
+  if (!grant) {
+    report.missing.push(grantName);
+    return;
+  }
+  if (grant.description !== text) grant.reference = grant.description;
+  grant.description = text;
+  report.replaced.push(grantName);
+}
+
+function applyClassReplacements(name, bundle) {
+  const report = (PHASE1_CLASS_REPORT[name] = { replaced: [], added: [], missing: [], dropped: [] });
+  for (const { grant, text } of (CLASS_L1_REPLACEMENTS[name] || [])) {
+    // Rogue's Expertise and the Druid's armor note need structural
+    // handling (no compiled grant to replace); everything else is a
+    // straight description swap.
+    if (name === "Rogue" && grant === "Expertise") {
+      if (!(bundle.featureGrants || []).some((g) => g.name === "Expertise")) {
+        bundle.featureGrants.push({ id: "rogue-expertise-feature", name: "Expertise", description: text, minLevel: 1 });
+        report.added.push(grant);
+      } else {
+        replaceGrant(bundle, grant, text, report);
+      }
+      continue;
+    }
+    if (name === "Druid" && grant === "Armor Restriction") {
+      const note = (bundle.featureGrants || []).find((g) => g.name === "Armor Proficiencies (note)");
+      if (note) {
+        note.reference = note.description;
+        note.name = "Armor Restriction";
+        note.description = text;
+        report.replaced.push("Armor Proficiencies (note) -> Armor Restriction");
+      } else {
+        report.missing.push("Armor Proficiencies (note)");
+      }
+      continue;
+    }
+    replaceGrant(bundle, grant, text, report);
+  }
+  return report;
+}
+
+function applyBgReplacements(name, bundle) {
+  const report = (PHASE1_BG_REPORT[name] = { replaced: [], added: [], missing: [], dropped: [] });
+  for (const { grant, text } of (BG_FEATURE_REPLACEMENTS[name] || [])) {
+    replaceGrant(bundle, grant, text, report);
+  }
+  return report;
+}
+
+// Grants that must never render at level 1 (audit systemic fixes 3-4):
+// TCE "Additional <Class> Spells" lists (spells from levels 1-9, not
+// grants), the Fighter's optional fighting-style grants (styles live
+// in the pickable choice group instead), and the Ranger's optional
+// pair (rebuilt below as one explicit pack-gated variant choice).
+const ADDITIONAL_SPELLS_RE = /^Additional .* Spells \(Optional\)$/;
+const PHASE1_CLASS_DROPS = {
+  Bard: [ADDITIONAL_SPELLS_RE],
+  Cleric: [ADDITIONAL_SPELLS_RE],
+  Druid: [ADDITIONAL_SPELLS_RE],
+  Paladin: [ADDITIONAL_SPELLS_RE],
+  Ranger: [ADDITIONAL_SPELLS_RE, "Deft Explorer (Optional)", "Favored Foe (Optional)"],
+  Warlock: [ADDITIONAL_SPELLS_RE],
+  Wizard: [ADDITIONAL_SPELLS_RE],
+  Sorcerer: [ADDITIONAL_SPELLS_RE],
+  Fighter: [/ \(Optional\)$/],
+};
+
+function applyPhase1Drops(name, bundle) {
+  const report = PHASE1_CLASS_REPORT[name] || (PHASE1_CLASS_REPORT[name] = { replaced: [], added: [], missing: [], dropped: [] });
+  for (const pattern of (PHASE1_CLASS_DROPS[name] || [])) {
+    const test = typeof pattern === "string" ? (n) => n === pattern : (n) => pattern.test(n);
+    bundle.featureGrants = (bundle.featureGrants || []).filter((g) => {
+      if (test(g.name || "")) {
+        report.dropped.push(g.name);
+        return false;
+      }
+      return true;
+    });
+  }
+  return report;
+}
+
+// Every other "(Optional)" class grant is a Tasha's optional rule
+// (Primal Knowledge, Steady Aim, Harness Divine Power, ...): not a
+// default grant, but genuine content for characters with the Tasha's
+// pack — so mark, don't drop. Display/compute layers filter
+// `requiresPack` grants against the included books.
+function markTashaOptionals(bundle) {
+  for (const g of (bundle.featureGrants || [])) {
+    if (/\(Optional\)$/.test(g.name || "") && !g.requiresPack) g.requiresPack = "tashas";
+  }
+  return bundle;
+}
+
+// Tasha's fighting styles: same single pick-1 group, but the optional
+// styles only surface when the Tasha's pack is included (producers
+// filter `requiresPack` options; see filterGroupByPack). Counts are
+// unchanged, so the group still offers the full list under Tasha's.
+const TASHA_FIGHTING_STYLES = new Set([
+  "Blind Fighting", "Interception", "Superior Technique",
+  "Thrown Weapon Fighting", "Unarmed Fighting",
+  "Blessed Warrior", "Druidic Warrior",
+]);
+
+function markTashaStyles(bundle) {
+  for (const g of (bundle.choiceGroups || [])) {
+    if (!/fighting-style/.test(g.id || "")) continue;
+    for (const o of (g.options || [])) {
+      if (TASHA_FIGHTING_STYLES.has(o.name)) o.requiresPack = "tashas";
+    }
+  }
+  return bundle;
+}
+
+const slug = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "option";
+
+function rangerPhase1Groups() {
+  const enemyOptions = RANGER_FAVORED_ENEMIES.map((name) => ({
+    id: `ranger-favored-enemy-${slug(name)}`,
+    name,
+    description: "",
+    statModifiers: [],
+    featureGrants: [{ name: `Favored Enemy: ${name}`, description: "", minLevel: 1 }],
+    resourceGrants: [],
+  }));
+  const terrainOptions = RANGER_FAVORED_TERRAINS.map((name) => ({
+    id: `ranger-favored-terrain-${slug(name)}`,
+    name,
+    description: "",
+    statModifiers: [],
+    featureGrants: [{ name: `Favored Terrain: ${name}`, description: "", minLevel: 1 }],
+    resourceGrants: [],
+  }));
+  return [
+    {
+      id: "ranger-favored-enemy", label: "Favored Enemy", minLevel: 1,
+      minSelections: 1, maxSelections: 1, category: "features",
+      options: enemyOptions,
+    },
+    {
+      id: "ranger-favored-terrain", label: "Favored Terrain", minLevel: 1,
+      minSelections: 1, maxSelections: 1, category: "features",
+      options: terrainOptions,
+    },
+    // The mutually exclusive alternative to the standard pair: one
+    // explicit opt-in, visible only with the Tasha's pack, picked only
+    // by choosing it. The option carries a pointer, not rules text —
+    // no sourced mechanics exist in this repo (see phase1-gaps.md).
+    {
+      id: "ranger-class-variant", label: "Class Feature Variant (Tasha's Cauldron)",
+      description: "You use Favored Enemy + Natural Explorer above unless you take this optional pair instead (replaces both).",
+      minLevel: 1, minSelections: 0, maxSelections: 1,
+      category: "features", requiresPack: "tashas",
+      options: [{
+        id: RANGER_VARIANT_OPTION.id,
+        name: RANGER_VARIANT_OPTION.name,
+        description: RANGER_VARIANT_OPTION.description,
+        statModifiers: [],
+        featureGrants: [{ name: "Favored Foe + Deft Explorer (Tasha's)", description: RANGER_VARIANT_OPTION.description, minLevel: 1 }],
+        resourceGrants: [],
+      }],
+    },
+  ];
+}
+
+function acolytePhase1Groups(bundle) {
+  if ((bundle.choiceGroups || []).some((g) => g.id === "acolyte-prayer-focus")) return bundle;
+  // Prayer book or prayer wheel: one pick, driving both the review
+  // line and the starting-equipment resolution (see
+  // BG_EQUIPMENT_LINKS in startingEquipment.js) — never two prompts.
+  bundle.choiceGroups.push({
+    id: "acolyte-prayer-focus", label: "Prayer Focus", minLevel: 1,
+    minSelections: 1, maxSelections: 1, category: "equipment",
+    options: ["Prayer book", "Prayer wheel"].map((name) => ({
+      id: `acolyte-prayer-focus-${slug(name)}`,
+      name,
+      description: "",
+      statModifiers: [],
+      featureGrants: [],
+      resourceGrants: [],
+    })),
+  });
+  return bundle;
+}
+
+function phase1ClassPatch(name, bundle) {
+  applyPhase1Categories(bundle);
+  applyClassReplacements(name, bundle);
+  applyPhase1Drops(name, bundle);
+  markTashaOptionals(bundle);
+  markTashaStyles(bundle);
+  if (name === "Fighter") {
+    const group = (bundle.choiceGroups || []).find((g) => g.id === "fighter-fighting-style");
+    if (group) group.description = FIGHTER_STYLE_GROUP_TEXT;
+  }
+  if (name === "Ranger") {
+    for (const group of rangerPhase1Groups()) {
+      if (!(bundle.choiceGroups || []).some((g) => g.id === group.id)) bundle.choiceGroups.push(group);
+    }
+  }
+  return bundle;
+}
+
+function phase1BackgroundPatch(name, bundle) {
+  applyPhase1Categories(bundle);
+  applyBgReplacements(name, bundle);
+  if (name === "Acolyte") acolytePhase1Groups(bundle);
+  return bundle;
+}
 
 // --- Artificer infusions (TCE, 16 total) --------------------------------------
 // Summaries below are short paraphrases of what each infusion does (item
@@ -772,13 +1039,26 @@ function patchChampion(bundle) {
 // --- Built tables ----------------------------------------------------------------------
 function patchClassEntry(entry) {
   const patcher = CLASS_PATCHERS[entry.name];
-  if (!patcher) return entry;
   const out = { ...entry, bundle: clone(entry.bundle) };
   out.bundle.choiceGroups = [...(out.bundle.choiceGroups || [])];
   out.bundle.featureGrants = [...(out.bundle.featureGrants || [])];
-  patcher(out.bundle);
+  if (patcher) patcher(out.bundle);
+  // Phase 1 audit fixes compose on top of (and for most classes,
+  // instead of) the historical patchers above.
+  phase1ClassPatch(entry.name, out.bundle);
   return out;
 }
+
+function patchBackgroundEntry(entry) {
+  const out = { ...entry, bundle: clone(entry.bundle) };
+  out.bundle.choiceGroups = [...(out.bundle.choiceGroups || [])];
+  out.bundle.featureGrants = [...(out.bundle.featureGrants || [])];
+  out.bundle.statModifiers = [...(out.bundle.statModifiers || [])];
+  phase1BackgroundPatch(entry.name, out.bundle);
+  return out;
+}
+
+export const FIXED_BG_ENTRIES = DEFAULT_CONTENT.bgEntries.map(patchBackgroundEntry);
 
 export const FIXED_CLASS_ENTRIES = [
   ...DEFAULT_CONTENT.classEntries.map(patchClassEntry),
@@ -835,6 +1115,7 @@ export const FIXED_CLASS_ENTRIES = [
       choiceGroups: [
         {
           id: "class-skills", label: "Artificer Skill Proficiencies", minLevel: 1, minSelections: 2, maxSelections: 2,
+          category: "skills",
           options: [
             { id: "class-skill-arcana", name: "Arcana", statModifiers: [{ targetFieldId: "arcanaProf", op: "grant" }] },
             { id: "class-skill-history", name: "History", statModifiers: [{ targetFieldId: "historyProf", op: "grant" }] },
@@ -847,6 +1128,7 @@ export const FIXED_CLASS_ENTRIES = [
         },
         {
           id: "artificer-toolProf-0", label: "Artificer Tool Proficiency: one artisan's tool of your choice", minLevel: 1, minSelections: 1, maxSelections: 1,
+          category: "tools",
           options: ARTIFICER_ARTISAN_TOOLS.map((name) => ({
             id: `artificer-toolProf-0-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
             name,

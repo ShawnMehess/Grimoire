@@ -153,6 +153,17 @@ function activeAtLevel(items, level) {
   return items.filter((item) => !item.minLevel || item.minLevel <= level);
 }
 
+/** Pack-gate mirror of the producers' filter (see packAllows in
+ *  sheetWizard.js, kept local so this module stays dependency-free):
+ *  items naming a `requiresPack` (Tasha's optional rules) show only
+ *  when that pack is included; a null pack list shows everything. */
+function packAllowsLocal(item, includedPacks) {
+  if (!item || !item.requiresPack) return true;
+  if (includedPacks == null) return true;
+  const packs = Array.isArray(includedPacks) ? includedPacks : [includedPacks];
+  return packs.includes(item.requiresPack);
+}
+
 /** The preview's content bits for one bundle (collapsed, optionally
  *  minus page-common traits) — without the "+N more at higher
  *  levels" tail. */
@@ -426,7 +437,7 @@ const SCORE_DISPLAY_ORDER = ["str", "dex", "con", "int", "wis", "cha"];
  *  with no level yet); label and detail always join with a colon. */
 export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   if (!bundle) return [];
-  const { abilityIds = [], abilities = [], skills = [], resolveLabel = null, backgroundDisplay = false, classDisplay = false } = deps;
+  const { abilityIds = [], abilities = [], skills = [], resolveLabel = null, backgroundDisplay = false, classDisplay = false, includedPacks = null } = deps;
   const summarize = (m) => statModifierSummary(m, { abilityIds, abilities, skills, resolveLabel });
   const tagLabel = (fieldId) => TAG_FIELD_LABELS[fieldId]
     || (typeof resolveLabel === "function" && resolveLabel(fieldId))
@@ -434,8 +445,9 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   // No "at level N" annotations anywhere: grants above the passed
   // level never reach the bullets at all (atLevel below), and grants
   // at or below it simply apply — players care what they get, not
-  // when each piece kicked in.
-  const atLevel = (item) => !item.minLevel || item.minLevel <= level;
+  // when each piece kicked in. Pack-gated optional grants (Tasha's)
+  // likewise never reach bullets when their source book is excluded.
+  const atLevel = (item) => (!item.minLevel || item.minLevel <= level) && packAllowsLocal(item, includedPacks);
 
   const otherTraits = [];
   const hitBits = [];

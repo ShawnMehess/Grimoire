@@ -266,7 +266,7 @@ export function prepareRenderState(allFields, fns) {
 export function selectedRuleOptionsIn(groups, choicesMap = {}) {
   return groups.flatMap((group) => {
     const selected = new Set(Array.isArray(choicesMap[group.key]) ? choicesMap[group.key] : []);
-    return group.options
+    return groupOptionsOf(group)
       .filter((option) => selected.has(option.id))
       .map((option) => ({ option, group }));
   });
@@ -360,11 +360,12 @@ export function applyBundleModifiersIn(fields, valueMap, grantedCheckboxes, gran
   });
 }
 
-export function collectGrantedFeaturesIn(fields, level, ruleOptions, featBundles, levelFor = null, extraBundles = []) {  const features = [];
+export function collectGrantedFeaturesIn(fields, level, ruleOptions, featBundles, levelFor = null, extraBundles = [], includedPacks = null) {  const features = [];
   dropdownBundleEntries(fields).forEach(({ field, choice, bundle }) => {
     const lvl = effectiveLevel(levelFor, level, field, choice, bundle);
     (bundle.featureGrants || []).forEach((grant) => {
       if (grant.minLevel && lvl < grant.minLevel) return; // not unlocked yet
+      if (!packAllowsLocal(grant, includedPacks)) return; // optional source not included
       features.push({
         name: grant.name,
         description: grant.description || "",
@@ -374,7 +375,9 @@ export function collectGrantedFeaturesIn(fields, level, ruleOptions, featBundles
     });
   });
   ruleOptions.forEach(({ option, group }) => {
+    if (!packAllowsLocal(option, includedPacks)) return;
     (option.featureGrants || []).forEach((grant) => {
+      if (!packAllowsLocal(grant, includedPacks)) return;
       features.push({
         name: grant.name,
         description: grant.description || "",
@@ -397,6 +400,7 @@ export function collectGrantedFeaturesIn(fields, level, ruleOptions, featBundles
     const lvl = Number.isFinite(extraLevel) ? extraLevel : level;
     (bundle?.featureGrants || []).forEach((grant) => {
       if (grant.minLevel && lvl < grant.minLevel) return;
+      if (!packAllowsLocal(grant, includedPacks)) return;
       features.push({
         name: grant.name,
         description: grant.description || "",

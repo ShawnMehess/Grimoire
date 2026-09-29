@@ -2297,7 +2297,8 @@ const closeDialog = () => {
       selectedRuleOptions(fields, valueMap),
       selectedFeatBundles(),
       bundleLevelFor,
-      extraSecondaryBundles()
+      extraSecondaryBundles(),
+      includedRulesetIds(character.rules)
     );
   }
 
@@ -2999,6 +3000,7 @@ const closeDialog = () => {
       resolveLabel: (id) => resolveFieldById(id)?.label,
       backgroundDisplay: (category || "").toLowerCase() === "background",
       classDisplay: (category || "").toLowerCase() === "class",
+      includedPacks: includedRulesetIdsFor(),
     });
   }
 
@@ -3218,14 +3220,16 @@ const closeDialog = () => {
     const names = [state.species, state.className, state.subclass, state.background];
     const labels = ["Race", "Class", "Subclass", "Background"];
     const level = Number.isFinite(state.level) ? state.level : Infinity;
+    const packs = includedRulesetIds(state);
     return labels
       .map((label, i) => ({
         source: names[i] ? `${label}: ${names[i]}` : label,
         // Only grants at or below the chosen level — anything later
         // belongs to the Leveling tab, not here. Grants without a
-        // level gate always show.
+        // level gate always show. Pack-gated optional grants (Tasha's)
+        // show only when their source book is included.
         features: (((bundles[i] || {}).featureGrants || [])
-          .filter((g) => !g.minLevel || g.minLevel <= level)
+          .filter((g) => (!g.minLevel || g.minLevel <= level) && (!g.requiresPack || packs.includes(g.requiresPack)))
           .map((g) => ({ name: g.name, description: g.description }))),
       }))
       .filter((section) => section.features.length);
