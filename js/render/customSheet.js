@@ -266,7 +266,9 @@ import {
   openChoiceDialog,
   choiceDialogKindFor,
   flexibleAsiSummary,
-  openFlexibleAsiDialog,
+  flexibleAsiSelection,
+  buildFlexibleAsiChoice,
+  ASI_ABILITY_CHOICES,
   spellCountByLevel as sharedSpellCountByLevel,
   canLearnMore as sharedCanLearnMore,
   availableSpellLevels as sharedAvailableSpellLevels,
@@ -4441,6 +4443,60 @@ const closeDialog = () => {
     } catch { /* keep the pick even if focus fails */ }
   }
 
+  /** Live Ability Score Increase bullet: one "+2 to" dropdown and one
+   *  "+1 to" dropdown, each listing all six abilities.
+   *
+   *  This replaced a two-step dialog that asked you to pick a pattern
+   *  ("+2/+1 or +1/+1/+1") and then step again for the abilities. Two
+   *  dropdowns show the six stats up front, which is what the sheet's
+   *  other picks (languages, variable traits) already look like.
+   *
+   *  The stored shape is unchanged from the dialog's
+   *  ({pattern, abilities, statModifiers}), so computed bonuses, review
+   *  lines, and the live ability bullets all keep working - only the
+   *  input changed. The +1 dropdown greys out whatever the +2 one holds,
+   *  since a single ASI can't raise the same score twice. */
+  function liveAbilityAsiBullet(asiGroups, saveRules) {
+    if (!asiGroups.length) return null;
+    const store = character.rules.choices || {};
+    const group = asiGroups[0];
+    const current = flexibleAsiSelection((store[group.key] || [])[0]);
+    const slotFor = (index, weight) => ({
+      key: `${group.key}#${index}`,
+      value: index === 0 ? current.plus2 : current.plus1,
+      placeholder: `+${weight} to…`,
+      options: ASI_ABILITY_CHOICES.map((a) => {
+        const taken = index === 0 ? current.plus1 : current.plus2;
+        return {
+          value: a.id,
+          label: a.label,
+          disabled: taken === a.id,
+          title: taken === a.id ? "Already in the other dropdown" : null,
+        };
+      }),
+    });
+    return {
+      live: true,
+      topic: group.label || "Ability Score Increase",
+      lead: [],
+      slots: [slotFor(0, 2), slotFor(1, 1)],
+      onPick: (slotKey, value) => {
+        const index = slotKey.endsWith("#0") ? 0 : 1;
+        const next = { plus2: current.plus2, plus1: current.plus1 };
+        if (index === 0) next.plus2 = value || "";
+        else next.plus1 = value || "";
+        const choice = buildFlexibleAsiChoice(next.plus2, next.plus1);
+        character.rules.choices = {
+          ...(character.rules?.choices || {}),
+          [group.key]: choice ? [choice] : [],
+        };
+        saveRules();
+        renderPageGrid();
+        refocusInlineSlot(slotKey);
+      },
+    };
+  }
+
   /** Live Languages bullet model ("Languages" topic with locked knowns
    *  + one dropdown per pick slot), or null when there are no language
    *  groups. Each dropdown lists its own group's options; locked knowns
@@ -4723,25 +4779,13 @@ const closeDialog = () => {
     return (choiceGroups || []).filter((g) => choiceDialogKindFor(g)).map((group) => {
       const kind = choiceDialogKindFor(group);
       const owned = ownedSkillIdsFrom(creationFixedBundles(state), creationChoiceGroupsFor(state), group.key);
-      // A flexible ASI is not a list of options at all — its options are
-      // {pattern, description} descriptors, so the generic dialog below
-      // would filter them all out (it lists options with a `name`) and
-      // open EMPTY. Route it to its own two-step dialog instead, the same
-      // one the bottom "Your choices" section uses, so the ASI can be
-      // picked from the race's own row.
+      // A flexible ASI is not a list of options at all - its options are
+      // {pattern, description} descriptors. It renders as two dropdowns
+      // (+2 to / +1 to) via liveAbilityAsiBullet, NOT the generic
+      // dialog: that dialog lists only options carrying a `name`, so it
+      // would open empty.
       if (kind === "flexibleAbilityBonus") {
-        return {
-          live: true,
-          topic: group.label || "Ability Score Increase",
-          lead: [{ text: flexibleAsiSummary((store[group.key] || [])[0]) }],
-          dialogOpener: () => openFlexibleAsiDialog(
-            group,
-            store,
-            () => saveRules(),
-            () => renderPageGrid(),
-            owned,
-          ),
-        };
+        return liveAbilityAsiBullet([group], saveRules);
       }
       const opts = groupOptionsOf(group).filter((o) => o.name);
       const lockedIds = [...new Set([...(group.lockedOptionIds || []), ...opts.filter((o) => optionIsOwned(o, owned)).map((o) => o.id)])];

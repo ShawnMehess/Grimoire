@@ -2042,161 +2042,95 @@ function openFeatChoiceDialog(group, choicesStore, onChange, rerender, owned) {
   });
 }
 
-/** The summary a picked flexible ASI reads as, e.g. "+2/+1: Strength,
- *  Dexterity" or "Choose ability score increases" when nothing is picked
- *  yet. Shared by both places that render the inline bullet (the profile
- *  row and the creation-choice section) so they can't drift. */
-export function flexibleAsiSummary(pick) {
-  if (!pick?.pattern || !pick.abilities?.length) return "Choose ability score increases";
-  const patternDesc = pick.pattern === "2-1" ? "+2/+1" : "+1/+1/+1";
-  const names = pick.abilities.map((id) => {
-    const known = { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" }[id];
-    return known || String(id).toUpperCase();
-  }).join(", ");
-  return `${patternDesc}: ${names}`;
+/** The six abilities a flexible ASI can raise, and the +2/+1 weights for
+ *  the two dropdowns that replace the old two-step pattern dialog. */
+export const ASI_ABILITY_CHOICES = [
+  { id: "str", label: "Strength" },
+  { id: "dex", label: "Dexterity" },
+  { id: "con", label: "Constitution" },
+  { id: "int", label: "Intelligence" },
+  { id: "wis", label: "Wisdom" },
+  { id: "cha", label: "Charisma" },
+];
+
+/** Read a stored flexible ASI pick back into the two dropdown values.
+ *  Tolerates the older shape (an array of option ids) so a pick made
+ *  before the dropdowns existed still shows in the right boxes instead of
+ *  silently resetting. */
+export function flexibleAsiSelection(pick) {
+  if (!pick) return { plus2: "", plus1: "" };
+  if (Array.isArray(pick)) {
+    return { plus2: pick[0] || "", plus1: pick[1] || "" };
+  }
+  if (Array.isArray(pick.abilities) && pick.abilities.length) {
+    return { plus2: pick.abilities[0] || "", plus1: pick.abilities[1] || "" };
+  }
+  return { plus2: "", plus1: "" };
 }
 
-/** Opens a two-step dialog for flexible ability bonus (Phase 3b):
- *  1) Choose pattern: "2-1" (+2/+1) or "1-1-1" (+1/+1/+1)
- *  2) Pick the relevant abilities from the six
- *  The result is stored as a synthetic choice with pattern + abilities,
- *  and the actual +2/+1 or +1/+1/+1 stat modifiers are applied via
- *  the bundle's statModifiers when the character is hydrated.
+/** Build the stored choice for a +2/+1 pair.
  *
- *  Exported because the flexible ASI has to be picked from TWO places -
- *  the bottom "Your choices" section and the inline bullet in the race's
- *  own row - and only the bottom path used this. Routing the row's bullet
- *  through the generic dialog instead opened an empty one: a flexible
- *  group's options are `{pattern, description}` descriptors, which the
- *  generic dialog filters out (it lists options that have a `name`), so
- *  the user got a dialog with nothing in it and no way to pick. */
-export function openFlexibleAsiDialog(group, choicesStore, onChange, rerender, owned) {
-  const abilities = [
-    { id: "str", name: "Strength" },
-    { id: "dex", name: "Dexterity" },
-    { id: "con", name: "Constitution" },
-    { id: "int", name: "Intelligence" },
-    { id: "wis", name: "Wisdom" },
-    { id: "cha", name: "Charisma" },
-  ];
-  const stored = choicesStore[group.key] || [];
-  const currentPattern = stored[0]?.pattern || null;
-  const currentAbilities = stored[0]?.abilities || [];
-  let step = currentPattern ? 2 : 1;
-  let selectedPattern = currentPattern;
-  let selectedAbilities = [...currentAbilities];
-
-  const mount = document.body;
-  [...(mount.children || [])]
-    .filter((c) => (c.className || "").split(/\s+/).includes("choice-dialog-overlay"))
-    .forEach((c) => c.remove?.());
-
-  const overlay = el("div", { class: "modal-overlay choice-dialog-overlay" });
-  const box = el("div", { class: "modal-box choice-dialog", onclick: (e) => e.stopPropagation() });
-  const heading = el("h3", { text: group.label || "Ability Score Increase" });
-  const updateCount = () => {};
-  const listWrap = el("div", { class: "choice-dialog-list", style: "max-height: 50vh; overflow-y: auto;" });
-
-  const renderStep1 = () => {
-    listWrap.innerHTML = "";
-    const opts = (group.options || []).filter((o) => o && o.pattern);
-    opts.forEach((opt) => {
-      const isSelected = selectedPattern === opt.pattern;
-      const input = el("input", {
-        type: "radio", name: "asi-pattern", checked: isSelected, value: opt.pattern,
-        onchange: () => {
-          selectedPattern = opt.pattern;
-          selectedAbilities = [];
-          step = 2;
-          renderStep2();
-        },
-      });
-      const label = el("label", { class: "choice-dialog-option" },
-        input,
-        el("span", { text: opt.description, style: "flex: 1;" }),
-      );
-      listWrap.append(label);
-    });
+ *  Deliberately the SAME shape the old two-step dialog produced
+ *  ({pattern, abilities, statModifiers}), so every downstream consumer -
+ *  the sheet's computed bonuses, the review lines, the live ability
+ *  bullets - keeps working unchanged. Only the input UI changed: two
+ *  dropdowns instead of a pattern dialog to step through.
+ *
+ *  Returns a PARTIAL draft while only one dropdown is filled, with no
+ *  statModifiers. That matters: the two dropdowns are separate controls
+ *  that each re-render the page, so storing nothing until both are set
+ *  would wipe the first pick on the second dropdown's re-render and the
+ *  pair could never be completed. An empty statModifiers list is inert
+ *  downstream, so a half-finished pick grants nothing. */
+export function buildFlexibleAsiChoice(plus2, plus1) {
+  const a2 = String(plus2 || "");
+  const a1 = String(plus1 || "");
+  const abilities = [a2, a1].filter(Boolean);
+  if (!abilities.length) return null;
+  const complete = Boolean(a2 && a1 && a2 !== a1);
+  return {
+    id: `flexible-asi-2-1-${a2 || "none"}-${a1 || "none"}`,
+    pattern: complete ? "2-1" : null,
+    abilities,
+    statModifiers: complete
+      ? [
+        { targetFieldId: `${a2}Score`, op: "add", value: 2 },
+        { targetFieldId: `${a1}Score`, op: "add", value: 1 },
+      ]
+      : [],
   };
-
-  const renderStep2 = () => {
-    listWrap.innerHTML = "";
-    const need = selectedPattern === "2-1" ? 2 : 3;
-    const countNote = el("p", { class: "leveling-tab__intro", text: `Pick ${need} different abilities` });
-    listWrap.append(countNote);
-    abilities.forEach((abl) => {
-      const isSelected = selectedAbilities.includes(abl.id);
-      const input = el("input", {
-        type: "checkbox", checked: isSelected, value: abl.id,
-        onchange: (e) => {
-          if (e.target.checked) {
-            if (selectedAbilities.length >= need) { e.target.checked = false; return; }
-            selectedAbilities.push(abl.id);
-          } else {
-            selectedAbilities = selectedAbilities.filter((id) => id !== abl.id);
-          }
-        },
-      });
-      const label = el("label", { class: "choice-dialog-option" },
-        input,
-        el("span", { text: abl.name, style: "flex: 1;" }),
-      );
-      listWrap.append(label);
-    });
-    const backBtn = el("button", {
-      type: "button", class: "btn", text: "Back", style: "margin-top: 8px;",
-      onclick: () => { step = 1; renderStep1(); },
-    });
-    listWrap.append(backBtn);
-  };
-
-  if (step === 1) renderStep1(); else renderStep2();
-
-  const close = () => {
-    if (typeof document.removeEventListener === "function") document.removeEventListener("keydown", onKeyDown);
-    overlay.remove();
-  };
-  function onKeyDown(e) { if (e.key === "Escape") close(); }
-  if (typeof document.addEventListener === "function") document.addEventListener("keydown", onKeyDown);
-
-  const actions = el("div", { class: "modal-actions" });
-  const accept = el("button", {
-    type: "button", class: "btn btn--primary", text: step === 1 ? "Next" : "Accept",
-    onclick: () => {
-      if (step === 1) {
-        if (!selectedPattern) return;
-        step = 2;
-        renderStep2();
-        accept.textContent = "Accept";
-      } else {
-        const need = selectedPattern === "2-1" ? 2 : 3;
-        if (selectedAbilities.length !== need) return;
-        // Store as a synthetic choice with computed statModifiers
-        const syntheticId = `flexible-asi-${selectedPattern}-${selectedAbilities.join("-")}`;
-        const statModifiers = selectedAbilities.map((ablId, idx) => ({
-          targetFieldId: `${ablId}Score`,
-          op: "add",
-          value: selectedPattern === "2-1" && idx === 0 ? 2 : 1,
-          minLevel: null,
-        }));
-        choicesStore[group.key] = [{
-          id: syntheticId,
-          pattern: selectedPattern,
-          abilities: selectedAbilities,
-          statModifiers,
-        }];
-        if (onChange) onChange();
-        rerender();
-        close();
-      }
-    },
-  });
-  const cancel = el("button", { type: "button", class: "btn", text: "Cancel", onclick: () => close() });
-  actions.append(cancel, accept);
-  box.append(heading, listWrap, actions);
-  overlay.append(box);
-  mount.append(overlay);
 }
+
+/** The summary a picked flexible ASI reads as, e.g. "+2 Strength,
+ *  +1 Dexterity", or a prompt when nothing is picked yet. Shared by the
+ *  row bullet and the bottom "Your choices" section so they can't drift. */
+export function flexibleAsiSummary(pick) {
+  if (!pick) return "Choose two ability scores";
+  if (Array.isArray(pick)) {
+    if (!pick.length) return "Choose two ability scores";
+    return pick.map((id) => {
+      const known = ASI_ABILITY_CHOICES.find((a) => a.id === id);
+      return known ? known.label : String(id).toUpperCase();
+    }).join(", ");
+  }
+  // A half-finished pick has no pattern yet, so there's no weight to
+  // report — say what's chosen and what's still owed rather than
+  // resetting to the empty prompt and making the first dropdown look
+  // like it was forgotten.
+  if (!pick.pattern) {
+    if (!pick.abilities?.length) return "Choose two ability scores";
+    const first = ASI_ABILITY_CHOICES.find((a) => a.id === pick.abilities[0]);
+    return `${first ? first.label : String(pick.abilities[0]).toUpperCase()} — pick a second ability`;
+  }
+  return (pick.statModifiers || [])
+    .map((m) => {
+      const id = String(m.targetFieldId || "").replace(/Score$/, "");
+      const known = ASI_ABILITY_CHOICES.find((a) => a.id === id);
+      return `+${m.value} ${known ? known.label : id.toUpperCase()}`;
+    })
+    .join(", ") || "Choose two ability scores";
+}
+
 
 /** Shared renderer for a choiceGroups list's checkboxes/radios.
  *  Enforces maxSelections and shows already-owned proficiencies as
@@ -2259,15 +2193,37 @@ export function renderChoiceGroupsInto(container, groups, choicesStore, namePref
       return;
     }
     if (choiceDialogKindFor(group) === "flexibleAbilityBonus") {
-      // Render as a summary link opening the two-step flexible ASI dialog
-      const stored = choicesStore[group.key] || [];
-      const link = el("a", {
-        href: "#", class: "inline-pick-link",
-        text: flexibleAsiSummary(stored[0]),
-        title: "Choose ability score increases",
-        onclick: (e) => { e.preventDefault(); e.stopPropagation(); openFlexibleAsiDialog(group, choicesStore, onChange, rerender, owned); },
-      });
-      choiceGroup.append(el("p", { class: "level-guide__feat-pick" }, link));
+      // Two dropdowns (+2 to / +1 to), same as the row bullet. Built here
+      // rather than reusing the row's bullet function so the bottom
+      // section keeps its own rerender/onChange pair.
+      const sel = flexibleAsiSelection((choicesStore[group.key] || [])[0]);
+      const host = el("div", { class: "level-guide__asi-slots" });
+      const makeSlot = (index, weight) => {
+        const wrap = el("label", { class: "level-guide__asi-slot" });
+        wrap.append(el("span", { text: `+${weight} to` }));
+        const select = el("select", { class: "input-group__control" });
+        select.append(el("option", { value: "", text: `+${weight} to…` }));
+        for (const a of ASI_ABILITY_CHOICES) {
+          const taken = index === 0 ? sel.plus1 : sel.plus2;
+          select.append(el("option", {
+            value: a.id, text: a.label, disabled: taken === a.id,
+            title: taken === a.id ? "Already in the other dropdown" : null,
+          }));
+        }
+        select.value = index === 0 ? sel.plus2 : sel.plus1;
+        select.addEventListener("change", () => {
+          const next = { plus2: sel.plus2, plus1: sel.plus1 };
+          if (index === 0) next.plus2 = select.value; else next.plus1 = select.value;
+          const choice = buildFlexibleAsiChoice(next.plus2, next.plus1);
+          onChange(() => {
+            choicesStore[group.key] = choice ? [choice] : [];
+          });
+        });
+        wrap.append(select);
+        return wrap;
+      };
+      host.append(makeSlot(0, 2), makeSlot(1, 1));
+      choiceGroup.append(host);
       container.append(choiceGroup);
       return;
     }

@@ -1049,6 +1049,22 @@
 }
 /* The DM override. Sits above the list because the gate below it says no
    is the whole reason it exists. */
+/* --- Ability Score Increase: two dropdowns (+2 to / +1 to) ---
+   Replaces a two-step pattern dialog. Same shape as the language and
+   variable-trait dropdowns beside it, so the row reads as one set of
+   inline picks rather than a link that opens something else. */
+.level-guide__asi-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.level-guide__asi-slot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+}
 .feat-list__grantbar {
   display: flex;
   align-items: center;

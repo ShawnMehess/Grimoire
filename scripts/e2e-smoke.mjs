@@ -286,38 +286,52 @@ async function runViewportTests(viewport) {
       check(!(await page.$(".choice-dialog-overlay")), "feat picker closes on Escape");
     }
 
-    // Flexible ASI: the race's own row must open a dialog that actually
-    // lists the six abilities. It used to open the GENERIC choice dialog,
-    // which filters its list to options that have a `name` — and a
-    // flexible ASI's options are {pattern, description} descriptors, so
-    // the dialog opened empty and the player saw "no stats to increase".
-    const asiLink = await page.$('.choice-row--selected .inline-pick-link:has-text("Choose ability score increases")');
-    check(!!asiLink, "lineage ASI bullet is the flexible-ASI link");
-    if (asiLink) {
-      await asiLink.click();
-      await page.waitForTimeout(500);
-      const step1 = await page.evaluate(() => {
-        const box = document.querySelector(".choice-dialog-overlay");
-        return box ? [...box.querySelectorAll("label")].map((l) => l.textContent.trim()) : [];
+    // Flexible ASI: two dropdowns ("+2 to" / "+1 to") listing all six
+    // abilities. This replaced a two-step pattern dialog, and before that
+    // the row opened the GENERIC dialog, which lists only options with a
+    // `name` — a flexible ASI's options are {pattern, description}
+    // descriptors, so it opened EMPTY and the player saw no stats at all.
+    const asiSlots = '.choice-row--selected .mechanics-pick select[data-inline-slot$="custom-lineage-flexible-asi#0"], .choice-row--selected .mechanics-pick select[data-inline-slot$="custom-lineage-flexible-asi#1"]';
+    const asiState = () => page.evaluate(() => {
+      const row = document.querySelector(".choice-row--selected");
+      const li = [...row.querySelectorAll(".mechanics-pick")]
+        .find((b) => /Ability Score/i.test(b.querySelector("strong")?.textContent || ""));
+      if (!li) return { found: false };
+      const sels = [...li.querySelectorAll("select")];
+      return {
+        found: true,
+        placeholders: sels.map((s) => s.options[0]?.textContent),
+        optionLabels: sels.map((s) => [...s.options].slice(1).map((o) => o.textContent)),
+        hasDialogLink: !!li.querySelector(".inline-pick-link"),
+      };
+    });
+    const asi = await asiState();
+    check(asi.found, "lineage has an Ability Score Increase row");
+    check(asi.placeholders?.length === 2 && /^\+2/.test(asi.placeholders[0]) && /^\+1/.test(asi.placeholders[1]),
+      `ASI renders as +2 and +1 dropdowns (got ${JSON.stringify(asi.placeholders)})`);
+    const six = ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"];
+    check(six.every((a) => asi.optionLabels?.[0]?.includes(a)) && six.every((a) => asi.optionLabels?.[1]?.includes(a)),
+      "both ASI dropdowns list all six abilities");
+    check(!asi.hasDialogLink, "ASI is dropdowns, not a dialog link");
+    if (asi.found) {
+      await page.selectOption(asiSlots.split(", ")[0], "str");
+      await page.waitForTimeout(900);
+      await page.selectOption(asiSlots.split(", ")[1], "con");
+      await page.waitForTimeout(1000);
+      const picked = await page.evaluate(() => {
+        const row = document.querySelector(".choice-row--selected");
+        const li = [...row.querySelectorAll(".mechanics-pick")]
+          .find((b) => /Ability Score/i.test(b.querySelector("strong")?.textContent || ""));
+        const sels = [...li.querySelectorAll("select")];
+        return {
+          plus2: sels[0]?.value,
+          plus1: sels[1]?.value,
+          strDisabledInSecond: [...(sels[1]?.options || [])].find((o) => o.value === "str")?.disabled,
+        };
       });
-      check(step1.some((t) => /\+2 to one ability/.test(t)), "flexible ASI offers the +2/+1 pattern");
-      check(step1.some((t) => /\+1 to three different abilities/.test(t)), "flexible ASI offers the +1/+1/+1 pattern");
-      if (step1.length) {
-        await page.click(".choice-dialog-overlay .choice-dialog-list label");
-        await page.waitForTimeout(300);
-        await page.click(".choice-dialog button:has-text('Next')");
-        await page.waitForTimeout(400);
-        const step2 = await page.evaluate(() => {
-          const box = document.querySelector(".choice-dialog-overlay");
-          return box ? [...box.querySelectorAll("label")].map((l) => l.textContent.trim()) : [];
-        });
-        check(["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"].every((a) => step2.includes(a)),
-          "flexible ASI step 2 lists all six abilities");
-        await page.screenshot({ path: path.join(shotDir, `lineage-asi-${viewport.name}.png`) });
-      }
-      await page.keyboard.press("Escape");
-      await page.waitForTimeout(300);
-      check(!(await page.$(".choice-dialog-overlay")), "flexible ASI dialog closes on Escape");
+      check(picked.plus2 === "str" && picked.plus1 === "con", `both ASI dropdowns keep their pick (got ${picked.plus2}/${picked.plus1})`);
+      check(picked.strDisabledInSecond === true, "the +1 dropdown greys out the score already used by +2");
+      await page.screenshot({ path: path.join(shotDir, `lineage-asi-${viewport.name}.png`) });
     }
 
     // Custom Lineage's "Skill Proficiency" trait needs a follow-up row to

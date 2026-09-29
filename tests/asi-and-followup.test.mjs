@@ -9,7 +9,14 @@
 // Run: node --test tests/...
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { creationChoiceGroupsForState, keyFor } from "../js/render/sheet/sheetWizard.js";
+import {
+  creationChoiceGroupsForState,
+  keyFor,
+  ASI_ABILITY_CHOICES,
+  flexibleAsiSelection,
+  buildFlexibleAsiChoice,
+  flexibleAsiSummary,
+} from "../js/render/sheet/sheetWizard.js";
 import { FIXED_RACE_ENTRIES } from "../js/data/contentFixups.js";
 
 const raceBundle = (name) => FIXED_RACE_ENTRIES.find((e) => e.name === name)?.bundle || null;
@@ -113,5 +120,74 @@ describe("groups without a follow-up gate behave as before", () => {
     const ids = groupIds(baseState({ choices: undefined }));
     assert.ok(ids.includes("custom-lineage-flexible-asi"));
     assert.ok(!ids.includes("custom-lineage-variable_trait_skill"));
+  });
+});
+
+describe("the ASI dropdowns", () => {
+  it("offers all six abilities", () => {
+    assert.deepEqual(ASI_ABILITY_CHOICES.map((a) => a.id), ["str", "dex", "con", "int", "wis", "cha"]);
+  });
+
+  it("builds the right modifiers for a full pick", () => {
+    const choice = buildFlexibleAsiChoice("str", "con");
+    assert.equal(choice.pattern, "2-1");
+    assert.deepEqual(choice.abilities, ["str", "con"]);
+    assert.deepEqual(choice.statModifiers, [
+      { targetFieldId: "strScore", op: "add", value: 2 },
+      { targetFieldId: "conScore", op: "add", value: 1 },
+    ]);
+  });
+
+  it("keeps a half-finished pick so the second dropdown can complete it", () => {
+    // Each dropdown re-renders the page, so storing nothing until both
+    // are set would wipe the first pick and the pair could never be
+    // completed.
+    const partial = buildFlexibleAsiChoice("str", "");
+    assert.ok(partial, "a partial pick is still stored");
+    assert.equal(partial.pattern, null, "but it isn't a complete ASI yet");
+    assert.deepEqual(partial.statModifiers, [], "and grants nothing so far");
+    assert.deepEqual(partial.abilities, ["str"]);
+  });
+
+  it("stores nothing when neither dropdown is set", () => {
+    assert.equal(buildFlexibleAsiChoice("", ""), null);
+  });
+
+  it("grants nothing when both dropdowns name the same ability", () => {
+    // 5e raises two DIFFERENT scores; picking one twice is not an ASI.
+    const same = buildFlexibleAsiChoice("str", "str");
+    assert.equal(same.pattern, null);
+    assert.deepEqual(same.statModifiers, []);
+  });
+
+  it("reads a completed pick back into the two dropdowns", () => {
+    assert.deepEqual(flexibleAsiSelection(buildFlexibleAsiChoice("dex", "wis")), { plus2: "dex", plus1: "wis" });
+  });
+
+  it("reads a partial pick back without losing the first dropdown", () => {
+    assert.deepEqual(flexibleAsiSelection(buildFlexibleAsiChoice("int", "")), { plus2: "int", plus1: "" });
+  });
+
+  it("reads the older bare-id array shape", () => {
+    // A pick made before the dropdowns existed must land in the right
+    // boxes rather than silently resetting.
+    assert.deepEqual(flexibleAsiSelection(["cha", "con"]), { plus2: "cha", plus1: "con" });
+  });
+
+  it("handles nothing stored at all", () => {
+    assert.deepEqual(flexibleAsiSelection(undefined), { plus2: "", plus1: "" });
+    assert.deepEqual(flexibleAsiSelection([]), { plus2: "", plus1: "" });
+  });
+
+  it("summarises as +2/+1 with real ability names", () => {
+    assert.equal(flexibleAsiSummary(buildFlexibleAsiChoice("str", "dex")), "+2 Strength, +1 Dexterity");
+  });
+
+  it("summarises a partial pick honestly", () => {
+    assert.match(flexibleAsiSummary(buildFlexibleAsiChoice("str", "")), /Strength/);
+  });
+
+  it("prompts when nothing is picked", () => {
+    assert.match(flexibleAsiSummary(null), /Choose/);
   });
 });
