@@ -20,7 +20,45 @@ export function normalizeChoiceGroup(group, index, keyPrefix) {
   };
 }
 
-export function activeChoiceGroupsFor(fields, level, levelFor = null, extraBundles = []) {
+/** Options a group offers across both shapes: a flat `options`
+ *  list, a cross-category `categories` list, or both. Pure. */
+export function groupOptionsOf(group) {
+  return [
+    ...(group?.options || []),
+    ...((group?.categories || []).flatMap((c) => c.options || [])),
+  ];
+}
+
+/** Whether a group or option may show for the given content packs —
+ *  mirrors packAllows in sheetWizard.js (kept local so this module
+ *  stays dependency-free). */
+function packAllowsLocal(item, includedPacks) {
+  if (!item || !item.requiresPack) return true;
+  if (includedPacks == null) return true;
+  const packs = Array.isArray(includedPacks) ? includedPacks : [includedPacks];
+  return packs.includes(item.requiresPack);
+}
+
+function filterGroupByPackLocal(group, includedPacks) {
+  if (!group) return null;
+  if (!packAllowsLocal(group, includedPacks)) return null;
+  const keep = (options) => (options || []).filter((o) => packAllowsLocal(o, includedPacks));
+  const options = Array.isArray(group.options) ? keep(group.options) : group.options;
+  let categories = group.categories;
+  if (Array.isArray(group.categories)) {
+    categories = group.categories
+      .map((c) => ({ ...c, options: keep(c.options) }))
+      .filter((c) => (c.options || []).length > 0);
+  }
+  if (groupOptionsOf({ options, categories }).length === 0) return null;
+  const pruned =
+    (options || []).length !== ((group.options || []).length)
+    || (categories || []).length !== ((group.categories || []).length);
+  if (!pruned) return group;
+  return { ...group, options, categories };
+}
+
+export function activeChoiceGroupsFor(fields, level, levelFor = null, extraBundles = [], includedPacks = null) {
   const groups = [];
   fields.forEach((field) => {
     if (field.fieldType !== "dropdown") return;
@@ -29,9 +67,10 @@ export function activeChoiceGroupsFor(fields, level, levelFor = null, extraBundl
     const lvl = effectiveLevel(levelFor, level, field, choice, bundle);
     (bundle?.choiceGroups || []).forEach((group, index) => {
       if (group.minLevel && lvl < group.minLevel) return;
-      if (!Array.isArray(group.options) || group.options.length === 0) return;
+      const gated = filterGroupByPackLocal(group, includedPacks);
+      if (!gated || groupOptionsOf(gated).length === 0) return;
       groups.push({
-        ...normalizeChoiceGroup(group, index, `${field.id}:${choice.id}`),
+        ...normalizeChoiceGroup(gated, index, `${field.id}:${choice.id}`),
         source: choice.text || field.label,
       });
     });
@@ -42,9 +81,10 @@ export function activeChoiceGroupsFor(fields, level, levelFor = null, extraBundl
     const lvl = Number.isFinite(extraLevel) ? extraLevel : level;
     (bundle?.choiceGroups || []).forEach((group, index) => {
       if (group.minLevel && lvl < group.minLevel) return;
-      if (!Array.isArray(group.options) || group.options.length === 0) return;
+      const gated = filterGroupByPackLocal(group, includedPacks);
+      if (!gated || groupOptionsOf(gated).length === 0) return;
       groups.push({
-        ...normalizeChoiceGroup(group, index, `multiclass:${source || "class"}`),
+        ...normalizeChoiceGroup(gated, index, `multiclass:${source || "class"}`),
         source: source || "Multiclass",
       });
     });

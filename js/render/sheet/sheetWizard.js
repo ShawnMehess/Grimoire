@@ -21,7 +21,46 @@ export function nextApplicableStep(steps, fromIndex, dir = 1) {
   return fromIndex;
 }
 
-export function creationChoiceGroupsForState(state, bundleLookup) {
+/** Whether a choice group or option may show for the given content
+ *  packs. Items without `requiresPack` always show; gated items show
+ *  only when their named pack (e.g. "tashas" for Tasha's optional
+ *  rules) is included. A null/undefined pack list means "unknown
+ *  context" and shows everything, so older callers without pack
+ *  plumbing keep working. Pure. */
+export function packAllows(item, includedPacks) {
+  if (!item || !item.requiresPack) return true;
+  if (includedPacks == null) return true;
+  const packs = Array.isArray(includedPacks) ? includedPacks : [includedPacks];
+  return packs.includes(item.requiresPack);
+}
+
+/** A choice group filtered to the packs currently included: gated
+ *  options (including inside cross-category `categories`) are
+ *  removed, and a group left with nothing to offer — or itself gated
+ *  — comes back null. Returns the original object untouched when
+ *  nothing is gated out, so bundle identity stays stable. Pure. */
+export function filterGroupByPack(group, includedPacks) {
+  if (!group) return null;
+  if (!packAllows(group, includedPacks)) return null;
+  const filterOptions = (options) => (options || []).filter((o) => packAllows(o, includedPacks));
+  const options = Array.isArray(group.options) ? filterOptions(group.options) : group.options;
+  let categories = group.categories;
+  if (Array.isArray(group.categories)) {
+    categories = group.categories
+      .map((c) => ({ ...c, options: filterOptions(c.options) }))
+      .filter((c) => (c.options || []).length > 0);
+  }
+  const optionCount = (options || []).length
+    + (categories || []).reduce((n, c) => n + ((c.options || []).length), 0);
+  if (optionCount === 0) return null;
+  const pruned =
+    (options || []).length !== ((group.options || []).length)
+    || (categories || []).length !== ((group.categories || []).length);
+  if (!pruned) return group;
+  return { ...group, options, categories };
+}
+
+export function creationChoiceGroupsForState(state, bundleLookup, includedPacks = null) {
   const level = state.level;
   const groups = [];
   const push = (category, name) => {
@@ -29,9 +68,14 @@ export function creationChoiceGroupsForState(state, bundleLookup) {
     const lib = bundleLookup(category, name, state.rulesetId);
     (lib?.choiceGroups || []).forEach((group, index) => {
       if (group.minLevel && level < group.minLevel) return;
-      if (!Array.isArray(group.options) || group.options.length === 0) return;
+      const gated = filterGroupByPack(group, includedPacks);
+      if (!gated) return;
+      // Flat options OR cross-category options count — a group with
+      // neither has nothing to offer (and a cross-category group with
+      // no flat list must NOT be mistaken for an empty group).
+      if (groupOptionsOf(gated).length === 0) return;
       groups.push({
-        ...group,
+        ...gated,
         key: `creation:${category}:${name}:${group.id || index}`,
         source: name,
         minLevel: Number.isFinite(group.minLevel) ? group.minLevel : 0,

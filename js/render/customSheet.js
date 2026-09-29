@@ -2251,9 +2251,10 @@ const closeDialog = () => {
     // `feat:<name>:<groupId>` (see featChoiceGroupsFor) so their picks
     // live in character.rules.choices like every other choice group.
     // Equipment-proficiency pickers ride along too so their picks keep
-    // applying after setup; Common stays locked everywhere.
+    // applying after setup; Common stays locked everywhere. Pack-gated
+    // groups/options (requiresPack) filter against the included books.
     return lockCommonInLanguageGroups([
-      ...activeChoiceGroupsFor(fields, currentLevel(valueMap), bundleLevelFor, extraSecondaryBundles()),
+      ...activeChoiceGroupsFor(fields, currentLevel(valueMap), bundleLevelFor, extraSecondaryBundles(), includedRulesetIds(character.rules)),
       ...featChoiceGroupsFor(selectedFeatBundles()),
       ...equipmentProficiencyGroups(),
     ]);
@@ -3148,9 +3149,11 @@ const closeDialog = () => {
   function creationChoiceGroupsFor(state) {
     // Choice groups resolve against EVERY included source, not just
     // the primary — a Xanathar-tagged bundle's picks surface whenever
-    // that source is checked, even with Homebrew primary.
+    // that source is checked, even with Homebrew primary. Pack-gated
+    // groups/options (requiresPack, e.g. Tasha's optional rules) only
+    // surface when their pack is included.
     const lookup = (category, name) => bundleFor(category, name, includedRulesetIds(state));
-    return lockCommonInLanguageGroups(creationChoiceGroupsForState(state, lookup));
+    return lockCommonInLanguageGroups(creationChoiceGroupsForState(state, lookup, includedRulesetIds(state)));
   }
 
   /** Common is known by default and can't be changed — applied
