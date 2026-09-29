@@ -79,6 +79,18 @@ Regenerate (never hand-edit the list below):
 - Drakewarden companion customization — gaps (choiceKind levelUp): needs a deliberate pet/companion data model, not a text field.
 - Hunter variant focuses (Beast/Slayer/Deep Stalker) — done (choiceKind build): input-derived group (category features, level 3); companion mechanics still need the pet model.
 
+### Rogue
+
+- Arcane Trickster cantrips/spells — done (choiceKind build): chosen in the Spells step; grant carries third-caster context (minLevel 3).
+- Assassin bonus proficiencies — gaps (choiceKind build): option list unsourced.
+- Mastermind bonus proficiencies/languages — gaps (choiceKind build): option list unsourced.
+
+### Sorcerer
+
+- Draconic ancestry — gaps (choiceKind build): ancestry option list unsourced.
+- Divine Soul affinity — gaps (choiceKind build): affinity option list unsourced.
+- Aberrant Mind / Clockwork Soul spell replacements — gaps (choiceKind levelUp): replacement spell mechanics unsourced (not auto-known).
+
 ## Artificer
 
 ### Alchemist

@@ -123,6 +123,16 @@ const CHOICE_REVIEW = {
     ["Drakewarden companion customization", "gaps", "levelUp", "needs a deliberate pet/companion data model, not a text field"],
     ["Hunter variant focuses (Beast/Slayer/Deep Stalker)", "done", "build", "input-derived group (category features, level 3); companion mechanics still need the pet model"],
   ],
+  Rogue: [
+    ["Arcane Trickster cantrips/spells", "done", "build", "chosen in the Spells step; grant carries third-caster context (minLevel 3)"],
+    ["Assassin bonus proficiencies", "gaps", "build", "option list unsourced"],
+    ["Mastermind bonus proficiencies/languages", "gaps", "build", "option list unsourced"],
+  ],
+  Sorcerer: [
+    ["Draconic ancestry", "gaps", "build", "ancestry option list unsourced"],
+    ["Divine Soul affinity", "gaps", "build", "affinity option list unsourced"],
+    ["Aberrant Mind / Clockwork Soul spell replacements", "gaps", "levelUp", "replacement spell mechanics unsourced (not auto-known)"],
+  ],
 };
 
 let total = 0;
