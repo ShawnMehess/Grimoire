@@ -608,10 +608,79 @@
 .block-body {
   position: absolute;
   left: 0; right: 0; bottom: 0;
-  /* top set inline in JS — starts right after the name row + gap */
+  /* top set inline in JS - starts right after the name row + gap */
   /* Contain fields within block boundaries */
   overflow: hidden;
 }
+
+/* --- Simple View ------------------------------------------------------
+   A display-mode toggle, NOT a layout mode. Every block becomes a
+   full-width section stacked in block-list order, and the fields inside
+   a block stack top-to-bottom in their existing row-then-column order.
+   Nothing here writes to the saved layout: the nodes keep their x/y/w/h
+   exactly as they are, and the JS `order` values that produce the
+   row-then-column sequence are cleared again on the way out.
+
+   The grid is absolutely positioned (left/top/width/height in pixels),
+   so this has to out-specify that with !important rather than add rules
+   on top - there is no cascade-friendly way to un-position a node from a
+   later, lower-specificity selector. `inline-flex`/`flex` on the
+   containers is what turns "absolutely positioned at these pixels" into
+   "stacked in this order", and `order` (set in JS from y,x) is what
+   makes the sequence row-then-column instead of DOM order. */
+.page-grid.is-simple {
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+  width: 100%;
+  min-width: 0;
+}
+.page-grid.is-simple:not(.page-grid--leveling) .grid-node {
+  position: static !important;
+  left: auto !important;
+  top: auto !important;
+  width: 100% !important;
+  height: auto !important;
+  min-width: 0;
+  min-height: 0;
+}
+.page-grid.is-simple:not(.page-grid--leveling) .block-name {
+  position: static !important;
+  height: auto !important;
+  min-height: 1.5em;
+  white-space: normal;
+  text-align: left;
+}
+.page-grid.is-simple:not(.page-grid--leveling) .block-body {
+  position: static !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  /* The grid clips to the block; stacked content decides its own
+     height, and clipping here would hide fields instead. */
+  overflow: visible;
+  gap: var(--space-2);
+}
+/* Fields are laid out by flex order (set in JS from their grid cell),
+   so their own width/height have to stand down. */
+.page-grid.is-simple:not(.page-grid--leveling) .grid-node--field {
+  width: 100% !important;
+  height: auto !important;
+  min-height: 1.6em;
+}
+/* The edit-mode canvas floor is a drag target; stacked content sizes
+   itself, and the extra viewport-tall padding is just dead space. */
+.page-grid.is-simple:not(.page-grid--leveling) .field-inner,
+.page-grid.is-simple:not(.page-grid--leveling) .field-value {
+  height: auto;
+  min-height: 1.3em;
+}
+
 
 /* --- Field internal layout: label position variants --- */
 

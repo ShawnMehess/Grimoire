@@ -278,6 +278,10 @@ export function renderBlockNodeInto(block, cw, deps) {
   el.className = blockNodeClass(viewBlock.blockType);
   el.dataset.nodeId = block.id;
   el.dataset.nodeKind = "block";
+  // Grid cell, mirrored onto the DOM for Simple View's row-then-column
+  // sort (see applySimpleViewOrder in customSheet.js). Read-only.
+  el.dataset.gridX = String(block.x ?? 0);
+  el.dataset.gridY = String(block.y ?? 0);
   if (isEdit) el.tabIndex = 0;
   applyRectFn(el, block, cw);
   applyStyleFn(el, viewBlock.style);

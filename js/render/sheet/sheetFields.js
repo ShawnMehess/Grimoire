@@ -56,6 +56,11 @@ export function renderFieldNodeInto(field, parentBlock, cw, parentStyle = {}, de
   el.className = "grid-node grid-node--field";
   el.dataset.nodeId = field.id;
   el.dataset.nodeKind = "field";
+  // Grid cell, mirrored onto the DOM so display modes that re-order the
+  // nodes (Simple View) can sort row-then-column without having to walk
+  // back to the layout data. Read-only; nothing derives layout from it.
+  el.dataset.gridX = String(field.x ?? 0);
+  el.dataset.gridY = String(field.y ?? 0);
   // Author-set tooltip (hover toolbar → "?" button) plus any starter
   // content default — native title keeps it working everywhere with
   // zero extra chrome.

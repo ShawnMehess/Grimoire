@@ -168,111 +168,23 @@
   }
 }
 
-/* Play View mode – responsive, phone-friendly grid */
-.page-grid.play-mode {
-  box-sizing: border-box;
-  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
-  gap: 6px;
-  overflow-x: hidden;
-}
-.page-grid.play-mode .sheetCell {
-  padding: 3px;
-}
-.page-grid.play-mode .sheetCell .block {
-  font-size: 0.75rem;
-  padding: 4px;
-  box-sizing: border-box;
-}
-.page-grid.play-mode .toolbar {
-  display: none;
-}
+/* ==========================================================================
+   Simple View
+   ==========================================================================
+   Was here once, under the name "Play View" (`.page-grid.play-mode`).
+   Removed rather than migrated, because almost all of it was dead: it
+   styled `.sheetCell`, `.block`, `.sheet-section` and
+   `.sheet-section__grid`, none of which exist any more — the grid has
+   been `.page-grid > .grid-node--block > .block-body` for a while. So
+   the toggle flipped a class that mostly did nothing, apart from the
+   editor-chrome hiding rules, which did work by class name.
 
-/* Hide editor-only chrome in Play View */
-.page-grid.play-mode .sheet-toolbar,
-.page-grid.play-mode .sheet-block-frame,
-.page-grid.play-mode .node-toolbar,
-.page-grid.play-mode .drag-handle,
-.page-grid.play-mode .resize-handle,
-.page-grid.play-mode .node-toolbar,
-.page-grid.play-mode .grid-lines,
-.page-grid.play-mode .block-toolbar,
-.page-grid.play-mode .field-toolbar,
-.page-grid.play-mode .group-toolbar,
-.page-grid.play-mode .wizard__nav,
-.page-grid.play-mode .wizard__dots,
-.page-grid.play-mode .choice-row-list__collapse-controls,
-.page-grid.play-mode .spell-picker-tip,
-.page-grid.play-mode .textlist-add,
-.page-grid.play-mode .textlist-item__handle,
-.page-grid.play-mode .textlist-item__remove,
-.page-grid.play-mode .field-roll,
-.page-grid.play-mode button {
-  display: none !important;
-}
+   The real thing now lives in custom-sheet-grid.css under
+   `.page-grid.is-simple`, next to the rules it has to out-specify
+   (the grid is absolutely positioned, so stacking it needs !important).
+   Keeping it beside those rules rather than here is deliberate: a
+   display mode that fights the positioning of the thing it displays
+   belongs next to that positioning, not in a general layout file.
+   ========================================================================== */
 
-/* Play View – responsive layout for phone screens */
-@media (max-width: 480px) {
-  .page-grid.play-mode {
-    grid-template-columns: 1fr;
-    gap: 6px;
-  }
-  .page-grid.play-mode .sheetCell {
-    padding: 3px;
-  }
-  .page-grid.play-mode .sheetCell .block {
-    font-size: 0.85rem;
-    padding: 8px;
-  }
-  .page-grid.play-mode .sheet-section {
-    padding: var(--space-3);
-  }
-  .page-grid.play-mode .sheet-section__grid {
-    grid-template-columns: 1fr;
-    gap: var(--space-2);
-  }
-}
 
-/* Play View - ensure tabs remain usable */
-.page-grid.play-mode .sheet-tabs {
-  display: flex !important;
-  overflow-x: auto;
-  gap: var(--space-1);
-  margin-bottom: var(--space-2);
-  padding: var(--space-2);
-  background: var(--color-bg-raised);
-  border-radius: var(--radius-md);
-}
-.page-grid.play-mode .sheet-tab {
-  flex: 0 0 auto;
-  min-width: max-content;
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-sm);
-}
-
-/* Ensure collapsed mechanics print expanded in Play View too */
-.page-grid.play-mode .choice-row__details[hidden] {
-  display: block;
-}
-
-/* Play View - hide field edit controls but keep read-only values readable */
-.page-grid.play-mode .field-value--richtext,
-.page-grid.play-mode .field-value--computed,
-.page-grid.play-mode .field-value--picture,
-.page-grid.play-mode .field-value--radio,
-.page-grid.play-mode .field-value--checkbox,
-.page-grid.play-mode .field-value--dropdown,
-.page-grid.play-mode .field-value--textlist,
-.page-grid.play-mode .field-value--taglist,
-.page-grid.play-mode .field-value--text,
-.page-grid.play-mode .field-value--textarea {
-  pointer-events: none;
-  user-select: text;
-}
-
-/* Play View - keep calculated/computed fields visible but read-only */
-.page-grid.play-mode .field-value--computed::after {
-  content: " (calculated)";
-  font-size: 0.7em;
-  color: var(--color-text-faint);
-  margin-left: var(--space-1);
-}

@@ -349,6 +349,7 @@ import {
   stashedLayoutFor,
   switchTabToPreset,
 } from "./sheet/aspectPresets.js";
+import { applySimpleViewOrder } from "./sheet/simpleView.js";
 import {
   ROLL_SIDES,
   rollCheck,
@@ -754,19 +755,31 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // --- Toolbar: mode toggle + add-block (edit mode only) --------------
   const { toolbar, leftGroup, modeBtn, undoBtn, redoBtn, addBlockBtn } = buildToolbarShell();
 
-  // --- Play/View mode toggle ---
-  let playMode = false;
+  // --- Simple / Sheet view toggle ---
+  //
+  // Simple View is a DISPLAY mode only. It stacks every block into a
+  // full-width section and every field into a full-width row, but the
+  // saved x/y/w/h are never touched: switching back restores the grid
+  // exactly as it was. The only thing written to the DOM is a flex
+  // `order` on each node (see simpleView.js) and a class on the grid,
+  // both of which are removed again on the way out.
+  let simpleView = false;
+
   const playViewBtn = document.createElement("button");
   playViewBtn.type = "button";
   playViewBtn.className = "btn btn--secondary";
-  playViewBtn.textContent = "Play View";
-  playViewBtn.title = "Switch to Play View for a responsive, phone-friendly display";
+  playViewBtn.textContent = "Simple View";
+  playViewBtn.title = "Switch to Simple View - every block and field stacked full-width (display only; your layout is untouched)";
   playViewBtn.addEventListener("click", () => {
-    playMode = !playMode;
-    playViewBtn.textContent = playMode ? "Sheet View" : "Play View";
-    playViewBtn.title = playMode ? "Switch to Sheet View" : "Switch to Play View for a responsive, phone-friendly display";
-    pageGrid.classList.toggle("play-mode", playMode);
-    if (playMode) {
+    simpleView = !simpleView;
+    playViewBtn.textContent = simpleView ? "Sheet View" : "Simple View";
+    playViewBtn.title = simpleView
+      ? "Switch back to the editable grid - your saved layout is exactly where you left it"
+      : "Switch to Simple View - every block and field stacked full-width (display only; your layout is untouched)";
+    pageGrid.classList.toggle("is-simple", simpleView);
+    applySimpleViewOrder(pageGrid, simpleView);
+    if (simpleView) {
+      // Editing chrome is meaningless over a read-only stacked view.
       sidebarToggleBtn.style.display = "none";
       modeSelect.style.display = "none";
       rulesetSelect.style.display = "none";
@@ -780,6 +793,8 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       themeSelect.style.display = "";
       displayDetails.style.display = "";
       cardZonesWrap.hidden = false;
+      // The order values were cleared above, so the grid is back to its
+      // normal pixel positioning with nothing stale left on the nodes.
       renderAll();
     }
   });
@@ -6020,6 +6035,11 @@ const closeDialog = () => {
     renderTabs();
     renderBlockFrame();
     renderPageGrid();
+    // Simple View's sort keys live on the DOM, so they have to be
+    // restamped after every rebuild — otherwise switching tabs (or any
+    // re-render) would silently drop back to DOM order. The nodes were
+    // just recreated, so there is nothing stale to clear first.
+    if (simpleView) applySimpleViewOrder(pageGrid, true);
   }
 
   function renderTabs() {
