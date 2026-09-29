@@ -530,11 +530,14 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   // read whole (audit systemic fixes), so sentence-snipping them
   // would shorten sourced wording. Race rows keep the legacy
   // first-sentence brief.
-  const detailFor = (description) => {
+  const detailFor = (description, caveat = null) => {
     const flat = humanizeGameText(String(description || "").replace(/\s+/g, " ").trim());
-    if (!flat) return "";
-    if (classDisplay || backgroundDisplay || subclassDisplay) return flat;
-    return briefDescription(description, 120);
+    if (!flat) return caveat ? ` (${caveat})` : "";
+    if (classDisplay || backgroundDisplay || subclassDisplay) {
+      return caveat ? `${flat} (${caveat})` : flat;
+    }
+    const brief = briefDescription(description, 120);
+    return caveat ? `${brief} (${caveat})` : brief;
   };
 
   const tagsByField = new Map();
@@ -599,7 +602,7 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     // Proficiency notes and equipment split out on class/background
     // rows; race rows keep the legacy single-list behavior.
     if ((classDisplay || backgroundDisplay) && isProficiencyNote(grant)) {
-      const why = detailFor(grant.description);
+      const why = detailFor(grant.description, grant.caveat);
       const line = `${name}${why ? `: ${why}` : ""}`;
       if (classDisplay) classProfLines.push(line);
       else bgProfLines.push(line);
@@ -614,7 +617,7 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
       continue;
     }
     if (backgroundDisplay) {
-      const why = detailFor(grant.description);
+      const why = detailFor(grant.description, grant.caveat);
       bgFeatures.push(`${name}${why ? `: ${why}` : ""}`);
       continue;
     }
@@ -623,12 +626,12 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
       // templates resolve to the currently-granted spells only.
       // Proficiency notes still read as proficiencies.
       if (isProficiencyNote(grant)) {
-        const why = detailFor(grant.description);
+        const why = detailFor(grant.description, grant.caveat);
         subProfLines.push(`${name}${why ? `: ${why}` : ""}`);
       } else if (isAutoSpellGrant(grant)) {
         subFeatures.push(resolveSpellSummary(grant.description, bundle, level));
       } else {
-        const why = detailFor(grant.description);
+        const why = detailFor(grant.description, grant.caveat);
         subFeatures.push(`${name}${why ? `: ${why}` : ""}`);
       }
       continue;
@@ -641,10 +644,10 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
       const why = briefDescription(grant.description, 120);
       resistanceBits.push(`${name}${why ? `: ${why}` : ""}`);
     } else if (classDisplay && /^hit (die|points)/i.test(name)) {
-      const why = detailFor(grant.description);
+      const why = detailFor(grant.description, grant.caveat);
       hitBits.push(`${name}${why ? `: ${why}` : ""}`);
     } else {
-      const why = detailFor(grant.description);
+      const why = detailFor(grant.description, grant.caveat);
       if (classDisplay) classFeatures.push(`${name}${why ? `: ${why}` : ""}`);
       else innate.push(`${name}${why ? `: ${why}` : ""}`);
     }

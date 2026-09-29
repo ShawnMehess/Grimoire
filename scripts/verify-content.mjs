@@ -446,18 +446,17 @@ function featListWith(namesAndLevels) {
   const champ = SUBCLASS_BUNDLE_MAP.get("champion");
   if (!(champ?.choiceGroups || []).some((g) => g.id === "champion-fighting-style")) fail("Champion: fighting-style picker missing");
 
-  // Free-form racial ASIs: three independent +1 slots (any 3-point
-  // split, duplicates stacking) instead of the old 35-combo picker.
+  // Free-form racial ASIs: flexible ability bonus picker (Phase 3b)
+  // replaces the old 3-slot approach. The new picker has type "flexibleAbilityBonus"
+  // with two pattern options ("2-1" and "1-1-1").
   for (const n of ["Aarakocra", "Aasimar", "Yuan-ti", "Genasi"]) {
-    const groups = (race(n)?.choiceGroups || []).filter((g) => /-asi-[123]$/.test(g.id || ""));
-    if (groups.length !== 3) fail(`${n}: ASI slots missing (want 3 slot groups)`);
-    for (const g of groups) {
-      if ((g.options || []).length !== 6) fail(`${n}: ${g.id} wants 6 ability options`);
-      if (!(g.options || []).every((o) => (o.statModifiers || []).length === 1 && o.statModifiers[0].op === "add" && o.statModifiers[0].value === 1)) {
-        fail(`${n}: ${g.id} options are not single +1s`);
-      }
-      if (g.minSelections !== 1 || g.maxSelections !== 1) fail(`${n}: ${g.id} is not single-pick`);
-    }
+    const group = (race(n)?.choiceGroups || []).find((g) => g.type === "flexibleAbilityBonus");
+    if (!group) fail(`${n}: flexibleAbilityBonus group missing`);
+    if (group.minSelections !== 1 || group.maxSelections !== 1) fail(`${n}: flexibleAbilityBonus not single-pick`);
+    const opts = group.options || [];
+    if (opts.length !== 2) fail(`${n}: flexibleAbilityBonus wants 2 pattern options`);
+    const patterns = opts.map((o) => o.pattern).sort();
+    if (patterns[0] !== "1-1-1" || patterns[1] !== "2-1") fail(`${n}: flexibleAbilityBonus patterns incorrect`);
     if ((race(n)?.featureGrants || []).some((f) => /plus_2_plus_1_or_three_plus_1s/.test(f.description || ""))) {
       fail(`${n}: stale ASI stub note still present`);
     }

@@ -65,6 +65,17 @@ export function renderFieldNodeInto(field, parentBlock, cw, parentStyle = {}, de
   const fieldStyle = mergeStyleFn(parentStyle, field.style || {});
   applyStyleFn(el, fieldStyle);
 
+  // Keyboard selection: Enter/Space selects the node (Phase 3e)
+  if (isEdit) {
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelectBlockOrField(el, field);
+      }
+    });
+  }
+
   const labelEl = innerFn(el, field, parentBlock, cw);
   // el isn't attached to the document yet at this point (the caller
   // appends it further up the tree once it's built) — labelEl has no

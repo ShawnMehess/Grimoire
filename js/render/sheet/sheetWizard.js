@@ -1821,6 +1821,7 @@ function renderMultiPickerRows(container, names, { selectedSet, onToggle, getInf
  *  Accept writes/Cancel discards. */
 export function choiceDialogKindFor(group) {
   if (!group) return null;
+  if (group.type === "flexibleAbilityBonus") return "flexibleAbilityBonus";
   const label = `${group.label || ""} ${group.source || ""}`;
   if (/fighting style/i.test(label)) return "styles";
   if (/expertise/i.test(label)) return "expertise";
@@ -1977,6 +1978,140 @@ function openFeatChoiceDialog(group, choicesStore, onChange, rerender, owned) {
   });
 }
 
+/** Opens a two-step dialog for flexible ability bonus (Phase 3b):
+ *  1) Choose pattern: "2-1" (+2/+1) or "1-1-1" (+1/+1/+1)
+ *  2) Pick the relevant abilities from the six
+ *  The result is stored as a synthetic choice with pattern + abilities,
+ *  and the actual +2/+1 or +1/+1/+1 stat modifiers are applied via
+ *  the bundle's statModifiers when the character is hydrated. */
+function openFlexibleAsiDialog(group, choicesStore, onChange, rerender, owned) {
+  const abilities = [
+    { id: "str", name: "Strength" },
+    { id: "dex", name: "Dexterity" },
+    { id: "con", name: "Constitution" },
+    { id: "int", name: "Intelligence" },
+    { id: "wis", name: "Wisdom" },
+    { id: "cha", name: "Charisma" },
+  ];
+  const stored = choicesStore[group.key] || [];
+  const currentPattern = stored[0]?.pattern || null;
+  const currentAbilities = stored[0]?.abilities || [];
+  let step = currentPattern ? 2 : 1;
+  let selectedPattern = currentPattern;
+  let selectedAbilities = [...currentAbilities];
+
+  const mount = document.body;
+  [...(mount.children || [])]
+    .filter((c) => (c.className || "").split(/\s+/).includes("choice-dialog-overlay"))
+    .forEach((c) => c.remove?.());
+
+  const overlay = el("div", { class: "modal-overlay choice-dialog-overlay" });
+  const box = el("div", { class: "modal-box choice-dialog", onclick: (e) => e.stopPropagation() });
+  const heading = el("h3", { text: group.label || "Ability Score Increase" });
+  const updateCount = () => {};
+  const listWrap = el("div", { class: "choice-dialog-list", style: "max-height: 50vh; overflow-y: auto;" });
+
+  const renderStep1 = () => {
+    listWrap.innerHTML = "";
+    const opts = (group.options || []).filter((o) => o && o.pattern);
+    opts.forEach((opt) => {
+      const isSelected = selectedPattern === opt.pattern;
+      const input = el("input", {
+        type: "radio", name: "asi-pattern", checked: isSelected, value: opt.pattern,
+        onchange: () => {
+          selectedPattern = opt.pattern;
+          selectedAbilities = [];
+          step = 2;
+          renderStep2();
+        },
+      });
+      const label = el("label", { class: "choice-dialog-option" },
+        input,
+        el("span", { text: opt.description, style: "flex: 1;" }),
+      );
+      listWrap.append(label);
+    });
+  };
+
+  const renderStep2 = () => {
+    listWrap.innerHTML = "";
+    const need = selectedPattern === "2-1" ? 2 : 3;
+    const countNote = el("p", { class: "leveling-tab__intro", text: `Pick ${need} different abilities` });
+    listWrap.append(countNote);
+    abilities.forEach((abl) => {
+      const isSelected = selectedAbilities.includes(abl.id);
+      const input = el("input", {
+        type: "checkbox", checked: isSelected, value: abl.id,
+        onchange: (e) => {
+          if (e.target.checked) {
+            if (selectedAbilities.length >= need) { e.target.checked = false; return; }
+            selectedAbilities.push(abl.id);
+          } else {
+            selectedAbilities = selectedAbilities.filter((id) => id !== abl.id);
+          }
+        },
+      });
+      const label = el("label", { class: "choice-dialog-option" },
+        input,
+        el("span", { text: abl.name, style: "flex: 1;" }),
+      );
+      listWrap.append(label);
+    });
+    const backBtn = el("button", {
+      type: "button", class: "btn", text: "Back", style: "margin-top: 8px;",
+      onclick: () => { step = 1; renderStep1(); },
+    });
+    listWrap.append(backBtn);
+  };
+
+  if (step === 1) renderStep1(); else renderStep2();
+
+  const close = () => {
+    if (typeof document.removeEventListener === "function") document.removeEventListener("keydown", onKeyDown);
+    overlay.remove();
+  };
+  function onKeyDown(e) { if (e.key === "Escape") close(); }
+  if (typeof document.addEventListener === "function") document.addEventListener("keydown", onKeyDown);
+
+  const actions = el("div", { class: "modal-actions" });
+  const accept = el("button", {
+    type: "button", class: "btn btn--primary", text: step === 1 ? "Next" : "Accept",
+    onclick: () => {
+      if (step === 1) {
+        if (!selectedPattern) return;
+        step = 2;
+        renderStep2();
+        accept.textContent = "Accept";
+      } else {
+        const need = selectedPattern === "2-1" ? 2 : 3;
+        if (selectedAbilities.length !== need) return;
+        // Store as a synthetic choice with computed statModifiers
+        const syntheticId = `flexible-asi-${selectedPattern}-${selectedAbilities.join("-")}`;
+        const statModifiers = selectedAbilities.map((ablId, idx) => ({
+          targetFieldId: `${ablId}Score`,
+          op: "add",
+          value: selectedPattern === "2-1" && idx === 0 ? 2 : 1,
+          minLevel: null,
+        }));
+        choicesStore[group.key] = [{
+          id: syntheticId,
+          pattern: selectedPattern,
+          abilities: selectedAbilities,
+          statModifiers,
+        }];
+        if (onChange) onChange();
+        rerender();
+        close();
+      }
+    },
+  });
+  const cancel = el("button", { type: "button", class: "btn", text: "Cancel", onclick: () => close() });
+  actions.append(cancel, accept);
+  box.append(heading, listWrap, actions);
+  overlay.append(box);
+  mount.append(overlay);
+}
+
 /** Shared renderer for a choiceGroups list's checkboxes/radios.
  *  Enforces maxSelections and shows already-owned proficiencies as
  *  picked-and-locked. A group may also name `lockedOptionIds`: those
@@ -2032,6 +2167,29 @@ export function renderChoiceGroupsInto(container, groups, choicesStore, namePref
       const link = el("a", {
         href: "#", class: "inline-pick-link", text: summary, title: "Choose feats",
         onclick: (e) => { e.preventDefault(); e.stopPropagation(); openFeatChoiceDialog(group, choicesStore, onChange, rerender, owned); },
+      });
+      choiceGroup.append(el("p", { class: "level-guide__feat-pick" }, link));
+      container.append(choiceGroup);
+      return;
+    }
+    if (choiceDialogKindFor(group) === "flexibleAbilityBonus") {
+      // Render as a summary link opening the two-step flexible ASI dialog
+      const stored = choicesStore[group.key] || [];
+      const pick = stored[0];
+      let summary;
+      if (pick?.pattern && pick?.abilities?.length) {
+        const patternDesc = pick.pattern === "2-1" ? "+2/+1" : "+1/+1/+1";
+        const abilityNames = pick.abilities.map((id) => {
+          const abl = { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" }[id];
+          return abl || id.toUpperCase();
+        }).join(", ");
+        summary = `${patternDesc}: ${abilityNames}`;
+      } else {
+        summary = "Choose ability score increases";
+      }
+      const link = el("a", {
+        href: "#", class: "inline-pick-link", text: summary, title: "Choose ability score increases",
+        onclick: (e) => { e.preventDefault(); e.stopPropagation(); openFlexibleAsiDialog(group, choicesStore, onChange, rerender, owned); },
       });
       choiceGroup.append(el("p", { class: "level-guide__feat-pick" }, link));
       container.append(choiceGroup);

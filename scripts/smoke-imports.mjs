@@ -624,18 +624,21 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   const genasiBase = FIXED_RACE_ENTRIES.find((e) => e.name === "Genasi").bundle;
   assert(genasiBase.statModifiers.length === 0, "Genasi base carries no fixed traits");
   assert(group(genasiBase, "genasi-subrace")?.options.map((o) => o.name).join(",") === "Air Genasi,Earth Genasi,Fire Genasi,Water Genasi", "Genasi subrace picker");
-  for (const id of ["genasi-asi-1", "genasi-asi-2", "genasi-asi-3"]) {
-    const slot = group(genasiBase, id);
-    assert(slot?.options.length === 6 && slot.options.every((o) => o.statModifiers.length === 1 && o.statModifiers[0].value === 1), "Genasi ASI slots (+1 each)");
-  }
+  const genasiAsi = group(genasiBase, "genasi-flexible-asi");
+  assert(genasiAsi?.type === "flexibleAbilityBonus", "Genasi has flexibleAbilityBonus group");
+  assert(genasiAsi?.options.length === 2, "Genasi flexibleAbilityBonus has 2 patterns");
   assert(!FIXED_RACE_ENTRIES.some((e) => ["Air Genasi", "Earth Genasi", "Fire Genasi", "Water Genasi"].includes(e.name)), "standalone genasi leave the race list");
   const aarakocra = FIXED_RACE_ENTRIES.find((e) => e.name === "Aarakocra").bundle;
-  assert(["aarakocra-asi-1", "aarakocra-asi-2", "aarakocra-asi-3"].every((id) => group(aarakocra, id)?.options.length === 6), "Aarakocra ASI slots");
+  const aarakocraAsi = group(aarakocra, "aarakocra-flexible-asi");
+  assert(aarakocraAsi?.type === "flexibleAbilityBonus", "Aarakocra has flexibleAbilityBonus group");
+  assert(aarakocraAsi?.options.length === 2, "Aarakocra flexibleAbilityBonus has 2 patterns");
   const halfElf = RACE_EXTRAS.find((e) => e.name === "Half-Elf").bundle;
   assert(["half-elf-asi-1", "half-elf-asi-2"].every((id) => group(halfElf, id)?.options.length === 5), "Half-Elf ASI slots (no CHA)");
   assert(!halfElf.choiceGroups.some((g) => g.id === "half-elf-abilities"), "Half-Elf pair group retired");
   const lineage = FIXED_RACE_ENTRIES.find((e) => e.name === "Custom Lineage").bundle;
-  assert(group(lineage, "custom-lineage-asi-choice-0")?.options.map((o) => o.name).join(",") === "STR,DEX,CON,INT,WIS,CHA", "Lineage ASI options abbreviated");
+  const lineageAsi = group(lineage, "custom-lineage-flexible-asi");
+  assert(lineageAsi?.type === "flexibleAbilityBonus", "Custom Lineage has flexibleAbilityBonus group");
+  assert(lineageAsi?.options.length === 2, "Custom Lineage flexibleAbilityBonus has 2 patterns");
   const changeling = FIXED_RACE_ENTRIES.find((e) => e.name === "Changeling").bundle;
   assert(group(changeling, "changeling-asi-choice-1")?.options.map((o) => o.name).join(",") === "STR,DEX,CON,INT,WIS", "Changeling ASI options abbreviated");
   const lineageTrait = group(lineage, "custom-lineage-variable_trait");

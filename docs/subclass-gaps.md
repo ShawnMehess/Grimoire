@@ -1091,3 +1091,78 @@ Regenerate (never hand-edit the list below):
 - `war-magic-6-power-surge` — War Magic, level 6: name only, no mechanics in 5e-subclasses.txt export
 - `war-magic-10-durable-magic` — War Magic, level 10: name only, no mechanics in 5e-subclasses.txt export
 - `war-magic-14-deflecting-shroud` — War Magic, level 14: name only, no mechanics in 5e-subclasses.txt export
+
+## Phase 3a — Reference-key choice conversion status
+
+Per docs/RESCUE-NOTES.md and docs/MECHANICS-IMPORT-NOTES.md, class/race/background data
+originally carried several player choices as `options_source` reference keys
+(e.g. "barbarian_paths" for Primal Path, "expertise" for Expertise,
+"magical_secrets" for Magical Secrets). These were left as "track your pick
+by hand" feature notes in the compiled output because the actual option
+lists were not present in the source JSON.
+
+All reference-key choices that have sourceable option lists in this repo
+have been converted to real `choiceGroups` pickers (Phases 1, 2, and 3b).
+The remaining unconverted reference keys are all subclass-level choices
+whose option lists are not present in any file in this repo.
+
+### Converted (now real choiceGroups)
+
+| Reference key | Feature | Source of options |
+|---------------|---------|-------------------|
+| `fighting_style` (Fighter/Paladin/Ranger) | Fighting Style | `FIGHTING_STYLES` in contentFixups.js |
+| `expertise` (Rogue/Bard) | Expertise | `SKILLS` in schema.js + Thieves' Tools |
+| `metamagic` (Sorcerer) | Metamagic | `METAMAGIC` in contentFixups.js |
+| `invocations` (Warlock) | Eldritch Invocations | `INVOCATIONS` in contentFixups.js |
+| `pact_boon` (Warlock) | Pact Boon | `PACT_BOONS` in contentFixups.js |
+| `favored_enemy` (Ranger) | Favored Enemy | `RANGER_FAVORED_ENEMIES` in phase1Replacements.js |
+| `favored_terrain` (Ranger) | Favored Terrain | `RANGER_FAVORED_TERRAINS` in phase1Replacements.js |
+| `ranger_class_variant` (Ranger) | Deft Explorer + Favored Foe | `RANGER_VARIANT_OPTION` in phase1Replacements.js |
+| `hunter_conclave_prey` (Hunter) | Hunter's Prey | Hardcoded 3 options in contentFixups.js |
+| `champion_fighting_style` (Champion) | Additional Fighting Style | `FS_LISTS.Fighter` in contentFixups.js |
+| `plus_2_plus_1_or_three_plus_1s` (Aarakocra/Aasimar/Genasi/Yuan-ti/Custom Lineage) | Flexible Ability Bonus | New `flexibleAbilityBonus` type (Phase 3b) |
+
+### Unconverted (no option list in repo)
+
+| Reference key | Feature | Missing source |
+|---------------|---------|----------------|
+| `barbarian_paths` | Primal Path (Barbarian subclass) | Subclass list itself |
+| `bard_colleges` | Bard College (Bard subclass) | Subclass list itself |
+| `cleric_domains` | Divine Domain (Cleric subclass) | Subclass list itself |
+| `druid_circles` | Druid Circle (Druid subclass) | Subclass list itself |
+| `fighter_archetypes` | Fighter Archetype (Fighter subclass) | Subclass list itself |
+| `monk_traditions` | Monastic Tradition (Monk subclass) | Subclass list itself |
+| `paladin_oaths` | Sacred Oath (Paladin subclass) | Subclass list itself |
+| `ranger_conclaves` | Ranger Conclave (Ranger subclass) | Subclass list itself |
+| `rogue_archetypes` | Roguish Archetype (Rogue subclass) | Subclass list itself |
+| `sorcerer_origins` | Sorcerous Origin (Sorcerer subclass) | Subclass list itself |
+| `warlock_patrons` | Otherworldly Patron (Warlock subclass) | Subclass list itself |
+| `wizard_schools` | Arcane Tradition (Wizard subclass) | Subclass list itself |
+| `storm_herald_environment` | Storm Herald environment | No source list in repo |
+| `totem_warrior_totem` | Totem Warrior totem choices | No source list in repo |
+| `lore_bonus_skills` | College of Lore bonus skills | No source list in repo |
+| `swords_fighting_style` | College of Swords Fighting Style | No source list in repo |
+| `arcana_domain_cantrips` | Arcana Domain wizard cantrips | No source list in repo |
+| `knowledge_domain_blessings` | Knowledge Domain Blessings of Knowledge | No source list in repo |
+| `nature_domain_cantrip` | Nature Domain druid cantrip | No source list in repo |
+| `wildfire_bonus_cantrip` | Circle of Wildfire bonus cantrip | No source list in repo |
+| `stars_star_map_form` | Circle of Stars star-map form | No source list in repo |
+| `arcane_archer_shots` | Arcane Archer Arcane Shot options | No source list in repo |
+| `battle_master_maneuvers` | Battle Master maneuvers | No source list in repo |
+| `cavalier_bonus_proficiency` | Cavalier bonus proficiency | No source list in repo |
+| `rune_knight_runes` | Rune Knight runes | No source list in repo |
+| `four_elements_disciplines` | Four Elements disciplines | No source list in repo |
+| `kensei_weapons` | Kensei weapons | No source list in repo |
+| `hunter_followup` | Hunter follow-up selections | No source list in repo |
+| `beast_master_companion` | Beast Master companion | Needs pet model |
+| `drakewarden_companion` | Drakewarden companion | Needs pet model |
+| `assassin_bonus_proficiencies` | Assassin bonus proficiencies | No source list in repo |
+| `mastermind_bonus_proficiencies` | Mastermind bonus proficiencies/languages | No source list in repo |
+| `draconic_ancestry` | Draconic Bloodline ancestry | No source list in repo |
+| `divine_soul_affinity` | Divine Soul affinity | No source list in repo |
+| `aberrant_mind_spells` | Aberrant Mind spell replacements | No source list in repo |
+| `clockwork_soul_spells` | Clockwork Soul spell replacements | No source list in repo |
+| `bladesinger_proficiencies` | Bladesinger proficiency grants | No source list in repo |
+| `scribes_spellbook` | Order of Scribes spellbook choices | No source list in repo |
+
+Total converted: 12 reference keys. Total unconverted: 33 reference keys (all subclass-level, no source data in repo).

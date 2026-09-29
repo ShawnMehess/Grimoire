@@ -258,6 +258,17 @@ export function renderBlockNodeInto(block, cw, deps) {
   applyRectFn(el, block, cw);
   applyStyleFn(el, viewBlock.style);
 
+  // Keyboard selection: Enter/Space selects the node (Phase 3e)
+  if (isEdit) {
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelectBlockOrField(el, block);
+      }
+    });
+  }
+
   if (viewBlock.blockType === "label") {
     const labelEl = document.createElement("div");
     labelEl.className = "label-block-text";

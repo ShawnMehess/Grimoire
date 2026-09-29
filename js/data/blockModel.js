@@ -47,6 +47,7 @@ export const TOOL_PROFICIENCIES = [
   "Disguise Kit", "Forgery Kit", "Herbalism Kit", "Navigator's Tools", "Poisoner's Kit", "Thieves' Tools",
   "Dice Set", "Dragonchess Set", "Playing Card Set", "Three-Dragon Ante Set",
   "Bagpipes", "Drum", "Dulcimer", "Flute", "Horn", "Lute", "Lyre", "Pan Flute", "Shawm", "Viol",
+  "Vehicles (land)", "Vehicles (water)",
 ];
 
 /** One-line proficiency descriptions for the wizard's shared choice
@@ -89,21 +90,25 @@ export const TOOL_DESCRIPTIONS = {
   "Pan Flute": "Perform pastoral tunes on pan pipes.",
   "Shawm": "Perform loud reed music on the shawm.",
   "Viol": "Perform refined pieces on the viol.",
+  "Vehicles (land)": "Drive land vehicles (wagons, chariots, etc.).",
+  "Vehicles (water)": "Operate water vehicles (ships, boats, etc.).",
 };
 
 /** Grouped view of the tool vocabulary for the sheet's taglist
  *  dropdown (optgroups): artisan's tools, instruments, gaming sets,
- *  and specialty kits. Same entries as TOOL_PROFICIENCIES, only
+ *  specialty kits, and vehicles. Same entries as TOOL_PROFICIENCIES, only
  *  organized — the wizard's flat pickers keep using the flat list. */
 const TOOL_INSTRUMENTS = new Set(["Bagpipes", "Drum", "Dulcimer", "Flute", "Horn", "Lute", "Lyre", "Pan Flute", "Shawm", "Viol"]);
 const TOOL_GAMING_SETS = new Set(["Dice Set", "Dragonchess Set", "Playing Card Set", "Three-Dragon Ante Set"]);
 const TOOL_KITS = new Set(["Disguise Kit", "Forgery Kit", "Herbalism Kit", "Navigator's Tools", "Poisoner's Kit", "Thieves' Tools"]);
+const TOOL_VEHICLES = new Set(["Vehicles (land)", "Vehicles (water)"]);
 
 export const TOOL_PROFICIENCY_GROUPS = [
-  { label: "Artisan's Tools", options: TOOL_PROFICIENCIES.filter((t) => !TOOL_INSTRUMENTS.has(t) && !TOOL_GAMING_SETS.has(t) && !TOOL_KITS.has(t)) },
+  { label: "Artisan's Tools", options: TOOL_PROFICIENCIES.filter((t) => !TOOL_INSTRUMENTS.has(t) && !TOOL_GAMING_SETS.has(t) && !TOOL_KITS.has(t) && !TOOL_VEHICLES.has(t)) },
   { label: "Musical Instruments", options: TOOL_PROFICIENCIES.filter((t) => TOOL_INSTRUMENTS.has(t)) },
   { label: "Gaming Sets", options: TOOL_PROFICIENCIES.filter((t) => TOOL_GAMING_SETS.has(t)) },
   { label: "Kits & Specialty Tools", options: TOOL_PROFICIENCIES.filter((t) => TOOL_KITS.has(t)) },
+  { label: "Vehicles", options: TOOL_PROFICIENCIES.filter((t) => TOOL_VEHICLES.has(t)) },
 ];
 
 // Starter choices for the Race/Class/Background/Subclass dropdowns

@@ -390,6 +390,7 @@ function applyClassReplacements(name, bundle) {
         note.reference = note.description;
         note.name = "Armor Restriction";
         note.description = text;
+        note.caveat = "Shields allowed (non-metal only)";
         report.replaced.push("Armor Proficiencies (note) -> Armor Restriction");
       } else {
         report.missing.push("Armor Proficiencies (note)");
@@ -619,7 +620,19 @@ function patchFreeformAsi(bundle, prefix) {
   const levels = takeNotes(bundle, (g) => /plus_2_plus_1_or_three_plus_1s/.test(g.description || ""));
   if (!levels.length) return bundle;
   const minLevel = Math.min(...levels.filter(Number.isFinite).length ? levels.filter(Number.isFinite) : [1]);
-  bundle.choiceGroups.push(...asiSlotGroups(prefix, minLevel, 3));
+  
+  // New flexibleAbilityBonus choice type (Phase 3b): replaces the 3-slot approach
+  // with a two-step picker: first choose "2-1" or "1-1-1" pattern, then pick abilities.
+  bundle.choiceGroups.push({
+    id: `${prefix}-flexible-asi`, label: "Ability Score Increase", minLevel,
+    type: "flexibleAbilityBonus",
+    minSelections: 1, maxSelections: 1,
+    category: "abilities",
+    options: [
+      { pattern: "2-1", description: "+2 to one ability, +1 to a different ability" },
+      { pattern: "1-1-1", description: "+1 to three different abilities" },
+    ],
+  });
   return bundle;
 }
 
@@ -1166,7 +1179,21 @@ function patchRaceEntry(entry) {
     patchFreeformAsi(out.bundle, entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
   }
   if (entry.name === "Custom Lineage") {
-    patchAbilityOptionAbbr(out.bundle, "custom-lineage-asi-choice-0");
+    // Custom Lineage has a different structure: the ASI is a choice group with +2 options,
+    // and there's no feature grant with the "plus_2_plus_1_or_three_plus_1s" description.
+    // Remove the old ASI choice group and add the new flexible one.
+    out.bundle.choiceGroups = out.bundle.choiceGroups.filter((g) => g.id !== "custom-lineage-asi-choice-0");
+    const minLevel = 1;
+    out.bundle.choiceGroups.push({
+      id: "custom-lineage-flexible-asi", label: "Ability Score Increase", minLevel,
+      type: "flexibleAbilityBonus",
+      minSelections: 1, maxSelections: 1,
+      category: "abilities",
+      options: [
+        { pattern: "2-1", description: "+2 to one ability, +1 to a different ability" },
+        { pattern: "1-1-1", description: "+1 to three different abilities" },
+      ],
+    });
     patchLineageTraitNames(out.bundle);
   }
   if (entry.name === "Changeling") {
