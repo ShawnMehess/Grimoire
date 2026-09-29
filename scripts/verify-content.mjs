@@ -124,9 +124,10 @@ function checkBundle(bundle, where) {
   }
 }
 {
-  for (const e of DEFAULT_CONTENT.classEntries) checkBundle(e.bundle, `class ${e.name}`);
+  const { FIXED_CLASS_ENTRIES, FIXED_BG_ENTRIES } = await import("../js/data/contentFixups.js");
+  for (const e of FIXED_CLASS_ENTRIES) checkBundle(e.bundle, `class ${e.name}`);
   for (const e of [...DEFAULT_CONTENT.raceEntries, ...RACE_EXTRA_ENTRIES]) checkBundle(e.bundle, `race ${e.name}`);
-  for (const e of DEFAULT_CONTENT.bgEntries) checkBundle(e.bundle, `background ${e.name}`);
+  for (const e of FIXED_BG_ENTRIES) checkBundle(e.bundle, `background ${e.name}`);
   for (const s of SUBCLASS_SUPPLEMENT) checkBundle(s.bundle, `subclass ${s.name}`);
   for (const b of FEAT_BUNDLES) checkBundle(b, `feat ${b.name}`);
   console.log("targets: every statModifier op/target pair resolves");
@@ -731,6 +732,200 @@ function applyStatModifiersForTest(fields, vm, cb, tags, levelFor, extra) {
     }
     console.log(`secrets: Lore Bard 1-20 unlock ladder holds, ${known.length} Secrets picks complete every unlock`);
   }
+}
+
+// --- 9. Phase 1 content audit (docs/CONTENT-AUDIT-2026-09.md) ------------------
+{
+  const { CLASS_L1_REPLACEMENTS, BG_FEATURE_REPLACEMENTS, FIGHTER_STYLE_GROUP_TEXT } =
+    await import("../js/data/phase1Replacements.js");
+  const { FIXED_CLASS_ENTRIES, FIXED_BG_ENTRIES, PHASE1_CLASS_REPORT, PHASE1_BG_REPORT } =
+    await import("../js/data/contentFixups.js");
+  const { mechanicsBulletsFor } =
+    await import("../js/render/sheet/sheetMechanics.js");
+  const { filterGroupByPack, packAllows, creationChoiceGroupsForState } =
+    await import("../js/render/sheet/sheetWizard.js");
+  const { ABILITIES, SKILLS } = await import("../js/data/schema.js");
+  const { CLASS_STARTING_EQUIPMENT, BG_EQUIPMENT_LINKS, linkedEquipmentNames, bgDisplayItems, resolveStartingEquipmentPick } =
+    await import("../js/data/startingEquipment.js");
+  const sourcesDoc = readFileSync(new URL("../docs/phase1-sources.md", import.meta.url), "utf8");
+  const vocab = { abilityIds: ABILITIES.map((a) => a.id), abilities: ABILITIES, skills: SKILLS };
+  const cls = (n) => FIXED_CLASS_ENTRIES.find((e) => e.name === n)?.bundle;
+  const bg = (n) => FIXED_BG_ENTRIES.find((e) => e.name === n)?.bundle;
+
+  // 9a. Every class/background choice group carries an explicit category
+  // (the audit's 26, plus the Artificer's own and the new Phase 1 groups).
+  const PHASE1_GROUP_IDS = ["class-skills", "monk-toolProf-0", "bard-toolProf-0",
+    "acolyte-languages-0", "entertainer-toolProf-1", "folk-hero-toolProf-0",
+    "guild-artisan-toolProf-0", "guild-artisan-languages-0", "noble-toolProf-0",
+    "noble-languages-0", "outlander-toolProf-0", "outlander-languages-0",
+    "sage-languages-0", "urban-bounty-hunter-skills", "urban-bounty-hunter-toolProf-0"];
+  for (const id of PHASE1_GROUP_IDS) {
+    const owners = [
+      ...FIXED_CLASS_ENTRIES.filter((e) => (e.bundle.choiceGroups || []).some((g) => g.id === id)).map((e) => e.name),
+      ...FIXED_BG_ENTRIES.filter((e) => (e.bundle.choiceGroups || []).some((g) => g.id === id)).map((e) => e.name),
+    ];
+    if (!owners.length) fail(`phase1: audit group ${id} missing from every bundle`);
+  }
+  for (const e of [...FIXED_CLASS_ENTRIES, ...FIXED_BG_ENTRIES]) {
+    for (const g of (e.bundle.choiceGroups || [])) {
+      if (!g.category) fail(`phase1: ${e.name} group ${g.id} has no category`);
+    }
+  }
+
+  // 9b. Verbatim replacements: every table string lands exactly, the
+  // sourcing doc names every grant, and replaced grants keep their
+  // prior text on `reference`.
+  const finalName = (clsName, grant) =>
+    (clsName === "Druid" && grant === "Armor Restriction") ? "Armor Restriction" : grant;
+  for (const [name, rows] of Object.entries(CLASS_L1_REPLACEMENTS)) {
+    for (const { grant, text } of rows) {
+      const found = (cls(name)?.featureGrants || []).find((g) => g.name === finalName(name, grant));
+      if (!found) fail(`phase1: ${name} grant ${grant} not found after patch`);
+      else if (found.description !== text) fail(`phase1: ${name} ${grant} text is not verbatim`);
+      else if (grant !== "Expertise" && !found.reference) fail(`phase1: ${name} ${grant} lost its prior text (no reference)`);
+      if (!sourcesDoc.includes(grant)) fail(`phase1: sources doc never names ${name} ${grant}`);
+    }
+    const report = PHASE1_CLASS_REPORT[name];
+    if (!report) fail(`phase1: no apply report for class ${name}`);
+    else if (report.missing.length) fail(`phase1: ${name} replacements missing: ${report.missing.join(", ")}`);
+  }
+  for (const [name, rows] of Object.entries(BG_FEATURE_REPLACEMENTS)) {
+    for (const { grant, text } of rows) {
+      const found = (bg(name)?.featureGrants || []).find((g) => g.name === grant);
+      if (!found) fail(`phase1: background ${name} grant ${grant} not found after patch`);
+      else if (found.description !== text) fail(`phase1: background ${name} ${grant} text is not verbatim`);
+      else if (!found.reference) fail(`phase1: background ${name} ${grant} lost its prior text (no reference)`);
+      if (!sourcesDoc.includes(grant)) fail(`phase1: sources doc never names background ${name} ${grant}`);
+    }
+    const report = PHASE1_BG_REPORT[name];
+    if (!report) fail(`phase1: no apply report for background ${name}`);
+    else if (report.missing.length) fail(`phase1: background ${name} replacements missing: ${report.missing.join(", ")}`);
+  }
+  const fighterStyle = (cls("Fighter")?.choiceGroups || []).find((g) => g.id === "fighter-fighting-style");
+  if (fighterStyle?.description !== FIGHTER_STYLE_GROUP_TEXT) fail("phase1: Fighter style group text not attached");
+
+  // 9c. Drops: no future-spell lists, no L1 optional grants anywhere.
+  for (const e of FIXED_CLASS_ENTRIES) {
+    for (const g of (e.bundle.featureGrants || [])) {
+      if (/^Additional .* Spells \(Optional\)$/.test(g.name || "")) fail(`phase1: ${e.name} still lists ${g.name}`);
+    }
+  }
+  if ((cls("Fighter")?.featureGrants || []).some((g) => / \(Optional\)$/.test(g.name || ""))) {
+    fail("phase1: Fighter still shows optional style grants");
+  }
+  for (const n of ["Deft Explorer (Optional)", "Favored Foe (Optional)"]) {
+    if ((cls("Ranger")?.featureGrants || []).some((g) => g.name === n)) fail(`phase1: Ranger still shows ${n}`);
+  }
+  // Every surviving "(Optional)" class grant is pack-gated to Tasha's.
+  for (const e of FIXED_CLASS_ENTRIES) {
+    for (const g of (e.bundle.featureGrants || [])) {
+      if (/\(Optional\)$/.test(g.name || "") && g.requiresPack !== "tashas") {
+        fail(`phase1: ${e.name} optional ${g.name} is not pack-gated`);
+      }
+    }
+  }
+
+  // 9d. Pack gating works: Tasha's styles/variant hidden without the pack.
+  if (!packAllows({ requiresPack: "tashas" }, ["phb", "tashas"])) fail("phase1: packAllows rejects an included pack");
+  if (packAllows({ requiresPack: "tashas" }, ["phb"])) fail("phase1: packAllows leaks a missing pack");
+  if (packAllows({}, ["phb"]) !== true) fail("phase1: packAllows hides an ungated item");
+  const phbStyles = filterGroupByPack(fighterStyle, ["phb"]);
+  if ((phbStyles?.options || []).length !== 6) fail(`phase1: Fighter shows ${(phbStyles?.options || []).length} styles without Tasha's (want 6)`);
+  const fullStyles = filterGroupByPack(fighterStyle, ["phb", "tashas"]);
+  if ((fullStyles?.options || []).length !== 11) fail("phase1: Fighter loses styles with Tasha's (want 11)");
+  const rangerGroups = cls("Ranger")?.choiceGroups || [];
+  const enemy = rangerGroups.find((g) => g.id === "ranger-favored-enemy");
+  const terrain = rangerGroups.find((g) => g.id === "ranger-favored-terrain");
+  const variant = rangerGroups.find((g) => g.id === "ranger-class-variant");
+  if (!enemy || enemy.options.length !== 14 || enemy.category !== "features" || enemy.minLevel !== 1) {
+    fail("phase1: ranger favored-enemy group misshapen");
+  }
+  if (!terrain || terrain.options.length !== 8 || terrain.category !== "features" || terrain.minLevel !== 1) {
+    fail("phase1: ranger favored-terrain group misshapen");
+  }
+  if (!variant || variant.requiresPack !== "tashas" || variant.minSelections !== 0 || variant.maxSelections !== 1) {
+    fail("phase1: ranger variant group misshapen");
+  }
+  if (filterGroupByPack(variant, ["phb"]) !== null) fail("phase1: ranger variant leaks without Tasha's");
+  if (!filterGroupByPack(variant, ["phb", "tashas"])) fail("phase1: ranger variant hidden with Tasha's");
+  const acolytePrayer = (bg("Acolyte")?.choiceGroups || []).find((g) => g.id === "acolyte-prayer-focus");
+  if (!acolytePrayer || acolytePrayer.category !== "equipment" || acolytePrayer.options.length !== 2) {
+    fail("phase1: acolyte prayer-focus group misshapen");
+  }
+  // Rogue Expertise pool shape: proficient-skills-or-thieves'-tools only.
+  const rogueExp = (cls("Rogue")?.choiceGroups || []).find((g) => g.id === "rogue-expertise-0");
+  const expNames = new Set((rogueExp?.options || []).map((o) => o.name));
+  const skillNames = new Set(SKILLS.map((s) => s.label));
+  for (const n of expNames) {
+    if (!skillNames.has(n) && n !== "Thieves' Tools") fail(`phase1: rogue expertise offers non-skill ${n}`);
+  }
+  if (!expNames.has("Thieves' Tools")) fail("phase1: rogue expertise lacks thieves' tools");
+
+  // 9e. Level-1 rows: audit titles only, no future-level text, no raw ids.
+  const FUTURE_LEVEL = /\b((1[0-9]|[2-9])(st|nd|rd|th)[- ]levels?\b|levels? ([2-9]|1[0-9]|20)\b|levels 1-9|at higher levels)/i;
+  const RAW_ID = /\b[a-z][a-zA-Z]*((Save)?Prof)\b/;
+  const stripCaps = (text) => String(text || "").split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !/^\s*(No|You cannot|It cannot|This cannot|Never)\b/i.test(sentence)).join(" ");
+  for (const e of FIXED_CLASS_ENTRIES) {
+    if (e.name === "Artificer") continue; // hand-written TCE entry, outside the audit's 12
+    const sections = mechanicsBulletsFor(e.bundle, 1, { ...vocab, classDisplay: true, includedPacks: ["phb"] });
+    const titles = sections.map((s) => s.title);
+    for (const t of titles) {
+      if (!["Level 1 Class Features", "Class Proficiencies", "Ability Score Increases"].includes(t)) {
+        fail(`phase1: ${e.name} row uses unexpected section ${t}`);
+      }
+    }
+    if (!titles.includes("Level 1 Class Features") || !titles.includes("Class Proficiencies")) {
+      fail(`phase1: ${e.name} row misses an audit section (has: ${titles.join(", ")})`);
+    }
+    const text = sections.flatMap((s) => s.items).join(" || ");
+    if (FUTURE_LEVEL.test(stripCaps(text))) fail(`phase1: ${e.name} L1 row mentions a higher level`);
+    if (RAW_ID.test(text)) fail(`phase1: ${e.name} L1 row leaks a raw field id`);
+    if (/\(Optional\)/.test(text)) fail(`phase1: ${e.name} L1 row shows optional text`);
+  }
+  for (const e of FIXED_BG_ENTRIES) {
+    const sections = mechanicsBulletsFor(e.bundle, 1, { ...vocab, backgroundDisplay: true, includedPacks: ["phb"] });
+    const titles = sections.map((s) => s.title);
+    for (const t of titles) {
+      if (!["Background Proficiencies", "Starting Equipment", "Background Feature", "Ability Score Increases"].includes(t)) {
+        fail(`phase1: background ${e.name} uses unexpected section ${t}`);
+      }
+    }
+    if (!titles.includes("Background Feature") || !titles.includes("Starting Equipment")) {
+      fail(`phase1: background ${e.name} misses an audit section (has: ${titles.join(", ")})`);
+    }
+    const text = sections.flatMap((s) => s.items).join(" || ");
+    if (RAW_ID.test(text)) fail(`phase1: background ${e.name} row leaks a raw field id`);
+  }
+
+  // 9f. Equipment links: one pick drives proficiency and inventory.
+  for (const [name, link] of Object.entries(BG_EQUIPMENT_LINKS)) {
+    const bundle = bg(name);
+    if (!(bundle?.choiceGroups || []).some((g) => g.id === link.groupId)) {
+      fail(`phase1: ${name} linked group ${link.groupId} missing`);
+    }
+  }
+  const entBundle = bg("Entertainer");
+  const luteId = ((entBundle?.choiceGroups || []).find((g) => g.id === "entertainer-toolProf-1")?.options || [])
+    .find((o) => o.name === "Lute")?.id;
+  const luteNames = linkedEquipmentNames("Entertainer", entBundle, { "creation:Background:Entertainer:entertainer-toolProf-1": [luteId] });
+  if (luteNames.join() !== "Lute") fail("phase1: entertainer tool pick does not link");
+  if (!bgDisplayItems("Entertainer", luteNames).includes("Lute")) fail("phase1: entertainer equipment does not resolve the pick");
+  if (bgDisplayItems("Entertainer", luteNames).some((i) => /your choice/i.test(i))) {
+    fail("phase1: entertainer placeholder survives a linked pick");
+  }
+  const acolWheel = resolveStartingEquipmentPick("Fighter", "Acolyte",
+    { picks: { armor: "chain-mail", weapon: "sword-board", ranged: "light-crossbow", pack: "dungeoneers-pack" } },
+    ["Prayer wheel"]);
+  if (!acolWheel.items.includes("Prayer wheel") || acolWheel.items.includes("Prayer book")) {
+    fail("phase1: acolyte prayer pick does not drive inventory");
+  }
+  const acolDefault = resolveStartingEquipmentPick("Fighter", "Acolyte",
+    { picks: { armor: "chain-mail", weapon: "sword-board", ranged: "light-crossbow", pack: "dungeoneers-pack" } });
+  if (!acolDefault.items.includes("Prayer book")) fail("phase1: acolyte legacy equipment changed");
+  if (!CLASS_STARTING_EQUIPMENT.Fighter) fail("phase1: class equipment packages missing");
+
+  console.log("phase1: 26 categories, 28 verbatim texts + sources, drops, Tasha gating, L1 rows, equipment links all hold");
 }
 
 // --- 7. Catalogs ------------------------------------------------------------

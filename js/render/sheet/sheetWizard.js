@@ -1456,8 +1456,8 @@ export function setChoiceRowExpanded(name, expanded) {
  *      meta/effect + tag chips via getInfo.
  *  Per-table differences are configuration, not code: each table
  *  passes its own names plus its own trait sections and category
- *  names through getMechanicsList/getMechanics (Class Traits vs.
- *  Racial Traits, spell meta lines, … — see mechanicsBulletsFor),
+   *  names through getMechanicsList/getMechanics (Level 1 Class
+   *  Features vs. Racial Traits, spell meta lines, … — see mechanicsBulletsFor),
  *  its own getInfo flavor/portraits, and its own onSelect/onToggle.
  *  Selection, expansion, collapse, and the Expand All / Collapse All
  *  bar live here alone — changing this function changes every table
