@@ -88,6 +88,12 @@ const CHOICE_REVIEW = {
     ["College of Swords Fighting Style", "gaps", "build", "style option list unsourced"],
     ["Magical Secrets selections", "done", "levelUp", "real picker in the wizard (see MAGICAL_SECRETS_UNLOCKS + Bard spell steps)"],
   ],
+  Cleric: [
+    ["Arcana Domain wizard cantrips", "gaps", "build", "cantrip option list unsourced"],
+    ["Knowledge Domain Blessings of Knowledge", "gaps", "build", "skill/language option mechanics unsourced"],
+    ["Nature Domain druid cantrip", "gaps", "build", "cantrip option list unsourced"],
+    ["Domain spells (all 14 domains)", "done", "build", "level-gated grants + computed Domain Spells line"],
+  ],
 };
 
 let total = 0;

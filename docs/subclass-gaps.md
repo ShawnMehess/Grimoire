@@ -38,6 +38,13 @@ Regenerate (never hand-edit the list below):
 - College of Swords Fighting Style — gaps (choiceKind build): style option list unsourced.
 - Magical Secrets selections — done (choiceKind levelUp): real picker in the wizard (see MAGICAL_SECRETS_UNLOCKS + Bard spell steps).
 
+### Cleric
+
+- Arcana Domain wizard cantrips — gaps (choiceKind build): cantrip option list unsourced.
+- Knowledge Domain Blessings of Knowledge — gaps (choiceKind build): skill/language option mechanics unsourced.
+- Nature Domain druid cantrip — gaps (choiceKind build): cantrip option list unsourced.
+- Domain spells (all 14 domains) — done (choiceKind build): level-gated grants + computed Domain Spells line.
+
 ## Artificer
 
 ### Alchemist
