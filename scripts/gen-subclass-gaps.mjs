@@ -100,6 +100,13 @@ const CHOICE_REVIEW = {
     ["Circle of Stars star-map form", "gaps", "playTime", "form chosen on use; option mechanics unsourced"],
     ["Circle spells (Spores/Land/Wildfire)", "gaps", "build", "audit templates cover domain/oath spells only"],
   ],
+  Fighter: [
+    ["Arcane Archer Arcane Shot options", "gaps", "levelUp", "shot option list unsourced"],
+    ["Battle Master maneuvers + artisan tool", "gaps", "levelUp", "maneuver option list unsourced (tool pick unsourced too)"],
+    ["Cavalier bonus proficiency", "gaps", "build", "option list unsourced"],
+    ["Eldritch Knight cantrips/spells", "done", "build", "chosen in the Spells step; grant carries third-caster context (minLevel 3)"],
+    ["Rune Knight runes", "gaps", "levelUp", "rune option list unsourced"],
+  ],
 };
 
 let total = 0;

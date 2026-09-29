@@ -52,6 +52,14 @@ Regenerate (never hand-edit the list below):
 - Circle of Stars star-map form — gaps (choiceKind playTime): form chosen on use; option mechanics unsourced.
 - Circle spells (Spores/Land/Wildfire) — gaps (choiceKind build): audit templates cover domain/oath spells only.
 
+### Fighter
+
+- Arcane Archer Arcane Shot options — gaps (choiceKind levelUp): shot option list unsourced.
+- Battle Master maneuvers + artisan tool — gaps (choiceKind levelUp): maneuver option list unsourced (tool pick unsourced too).
+- Cavalier bonus proficiency — gaps (choiceKind build): option list unsourced.
+- Eldritch Knight cantrips/spells — done (choiceKind build): chosen in the Spells step; grant carries third-caster context (minLevel 3).
+- Rune Knight runes — gaps (choiceKind levelUp): rune option list unsourced.
+
 ## Artificer
 
 ### Alchemist
