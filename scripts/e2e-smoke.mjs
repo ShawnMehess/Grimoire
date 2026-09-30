@@ -199,6 +199,114 @@ async function runViewportTests(viewport) {
     }
   }
 
+  // Real print-to-PDF output.
+  //
+  // Everything above about printing is structural: the dialog opens, the
+  // CSS says what it says. What has never been checked is what Chrome
+  // actually emits - specifically the headline promise, one page per
+  // selected tab, with the screen chrome gone.
+  //
+  // The trick is the capture. The print flow builds a .print-stage and
+  // injects the @media print stylesheet, calls window.print(), then tears
+  // both down in a finally. So window.print is stubbed to hold onto the
+  // nodes at the exact moment the print pipeline would have seen them,
+  // and they're re-attached afterwards for page.pdf(). That means the PDF
+  // is rendered from the real stage and the real injected CSS - the only
+  // thing being faked is the handoff to the OS print dialog, which
+  // page.pdf() stands in for.
+  if (displayToggle) {
+    // The Display panel is a <details>, and the block above already
+    // opened it — toggling again would close it and hide the button.
+    if (!(await page.$("button:has-text('Print')"))) {
+      await displayToggle.click();
+      await page.waitForTimeout(300);
+    }
+    const printBtn2 = await page.$("button:has-text('Print')");
+    if (printBtn2) {
+      await printBtn2.click();
+      await page.waitForTimeout(400);
+      // Select two tabs, so "one page per selected tab" is distinguishable
+      // from "one page, always" and from "a page per tab on the sheet".
+      const boxes = await page.$$(".print-dialog__tab-checkbox");
+      check(boxes.length >= 2, `the print dialog offers a per-tab checklist (${boxes.length})`);
+      if (boxes.length >= 2) {
+        // Default is just the active tab, so tick the rest.
+        for (let i = 0; i < boxes.length; i += 1) {
+          if (!(await boxes[i].isChecked())) await boxes[i].click();
+        }
+        let wanted = 0;
+        for (const b of await page.$$(".print-dialog__tab-checkbox")) {
+          if (await b.isChecked()) wanted += 1;
+        }
+        check(wanted >= 2, `two tabs are selected for printing (${wanted})`);
+
+        await page.evaluate(() => {
+          window.__printCapture = null;
+          window.print = () => {
+            const stage = document.querySelector(".print-stage");
+            const style = [...document.querySelectorAll("style")].find((s) => /print-stage/.test(s.textContent || ""));
+            window.__printCapture = { stage, style, pages: stage ? stage.children.length : 0 };
+          };
+        });
+        await page.click(".print-dialog .btn--primary");
+        await page.waitForTimeout(1200);
+        const captured = await page.evaluate(() => {
+          const cap = window.__printCapture;
+          if (!cap || !cap.stage || !cap.style) return null;
+          document.body.append(cap.stage, cap.style);
+          return { pages: cap.pages, filled: [...cap.stage.children].map((p) => (p.textContent || "").trim().length) };
+        });
+        check(!!captured, "the print flow built a stage for the pipeline");
+        if (captured) {
+          check(captured.pages === wanted,
+            `the stage holds one page per selected tab (${captured.pages} for ${wanted})`);
+          check(captured.filled.every((n) => n > 0),
+            `no blank stage page (lengths ${captured.filled.join(",")})`);
+          // What the print stylesheet actually does in a real browser,
+          // rather than what its text claims. The media has to be
+          // emulated, or getComputedStyle is reporting screen rules.
+          await page.emulateMedia({ media: "print" });
+          const printMedia = await page.evaluate(() => {
+            const seen = (sel) => {
+              const node = document.querySelector(sel);
+              return node ? getComputedStyle(node).display : "(absent)";
+            };
+            return {
+              toolbar: seen(".sheet-toolbar"),
+              authArea: seen(".app-header #auth-area"),
+              liveGrid: seen(".page-grid"),
+              stage: seen(".print-stage"),
+              stagePage: seen(".print-stage__page"),
+            };
+          });
+          await page.emulateMedia({ media: null });
+          check(printMedia.toolbar === "none" && printMedia.authArea !== "block",
+            `print media hides the screen chrome (toolbar ${printMedia.toolbar}, auth ${printMedia.authArea})`);
+          check(printMedia.liveGrid === "none",
+            `print media swaps the live grid out (${printMedia.liveGrid})`);
+          check(printMedia.stage === "block" && printMedia.stagePage === "block",
+            `print media shows the print stage (${printMedia.stage}/${printMedia.stagePage})`);
+
+          const pdfPath = path.join(shotDir, `sheet-${viewport.name}.pdf`);
+          await page.pdf({ path: pdfPath, printBackground: false, preferCSSPageSize: true });
+          const pdf = fs.readFileSync(pdfPath);
+          // Chrome's output has one "/Type /Page" object per page (the
+          // tree node is "/Type /Pages", hence the guard).
+          const pageCount = (pdf.toString("latin1").match(/\/Type\s*\/Page[^s]/g) || []).length;
+          // A floor, not an equality: a tab whose content runs past one
+          // sheet legitimately spills onto the next. The failure this
+          // replaces was 1 page for N tabs - the stage printing empty.
+          check(pageCount >= wanted,
+            `the PDF has at least one page per selected tab (${pageCount} for ${wanted})`);
+          check(pdf.length > 50000,
+            `the PDF carries the sheet, not an empty stage (${pdf.length} bytes)`);
+        }
+        await page.reload({ waitUntil: "networkidle" });
+        await page.waitForTimeout(1200);
+      }
+    }
+  }
+
   // Simple View overflow check at mobile viewport. Guarded on playBtn:
   // if the toggle is missing the check above has already failed, and
   // clicking null here would throw and take every later check down with

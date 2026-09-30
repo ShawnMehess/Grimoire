@@ -1,7 +1,50 @@
 /**
- * Print helper functions - pure functions for print dialog logic
+ * Print helper functions for print dialog logic
  * Extracted from customSheet.js for testability
+ *
+ * Everything here is pure except cloneForPrint, which needs a DOM node and
+ * says so.
  */
+
+/**
+ * A deep copy of a rendered subtree that keeps what the player typed.
+ *
+ * The print stage needs one copy of the sheet per selected tab, and the
+ * live grid can only be in one place at a time, so the stage holds
+ * copies. A plain `cloneNode(true)` is not enough: a field's value is
+ * set through the `value` property, which is NOT reflected into the
+ * `value` content attribute, so the copy would carry the placeholder and
+ * the printed sheet would lose every number the character had entered.
+ *
+ * `selected` and `checked` ARE reflected (IDL attributes backed by
+ * content attributes) and so survive on their own, but they're copied
+ * explicitly anyway so the result doesn't depend on that subtlety.
+ * Inline styles are cloned as-is; custom properties applied through
+ * `setProperty` live in the style attribute too, so they come along.
+ *
+ * @param {Node} node - the subtree to copy
+ * @returns {Node} a detached copy carrying the source's live field values
+ */
+export function cloneForPrint(node) {
+  if (!node || typeof node.cloneNode !== "function") return node;
+  const copy = node.cloneNode(true);
+  const source = [node, ...(node.querySelectorAll ? node.querySelectorAll("*") : [])];
+  const target = [copy, ...(copy.querySelectorAll ? copy.querySelectorAll("*") : [])];
+  for (let i = 0; i < source.length && i < target.length; i += 1) {
+    const from = source[i];
+    const to = target[i];
+    const tag = (from.tagName || "").toUpperCase();
+    if (tag === "INPUT" && typeof from.value === "string") {
+      to.value = from.value;
+      if (typeof from.checked === "boolean") to.checked = from.checked;
+    } else if (tag === "TEXTAREA" && typeof from.value === "string") {
+      to.value = from.value;
+    } else if (tag === "SELECT" && typeof from.value === "string") {
+      to.value = from.value;
+    }
+  }
+  return copy;
+}
 
 /**
  * Calculate the print scale based on mode and input value
@@ -115,7 +158,16 @@ export function buildPrintCss({ orientation, scaleMode, scale, includeBg, includ
       .page-grid, .page-grid-scroll { display: none !important; }
       .print-stage { display: block !important; }
       .print-stage__page { display: block !important; }
+      /* ...but each stage page is a COPY of the grid, so it carries the
+         same classes as the thing being hidden. Without this the stage
+         renders as a row of empty boxes: the hide rule matches the
+         copies too, every page collapses to zero height, and the output
+         is one blank sheet however many tabs were ticked. Scoped to the
+         stage and more specific, so it wins over the rule above. */
+      .print-stage .page-grid,
+      .print-stage .page-grid-scroll { display: block !important; }
       .choice-row__details[hidden] { display: block; }
+      .print-stage .page-grid-scroll,
       .page-grid-scroll { overflow: visible; }
       a { color: inherit; text-decoration: none; }
       @page { size: ${orientation}; margin: 0.5in; }

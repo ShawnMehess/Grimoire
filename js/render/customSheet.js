@@ -57,7 +57,7 @@
 //     old oversize warning, since the cap still applies there).
 
 import { createStarterLayout, createBlock, createField, findNode, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS, ARMOR_PROFICIENCIES, WEAPON_PROFICIENCIES, TOOL_PROFICIENCIES, TOOL_DESCRIPTIONS, VEHICLE_PROFICIENCIES } from "../data/blockModel.js";
-import { calculatePrintScale, getTabsToPrint, buildPrintCss } from "./print-helpers.js";
+import { calculatePrintScale, getTabsToPrint, buildPrintCss, cloneForPrint } from "./print-helpers.js";
 import { contentHeight } from "./gridEngine.js";
 import { computeAllFormulas, evaluateFormulaNode, formatComputedValue } from "../data/formula.js";
 import { openFormulaEditor } from "./formulaEditor.js";
@@ -1243,10 +1243,16 @@ const closeDialog = () => {
           // per tab and left the user stitching pages together by hand.
           //
           // Each tab is rendered by pointing the live grid at it and
-          // MOVING the result into the stage, rather than reimplementing
+          // copying the result into the stage, rather than reimplementing
           // the per-tab renderers here — the rules and leveling tabs
           // don't go through the block grid at all, and duplicating
           // three render paths would guarantee they drift.
+          //
+          // Copied, not moved. This used to be `page.append(scrollWrapper)`,
+          // which relocates the one live wrapper: each page stole it from
+          // the page before, so a multi-tab print came out as blank pages
+          // with the last tab's content on the final one. The clone carries
+          // the rendered state (see cloneForPrint), so every page is real.
           //
           // Unselected tabs are never rendered into the stage, so they're
           // absent from the printed document entirely rather than
@@ -1260,7 +1266,7 @@ const closeDialog = () => {
               activeTabId = tabId;
               renderPageGrid();
               const page = el("div", { class: "print-stage__page" });
-              page.append(scrollWrapper);
+              page.append(cloneForPrint(scrollWrapper));
               stage.append(page);
             }
             root.append(stage);
@@ -1281,7 +1287,9 @@ const closeDialog = () => {
             styleEl.remove();
             if (stage.parentNode) stage.parentNode.removeChild(stage);
             // Put the live grid back where it belongs and re-render the
-            // tab that was open before printing.
+            // tab that was open before printing. The stage now holds
+            // copies, so the wrapper never left its home - this stays as
+            // a guard for any future path that does move it.
             if (stageHome && !scrollWrapper.parentNode) stageHome.append(scrollWrapper);
             activeTabId = previousTabId;
             renderPageGrid();

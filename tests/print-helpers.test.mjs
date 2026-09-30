@@ -6,6 +6,7 @@ import {
   calculatePrintScale,
   getTabsToPrint,
   buildPrintCss,
+  cloneForPrint,
 } from "../js/render/print-helpers.js";
 
 describe("Print helper functions", () => {
@@ -163,5 +164,83 @@ describe("Print helper functions", () => {
       assert.ok(bg.includes(".print-stage, .print-stage *"), "color-adjust should reach the stage");
       assert.ok(bg.includes(".print-stage { zoom: 1.2; }"), "zoom should reach the stage");
     });
+  });
+});
+describe("cloneForPrint", () => {
+  // The stage needs one copy per tab and the live grid can only be in one
+  // place at a time, so the copies are made here. The property that
+  // matters is what a bare cloneNode loses.
+  //
+  // Stubs hand back the SAME object list on every call - the helper walks
+  // source and target in step, so the target elements have to be stable.
+  const tree = () => {
+    const input = { tagName: "INPUT", value: "17", checked: false };
+    const area = { tagName: "TEXTAREA", value: "notes" };
+    const select = { tagName: "SELECT", value: "str" };
+    const sourceKids = [input, area, select];
+    const copyKids = [{}, {}, {}];
+    const root = { tagName: "DIV", querySelectorAll: () => sourceKids };
+    const copy = { tagName: "DIV", querySelectorAll: () => copyKids };
+    root.cloneNode = () => copy;
+    return { root, copy, copyKids, sourceKids };
+  };
+
+  it("copies typed values that a bare cloneNode would lose", () => {
+    const { root, copyKids } = tree();
+    cloneForPrint(root);
+    // `value` is a property, not a content attribute, so cloneNode alone
+    // gives back the placeholder - this is the whole reason the helper
+    // exists.
+    assert.equal(copyKids[0].value, "17");
+    assert.equal(copyKids[1].value, "notes");
+    assert.equal(copyKids[2].value, "str");
+  });
+
+  it("leaves the source untouched", () => {
+    const { root, sourceKids } = tree();
+    cloneForPrint(root);
+    assert.deepEqual(sourceKids.map((n) => n.value), ["17", "notes", "str"],
+      "copying a tree for print must not edit the live one");
+  });
+
+  it("copies a checkbox's state", () => {
+    const box = { tagName: "INPUT", value: "on", checked: true };
+    const copyKid = {};
+    const root = { tagName: "DIV", querySelectorAll: () => [box] };
+    root.cloneNode = () => ({ tagName: "DIV", querySelectorAll: () => [copyKid] });
+    cloneForPrint(root);
+    assert.equal(copyKid.checked, true);
+  });
+
+  it("passes a non-node through rather than throwing", () => {
+    assert.equal(cloneForPrint(null), null);
+  });
+});
+
+describe("print stage visibility", () => {
+  const css = () => buildPrintCss({
+    orientation: "portrait", scaleMode: "fit", scale: 100,
+    includeBg: false, includeHidden: false, pageCount: 2,
+  });
+
+  it("shows the grid copies inside the stage", () => {
+    // The stage pages are copies of the grid and carry the same classes as
+    // the grid the print CSS hides. Without a stage-scoped override the
+    // hide rule wins, every page collapses to zero height, and the output
+    // is one blank sheet however many tabs were ticked.
+    const sheet = css();
+    assert.ok(/\.print-stage \.page-grid/.test(sheet) && /\.print-stage \.page-grid-scroll \{ display: block !important; \}/.test(sheet),
+      "the stage's grid copies must be shown in print");
+  });
+
+  it("orders the stage override after the hide rule so it wins", () => {
+    const sheet = css();
+    assert.ok(sheet.indexOf(".print-stage .page-grid") > sheet.indexOf(".page-grid, .page-grid-scroll { display: none"),
+      "the override must come after the hide rule");
+  });
+
+  it("still hides the live grid", () => {
+    assert.ok(/\.page-grid, \.page-grid-scroll \{ display: none !important; \}/.test(css()),
+      "the live editor stays out of the output");
   });
 });
