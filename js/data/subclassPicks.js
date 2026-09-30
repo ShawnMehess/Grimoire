@@ -81,18 +81,6 @@ export const SUBCLASS_PICKS = {
     },
   ],
 
-  // --- Sorcerer ------------------------------------------------------------
-  draconicbloodline: [
-    {
-      feature: "Dragon Ancestor", level: 1,
-      text: "Your magic is infused with the power of your dragon ancestor, one of the types below. This ancestry also fixes your Elemental Affinity damage type.",
-      groups: [namedPick("draconic-ancestor", "Dragon ancestor", [
-        "Black", "Blue", "Brass", "Bronze", "Copper",
-        "Gold", "Green", "Red", "Silver", "White",
-      ])],
-    },
-  ],
-
   // --- Fighter -------------------------------------------------------------
   arcanearcher: [
     {
@@ -278,8 +266,115 @@ export const SUBCLASS_PICKS = {
   ],
 };
 
-/** Subclass keys whose features are the pick but which aren't in the table
- *  above, kept explicit so a future audit can tell "not yet covered" from
- *  "deliberately nothing to pick". */
-export const SUBCLASS_PICK_AUDIT_NOTE =
-  "A subclass with no entry here either grants its features automatically or has no feature the rules present as a choice.";
+/**
+ * Choice groups that were added after the first pass, kept in their own literal so
+ * the table above stays one readable run of subclasses. Merged over the base below,
+ * so an entry here REPLACES one there (drakewarden and draconicbloodline gained
+ * extra picks rather than duplicating their first one).
+ */
+const EXTRA_SUBCLASS_PICKS = {
+  // --- Psionic subclasses --------------------------------------------------
+  //
+  // The soulknife's psionic powers are already enumerated as features of
+  // its own (Psychic Blades, Psychic Veil, ...), so its pick is built from
+  // those names rather than from a second list that could disagree with
+  // them. The psi warrior's are not enumerated anywhere in the compiled
+  // data, so its list is the 2024 PHB/TCE set.
+  soulknife: [
+    {
+      feature: "Psionic Power", level: 1,
+      text: "You gain a psionic power of your choice. You gain a second one at 6th level and a third at 13th.",
+      groups: [namedPick("soulknife-power", "Psionic Power", [
+        "Bolstered Knack", "Psychic Whispers", "Psychic Blades",
+        "Psychic Teleportation", "Psychic Veil", "Rend Mind",
+      ])],
+    },
+  ],
+  psiwarrior: [
+    {
+      feature: "Psionic Power (3 Psionic Powers)", level: 3,
+      text: "You gain three psionic powers of your choice.",
+      groups: [namedPick("psi-warrior-power", "Psionic Powers (choose 3)", [
+        "Mindful Step", "Psychic Grip", "Psychic Leap", "Psychic Recovery",
+        "Psychic Rush", "Psychic Ward", "Protective Field", "See Through",
+        "Step of the Wind", "Thoughtful Strike", "Whirlwind Step",
+      ], { minSelections: 3, maxSelections: 3 })],
+    },
+    {
+      feature: "Telekinetic Adept (5 Psionic Powers)", level: 9,
+      text: "You gain five more psionic powers of your choice.",
+      groups: [namedPick("psi-warrior-power-5", "Further Psionic Powers (choose 5)", [
+        "Mindful Step", "Psychic Grip", "Psychic Leap", "Psychic Recovery",
+        "Psychic Rush", "Psychic Ward", "Protective Field", "See Through",
+        "Step of the Wind", "Thoughtful Strike", "Whirlwind Step",
+      ], { minSelections: 5, maxSelections: 5, minLevel: 9 })],
+    },
+  ],
+
+  // --- Conclave companions -------------------------------------------------
+
+  beastmasterconclave: [primalCompanion()],
+  // --- Druid (second pass) -------------------------------------------------
+  drakewarden: [
+    {
+      feature: "Drake Companion", level: 3,
+      text: "You grow a drake-bonded dragon of a type you choose.",
+      groups: [namedPick("drake-type", "Drake type", [
+        "Black Dragon", "Blue Dragon", "Brass Dragon", "Bronze Dragon", "Copper Dragon",
+        "Gold Dragon", "Green Dragon", "Red Dragon", "Silver Dragon", "White Dragon",
+        "Brass Dragon (War)", "Copper Dragon (War)", "Iron Dragon",
+        "Black Gem Dragon", "Crystal Dragon",
+        "Dragon Turtle",
+      ])],
+    },
+    {
+      feature: "Draconic Gift", level: 3,
+      text: "You gain a magic gift of your choice from the list below.",
+      groups: [namedPick("drakewarden-gift", "Draconic Gift", [
+        "Three additional skills", "Three additional tools", "Three additional languages",
+      ])],
+    },
+    {
+      feature: "Drake’s Breath", level: 6,
+      text: "Your drake has a magical breath of one of the following types.",
+      groups: [namedPick("drakewarden-breath", "Drake's breath", [
+        "Acid Breath", "Fire Breath", "Lightning Breath", "Poison Breath",
+      ], { minLevel: 6 })],
+    },
+  ],
+
+  // --- Sorcerer (second pass) ---------------------------------------------
+  draconicbloodline: [
+    {
+      feature: "Dragon Ancestor", level: 1,
+      text: "Your magic is infused with the power of your dragon ancestor, one of the types below. This ancestry also fixes your Elemental Affinity damage type.",
+      groups: [namedPick("draconic-ancestor", "Dragon ancestor", [
+        "Black", "Blue", "Brass", "Bronze", "Copper",
+        "Gold", "Green", "Red", "Silver", "White",
+      ])],
+    },
+    {
+      feature: "Draconic Presence", level: 6,
+      text: "You gain a presence of your dragon ancestor's type: a face, tail, or wings.",
+      groups: [namedPick("draconic-presence", "Draconic Presence", [
+        "A face of your ancestor's type", "A tail of your ancestor's type", "Wings of your ancestor's type",
+      ], { minLevel: 6 })],
+    },
+  ],
+};
+
+/** The conclaves' Primal Companion. Marked "(Optional)" in the source, so
+ *  it is offered but never required - same as the feature it belongs to. */
+function primalCompanion() {
+  return {
+    feature: "Primal Companion (Optional)", level: 3,
+    text: "You gain a magical beast companion of your choice: any beast, or one from the table.",
+    groups: [namedPick("primal-companion", "Primal beast", [
+      "Any beast you can find",
+      "Boar", "Crocodile", "Giant Spider", "Wolf",
+    ])],
+  };
+}
+
+/** Every subclass pick: the base table, with the later additions merged over it. */
+export const ALL_SUBCLASS_PICKS = { ...SUBCLASS_PICKS, ...EXTRA_SUBCLASS_PICKS };

@@ -35,7 +35,7 @@ import {
 import { withCatalogLink } from "./catalogLinks.js";
 import { withChoiceGroupCategories } from "./choiceCategories.js";
 import { fixPluralDeep } from "./pluralText.js";
-import { SUBCLASS_PICKS } from "./subclassPicks.js";
+import { ALL_SUBCLASS_PICKS as SUBCLASS_PICKS } from "./subclassPicks.js";
 import { CLASS_PICKS, CLASS_PICK_TEXT, isUnpickableNote } from "./classPicks.js";
 import { languagePick, toolPick, DWARF_BASE_TOOLS, ARTISAN_TOOLS } from "./missingPicks.js";
 

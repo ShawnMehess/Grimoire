@@ -20,7 +20,7 @@ import {
   SUBCLASS_BUNDLE_MAP,
   normSubclassKey,
 } from "../js/data/contentFixups.js";
-import { SUBCLASS_PICKS } from "../js/data/subclassPicks.js";
+import { ALL_SUBCLASS_PICKS as SUBCLASS_PICKS } from "../js/data/subclassPicks.js";
 import { CLASS_PICKS, CLASS_PICK_TEXT, isUnpickableNote, HUMANOID_TYPES } from "../js/data/classPicks.js";
 import { LANGUAGES, SKILLS } from "../js/data/schema.js";
 
@@ -48,8 +48,8 @@ describe("subclass picks", () => {
   });
 
   it("covers a real set of subclasses", () => {
-    assert.ok(Object.keys(SUBCLASS_PICKS).length >= 20,
-      `expected the 20+ subclasses with a choice feature, got ${Object.keys(SUBCLASS_PICKS).length}`);
+    assert.ok(Object.keys(SUBCLASS_PICKS).length >= 25,
+      `expected the 25+ subclasses with a choice feature, got ${Object.keys(SUBCLASS_PICKS).length}`);
   });
 
   it("lands every group on the bundle", () => {
@@ -247,5 +247,63 @@ describe("race picks", () => {
     const high = subrace.options.find((o) => o.id === "elf-subrace-high");
     assert.deepEqual((high.choiceGroups || []).map((g) => g.id),
       ["elf-subrace-high-language", "elf-subrace-high-cantrip"]);
+  });
+});
+
+describe("the psionic subclasses", () => {
+  // Flagged as unchecked in the original audit. Both turn out to be real
+  // choice features, and the soulknife's own feature list is what its
+  // options are built from - so the two cannot disagree.
+  it("offers the soulknife's psionic power", () => {
+    const bundle = SUBCLASS_BUNDLE_MAP.get("soulknife");
+    const group = groupById(bundle, "soulknife-power");
+    assert.ok(group, "the soulknife's Psionic Power has no pick");
+    const names = optionsOf(group).map((o) => o.name);
+    // Every option is a psionic power the sheet already lists as one of
+    // this subclass's own features.
+    for (const name of names) {
+      assert.ok(hasFeature(bundle, name), `${name} is not a soulknife feature`);
+    }
+    assert.ok(names.length >= 4, "the soulknife has more powers than that");
+  });
+
+  it("offers the psi warrior's three and five powers", () => {
+    const bundle = SUBCLASS_BUNDLE_MAP.get("psiwarrior");
+    const three = groupById(bundle, "psi-warrior-power");
+    const five = groupById(bundle, "psi-warrior-power-5");
+    assert.ok(three, "the psi warrior's 3-power pick is missing");
+    assert.ok(five, "the psi warrior's Telekinetic Adept pick is missing");
+    assert.equal(three.minSelections, 3);
+    assert.equal(five.minSelections, 5);
+    assert.equal(five.minLevel, 9);
+    assert.deepEqual(three.options.map((o) => o.name), five.options.map((o) => o.name),
+      "the same list is offered both times");
+  });
+
+  it("gives the drakewarden its gift and its breath", () => {
+    const bundle = SUBCLASS_BUNDLE_MAP.get("drakewarden");
+    assert.ok(groupById(bundle, "drakewarden-gift"), "Draconic Gift has no pick");
+    const breath = groupById(bundle, "drakewarden-breath");
+    assert.ok(breath, "Drake's Breath has no pick");
+    assert.equal(breath.minLevel, 6);
+    assert.equal(optionsOf(breath).length, 4);
+    // The drake TYPE and the breath are two different choices, not one.
+    assert.ok(groupById(bundle, "drake-type"), "the drake type pick is gone");
+  });
+
+  it("gives draconic bloodline its presence, still with its ancestor", () => {
+    const bundle = SUBCLASS_BUNDLE_MAP.get("draconicbloodline");
+    assert.ok(groupById(bundle, "draconic-ancestor"), "the dragon ancestor pick is gone");
+    const presence = groupById(bundle, "draconic-presence");
+    assert.ok(presence, "Draconic Presence has no pick");
+    assert.equal(presence.minLevel, 6);
+  });
+
+  it("offers the beastmaster's optional companion without requiring it", () => {
+    const bundle = SUBCLASS_BUNDLE_MAP.get("beastmasterconclave");
+    const group = groupById(bundle, "primal-companion");
+    assert.ok(group, "the primal companion has no pick");
+    // The source marks the feature optional; the pick must not demand it.
+    assert.ok(group.minSelections <= 1, "an optional feature can't be required by its picker");
   });
 });
