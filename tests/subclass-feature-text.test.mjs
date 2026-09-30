@@ -214,6 +214,59 @@ describe("the residual is recorded, not silently blank", () => {
   });
 });
 
+describe("effects read off the sourced text", () => {
+  // A damage resistance stated only in the prose is invisible until it is
+  // recorded, and the player is never told they are resistant. These are
+  // the unconditional, self-granting ones found in the fetched text.
+  const RESISTANCES = [
+    { key: "alchemist", feature: "Chemical Mastery", level: 15, damage: "Acid" },
+    { key: "forgedomain", feature: "Soul of the Forge", level: 6, damage: "Fire" },
+    { key: "psiwarrior", feature: "Guarded Mind", level: 10, damage: "Psychic" },
+    { key: "aberrantmind", feature: "Psychic Defenses", level: 6, damage: "Psychic" },
+    { key: "thefathomless", feature: "Oceanic Soul", level: 6, damage: "Cold" },
+    { key: "theundead", feature: "Necrotic Husk", level: 10, damage: "Necrotic" },
+    { key: "schoolofnecromancy", feature: "Inured to Undeath", level: 10, damage: "Necrotic" },
+  ];
+
+  for (const r of RESISTANCES) {
+    it(`${r.key} / ${r.feature} grants ${r.damage} resistance at ${r.level}`, () => {
+      // The source must actually say it. If the fetched text changes and
+      // stops granting the resistance, the row must go with it - a stale
+      // table entry would put a resistance on a character the rules do
+      // not give it, which is the worse failure.
+      const text = SUBCLASS_FEATURE_TEXT[r.key]?.features?.[r.feature] || "";
+      assert.match(text, new RegExp(`\\bresistance to ${r.damage.toLowerCase()} damage\\b`, "i"),
+        `${r.key} / ${r.feature} no longer grants ${r.damage} resistance: ${text.slice(0, 120)}`);
+
+      const bundle = patched(r.key);
+      const row = (bundle.featureGrants || [])
+        .find((g) => /^Resistances?$/i.test(g.name) && (g.description || "").toLowerCase() === r.damage.toLowerCase());
+      assert.ok(row, `${r.key} has no Resistances row for ${r.damage}`);
+      assert.equal(row.minLevel, r.level, `${r.key} ${r.damage} resistance is at the wrong level`);
+    });
+  }
+
+  it("does not record a resistance that depends on a build choice", () => {
+    // Storm Soul's resistance depends on which storm type you picked, so
+    // it belongs with the storm-herald-aura picker. Recording all three
+    // unconditionally would give the player three resistances instead of
+    // one.
+    const bundle = patched("pathofthestormherald");
+    const rows = (bundle.featureGrants || []).filter((g) => /^Resistances?$/i.test(g.name));
+    assert.deepEqual(rows, [], "Storm Soul must not add a flat resistance row");
+  });
+
+  it("does not record a resistance the rules make temporary", () => {
+    // Nothing in the unconditional set may come from a conditional
+    // sentence. Spot-check the two that are most tempting to get wrong.
+    for (const [key, feature] of [["oathofthewatchers", "Mortal Bulwark"], ["thearchfey", "Expanded Spells"]]) {
+      const bundle = patched(key);
+      const rows = (bundle.featureGrants || []).filter((g) => /^Resistances?$/i.test(g.name));
+      assert.deepEqual(rows, [], `${key} / ${feature} must not add a resistance row`);
+    }
+  });
+});
+
 describe("choices read out of the fetched text", () => {
   // The 4 below were not in the hand-written pick table because the
   // subclass export carried no prose to read a choice out of. Each is

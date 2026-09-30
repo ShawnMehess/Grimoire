@@ -35,10 +35,21 @@ CONTENT
     filling them with the first feature's text would misstate the rules.
 
 - Features whose text is now sourced still have their EFFECTS unmodelled.
-    Having the prose means the sheet can show the rule; it does not mean
-    the rule is computed. This is authoring, and it is the larger remaining
-    job. Every feature that defines a choice has a working picker (38
-    across 28 subclasses - see js/data/subclassPicks.js), and
+    The first pass of this is done: every damage resistance a feature
+    states unconditionally is recorded, so the sheet now tells the Forge
+    Domain you are resistant to fire, the Psi Warrior to psychic, the
+    Fathomless to cold, and so on. See SOURCED_RESISTANCES in
+    js/data/contentFixups.js, which is checked against the fetched text at
+    runtime and adds nothing if the text stops saying so.
+
+    What is left is the long tail of effects that are conditional ("while
+    you...", "for 1 minute"), situational, or need a data model the sheet
+    does not have yet - companions, auras with a radius, spell reactions.
+    That is authoring rather than sourcing, and there is no finite list of
+    it the way there was for the text.
+
+    Every feature that defines a choice has a working picker (38 across 28
+    subclasses - see js/data/subclassPicks.js), and
     scripts/audit-subclass-choices.mjs reports 0 build choices without one.
     It classifies choice-bearing prose so a play-time target ("one or more
     creatures of your choice") is never mistaken for a saved build pick.

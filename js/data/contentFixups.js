@@ -1543,6 +1543,65 @@ const SUBCLASS_PATCHERS = {
   Champion: patchChampion,
 };
 
+/** Damage resistances a feature grants, read off the SOURCED text.
+ *
+ *  Once the rules text was fetched (see applyFetchedFeatureText) these
+ *  became readable for the first time - the export had given the features
+ *  a name and nothing else, so a resistance stated only in the prose was
+ *  invisible on the sheet. The player was never told they were resistant
+ *  to fire.
+ *
+ *  They are recorded as a "Resistances" feature grant, which is the
+ *  pattern the race bundles already use (Aasimar carries one row per
+ *  damage type) rather than inventing a new modifier kind for one line of
+ *  content.
+ *
+ *  Every entry here is checked against the fetched text before it is
+ *  added, and skipped if the text does not say it. That guard is the whole
+ *  point: this table is a claim about the rules, and a stale claim would
+ *  put a resistance on a character the rules do not give it.
+ *
+ *  Deliberately NOT listed:
+ *   - Storm Soul (Storm Herald), because which resistance you get depends
+ *     on the storm type you chose. That is a build choice, and it belongs
+ *     with the storm-herald-aura picker rather than as a flat grant.
+ *   - Anything conditional in the source ("while you...", "for 1
+ *     minute", "when you take damage"). A modifier the sheet applies
+ *     unconditionally but the rules make temporary is a wrong sheet.
+ */
+const SOURCED_RESISTANCES = [
+  { subclass: "Alchemist", feature: "Chemical Mastery", level: 15, damage: "Acid" },
+  { subclass: "Forge Domain", feature: "Soul of the Forge", level: 6, damage: "Fire" },
+  { subclass: "Psi Warrior", feature: "Guarded Mind", level: 10, damage: "Psychic" },
+  { subclass: "Aberrant Mind", feature: "Psychic Defenses", level: 6, damage: "Psychic" },
+  { subclass: "The Fathomless", feature: "Oceanic Soul", level: 6, damage: "Cold" },
+  { subclass: "The Undead", feature: "Necrotic Husk", level: 10, damage: "Necrotic" },
+  { subclass: "School of Necromancy", feature: "Inured to Undeath", level: 10, damage: "Necrotic" },
+];
+
+/** Add the resistances the fetched text actually states, once each. */
+function applySourcedResistances(bundle, key) {
+  const mine = SOURCED_RESISTANCES.filter((r) => normSubclassKey(r.subclass) === key);
+  if (!mine.length) return bundle;
+  for (const r of mine) {
+    const text = SUBCLASS_FEATURE_TEXT[key]?.features?.[r.feature] || "";
+    // The guard. If the text changed, or the name is wrong, or the source
+    // no longer grants it, add nothing rather than assert it.
+    if (!new RegExp(`\\bresistance to ${r.damage.toLowerCase()} damage\\b`, "i").test(text)) continue;
+    const already = (bundle.featureGrants || []).some(
+      (g) => /^Resistances?$/i.test(g.name) && (g.description || "").toLowerCase() === r.damage.toLowerCase()
+    );
+    if (already) continue;
+    bundle.featureGrants.push({
+      id: `${key}-${r.level}-resistance-${r.damage.toLowerCase()}`,
+      name: "Resistances",
+      description: r.damage,
+      minLevel: r.level,
+    });
+  }
+  return bundle;
+}
+
 export function patchedSubclassBundle(name, bundle) {
   const patcher = SUBCLASS_PATCHERS[name];
   const key = normSubclassKey(name);
@@ -1554,6 +1613,7 @@ export function patchedSubclassBundle(name, bundle) {
   if (patcher) patcher(out);
   if (picks) applySubclassPicks(out, picks);
   applyFetchedFeatureText(out, key);
+  applySourcedResistances(out, key);
   return out;
 }
 
