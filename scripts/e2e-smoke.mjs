@@ -441,7 +441,7 @@ async function runViewportTests(viewport) {
   }
   // Custom Lineage regression: the "Feat — Gain 1 feat(s) of your
   // choice." mention is a link opening the feats picker (same shared
-  // table as proficiencies), and the Racial feat rows sit on Identity.
+  // table as proficiencies), and the Racial feat control sits on Identity.
   const lineage = await page.$(`.choice-row[data-row-name="Custom Lineage"]`);
   check(!!lineage, "Identity step lists Custom Lineage");
   if (lineage) {
@@ -451,6 +451,23 @@ async function runViewportTests(viewport) {
     const featText = featLink ? await featLink.textContent() : "";
     check(!!featLink && /choose a feat/i.test(featText || ""), "lineage feat mention is the picker link");
     check((await page.textContent("body")).includes("Racial feat"), "Racial feat picker sits on Identity");
+
+    // The feats must NOT also be listed as rows at the bottom of the
+    // step. Identity used to call renderPickerRows with the whole feat
+    // list as well, so the same 83 feats appeared twice: once in the
+    // dialog and once as a five-figure-pixel block of rows under the
+    // wizard. The dialog is the picker; there is one handle on it.
+    //
+    // Asserted structurally - the Identity step's only row list is the 15
+    // ancestries. Matching on a list of expected race NAMES was the first
+    // attempt and it reported three false failures, because maintaining an
+    // allowlist of every ancestry couples this test to content it is not
+    // about. "No list longer than the ancestries" states the actual defect.
+    const rowLists = await page.evaluate(() =>
+      [...document.querySelectorAll(".choice-row-list")].map((l) => l.querySelectorAll(".choice-row").length));
+    check(rowLists.length === 1 && rowLists[0] <= 20,
+      `Identity lists only the ancestries, no feat list below (row lists: ${JSON.stringify(rowLists)})`);
+
     if (featLink) {
       await featLink.click();
       await page.waitForTimeout(400);
@@ -458,11 +475,58 @@ async function runViewportTests(viewport) {
       check(!!featDlg, "feat picker dialog opens from lineage link");
       if (featDlg) {
         check(/alert/i.test((await featDlg.textContent()) || ""), "feat picker lists feats as a table");
+        // 83 feats need the room. The width is capped by `.modal-box
+        // { max-width: 420px }` in another stylesheet, so a one-class
+        // override silently loses on file order - the override has to be
+        // compound, and this asserts the rendered result rather than the
+        // rule, so a reordering of the CSS cannot quietly undo it.
+        const dlgWidth = await page.evaluate(() => {
+          const box = document.querySelector(".choice-dialog-overlay .choice-dialog");
+          return box ? { w: box.getBoundingClientRect().width, vw: window.innerWidth } : null;
+        });
+        if (dlgWidth) {
+          const pct = dlgWidth.w / dlgWidth.vw;
+          const expected = viewport.width >= 1100 ? 0.85 : 0.9;
+          check(pct >= expected,
+            `feat picker is wide on this screen (${Math.round(pct * 100)}% of viewport, wanted ${Math.round(expected * 100)}%)`);
+        }
         await page.screenshot({ path: path.join(shotDir, `lineage-feat-${viewport.name}.png`) });
       }
       await page.keyboard.press("Escape");
       await page.waitForTimeout(300);
       check(!(await page.$(".choice-dialog-overlay")), "feat picker closes on Escape");
+    }
+
+    // The compact Racial feat row opens the same dialog, and a pick made
+    // there is recorded (this is the control that replaced the 83 rows).
+    const compact = await page.evaluate(() => {
+      const row = [...document.querySelectorAll(".choice-row")]
+        .find((r) => /ancestry grants a feat/i.test(r.textContent || ""));
+      if (!row) return null;
+      row.click();
+      return (row.querySelector(".choice-row__label")?.textContent || "").trim();
+    });
+    check(compact !== null, "Racial feat row is a single control, not a list");
+    if (compact !== null) {
+      await page.waitForTimeout(500);
+      const viaRow = await page.$(".choice-dialog-overlay");
+      check(!!viaRow, "Racial feat row opens the feat picker");
+      if (viaRow) {
+        await page.evaluate(() => {
+          const opt = [...document.querySelectorAll(".choice-dialog-option")]
+            .find((o) => (o.querySelector("span")?.textContent || "").trim() === "Alert");
+          opt?.querySelector("input")?.click();
+        });
+        await page.waitForTimeout(200);
+        await page.click(".choice-dialog .btn--primary");
+        await page.waitForTimeout(800);
+        const nowLabel = await page.evaluate(() => {
+          const row = [...document.querySelectorAll(".choice-row")]
+            .find((r) => /ancestry grants a feat|Racial feat/i.test(r.textContent || ""));
+          return (row?.querySelector(".choice-row__label")?.textContent || "").trim();
+        });
+        check(nowLabel === "Alert", `Racial feat row records the pick (shows "${nowLabel}")`);
+      }
     }
 
     // Flexible ASI: two dropdowns ("+2 to" / "+1 to") listing all six

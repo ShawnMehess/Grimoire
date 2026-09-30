@@ -5364,32 +5364,33 @@ const closeDialog = () => {
           // dialog covers still surfaces instead of vanishing.
           renderYourChoicesSections(container, "identity", raceSectionGroups, saveRules, raceChoiceGroups);
           if (lineageFeatOffered()) {
+            // One row, not 83. This used to call renderPickerRows with the
+            // whole feat list, which put an 83-row block at the bottom of
+            // the Identity step - the same feats the Custom Lineage row's
+            // own "Choose a feat" link lists, so the sheet showed every
+            // feat twice and the page grew to five figures of pixels before
+            // the Class step. The dialog is the picker; this row is the
+            // handle on it, and it shows what is currently chosen.
             const pickWrap = sectionInto(container, `Racial feat — ${state.species}`);
-            // Same single-pick rows as the level-up ASI feat picker:
-            // choosing replaces the previous racial feat (there is
-            // ever at most one), and the pick flows into rules.feats
-            // so every feat-aware path (choice groups, sheet mods,
-            // review) treats it like any other feat.
-            renderPickerRows(pickWrap, rulesetOptionNames(state.rulesetId, "Feat"), {
-              selectedName: lineageFeatPick()?.name,
-              getInfo: (name) => catalogEntryInfo(["feat"], name),
-              collapsible: true,
-              getSummary: (name) => sharedMechanicsSummaryForPicker(
-                bundleFor("Feat", name, includedRulesetIds(state)),
-                state.level,
-                { abilityIds: ABILITY_IDS, abilities: ABILITIES, skills: SKILLS, resolveLabel: (id) => resolveFieldById(id)?.label }
-              ),
-              onSelect: (name) => {
-                // De-select (second click on the open row) drops the
-                // lineage feat rather than recording a blank one.
-                character.rules.feats = [
-                  ...(character.rules.feats || []).filter((f) => f.source !== "lineage"),
-                  ...(name ? [{ name, level: state.level, source: "lineage" }] : []),
-                ];
-                saveRules();
-                renderPageGrid();
-              },
-            });
+            const chosen = lineageFeatPick();
+            const row = el("div", { class: "choice-row choice-row--selected" });
+            const body = el("div", { class: "choice-row__body" });
+            const open = () => {
+              liveLineageFeatBullet(saveRules)?.dialogOpener?.();
+            };
+            body.append(
+              el("div", { class: "choice-row__label", text: chosen?.name || "Choose a feat" }),
+              el("div", {
+                class: "choice-row__note",
+                text: chosen
+                  ? "Racial feat from your ancestry. Click to change it."
+                  : "Your ancestry grants a feat. Click to choose one.",
+              })
+            );
+            row.append(body);
+            row.style.cursor = "pointer";
+            row.addEventListener("click", open);
+            pickWrap.append(row);
           }
         },
       },

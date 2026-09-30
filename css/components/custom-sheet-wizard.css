@@ -1000,18 +1000,75 @@
 /* Shared choice dialog (skills, tools, fighting styles, expertise) —
    one dialog object reused across all instances of a kind. Same
    visual grammar as the feat picker above. */
-.choice-dialog {
+/* Both rules below are written as compound selectors
+   (.modal-box.choice-dialog, .modal-box.choice-dialog--wide) rather than
+   the bare .choice-dialog. They have to beat `.modal-box { max-width:
+   420px }` in custom-sheet-shared.css, and at equal specificity the winner
+   is whichever stylesheet loads LAST - so a one-class override silently
+   loses whenever the file order changes. Two classes cannot be beaten by
+   one. (The bare .choice-dialog 560px was in fact never taking effect:
+   every choice dialog was rendering at 420px.) */
+.modal-box.choice-dialog {
   max-width: 560px;
   max-height: 80vh;
   overflow-y: auto;
 }
 /* On a wide screen the feat picker is the one dialog whose list needs the
    room: 83 feats with a mechanical line each, read three at a time in a
-   560px column. The feat list is the widest of the shared dialogs, so it
-   gets the extra width rather than all of them. */
+   420px column. The feat list is the widest of the shared dialogs, so it
+   gets the extra width rather than all of them.
+
+   Sized off the viewport rather than a fixed pixel cap so it actually uses
+   the screen it is on: 1100px was a 16-character-per-line column on a
+   2560px monitor, which is the "a whole lot wider" complaint. The 94vw
+   ceiling leaves the backdrop visible so the dialog still reads as a
+   dialog, and 1800px stops it running edge to edge on an ultrawide where
+   a 90-character line is worse than a short one. */
 @media (min-width: 1100px) {
-  .choice-dialog--wide {
-    max-width: 1100px;
+  .modal-box.choice-dialog--wide {
+    width: 94vw;
+    max-width: 1800px;
+  }
+}
+/* With the room, lay the list out in columns. 83 feats is a long scroll
+   in one column even at 1800px; two columns at the wide sizes and three
+   on a large display make the whole list reachable in a screen or two
+   while each row still has room for a name and a sentence. */
+@media (min-width: 1100px) {
+  .modal-box.choice-dialog--wide .choice-dialog-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-1) var(--space-3);
+    align-content: start;
+  }
+  /* Stack the name over its mechanical line instead of running them side
+     by side. In a 580px grid column, "Alert" next to its full sentence
+     leaves the name a couple of words wide; stacked, each row is a small
+     labelled entry you can scan down a column. The checkbox spans both
+     rows so it stays aligned with the name it belongs to. */
+  .modal-box.choice-dialog--wide .choice-dialog-option {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: var(--space-2);
+    row-gap: 2px;
+    align-items: start;
+  }
+  .modal-box.choice-dialog--wide .choice-dialog-option input {
+    grid-row: 1 / span 2;
+    align-self: start;
+  }
+}
+@media (min-width: 1700px) {
+  .modal-box.choice-dialog--wide .choice-dialog-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+/* One column on a phone: a two-column grid at 392px would put a feat name
+   and its text in a 180px column. */
+@media (max-width: 1099px) {
+  .modal-box.choice-dialog--wide .choice-dialog-list {
+    display: flex;
+    flex-direction: column;
   }
 }
 .choice-dialog-list {
