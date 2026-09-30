@@ -114,6 +114,7 @@ js/
     extraRaces.js       hand-written race bundles
     missingPicks.js     choice-group builders
     subclassPicks.js    picks the sources left as feature names
+    subclassFeatureText.js  GENERATED rules text fetched from the wiki
     classPicks.js       ditto, for class-level features
     startingEquipment.js / portraitArt.js / pickerFlavor.js
   render/
@@ -202,10 +203,23 @@ them lives in a fixup layer, so the generators stay regenerable:
   the Elf/Dwarf/Gnome/Halfling/Genasi subraces, free-form racial ASIs,
   the High Elf's extra language and cantrip, the dwarf's base tool rule,
   the yuan-ti's languages, and the class/race choice features.
-- `js/data/subclassPicks.js` — 34 subclass features whose rules define a
+- `js/data/subclassFeatureText.js` — **generated**, the rules text for 549
+  of 640 subclass features, fetched from `dnd5e.wikidot.com` (CC-BY-SA).
+  Built by `scripts/fetch-subclass-feature-text.mjs` (scrapes and records
+  each page URL) and `scripts/compile-subclass-feature-text.mjs`
+  (segments each page per feature). Regenerate with both, in that order;
+  the raw scrape cache is gitignored, the compiled module is committed so
+  the sheet never needs a network round trip.
+  `applyFetchedFeatureText` in `contentFixups.js` fills blank descriptions
+  from it, stamps `sourceUrl` on the grant, and clears the `unsourced` flag
+  — which matters more than it looks, because `customSheet.js` filters
+  unsourced grants out of the Features list *entirely*, so a feature with
+  text but no flag change would still be invisible.
+- `js/data/subclassPicks.js` — 38 subclass features whose rules define a
   *choice* but whose data arrived as a bare name (a Totem Warrior's Totem
   Spirit, an Armorer's Armor Model, a Rune Knight's runes, the bonus
-  proficiency picks, and so on).
+  proficiency picks, and so on). Checked against the fetched text by
+  `scripts/audit-subclass-choices.mjs`.
 - `js/data/classPicks.js` — the same at class level: the ranger's extra
   favored enemies and terrain, the humanoid-type pick, the warlock's Mystic
   Arcanum, the wizard's Spell Mastery and Signature Spells.
@@ -459,8 +473,9 @@ its own shape without touching the renderer.
   generated, and what is hand-tracked.
 - `docs/MECHANICS-IMPORT-NOTES.md` — the mechanics-JSON import model.
 - `docs/SUBCLASS-CONTENT-AUDIT-2026-09.md` /
-  `docs/subclass-gaps.md` — the per-subclass sourcing audit and its
-  disposition list.
+  `docs/subclass-gaps.md` — the per-subclass sourcing audit. Now reports
+  0 unsourced grants of 636, and records the two things that count as a
+  source: the hand-written summaries file, and the fetched wiki text.
 - `docs/CONTENT-AUDIT-2026-09.md` — the same audit for races, classes and
   backgrounds.
 - `docs/Improvements to make.txt` — the short list of what is still open.
@@ -472,11 +487,14 @@ its own shape without touching the renderer.
 
 Stated plainly rather than hidden:
 
-- **581 of 640 subclass features have no description.** Feature *names* ship
-  from the source exports; their *text* does not, and the compilers cannot
-  invent it. The features that are a **choice** all have working pickers
-  (see `subclassPicks.js`); the rest need prose written for them, which is
-  a content-authoring job rather than a missing mechanism.
+- **Four subclasses have no feature text.** Of 117 subclasses, 113 are
+  fetched from `dnd5e.wikidot.com` and 549 of 640 features carry their
+  rules text, source URL and all. The four that do not — Path of Wild
+  Magic, Way of the Sun Soul, Bladesinging College, Warding Magic — are
+  absent from that wiki, and their features still show name only. The rest
+  is not missing prose but missing *mechanics*: a feature whose text is
+  prose and nothing else still needs its effects modelled, which is a
+  content-authoring job rather than a missing source.
 - **No importer for outside characters.** A character built elsewhere
   starts here as a fresh sheet, filled in through the creation wizard.
 - **No feat icon art.** All 83 catalog entries ship with empty `imageData`
