@@ -36,6 +36,7 @@ import { withCatalogLink } from "./catalogLinks.js";
 import { withChoiceGroupCategories } from "./choiceCategories.js";
 import { fixPluralDeep } from "./pluralText.js";
 import { ALL_SUBCLASS_PICKS as SUBCLASS_PICKS } from "./subclassPicks.js";
+import { SUBCLASS_FEATURE_TEXT } from "./subclassFeatureText.js";
 import { CLASS_PICKS, CLASS_PICK_TEXT, isUnpickableNote } from "./classPicks.js";
 import { languagePick, toolPick, DWARF_BASE_TOOLS, ARTISAN_TOOLS } from "./missingPicks.js";
 
@@ -1544,12 +1545,53 @@ const SUBCLASS_PATCHERS = {
 
 export function patchedSubclassBundle(name, bundle) {
   const patcher = SUBCLASS_PATCHERS[name];
-  const picks = SUBCLASS_PICKS[normSubclassKey(name)];
-  if ((!patcher && !picks) || !bundle) return bundle;
+  const key = normSubclassKey(name);
+  const picks = SUBCLASS_PICKS[key];
+  // The fetched-text pass below applies on its own, so a subclass with
+  // neither a patcher nor any picks still needs the guard to let it run.
+  if ((!patcher && !picks && !SUBCLASS_FEATURE_TEXT[key]) || !bundle) return bundle;
   const out = { ...bundle, choiceGroups: [...(bundle?.choiceGroups || [])], featureGrants: [...(bundle?.featureGrants || [])] };
   if (patcher) patcher(out);
   if (picks) applySubclassPicks(out, picks);
+  applyFetchedFeatureText(out, key);
   return out;
+}
+
+/** Give a feature the rules text the compiled export never carried.
+ *
+ *  The subclass export was taken from the ACTOR, so its features are
+ *  `@Compendium[...]{Name}` references and the prose behind them was
+ *  never in the file - which is why 581 of 640 features had no
+ *  description at all. The text now comes from
+ *  scripts/fetch-subclass-feature-text.mjs via the generated
+ *  SUBCLASS_FEATURE_TEXT, which carries each feature's source URL so it
+ *  can be re-checked.
+ *
+ *  Only fills a BLANK description, and only for a feature whose name
+ *  matches exactly. A feature that already has text keeps it: some were
+ *  hand-sourced during earlier phases, and this must never overwrite a
+ *  deliberate one. A feature with no entry in the fetched text keeps
+ *  whatever it had, including nothing - an empty description is
+ *  recoverable, a feature carrying another feature's rules is not. */
+function applyFetchedFeatureText(bundle, key) {
+  const fetched = SUBCLASS_FEATURE_TEXT[key]?.features;
+  const url = SUBCLASS_FEATURE_TEXT[key]?.url;
+  if (!fetched) return bundle;
+  for (const grant of bundle.featureGrants || []) {
+    if ((grant.description || "").trim()) continue;
+    const text = fetched[grant.name];
+    if (!text) continue;
+    grant.description = text;
+    // customSheet.js filters `unsourced` grants out of the sheet
+    // entirely, not just out of the text, so a grant that was hidden
+    // only because the export carried no prose now has to be shown.
+    grant.unsourced = false;
+    // Keep the provenance on the grant itself. The text is scraped, and
+    // a scraped rule that cannot be traced back to a page is not a
+    // source - it is an unattributed assertion.
+    grant.sourceUrl = url;
+  }
+  return bundle;
 }
 
 /** Attach the choice groups a feature is missing, and give that feature

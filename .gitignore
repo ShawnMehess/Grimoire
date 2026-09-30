@@ -1,0 +1,6 @@
+# Raw scrape cache for scripts/fetch-subclass-feature-text.mjs. It is a
+# regenerable build artifact: run the fetcher to rebuild it, then run
+# scripts/compile-subclass-feature-text.mjs to regenerate
+# js/data/subclassFeatureText.js, which IS committed (the sheet needs it
+# without a network round trip).
+.fetch-subclass-raw.json

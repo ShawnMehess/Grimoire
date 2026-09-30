@@ -336,15 +336,21 @@ function featListWith(namesAndLevels) {
   selectByText(clericFields, "Subclass", "Light Domain");
   const l1 = applyLevel(clericFields, 1, {}, []);
   if (!l1.items.flatMap((g) => g.items).includes("Burning Hands")) fail("Light Domain: Burning Hands not granted at level 1");
-  // Warding Flare is unsourced (no mechanics in the Foundry export), so
-  // it is omitted from the Features list until sourced (audit 2b) — but
-  // its level-gated grant stays in the data, traceable via gaps.
-  if (l1.features.some((f) => f.name === "Warding Flare")) fail("Light Domain: unsourced Warding Flare leaks into display");
+  // Warding Flare used to be unsourced (no mechanics in the Foundry
+  // export) and so was omitted from the Features list entirely. It is
+  // sourced now, from the fetched page text, so it must appear at level 1
+  // carrying its description and the URL it came from. What must NOT
+  // change is the level gate: it is a 1st-level domain feature, and being
+  // sourced is not a reason for it to show up earlier.
+  if (!l1.features.some((f) => f.name === "Warding Flare")) fail("Light Domain: sourced Warding Flare missing from display at level 1");
   {
     const { SUBCLASS_BUNDLE_MAP, normSubclassKey } = await import("../js/data/contentFixups.js");
     const light = SUBCLASS_BUNDLE_MAP.get(normSubclassKey("Light Domain"));
     const flare = (light?.featureGrants || []).find((g) => g.name === "Warding Flare");
-    if (!flare || flare.minLevel !== 1 || !flare.unsourced) fail("Light Domain: Warding Flare grant not level-gated + unsourced in data");
+    if (!flare || flare.minLevel !== 1) fail("Light Domain: Warding Flare grant not level-gated in data");
+    if (flare.unsourced) fail("Light Domain: Warding Flare still flagged unsourced despite fetched text");
+    if (!(flare.description || "").trim()) fail("Light Domain: Warding Flare has no description after sourcing");
+    if (!/dnd5e\.wikidot\.com\/cleric:light/.test(flare.sourceUrl || "")) fail("Light Domain: Warding Flare is missing its source URL");
   }
 
   const palFields = freshFields();
@@ -620,12 +626,17 @@ function featListWith(namesAndLevels) {
   for (const want of ["Action Surge", "Lay on Hands", "Divine Sense"]) {
     if (!names.includes(want)) fail(`multiclass: missing ${want}`);
   }
-  // Improved Critical is unsourced (audit 2b): omitted from display,
-  // but its level-gated grant stays in the Champion data.
-  if (names.includes("Improved Critical")) fail("multiclass: unsourced Improved Critical leaks into display");
+  // Improved Critical was unsourced (audit 2b) and so omitted from
+  // display. It is sourced now, from the fetched page text. The level
+  // gate is the part worth protecting: a 3rd-level Champion feature must
+  // stay out of a level-2 multiclass sheet, and the sheet here is built
+  // at total level 2 for some classes.
   {
     const grant = (SUBCLASS_SUPPLEMENT.find((s) => s.name === "Champion")?.bundle?.featureGrants || []).find((g) => g.name === "Improved Critical");
-    if (!grant || grant.minLevel !== 3 || !grant.unsourced) fail("multiclass: Improved Critical grant not level-gated + unsourced in data");
+    if (!grant || grant.minLevel !== 3) fail("multiclass: Improved Critical grant not level-gated in data");
+    if (grant.unsourced) fail("multiclass: Improved Critical still flagged unsourced despite fetched text");
+    if (!(grant.description || "").trim()) fail("multiclass: Improved Critical has no description after sourcing");
+    if (!/dnd5e\.wikidot\.com\/fighter:champion/.test(grant.sourceUrl || "")) fail("multiclass: Improved Critical is missing its source URL");
   }
   // Per-class gating proofs (total level is 6 — a total-level gate
   // would wrongly include all of these):
