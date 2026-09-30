@@ -9,33 +9,44 @@ is still missing, so it can be picked up without re-deriving the context.
 CONTENT
 -------
 
-- Four subclasses still have no feature text.
-    113 of 117 are now fetched from dnd5e.wikidot.com (CC-BY-SA) by
-    scripts/fetch-subclass-feature-text.mjs, and 549 of 640 features carry
-    their rules text with the source URL recorded on the grant. That closed
-    the 581-of-640 gap, which existed because the subclass export was taken
-    from the ACTOR, so each feature was a bare @Compendium[...]{Name}
-    reference with no prose behind it.
+- 40 subclass feature grants have no source and are listed in
+    docs/subclass-text-gaps.md. They are 2024-revision features, or content
+    outside the SRD entirely, that no free source carries. Checked and
+    rejected: dnd5e.wikidot.com (2014 rules, so no 2024 features at all),
+    the 2024 SRD 5.2.1 (one subclass per class - 12 of the 117), D&D Beyond's
+    free tier (also SRD-limited), and dnd5eapi (0 name matches for any of
+    them).
 
-    Still missing: Path of Wild Magic, Way of the Sun Soul, Bladesinging
-    College and Warding Magic are not on that wiki, and the sorcerer's Wild
-    Magic page there does not carry Path of Wild Magic's features, so their
-    grants stay name-only. Those need a different source.
+    They are deliberately left blank rather than paraphrased from memory.
+    A plausible-looking invention is worse than an empty cell here, because
+    a player cannot tell the difference between the two, and the sourcing
+    rules in docs/SUBCLASS-CONTENT-AUDIT-2026-09.md exist to keep invented
+    rules out of the data. Sourcing them needs a paid book (the 2024 PHB and
+    its expansions) or a store the scraper is allowed to read.
 
-- The same gap exists, smaller, for some race and class features. Worth
-    re-running the count now that the subclass work is done, since the
-    technique is proven: fetch the page, segment per feature, stamp the
-    source URL, and clear the `unsourced` flag that customSheet.js filters
-    on (it hides the feature entirely, not just its text).
+    Four subclasses are empty for the same reason: Path of Wild Magic, Way
+    of the Sun Soul, Bladesinging College and Warding Magic.
 
-- Features whose text is now present still have their EFFECTS unmodelled.
+- Four more grants are one feature the export listed once per level (the
+    Monk's three "Additional Elemental Discipline", and a fragment of the
+    Arcane Shot options table). There is no second section on any page to
+    find; the rule is already sourced under the feature named in the gaps
+    doc, and the choices have pickers. Recorded rather than filled, because
+    filling them with the first feature's text would misstate the rules.
+
+- Features whose text is now sourced still have their EFFECTS unmodelled.
     Having the prose means the sheet can show the rule; it does not mean
     the rule is computed. This is authoring, and it is the larger remaining
-    job. Every feature that is a choice has a working picker (38 across 28
-    subclasses - see js/data/subclassPicks.js), checked by
-    scripts/audit-subclass-choices.mjs, which classifies choice-bearing
-    prose so a play-time target ("one or more creatures of your choice") is
-    never mistaken for a saved build pick.
+    job. Every feature that defines a choice has a working picker (38
+    across 28 subclasses - see js/data/subclassPicks.js), and
+    scripts/audit-subclass-choices.mjs reports 0 build choices without one.
+    It classifies choice-bearing prose so a play-time target ("one or more
+    creatures of your choice") is never mistaken for a saved build pick.
+
+- Races and classes need nothing here. All 36 race grants and all 226
+    class grants carry text, and the short ones are values, not missing
+    prose - a Hit Die of "d12" and a Speed of "30 ft. walking" are the
+    complete answer for those rows.
 
 
 ACCESSIBILITY

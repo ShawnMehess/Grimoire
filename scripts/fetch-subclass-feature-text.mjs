@@ -222,7 +222,35 @@ async function fetchPageRetrying(slug, tries = 4) {
   }
   return last;
 }
-export { SLUG_OVERRIDES, fetchPage, fetchPageRetrying, clean, stripHtml, sleep, DEFAULT_PREFIX, OUT, ROOT, UA };
+/** The 2024 System Reference Document, as markdown.
+ *
+ *  dnd5e.wikidot.com is the 2014 rules, so it has no text at all for
+ *  features introduced in the 2024 revision - a Twilight Domain's Channel
+ *  Divinity options, Soul Knife's psionic powers, the Rune Knight's Giant
+ *  Might. Those need the 2024 SRD.
+ *
+ *  It is a poor PRIMARY source: SRD 5.2.1 carries exactly one subclass per
+ *  class (12 of the 117 here), because the SRD is a subset by design. So
+ *  it is fetched as a FILLER - the compiler runs it only over features
+ *  the wiki left empty. It is CC-BY-4.0.
+ */
+const SRD_CLASSES_URL =
+  "https://raw.githubusercontent.com/downfallx/dnd-5e-srd-markdown/master/classes.md";
+
+async function fetchSrdClasses() {
+  for (let i = 0; i < 4; i += 1) {
+    try {
+      const res = await fetch(SRD_CLASSES_URL, { headers: UA });
+      if (!res.ok) { await sleep(700 * (i + 1)); continue; }
+      return { url: SRD_CLASSES_URL, text: await res.text() };
+    } catch {
+      await sleep(700 * (i + 1));
+    }
+  }
+  return null;
+}
+
+export { SLUG_OVERRIDES, fetchPage, fetchPageRetrying, fetchSrdClasses, clean, stripHtml, sleep, DEFAULT_PREFIX, OUT, ROOT, UA, SRD_CLASSES_URL };
 
 // Run directly: fetch every subclass, write the generated module.
 if (process.argv[1] && process.argv[1].endsWith("fetch-subclass-feature-text.mjs")) {
@@ -238,9 +266,16 @@ if (process.argv[1] && process.argv[1].endsWith("fetch-subclass-feature-text.mjs
     console.log(`  ${key}: ok (${out[key].text.length}b)`);
     await sleep(250);
   }
+  const srd = await fetchSrdClasses();
+  if (srd) console.log(`  srd-5.2.1 classes.md: ok (${srd.text.length}b)`);
+  else console.log("  srd-5.2.1 classes.md: FAILED (the 2024 features will stay empty)");
   fs.writeFileSync(
     path.join(ROOT, ".fetch-subclass-raw.json"),
-    JSON.stringify({ fetchedAt: new Date().toISOString(), pages: out }, null, 1)
+    JSON.stringify({
+      fetchedAt: new Date().toISOString(),
+      pages: out,
+      srd: srd || null,
+    }, null, 1)
   );
   console.log(`\nfetched ${Object.keys(out).length}, missed ${missed.length}: ${missed.join(", ")}`);
 }

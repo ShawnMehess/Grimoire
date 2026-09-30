@@ -15,6 +15,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { SUBCLASS_FEATURE_TEXT } from "../js/data/subclassFeatureText.js";
 import { SUBCLASS_BUNDLE_MAP, patchedSubclassBundle, normSubclassKey } from "../js/data/contentFixups.js";
 import { ALL_SUBCLASS_PICKS } from "../js/data/subclassPicks.js";
@@ -110,7 +111,7 @@ describe("fetched text is clean page text, not site chrome", () => {
 describe("subclass feature text module", () => {
   it("carries a source URL per subclass", () => {
     for (const [key, entry] of Object.entries(SUBCLASS_FEATURE_TEXT)) {
-      assert.match(entry.url, /^https:\/\/dnd5e\.wikidot\.com\//, `${key} has no source URL`);
+      assert.match(entry.url, /^https:\/\//, `${key} has no source URL`);
     }
   });
 
@@ -120,6 +121,96 @@ describe("subclass feature text module", () => {
         assert.ok((text || "").trim().length > 20, `${key} / ${feature} is empty or too short to be rules text`);
       }
     }
+  });
+});
+
+describe("the segmenter finds the shapes a wiki page actually uses", () => {
+  // Each of these cost real features before it was handled. They are
+  // asserted on the real generated output, not on a fixture, so a
+  // regression in matching shows up as a missing feature rather than as
+  // a passing unit test over a hand-written sample.
+  const has = (key, name) => Boolean(SUBCLASS_FEATURE_TEXT[key]?.features?.[name]);
+
+  it("finds a Channel Divinity option, which is a list item and not a heading", () => {
+    // A paladin oath page lists these as "- Peerless Athlete. As a bonus
+    // action, ...". A "line equals the feature name" check never sees
+    // them, so 19 options across 9 oaths were silently empty.
+    assert.ok(has("oathofglory", "Peerless Athlete"), "Peerless Athlete not found");
+    assert.ok(has("oathofglory", "Inspiring Smite"), "Inspiring Smite not found");
+    assert.ok(has("oathofdevotion", "Sacred Weapon"), "Sacred Weapon not found");
+    assert.ok(has("oathoftheancients", "Turn the Faithless"), "Turn the Faithless not found");
+  });
+
+  it("fans one page section out to every grant that repeats it", () => {
+    // The export re-lists a feature once per level and mashes the level
+    // range into the name: "Arcane Shot (2 options)" through
+    // "(6 options)". The page has ONE section, so it must fill all of
+    // them rather than being spent on whichever name sorted first.
+    const shots = Object.keys(SUBCLASS_FEATURE_TEXT.arcanearcher.features).filter((f) => /^Arcane Shot/.test(f));
+    assert.ok(shots.length >= 5, `only ${shots.length} Arcane Shot grants filled`);
+    const texts = new Set(shots.map((f) => SUBCLASS_FEATURE_TEXT.arcanearcher.features[f]));
+    assert.equal(texts.size, 1, "the repeated grants should all carry the one page section");
+  });
+
+  it("matches a heading the page qualifies with the subclass name", () => {
+    // Every cleric domain page says "<Domain> Domain Spells"; the export
+    // calls the grant "Bonus Spells" in all of them, so no single exact
+    // heading works - only "a heading ending in Domain Spells".
+    for (const key of ["arcanadomain", "lifedomain", "lightdomain", "tempestdomain"]) {
+      assert.ok(has(key, "Bonus Spells"), `${key} / Bonus Spells not found`);
+    }
+  });
+
+  it("follows an alias when the export and the page disagree on the name", () => {
+    // Export "Expanded Spells" vs page "Expanded Spell List". Not every
+    // patron has one - the Fiend and the Great Old One have no expanded
+    // list in the 2014 rules, so their pages have no such section and
+    // their grant correctly stays blank.
+    for (const key of ["thearchfey", "thehexblade", "theundead", "thegenie", "thecelestial"]) {
+      assert.ok(has(key, "Expanded Spells"), `${key} / Expanded Spells not found`);
+    }
+    // Export "Story Work" vs 2024 SRD "Second-Story Work".
+    assert.ok(has("thief", "Story Work"), "thief / Story Work not found");
+  });
+
+  it("reads a markdown heading from the 2024 SRD", () => {
+    // The SRD is markdown, so its headings arrive as "#### Level 3: ..."
+    // and would never equal the export's name without de-markdowning.
+    const text = SUBCLASS_FEATURE_TEXT.thief?.features?.["Story Work"] || "";
+    assert.ok(text.length > 20, "thief / Story Work has no text");
+  });
+});
+
+describe("the residual is recorded, not silently blank", () => {
+  // 2024-revision features and content outside the SRD that no free
+  // source carries. They stay blank on purpose - a plausible-looking
+  // paraphrase is worse than an empty cell, because a player cannot tell
+  // the difference - but the list has to be committed so "unfinished" is
+  // visible rather than inferred from a blank.
+  it("lists every grant with no public source, with a stated reason", () => {
+    const doc = readFileSync(new URL("../docs/subclass-text-gaps.md", import.meta.url), "utf8");
+    assert.match(doc, /## Grants with no public source/);
+    assert.match(doc, /NOT paraphrased from memory/);
+    const listed = [...doc.matchAll(/^- (\w+) :: (.+)$/gm)]
+      // Repeat rows carry a "(repeat of X)" note; compare the grant alone.
+      .map((m) => `${m[1]} :: ${m[2].replace(/\s*\(repeat of .*\)$/, "")}`);
+    assert.ok(listed.length > 0, "the gaps doc lists nothing");
+
+    // Every grant that is still blank must appear in the doc. This is the
+    // check that stops a gap from being quietly reintroduced.
+    for (const g of allGrants()) {
+      if ((g.description || "").trim()) continue;
+      assert.ok(listed.includes(`${g.key} :: ${g.name}`),
+        `${g.key} :: ${g.name} is blank but missing from docs/subclass-text-gaps.md`);
+    }
+  });
+
+  it("keeps the blank count small and does not let it grow unnoticed", () => {
+    const blank = allGrants().filter((g) => !(g.description || "").trim()).length;
+    // A floor, not an exact figure: the residual is 40 unsourceable
+    // grants plus a few repeats. If this number climbs, a source has
+    // stopped working and the fetcher needs re-running.
+    assert.ok(blank <= 45, `${blank} subclass features have no text; the fetcher may have broken`);
   });
 });
 

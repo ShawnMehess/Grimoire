@@ -203,23 +203,36 @@ them lives in a fixup layer, so the generators stay regenerable:
   the Elf/Dwarf/Gnome/Halfling/Genasi subraces, free-form racial ASIs,
   the High Elf's extra language and cantrip, the dwarf's base tool rule,
   the yuan-ti's languages, and the class/race choice features.
-- `js/data/subclassFeatureText.js` — **generated**, the rules text for 549
-  of 640 subclass features, fetched from `dnd5e.wikidot.com` (CC-BY-SA).
-  Built by `scripts/fetch-subclass-feature-text.mjs` (scrapes and records
-  each page URL) and `scripts/compile-subclass-feature-text.mjs`
-  (segments each page per feature). Regenerate with both, in that order;
-  the raw scrape cache is gitignored, the compiled module is committed so
-  the sheet never needs a network round trip.
-  `applyFetchedFeatureText` in `contentFixups.js` fills blank descriptions
-  from it, stamps `sourceUrl` on the grant, and clears the `unsourced` flag
-  — which matters more than it looks, because `customSheet.js` filters
-  unsourced grants out of the Features list *entirely*, so a feature with
-  text but no flag change would still be invisible.
+- `js/data/subclassFeatureText.js` — **generated**, the rules text for 595
+  of 640 subclass features. Two sources: `dnd5e.wikidot.com` (CC-BY-SA,
+  2014 rules, 113 of 117 subclasses) as the primary, and the 2024 SRD 5.2.1
+  (CC-BY-4.0) as a filler for the 2024-only features the 2014 wiki has
+  never heard of. Built by `scripts/fetch-subclass-feature-text.mjs`
+  (fetches, records each URL) and
+  `scripts/compile-subclass-feature-text.mjs` (segments per feature).
+  Regenerate with both, in that order; the raw scrape cache is gitignored,
+  the compiled module is committed so the sheet needs no network.
+
+  The segmenter handles the shapes a wiki page actually uses, each of
+  which silently emptied real features before: a Channel Divinity option is
+  a **list item**, not a heading; the export repeats one feature per level
+  ("Arcane Shot (2 options)" … "(6 options)") where the page has **one**
+  section, so it fans out; a cleric domain's heading is qualified with the
+  domain's own name ("Arcana Domain Spells" for a grant the export calls
+  "Bonus Spells"); and the export and the page disagree on some names
+  ("Expanded Spells" vs "Expanded Spell List"), so there is an alias table.
+
+  `applyFetchedFeatureText` in `contentFixups.js` fills blank descriptions,
+  stamps `sourceUrl` on the grant, and clears the `unsourced` flag — which
+  matters more than it looks, because `customSheet.js` filters unsourced
+  grants out of the Features list *entirely*, so a feature with text but no
+  flag change would still be invisible.
 - `js/data/subclassPicks.js` — 38 subclass features whose rules define a
   *choice* but whose data arrived as a bare name (a Totem Warrior's Totem
   Spirit, an Armorer's Armor Model, a Rune Knight's runes, the bonus
-  proficiency picks, and so on). Checked against the fetched text by
-  `scripts/audit-subclass-choices.mjs`.
+  proficiency picks, and so on). `scripts/audit-subclass-choices.mjs`
+  reports 0 build choices without a picker, classifying the fetched prose so
+  a play-time target is never mistaken for a saved pick.
 - `js/data/classPicks.js` — the same at class level: the ranger's extra
   favored enemies and terrain, the humanoid-type pick, the warlock's Mystic
   Arcanum, the wizard's Spell Mastery and Signature Spells.
@@ -476,6 +489,10 @@ its own shape without touching the renderer.
   `docs/subclass-gaps.md` — the per-subclass sourcing audit. Now reports
   0 unsourced grants of 636, and records the two things that count as a
   source: the hand-written summaries file, and the fetched wiki text.
+- `docs/subclass-text-gaps.md` — **generated**, the 40 grants no free
+  source carries, and the 4 that are one feature repeated per level, with
+  the reason for each. Committed so "unfinished" is visible rather than
+  inferred from a blank cell.
 - `docs/CONTENT-AUDIT-2026-09.md` — the same audit for races, classes and
   backgrounds.
 - `docs/Improvements to make.txt` — the short list of what is still open.
@@ -487,14 +504,16 @@ its own shape without touching the renderer.
 
 Stated plainly rather than hidden:
 
-- **Four subclasses have no feature text.** Of 117 subclasses, 113 are
-  fetched from `dnd5e.wikidot.com` and 549 of 640 features carry their
-  rules text, source URL and all. The four that do not — Path of Wild
-  Magic, Way of the Sun Soul, Bladesinging College, Warding Magic — are
-  absent from that wiki, and their features still show name only. The rest
-  is not missing prose but missing *mechanics*: a feature whose text is
-  prose and nothing else still needs its effects modelled, which is a
-  content-authoring job rather than a missing source.
+- **40 subclass features have no sourced text**, and 4 more are one feature
+  the export repeated per level. 595 of 640 grants carry rules text, a
+  source URL and a cleared `unsourced` flag. The residual is 2024-revision
+  or non-SRD content that no free source carries — checked against
+  dnd5e.wikidot.com, the 2024 SRD 5.2.1, D&D Beyond's free tier and
+  dnd5eapi. They are left blank on purpose: a paraphrase from memory would
+  be indistinguishable from a real rule to the player reading it. Each one
+  is listed with its reason in `docs/subclass-text-gaps.md`. Beyond that,
+  features whose prose is now present still have their *effects* unmodelled
+  — the sheet can show the rule, not compute it.
 - **No importer for outside characters.** A character built elsewhere
   starts here as a fresh sheet, filled in through the creation wizard.
 - **No feat icon art.** All 83 catalog entries ship with empty `imageData`

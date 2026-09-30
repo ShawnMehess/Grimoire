@@ -362,14 +362,21 @@ function featListWith(namesAndLevels) {
   selectByText(palFields, "Subclass", "Oath of Devotion");
   const p3 = applyLevel(palFields, 3, {}, []);
   if (!p3.items.flatMap((g) => g.items).includes("Sanctuary")) fail("Devotion: Sanctuary not granted at level 3");
-  // Sacred Weapon is unsourced (audit 2b): omitted from display, but
-  // its level-gated grant stays in the data, traceable via gaps.
-  if (p3.features.some((f) => f.name === "Sacred Weapon")) fail("Devotion: unsourced Sacred Weapon leaks into display");
+  // Sacred Weapon is a 3rd-level Channel Divinity option. It used to be
+  // unsourced, so it was omitted from display entirely; the fetched page
+  // text supplies it now, so it must appear at level 3 with its text and
+  // source URL. The level gate is the part that must not change - and the
+  // multiclass check further down proves it does not leak into a level-2
+  // sheet now that it is visible.
+  if (!p3.features.some((f) => f.name === "Sacred Weapon")) fail("Devotion: sourced Sacred Weapon missing from display at level 3");
   {
     const { SUBCLASS_BUNDLE_MAP, normSubclassKey } = await import("../js/data/contentFixups.js");
     const devotion = SUBCLASS_BUNDLE_MAP.get(normSubclassKey("Oath of Devotion"));
     const sacred = (devotion?.featureGrants || []).find((g) => g.name === "Sacred Weapon");
-    if (!sacred || sacred.minLevel !== 3 || !sacred.unsourced) fail("Devotion: Sacred Weapon grant not level-gated + unsourced in data");
+    if (!sacred || sacred.minLevel !== 3) fail("Devotion: Sacred Weapon grant not level-gated in data");
+    if (sacred.unsourced) fail("Devotion: Sacred Weapon still flagged unsourced despite fetched text");
+    if (!(sacred.description || "").trim()) fail("Devotion: Sacred Weapon has no description after sourcing");
+    if (!/dnd5e\.wikidot\.com\/paladin:devotion/.test(sacred.sourceUrl || "")) fail("Devotion: Sacred Weapon is missing its source URL");
   }
 
   // Light sweep: every class selects + subclass narrows + L1/L20 apply.
