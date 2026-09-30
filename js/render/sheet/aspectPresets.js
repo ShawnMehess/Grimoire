@@ -42,8 +42,117 @@ export const ASPECT_PRESETS = [
 
 export const DEFAULT_ASPECT_PRESET_ID = "16:10";
 
-export function aspectPresetById(id) {
-  return ASPECT_PRESETS.find((p) => p.id === id) || null;
+/** Every preset available to a character: the shipped table plus any
+ *  they defined themselves. Custom entries are looked up in their own
+ *  store rather than merged into ASPECT_PRESETS, which stays the code
+ *  table the shipped shapes are tested against. */
+export function allAspectPresets(character) {
+  return [...ASPECT_PRESETS, ...customAspectPresetsFor(character)];
+}
+
+/** A preset by id, from the shipped table or the character's own.
+ *  `character` may be a character or an already-read custom list. */
+export function aspectPresetById(id, character = null) {
+  const custom = Array.isArray(character) ? character : customAspectPresetsFor(character);
+  return ASPECT_PRESETS.find((p) => p.id === id) || custom.find((p) => p.id === id) || null;
+}
+
+// --- User-defined shapes ---------------------------------------------------
+//
+// The spec asks for the user to be able to make their own aspect ratios.
+// Everything downstream - the reflow packer, the per-shape layout
+// variants, the re-flow button - already works off a preset id, so a
+// custom shape only has to be a well-formed entry and somewhere to live.
+//
+// They live on the character (`customAspectPresets`) rather than in a
+// shared library: a shape is a personal drafting preference ("my desk
+// monitor, plus one"), and there's no sharing surface for it to hang off.
+//
+// A custom shape needs three things, and the user shouldn't have to know
+// that: a name to show, a ratio so nearestAspectPreset can offer it, and
+// a column count, which is what the reflow actually does. The column
+// count is derived from the ratio and the viewport width when it's left
+// out, because a 3:1 shape and a 9:19 shape are the same problem at
+// different sizes and a user naming a ratio doesn't know the cell grid
+// exists.
+
+/** Default column count for a ratio, mirroring the shipped table's
+ *  intent: wide shapes use the full grid, tall ones narrow it.
+ *  This is the same mapping the shipped presets were chosen by, not a
+ *  new one. */
+export function colsForRatio(ratio) {
+  const r = Number(ratio);
+  if (!Number.isFinite(r) || r <= 0) return PAGE_COLS;
+  if (r >= 2) return PAGE_COLS; // ultrawide / multi-monitor strip
+  if (r >= 1.2) return PAGE_COLS; // ordinary landscape
+  if (r >= 0.95) return Math.round(PAGE_COLS * 0.8); // squarish
+  if (r >= 0.7) return Math.round(PAGE_COLS * 0.75); // 4:3 portrait-ish
+  if (r >= 0.5) return Math.round(PAGE_COLS * 0.5); // tablet portrait
+  return Math.max(4, Math.round(PAGE_COLS * 0.5)); // phone portrait
+}
+
+/** Parse "16:9", "16/9" or "1.78" into a number, or null. */
+export function parseRatio(input) {
+  const text = String(input ?? "").trim();
+  if (!text) return null;
+  const parts = text.split(/[:x×/]/).map((s) => s.trim());
+  if (parts.length === 2 && parts.every((p) => p !== "" && Number.isFinite(Number(p)))) {
+    const [w, h] = parts.map(Number);
+    if (h > 0 && w > 0) return w / h;
+    return null;
+  }
+  const value = Number(text);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** Turn a user-entered shape into a preset entry, or null if the input
+ *  isn't a usable shape. `cols` is optional; when absent it's derived
+ *  from the ratio. The id is derived from the name so a custom shape and
+ *  a shipped one can never collide, and so deleting and re-adding a
+ *  name gives the same id. */
+export function makeCustomPreset({ name, ratio, cols, rows } = {}) {
+  const label = String(name ?? "").trim();
+  const r = parseRatio(ratio);
+  if (!label || !r) return null;
+  const id = `custom:${label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "shape"}`;
+  const wantCols = Math.round(Number(cols));
+  const wantRows = Math.round(Number(rows));
+  return {
+    id,
+    name: label,
+    ratio: r,
+    cols: Number.isFinite(wantCols) && wantCols > 0 ? Math.min(PAGE_COLS, wantCols) : colsForRatio(r),
+    rows: Number.isFinite(wantRows) && wantRows > 0 ? wantRows : 24,
+    custom: true,
+  };
+}
+
+/** "16:9" / "0.56" — a ratio written the way a person says it, for the
+ *  remove-shape menu where the stored number would be meaningless. */
+export function describeRatio(ratio) {
+  const r = Number(ratio);
+  if (!Number.isFinite(r) || r <= 0) return "—";
+  for (const [w, h] of [[16, 9], [16, 10], [4, 3], [3, 4], [9, 16], [9, 19.5], [21, 9]]) {
+    if (Math.abs(w / h - r) < 0.01) return `${w}:${h}`;
+  }
+  return r >= 1 ? r.toFixed(2) : `1:${Math.round(1 / r)}`;
+}
+
+/** The character's own shapes, read defensively — this is user data
+ *  (or a hand-edited save) and must never be able to break the sheet.
+ *  Entries that don't normalize are dropped, not repaired. */
+export function customAspectPresetsFor(character) {
+  const raw = Array.isArray(character) ? character : character?.customAspectPresets;
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  const seen = new Set(ASPECT_PRESETS.map((p) => p.id));
+  for (const entry of raw) {
+    const preset = makeCustomPreset(entry);
+    if (!preset || seen.has(preset.id)) continue;
+    seen.add(preset.id);
+    out.push(preset);
+  }
+  return out;
 }
 
 /** The preset whose ratio is numerically closest to `ratio`. Distance is
@@ -53,12 +162,12 @@ export function aspectPresetById(id) {
  *  normalised per-preset. Ties resolve to the earlier entry, which keeps
  *  the offer stable rather than flickering between two equally-close
  *  presets across a resize. */
-export function nearestAspectPreset(ratio) {
+export function nearestAspectPreset(ratio, character = null) {
   const r = Number(ratio);
   if (!Number.isFinite(r) || r <= 0) return null;
   let best = null;
   let bestDistance = Infinity;
-  for (const preset of ASPECT_PRESETS) {
+  for (const preset of allAspectPresets(character)) {
     const distance = Math.abs(preset.ratio - r);
     if (distance < bestDistance) {
       best = preset;
@@ -147,8 +256,8 @@ export function reflowLayoutToCols(layout, cols) {
 /** Reflow toward a preset's shape. `rows` is advisory here — the packer
  *  only produces a row count, it can't invent or destroy content — so
  *  this is cols-only by design. */
-export function applyAspectPresetTo(layout, presetId) {
-  const preset = aspectPresetById(presetId);
+export function applyAspectPresetTo(layout, presetId, character = null) {
+  const preset = aspectPresetById(presetId, character);
   if (!preset) return layout;
   return reflowLayoutToCols(layout, presetCols(preset));
 }
@@ -239,7 +348,7 @@ export function clearLayoutVariant(character, presetId, tabId) {
  * rest of the layout code does.
  */
 export function switchTabToPreset(character, tab, presetId, { force = false } = {}) {
-  const preset = aspectPresetById(presetId);
+  const preset = aspectPresetById(presetId, character);
   if (!preset || !character || !tab) return "noop";
 
   const from = tab.aspectPresetId;
@@ -256,7 +365,7 @@ export function switchTabToPreset(character, tab, presetId, { force = false } = 
     }
   }
 
-  applyAspectPresetTo(tab.layout, presetId);
+  applyAspectPresetTo(tab.layout, presetId, character);
   tab.aspectPresetId = presetId;
   return "reflowed";
 }

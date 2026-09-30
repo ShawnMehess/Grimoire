@@ -217,8 +217,12 @@ async function runViewportTests(viewport) {
   if (displayToggle) {
     // The Display panel is a <details>, and the block above already
     // opened it — toggling again would close it and hide the button.
-    if (!(await page.$("button:has-text('Print')"))) {
-      await displayToggle.click();
+    // Tested for VISIBILITY, not existence: everything inside a closed
+    // <details> stays in the DOM, so a found handle can still be hidden
+    // and then time out on click.
+    if (!await page.$("button:has-text('Print')").then((b) => b && b.isVisible())) {
+      const summary = await page.$(".toolbar-display summary");
+      if (summary) await summary.click();
       await page.waitForTimeout(300);
     }
     const printBtn2 = await page.$("button:has-text('Print')");
@@ -303,6 +307,65 @@ async function runViewportTests(viewport) {
         }
         await page.reload({ waitUntil: "networkidle" });
         await page.waitForTimeout(1200);
+      }
+    }
+  }
+
+  // User-defined shapes. The dialog flow is a name prompt, a ratio
+  // prompt, and the "re-flow every tab?" confirm (a brand-new shape is
+  // applied straight away, so it force-reflows) — answered from a queue
+  // so they stay in step.
+  {
+    if (!await page.$("button:has-text('Add shape')").then((b) => b && b.isVisible())) {
+      const summary = await page.$(".toolbar-display summary");
+      if (summary) await summary.click();
+      await page.waitForTimeout(300);
+    }
+    const addBtn = await page.$("button:has-text('Add shape')");
+    check(!!addBtn && (await addBtn.isVisible()), "the shape control offers to define your own");
+    if (addBtn && (await addBtn.isVisible())) {
+      const answers = ["Desk monitor", "21:9", true];
+      const responder = (d) => {
+        const next = answers.length ? answers.shift() : true;
+        d.accept(typeof next === "string" ? next : undefined);
+      };
+      page.on("dialog", responder);
+      await addBtn.click();
+      await page.waitForTimeout(1500);
+      page.off("dialog", responder);
+
+      const shapeOptions = () => page.evaluate(() => {
+        const sel = [...document.querySelectorAll("select")].find((s) => /target screen shape/.test(s.title || ""));
+        return sel ? [...sel.options].map((o) => ({ value: o.value, text: o.textContent })) : [];
+      });
+      const options = await shapeOptions();
+      const mine = options.find((o) => o.value === "custom:desk-monitor");
+      check(!!mine, `a custom shape joins the picker (${options.length} options)`);
+      check(!!mine && /yours/i.test(mine.text), "a custom shape is marked as the user's own");
+      check(options.some((o) => o.value === "16:9"), "the shipped shapes are still there");
+
+      // And the sheet is actually laid out for it. Only the cell
+      // coordinates are mirrored onto the DOM (gridX/gridY, for Simple
+      // View's sort); the size is applied as an inline rect, so measure
+      // the rendered box rather than looking for a data attribute.
+      const widths = await page.evaluate(() => [...document.querySelectorAll(".grid-node")]
+        .map((n) => Math.round(n.getBoundingClientRect().width))
+        .filter((w) => w > 0));
+      const distinct = [...new Set(widths)];
+      check(widths.length > 0 && distinct.length > 1,
+        `the reflowed sheet lays blocks out (${widths.length} sized, ${distinct.length} distinct widths)`);
+      await page.screenshot({ path: path.join(shotDir, `custom-shape-${viewport.name}.png`) });
+
+      const removeBtn = await page.$("button:has-text('Remove shape')");
+      check(!!removeBtn && (await removeBtn.isVisible()), "a custom shape can be removed");
+      if (removeBtn && (await removeBtn.isVisible())) {
+        const remover = (d) => d.accept(d.type() === "prompt" ? "1" : "");
+        page.on("dialog", remover);
+        await removeBtn.click();
+        await page.waitForTimeout(1200);
+        page.off("dialog", remover);
+        const after = await shapeOptions();
+        check(!after.some((o) => o.value === "custom:desk-monitor"), "the removed shape leaves the picker");
       }
     }
   }

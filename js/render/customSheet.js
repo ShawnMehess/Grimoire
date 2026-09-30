@@ -354,6 +354,11 @@ import {
   detectAspectPreset,
   stashedLayoutFor,
   switchTabToPreset,
+  allAspectPresets,
+  customAspectPresetsFor,
+  makeCustomPreset,
+  describeRatio,
+  clearLayoutVariant,
 } from "./sheet/aspectPresets.js";
 import { applySimpleViewOrder } from "./sheet/simpleView.js";
 import { featRowModels, renderFeatListInto } from "./sheet/featList.js";
@@ -1067,7 +1072,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   //    (preset, tab) pair keeps its own snapshot, so coming back to a
   //    preset restores their arrangement (switchTabToPreset handles that).
   const applyAspect = (presetId, { force }) => {
-    const preset = aspectPresetById(presetId);
+    const preset = aspectPresetById(presetId, character);
     if (!preset) return;
     const willReflow = force || !(character.sheetTabs || []).some(
       (t) => stashedLayoutFor(character, presetId, t.id)
@@ -1089,18 +1094,87 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   const aspectSelect = document.createElement("select");
   aspectSelect.className = "input-group__control";
   aspectSelect.title = "Switch to a target screen shape; a shape you've already arranged is restored, not re-guessed";
-  const detected = detectAspectPreset();
-  aspectSelect.append(el("option", {
-    value: "",
-    text: detected ? `Screen looks like ${detected.name} — pick a shape…` : "Screen shape…",
-  }));
-  ASPECT_PRESETS.forEach((preset) => {
-    aspectSelect.append(el("option", { value: preset.id, text: preset.name }));
-  });
+  // The options (and the placeholder's detected-shape offer) are filled
+  // by fillAspectOptions, which has to run again whenever the character
+  // gains or loses one of its own shapes.
+  // The list is the shipped table plus whatever this character has
+  // defined, so a custom shape behaves exactly like a built-in one from
+  // here on: same reflow, same per-shape layout memory, same re-flow.
+  const fillAspectOptions = () => {
+    aspectSelect.innerHTML = "";
+    const detectedNow = detectAspectPreset();
+    aspectSelect.append(el("option", {
+      value: "",
+      text: detectedNow ? `Screen looks like ${detectedNow.name} — pick a shape…` : "Screen shape…",
+    }));
+    for (const preset of allAspectPresets(character)) {
+      aspectSelect.append(el("option", { value: preset.id, text: preset.custom ? `${preset.name} (yours)` : preset.name }));
+    }
+  };
+  fillAspectOptions();
   aspectSelect.addEventListener("change", () => {
     const presetId = aspectSelect.value;
     aspectSelect.value = "";
     applyAspect(presetId, { force: false });
+  });
+
+  // User-defined shapes. Two prompts rather than a dialog: the whole
+  // definition is a name and a ratio, and a modal form for two fields
+  // costs more attention than it's worth. The column count is derived -
+  // see colsForRatio - because naming a ratio shouldn't require knowing
+  // the sheet is a 16-cell grid.
+  const addCustomAspect = () => {
+    const name = window.prompt("Name this shape (e.g. Desk monitor, Storybook):", "");
+    if (!name || !name.trim()) return;
+    const ratio = window.prompt(`Ratio for "${name.trim()}" — width:height, e.g. 21:9 or 1.78:`, "");
+    const preset = makeCustomPreset({ name, ratio });
+    if (!preset) {
+      window.alert(`"${String(ratio ?? "").trim()}" isn't a ratio. Try something like 21:9, 4:3, or 0.56.`);
+      return;
+    }
+    if (aspectPresetById(preset.id, character)) {
+      window.alert(`You already have a shape called "${preset.name}".`);
+      return;
+    }
+    commitMutation(() => {
+      character.customAspectPresets = [...customAspectPresetsFor(character), preset];
+    });
+    fillAspectOptions();
+    applyAspect(preset.id, { force: true });
+  };
+
+  const removeCustomAspect = () => {
+    const custom = customAspectPresetsFor(character);
+    if (!custom.length) {
+      window.alert("You haven't defined any shapes of your own yet.");
+      return;
+    }
+    const menu = [...custom.map((p, i) => `${i + 1}) ${p.name} (${describeRatio(p.ratio)})`), "Cancel"]
+      .join("\n");
+    const pick = window.prompt(`Which shape?\n${menu}`, "1");
+    const index = Number(pick) - 1;
+    if (!Number.isInteger(index) || index < 0 || index >= custom.length) return;
+    const target = custom[index];
+    if (!window.confirm(`Delete "${target.name}"? Tabs currently on it keep their layout.`)) return;
+    commitMutation(() => {
+      character.customAspectPresets = custom.filter((p) => p.id !== target.id);
+      // The per-shape memory goes with it, so re-adding the name later
+      // starts from a fresh best-guess rather than resurrecting an
+      // arrangement for a shape that no longer exists.
+      clearLayoutVariant(character, target.id);
+    });
+    fillAspectOptions();
+  };
+
+  const aspectAddBtn = el("button", {
+    type: "button", class: "btn", text: "Add shape",
+    title: "Define your own target shape by name and aspect ratio",
+    onclick: addCustomAspect,
+  });
+  const aspectRemoveBtn = el("button", {
+    type: "button", class: "btn", text: "Remove shape",
+    title: "Delete one of your own shapes",
+    onclick: removeCustomAspect,
   });
 
   const aspectReflowBtn = el("button", {
@@ -1111,7 +1185,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
       applyAspect(presetId, { force: true });
     },
   });
-  const aspectActions = el("div", { class: "modal-actions" }, aspectSelect, aspectReflowBtn);
+  const aspectActions = el("div", { class: "modal-actions" }, aspectSelect, aspectReflowBtn, aspectAddBtn, aspectRemoveBtn);
   displayPanel.append(aspectActions);
 
   const printBtn = el("button", {
@@ -2123,6 +2197,13 @@ const closeDialog = () => {
       store.saveCharacterFields(character.id, {
         layout: character.layout,
         sheetTabs: character.sheetTabs,
+        // Both of these live on the character but aren't part of the tab
+        // or the layout, so they have to be named here or they'd be lost
+        // on every reload: the user's own shapes, and the hand-arranged
+        // layout saved per shape. Without the second, every shape switch
+        // would re-guess over a layout the user had already tuned.
+        customAspectPresets: character.customAspectPresets || [],
+        aspectLayouts: character.aspectLayouts || { layouts: {}, tabs: {} },
       })
         .then(() => { statusEl.textContent = "Saved"; unsavedChanges = false; })
         .catch((err) => {

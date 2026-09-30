@@ -28,6 +28,12 @@ import {
   stashLayoutVariant,
   clearLayoutVariant,
   switchTabToPreset,
+  allAspectPresets,
+  customAspectPresetsFor,
+  makeCustomPreset,
+  parseRatio,
+  colsForRatio,
+  describeRatio,
 } from "../js/render/sheet/aspectPresets.js";
 import { PAGE_COLS } from "../js/render/sheet/sheetLayouts.js";
 
@@ -392,5 +398,115 @@ describe("switchTabToPreset", () => {
     switchTabToPreset(c, tab, "16:9");
     tab.layout = [{ ...block("A"), x: 3, y: 3, w: 4 }];
     assert.equal(switchTabToPreset(c, tab, "16:9"), "reflowed");
+  });
+});
+
+describe("user-defined shapes", () => {
+  const withCustom = (entries) => ({ customAspectPresets: entries, sheetTabs: [] });
+
+  it("reads a ratio the way a person writes it", () => {
+    assert.equal(parseRatio("21:9"), 21 / 9);
+    assert.equal(parseRatio("16/10"), 1.6);
+    assert.equal(parseRatio("0.56"), 0.56);
+    for (const junk of ["", "   ", "abc", "0", "-4:3", "4:0", "21:", ":9"]) {
+      assert.equal(parseRatio(junk), null, `${JSON.stringify(junk)} is not a ratio`);
+    }
+  });
+
+  it("builds a preset from a name and a ratio alone", () => {
+    const preset = makeCustomPreset({ name: "Desk monitor", ratio: "21:9" });
+    assert.equal(preset.id, "custom:desk-monitor");
+    assert.equal(preset.custom, true);
+    assert.ok(preset.cols >= 1 && preset.cols <= PAGE_COLS);
+    assert.ok(preset.rows >= 1);
+  });
+
+  it("refuses a preset with no name or no usable ratio", () => {
+    assert.equal(makeCustomPreset({ name: "  ", ratio: "21:9" }), null);
+    assert.equal(makeCustomPreset({ name: "Mine", ratio: "wat" }), null);
+    assert.equal(makeCustomPreset({}), null);
+  });
+
+  it("derives columns from the ratio, narrowest for phone-portrait shapes", () => {
+    const wide = colsForRatio(2.33);
+    const laptop = colsForRatio(1.6);
+    const square = colsForRatio(1);
+    const tablet = colsForRatio(0.5);
+    assert.ok(wide >= laptop, "wider shapes get at least as many columns");
+    assert.ok(laptop > square && square > tablet, "narrower shapes get fewer columns");
+    assert.ok(tablet >= 4, "never collapses to nothing");
+    assert.equal(colsForRatio("nonsense"), PAGE_COLS, "an unusable ratio falls back to the full grid");
+  });
+
+  it("honours an explicit column count, capped at the grid", () => {
+    assert.equal(makeCustomPreset({ name: "Mine", ratio: "16:9", cols: 6 }).cols, 6);
+    assert.equal(makeCustomPreset({ name: "Mine", ratio: "16:9", cols: 999 }).cols, PAGE_COLS);
+    assert.equal(makeCustomPreset({ name: "Mine", ratio: "16:9", cols: 0 }).cols, colsForRatio(16 / 9),
+      "a zero count is ignored rather than making a zero-width column");
+  });
+
+  it("survives corrupt stored shapes instead of breaking the sheet", () => {
+    // This is user data, or a hand-edited save. It must never throw.
+    for (const junk of [null, undefined, "nope", 42, {}, [{ ratio: 2 }], [{ name: "x", ratio: "no" }]]) {
+      assert.deepEqual(customAspectPresetsFor(junk), [], `${JSON.stringify(junk)} yields no shapes`);
+    }
+    assert.deepEqual(customAspectPresetsFor({ customAspectPresets: [{ name: "x", ratio: "no" }] }), []);
+  });
+
+  it("drops a duplicate name and never collides with a shipped id", () => {
+    const once = makeCustomPreset({ name: "Desk monitor", ratio: "21:9" });
+    const twice = makeCustomPreset({ name: "Desk monitor", ratio: "4:3" });
+    const list = customAspectPresetsFor(withCustom([once, twice]));
+    assert.equal(list.length, 1, "the same name twice is one shape");
+    assert.ok(aspectPresetById(once.id, list), "and it resolves");
+    for (const shipped of ASPECT_PRESETS) {
+      assert.ok(!once.id.startsWith(shipped.id), `a custom id can't shadow ${shipped.id}`);
+    }
+  });
+
+  it("lists custom shapes alongside the shipped ones and resolves by id", () => {
+    const preset = makeCustomPreset({ name: "Storybook", ratio: "0.56" });
+    const character = withCustom([preset]);
+    assert.equal(allAspectPresets(character).length, ASPECT_PRESETS.length + 1);
+    assert.equal(aspectPresetById("custom:storybook", character).name, "Storybook");
+    // A shipped id still resolves with custom shapes present.
+    assert.equal(aspectPresetById(ASPECT_PRESETS[0].id, character).id, ASPECT_PRESETS[0].id);
+  });
+
+  it("offers a custom shape when the viewport matches it", () => {
+    const preset = makeCustomPreset({ name: "Ultrawide", ratio: 21 / 9 });
+    assert.equal(nearestAspectPreset(21 / 9, withCustom([preset])).name, "Ultrawide");
+  });
+
+  it("reflows a tab onto a custom shape like any other", () => {
+    const preset = makeCustomPreset({ name: "Narrow", ratio: "9:19.5", cols: 6 });
+    const tab = { id: "t1", layout: [block("a", 2), block("b", 2), block("c", 2)] };
+    const character = withCustom([preset]);
+    character.sheetTabs = [tab];
+    assert.equal(switchTabToPreset(character, tab, "custom:narrow"), "reflowed");
+    assert.equal(tab.aspectPresetId, "custom:narrow");
+    // Six columns over three blocks: two columns of two, one of one.
+    assert.equal(tab.layout[0].w, 5, "three blocks over six requested columns packs into three of five cells");
+    assert.ok(tab.layout.every((n) => n.x + n.w <= PAGE_COLS));
+  });
+
+  it("keeps a hand-arranged custom shape across a switch, like a built-in", () => {
+    const preset = makeCustomPreset({ name: "Narrow", ratio: "0.5", cols: 6 });
+    const tab = { id: "t1", layout: [block("a")] };
+    const character = withCustom([preset]);
+    character.sheetTabs = [tab];
+    switchTabToPreset(character, tab, "custom:narrow");
+    // The user rearranges it by hand.
+    tab.layout[0].x = 3;
+    tab.layout[0].w = 5;
+    switchTabToPreset(character, tab, "16:9");
+    assert.equal(switchTabToPreset(character, tab, "custom:narrow"), "restored");
+    assert.equal(tab.layout[0].x, 3, "their arrangement came back");
+  });
+
+  it("describes a ratio for the delete menu", () => {
+    assert.equal(describeRatio(16 / 9), "16:9");
+    assert.equal(describeRatio(21 / 9), "21:9");
+    assert.equal(describeRatio(0), String.fromCharCode(0x2014), "an unusable ratio describes as a dash, not a number");
   });
 });
