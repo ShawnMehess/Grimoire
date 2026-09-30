@@ -17,6 +17,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SUBCLASS_FEATURE_TEXT } from "../js/data/subclassFeatureText.js";
 import { SUBCLASS_BUNDLE_MAP, patchedSubclassBundle, normSubclassKey } from "../js/data/contentFixups.js";
+import { ALL_SUBCLASS_PICKS } from "../js/data/subclassPicks.js";
 import { SUBCLASS_SUPPLEMENT } from "../js/data/subclassContent.js";
 
 const patched = (key) => {
@@ -117,6 +118,81 @@ describe("subclass feature text module", () => {
     for (const [key, entry] of Object.entries(SUBCLASS_FEATURE_TEXT)) {
       for (const [feature, text] of Object.entries(entry.features)) {
         assert.ok((text || "").trim().length > 20, `${key} / ${feature} is empty or too short to be rules text`);
+      }
+    }
+  });
+});
+
+describe("choices read out of the fetched text", () => {
+  // The 4 below were not in the hand-written pick table because the
+  // subclass export carried no prose to read a choice out of. Each is
+  // asserted against the fetched text it was taken from, so if the text
+  // is regenerated and the feature disappears or changes, the pick fails
+  // rather than quietly offering choices for a rule that no longer says so.
+  const CASES = [
+    { key: "collegeofswords", feature: "Fighting Style", level: 3, option: "Dueling",
+      choice: /choose one of the following/i },
+    // "choose four spells ... one from each of the following levels" -
+    // a count of choices, so the phrasing differs from "of your choice".
+    { key: "arcanadomain", feature: "Arcane Mastery", level: 17, option: null, groups: 4,
+      choice: /choose four spells .*one from each of the following levels/i },
+    { key: "deathdomain", feature: "Reaper", level: 1, option: "Chill Touch",
+      choice: /one necromancy cantrip of your choice/i },
+    { key: "naturedomain", feature: "Acolyte of Nature", level: 1, option: "Animal Handling",
+      choice: /cantrip of your choice/i },
+  ];
+
+  const pickFor = (key, feature) =>
+    (ALL_SUBCLASS_PICKS[key] || []).find((p) => p.feature === feature);
+
+  for (const c of CASES) {
+    it(`${c.key} / ${c.feature} has a pick taken from real fetched text`, () => {
+      const text = SUBCLASS_FEATURE_TEXT[c.key]?.features?.[c.feature];
+      assert.ok(text, `no fetched text for ${c.key} / ${c.feature}`);
+      assert.match(text, c.choice,
+        `${c.key} / ${c.feature} no longer reads as a choice: ${text.slice(0, 120)}`);
+
+      const pick = pickFor(c.key, c.feature);
+      assert.ok(pick, `${c.key} / ${c.feature} has no pick`);
+      assert.equal(pick.level, c.level, `${c.key} / ${c.feature} pick is at the wrong level`);
+      assert.ok((pick.groups || []).length, `${c.key} / ${c.feature} pick has no groups`);
+      if (c.groups) assert.equal(pick.groups.length, c.groups, `${c.key} / ${c.feature} should be ${c.groups} separate picks`);
+      if (c.option) {
+        const names = pick.groups.flatMap((g) => (g.options || []).map((o) => o.name));
+        assert.ok(names.includes(c.option), `${c.key} / ${c.feature} does not offer "${c.option}"`);
+      }
+    });
+  }
+
+  it("does not offer a saved pick for a choice that resets each rest", () => {
+    // Bestial Soul, The Third Eye and Master Transmuter all read as
+    // "choose one of the following", but the benefit ends with the rest
+    // (or, for Master Transmuter, destroys the stone). Saving those would
+    // ask the player to decide something that gets thrown away.
+    for (const [key, feature] of [
+      ["pathofthebeast", "Bestial Soul"],
+      ["schoolofdivination", "The Third Eye"],
+      ["schooloftransmutation", "Master Transmuter"],
+    ]) {
+      assert.equal(pickFor(key, feature), undefined, `${key} / ${feature} should not be a saved build pick`);
+    }
+  });
+
+  it("merges the extra pick table per key instead of replacing it", () => {
+    // arcanadomain and naturedomain have entries in BOTH the base table
+    // and the extra table. An object spread would discard the base one, so
+    // Arcane Initiate and Bonus Proficiency would disappear from the sheet.
+    assert.ok(pickFor("arcanadomain", "Arcane Initiate"), "arcanadomain lost its base pick");
+    assert.ok(pickFor("naturedomain", "Bonus Proficiency"), "naturedomain lost its base pick");
+    assert.ok((ALL_SUBCLASS_PICKS.drakewarden || []).length >= 3, "drakewarden lost entries from one of the tables");
+  });
+
+  it("has no duplicate features within a subclass", () => {
+    for (const [key, picks] of Object.entries(ALL_SUBCLASS_PICKS)) {
+      const seen = new Set();
+      for (const p of picks) {
+        assert.ok(!seen.has(p.feature), `${key} lists ${p.feature} twice`);
+        seen.add(p.feature);
       }
     }
   });

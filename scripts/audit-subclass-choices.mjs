@@ -50,6 +50,17 @@ const CLASSIFIERS = [
   ["playTime", /\b(?:each|every) time\b/i],
   ["playTime", /\bas (?:an?|your) (?:action|bonus action|reaction)\b/i],
   ["playTime", /\byou (?:can|may) (?:also )?(?:create|cast|choose) .{0,60}\bitem of your choice\b/i],
+  // "choose one of the following" that RESETS. This has to be tested
+  // before the candidate patterns below, because rest-scoped wording
+  // also contains "choose one of the following" and is not a saved
+  // build pick: Bestial Soul is chosen after each rest and lasts until
+  // the next, Master Transmuter destroys the stone. Saving those would
+  // ask the player to decide something that gets thrown away.
+  ["playTime", /\blasts until you finish (?:a )?(?:short or long )?rest\b/i],
+  ["playTime", /\bwhen you finish (?:a )?(?:short or long )?rest\b/i],
+  ["playTime", /\byou can'?t use the feature again until you finish\b/i],
+  ["playTime", /\buntil you finish (?:a )?(?:short or long )?rest\b/i],
+  ["playTime", /\bstone is destroyed and can'?t be remade\b/i],
   // Real saved build choices.
   ["candidate", /\bchoose one of the following\b/i],
   ["candidate", /\bchoose (?:four|two|three|any) (?:spells|cantrips|feats|options)\b/i],

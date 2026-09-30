@@ -361,6 +361,60 @@ const EXTRA_SUBCLASS_PICKS = {
       ], { minLevel: 6 })],
     },
   ],
+
+  // --- Choices found in the fetched feature text -------------------------
+  // These were not in the hand-written table because the subclass export
+  // carried no prose for the feature to read a choice out of. Found by
+  // scripts/audit-subclass-choices.mjs once the rules text was fetched;
+  // see js/data/subclassFeatureText.js for the text each is taken from.
+
+  collegeofswords: [
+    {
+      feature: "Fighting Style", level: 3,
+      text: "At 3rd level, you adopt a particular style of fighting as your specialty. You can't take a Fighting Style option more than once, even if you later get to choose again.",
+      groups: [namedPick("college-of-swords-fighting-style", "Fighting style", [
+        "Dueling", "Two-Weapon Fighting",
+      ])],
+    },
+  ],
+
+  arcanadomain: [
+    {
+      // Four separate picks, not one pick of four: the source says "one
+      // from each of the following levels", so each level is its own
+      // choice, all gated on the feature's 17th level.
+      feature: "Arcane Mastery", level: 17,
+      text: "At 17th level, you choose four spells from the wizard spell list, one from each of the following levels: 6th, 7th, 8th, and 9th. You add them to your list of domain spells. Like your other domain spells, they are always prepared and count as cleric spells for you.",
+      groups: [6, 7, 8, 9].map((level) =>
+        spellPick(`arcane-domain-mastery-${level}`, `${level}th-level spell`, { list: "wizard", level, minLevel: 17 })),
+    },
+  ],
+
+  deathdomain: [
+    {
+      // "from any spell list" - the shared picker filters by class list
+      // and there is no "any" tab to open, so the options are spelled out.
+      // These are the necromancy cantrips the 5e rules offer.
+      feature: "Reaper", level: 1,
+      text: "At 1st level, you learn one necromancy cantrip of your choice from any spell list. When you cast a necromancy cantrip that normally targets only one creature, the spell can instead target two creatures within range and within 5 feet of each other.",
+      groups: [namedPick("death-domain-reaper", "Necromancy cantrip", [
+        "Bone Chill", "Chill Touch", "Corpse Ward", "False Life",
+        "Grave Bloom", "Mage Hand", "Poison Spray", "Ray of Frost",
+        "Spare the Dying", "Vicious Mockery", "Word of Radiance",
+      ])],
+    },
+  ],
+
+  naturedomain: [
+    {
+      feature: "Acolyte of Nature", level: 1,
+      text: "At 1st level, you learn one cantrip of your choice from the druid spell list. This cantrip counts as a cleric cantrip for you, but it doesn't count against the number of cleric cantrips you know. You also gain proficiency in one of the following skills of your choice: Animal Handling, Nature, or Survival.",
+      groups: [
+        spellPick("nature-domain-acolyte-cantrip", "Druid cantrip", { list: "druid", level: 0, minLevel: 1 }),
+        namedPick("nature-domain-acolyte-skill", "Nature skill", ["Animal Handling", "Nature", "Survival"]),
+      ],
+    },
+  ],
 };
 
 /** The conclaves' Primal Companion. Marked "(Optional)" in the source, so
@@ -376,5 +430,21 @@ function primalCompanion() {
   };
 }
 
-/** Every subclass pick: the base table, with the later additions merged over it. */
-export const ALL_SUBCLASS_PICKS = { ...SUBCLASS_PICKS, ...EXTRA_SUBCLASS_PICKS };
+/** Every subclass pick: the base table with the later additions merged in.
+ *
+ *  Merged per key rather than by object spread, because a spread would
+ *  DISCARD the base table's entry for any subclass that also appears in
+ *  EXTRA - and several now do (arcanadomain, naturedomain, drakewarden).
+ *  Adding a pick to one table would silently delete the other's. Picks are
+ *  deduplicated by feature name so the same feature can be listed in both
+ *  without producing two controls for it. */
+export const ALL_SUBCLASS_PICKS = (() => {
+  const out = { ...SUBCLASS_PICKS };
+  for (const [key, extra] of Object.entries(EXTRA_SUBCLASS_PICKS)) {
+    const seen = new Set((out[key] || []).map((p) => p.feature));
+    const added = extra.filter((p) => !seen.has(p.feature));
+    if (!added.length) continue;
+    out[key] = [...(out[key] || []), ...added];
+  }
+  return out;
+})();
