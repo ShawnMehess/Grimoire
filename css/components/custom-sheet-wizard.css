@@ -945,6 +945,15 @@
   max-height: 80vh;
   overflow-y: auto;
 }
+/* On a wide screen the feat picker is the one dialog whose list needs the
+   room: 83 feats with a mechanical line each, read three at a time in a
+   560px column. The feat list is the widest of the shared dialogs, so it
+   gets the extra width rather than all of them. */
+@media (min-width: 1100px) {
+  .choice-dialog--wide {
+    max-width: 1100px;
+  }
+}
 .choice-dialog-list {
   display: flex;
   flex-direction: column;

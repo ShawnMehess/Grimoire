@@ -1659,6 +1659,31 @@ function animateRowDetails(details, row, expand) {
   }
 }
 
+/** Run `fn` without letting the page move under the clicker's eyes.
+ *
+ *  Selecting a picker row re-renders the sheet, and the browser then keeps
+ *  the scroll position against new content — which lands the reader
+ *  somewhere else entirely, usually a long way from the row they just
+ *  clicked. Captured before, restored after the re-render paints.
+ *
+ *  No-ops where there's no window (stub DOM harnesses) or where the
+ *  scroller is the container itself, where the browser handles it. */
+export function preserveScrollWhile(fn) {
+  const view = typeof window === "undefined" ? null : window;
+  if (!view || typeof view.scrollY !== "number") {
+    fn();
+    return;
+  }
+  const x = view.scrollX;
+  const y = view.scrollY;
+  fn();
+  const restore = () => {
+    if (view.scrollX !== x || view.scrollY !== y) view.scrollTo(x, y);
+  };
+  if (typeof view.requestAnimationFrame === "function") view.requestAnimationFrame(restore);
+  else setTimeout(restore, 0);
+}
+
 function renderSinglePickerRows(container, names, {
   selectedName, onSelect, getInfo, getMechanics, getMechanicsList, afterRow, nested = false,
   // Collapsed-by-default is the right shape for any list long enough to
@@ -1746,7 +1771,7 @@ function renderSinglePickerRows(container, names, {
       "data-row-name": name,
       tabindex: 0, role: "button", "aria-pressed": String(selected),
       onclick: () => {
-        toggleRow();
+        preserveScrollWhile(toggleRow);
       },
       onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleRow(); } },
     });
@@ -1796,6 +1821,12 @@ function renderSinglePickerRows(container, names, {
       hasDetails = true;
     }
     if (hasDetails) {
+      // Clicks inside an expanded row's details must not reach the row
+      // itself: they belong to the pick the player is reading or making
+      // (and the nested controls stop their own events). Without this,
+      // clicking anywhere in an expanded but unselected row's choices
+      // collapses it out from under the cursor.
+      details.addEventListener("click", (e) => e.stopPropagation());
       if (collapsible) {
         // The selected row reads as expanded even on a fresh render
         // (e.g. resuming a saved-in-progress wizard) so picking
@@ -1835,8 +1866,8 @@ function renderMultiPickerRows(container, names, { selectedSet, onToggle, getInf
     const row = el("div", {
       class: "choice-row" + (selected ? " choice-row--selected" : ""),
       "data-name": name, tabindex: 0, role: "checkbox", "aria-checked": String(selected),
-      onclick: () => onToggle(name),
-      onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(name); } },
+      onclick: () => preserveScrollWhile(() => onToggle(name)),
+      onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); preserveScrollWhile(() => onToggle(name)); } },
     });
     row.append(el("div", {
       class: "choice-row__portrait",
@@ -1921,6 +1952,7 @@ export function openChoiceDialog({
   initialSelected = [],
   onAccept,
   host = null,
+  wide = false,
 }) {
   const mount = host || document.body;
   // Singleton: opening a second dialog replaces the first, so there is
@@ -1931,7 +1963,9 @@ export function openChoiceDialog({
     .filter((c) => (c.className || "").split(/\s+/).includes("choice-dialog-overlay"))
     .forEach((c) => c.remove?.());
   const overlay = el("div", { class: "modal-overlay choice-dialog-overlay" });
-  const box = el("div", { class: "modal-box choice-dialog", onclick: (e) => e.stopPropagation() });
+  // The feat list is the one dialog with a long enough list to need the
+  // width, so it's opt-in per opener rather than widening all of them.
+  const box = el("div", { class: "modal-box choice-dialog" + (wide ? " choice-dialog--wide" : ""), onclick: (e) => e.stopPropagation() });
   const heading = el("h3", { text: title || "Choose an option" });
   const selected = new Set(initialSelected || []);
   const locked = new Set(lockedIds || []);
@@ -2035,6 +2069,9 @@ function openFeatChoiceDialog(group, choicesStore, onChange, rerender, owned) {
     title: group.label || "Choose a feat",
     multi: group.maxSelections !== 1,
     maxSelections: group.maxSelections,
+    // 83 feats with a mechanical line each; this is the dialog that
+    // needs the full width on a big screen.
+    wide: true,
     options: opts.map((o) => ({ id: o.id, name: o.name, description: describeFeatOption(o) })),
     lockedIds,
     initialSelected: stored,

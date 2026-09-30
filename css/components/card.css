@@ -129,6 +129,34 @@
   cursor: default;
 }
 
+/* --- Phones: smaller profile cards -----------------------------------------
+   The default 170px track fits two per row on a phone, so a vault of any
+   size scrolls for a long time and each portrait is a postage stamp.
+   Tightening the track and the portrait ratio to 4/5 gets three across on
+   a 390px screen while leaving the name legible. */
+@media (max-width: 600px) {
+  .character-card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+    gap: var(--space-2);
+  }
+
+  .character-card__portrait {
+    aspect-ratio: 4 / 5;
+  }
+
+  .character-card__info {
+    padding: var(--space-2);
+  }
+
+  .character-card__name {
+    font-size: var(--text-xs);
+  }
+
+  .character-card__meta-lines {
+    display: none;
+  }
+}
+
 /* --- Character Vault search --------------------------------------------- */
 
 .character-vault__search-row {

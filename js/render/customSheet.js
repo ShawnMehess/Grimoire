@@ -4730,6 +4730,7 @@ const closeDialog = () => {
         title: `Racial feat — ${state.species}`,
         multi: false,
         maxSelections: 1,
+        wide: true,
         options: feats,
         lockedIds: [],
         initialSelected: pick?.name ? [pick.name] : [],
