@@ -865,8 +865,16 @@ function applyStatModifiersForTest(fields, vm, cb, tags, levelFor, extra) {
   const enemy = rangerGroups.find((g) => g.id === "ranger-favored-enemy");
   const terrain = rangerGroups.find((g) => g.id === "ranger-favored-terrain");
   const variant = rangerGroups.find((g) => g.id === "ranger-class-variant");
-  if (!enemy || enemy.options.length !== 14 || enemy.category !== "features" || enemy.minLevel !== 1) {
+  // 13, not 14: "Humanoids (choose two)" was a single option whose whole
+  // text was an instruction, so taking it granted nothing. It is replaced
+  // by a real humanoid-type group (asserted below), which is why the
+  // level-1 list is one shorter.
+  if (!enemy || enemy.options.length !== 13 || enemy.category !== "features" || enemy.minLevel !== 1) {
     fail("phase1: ranger favored-enemy group misshapen");
+  }
+  const enemyHumanoid = rangerGroups.find((g) => g.id === "ranger-favored-enemy-humanoid");
+  if (!enemyHumanoid || enemyHumanoid.minSelections !== 2 || enemyHumanoid.maxSelections !== 2 || enemyHumanoid.options.length < 10) {
+    fail("phase1: ranger favored-enemy humanoids are not a real two-pick");
   }
   if (!terrain || terrain.options.length !== 8 || terrain.category !== "features" || terrain.minLevel !== 1) {
     fail("phase1: ranger favored-terrain group misshapen");

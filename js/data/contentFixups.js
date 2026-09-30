@@ -35,6 +35,9 @@ import {
 import { withCatalogLink } from "./catalogLinks.js";
 import { withChoiceGroupCategories } from "./choiceCategories.js";
 import { fixPluralDeep } from "./pluralText.js";
+import { SUBCLASS_PICKS } from "./subclassPicks.js";
+import { CLASS_PICKS, CLASS_PICK_TEXT, isUnpickableNote } from "./classPicks.js";
+import { languagePick, toolPick, DWARF_BASE_TOOLS, ARTISAN_TOOLS } from "./missingPicks.js";
 
 const clone = (obj) => JSON.parse(JSON.stringify(obj));
 
@@ -758,6 +761,11 @@ function dwarfBaseEntry(entry) {
       featureGrants: [],
       resourceGrants: [],
       choiceGroups: [
+        // The base dwarf rule, which the compiled data dropped entirely -
+        // not unpickable, missing, so no subrace carried it. Every dwarf
+        // has it whichever subrace they take, so it sits on the base
+        // bundle rather than being repeated on each subrace.
+        toolPick("dwarf-base-tools", "Smith's, brewer's or mason's tools", DWARF_BASE_TOOLS),
         {
           id: "dwarf-subrace", label: "Dwarven Subrace", subrace: true, minLevel: 1, minSelections: 1, maxSelections: 1,
           options: [
@@ -780,8 +788,7 @@ function dwarfBaseEntry(entry) {
               statModifiers: [
                 ...clone(DWARF_SHARED_STATS),
                 { targetFieldId: "strScore", op: "add", value: 1, minLevel: null },
-              ],
-              // Superior darkvision replaces (not joins) the shared 60
+              ],              // Superior darkvision replaces (not joins) the shared 60
               // ft. â€” only the override is listed.
               featureGrants: [
                 { name: "Dwarven Resilience", description: "Advantage on saving throw against poison damage.", minLevel: null },
@@ -1150,11 +1157,87 @@ function patchClassEntry(entry) {
   // Phase 1 audit fixes compose on top of (and for most classes,
   // instead of) the historical patchers above.
   phase1ClassPatch(entry.name, out.bundle);
+  applyClassPicks(entry.name, out.bundle);
   return out;
 }
 
-function patchBackgroundEntry(entry) {
-  const out = { ...entry, bundle: clone(entry.bundle) };
+/** Attach the choice groups a class feature is missing (see classPicks.js).
+ *
+ *  Two jobs beyond adding the groups:
+ *  - Drop an option the table replaces. "Humanoids (choose two)" grants
+ *    nothing and cannot be meaningfully taken once the real humanoid
+ *    options exist, so leaving it would offer two ways to do one thing.
+ *  - Replace feature text that admits it is unpickable. The compiler
+ *    writes "not a pickable list here yet" when it had no options to
+ *    emit; now there are, so the note is worse than useless - it tells the
+ *    player the feature is incomplete when it isn't. */
+function applyClassPicks(className, bundle) {
+  const specs = CLASS_PICKS[className] || [];
+  for (const spec of specs) {
+    const match = (g) => (g?.name || "").trim().toLowerCase() === spec.feature.trim().toLowerCase();
+    // "Humanoids (choose two)" lives on the level-1 group, not on a
+    // feature, so it is dropped from the group that offers it. Group
+    // options may be a live view, so the array is rebuilt rather than
+    // filtered in place.
+    if (spec.dropFromGroup && spec.dropOption) {
+      const host = (bundle.choiceGroups || []).find((g) => g.id === spec.dropFromGroup);
+      if (host && Array.isArray(host.options)) {
+        host.options = host.options.filter((o) => (o?.name || "") !== spec.dropOption);
+      }
+    }
+    for (const group of spec.groups || []) {
+      if ((bundle.choiceGroups || []).some((g) => g.id === group.id)) continue;
+      bundle.choiceGroups.push({
+        minLevel: 1,
+        ...group,
+        source: spec.feature,
+      });
+    }
+    const target = (bundle.featureGrants || []).find(match);
+    if (target && isUnpickableNote(target.description) && CLASS_PICK_TEXT[spec.feature]) {
+      target.description = CLASS_PICK_TEXT[spec.feature];
+    }
+  }
+  return bundle;
+}
+
+/** Race features the rules define as a choice but that arrived without one.
+ *
+ *  - The dwarf's base rule is "smith's, brewer's or mason's tools". It
+ *    wasn't in the compiled data at all - not unpickable, missing - so no
+ *    subrace carried it. It goes on the base bundle, not a subrace, since
+ *    every dwarf has it whichever subrace they take.
+ *  - The yuan-ti speaks Common and Draconic, and got neither. Aarakocra,
+ *    Aasimar and Changeling all carry a language group; this is the same
+ *    row, and its absence read as "this race's languages are fixed" when
+ *    they were simply missing.
+ *
+ *  Both are the shape the rest of the project already handles: a choice
+ *  group on the bundle, gated by minLevel like every other. */
+function applyRacePicks(name, bundle) {
+  const add = (group) => {
+    if ((bundle.choiceGroups || []).some((g) => g.id === group.id)) return;
+    bundle.choiceGroups.push(group);
+  };
+  if (name === "Dwarf") {
+    add(toolPick("dwarf-base-tools", "Smith's, brewer's or mason's tools", DWARF_BASE_TOOLS));
+  }
+  if (name === "Yuan-ti") {
+    // Common and Draconic are fixed grants, matching the other races'
+    // shape; this is the "plus one of your choice".
+    const have = new Set((bundle.statModifiers || [])
+      .filter((m) => m.targetFieldId === "languages").map((m) => m.value));
+    bundle.statModifiers = [
+      ...(bundle.statModifiers || []),
+      ...[...["Common", "Draconic"].filter((n) => !have.has(n))]
+        .map((n) => ({ targetFieldId: "languages", op: "grantTag", value: n })),
+    ];
+    add(languagePick("yuan-ti-languages", "One language of your choice", 1));
+  }
+  return bundle;
+}
+
+function patchBackgroundEntry(entry) {  const out = { ...entry, bundle: clone(entry.bundle) };
   out.bundle.choiceGroups = [...(out.bundle.choiceGroups || [])];
   out.bundle.featureGrants = [...(out.bundle.featureGrants || [])];
   out.bundle.statModifiers = [...(out.bundle.statModifiers || [])];
@@ -1258,6 +1341,7 @@ function patchRaceEntry(entry) {
   if (["Aarakocra", "Aasimar", "Yuan-ti"].includes(entry.name)) {
     patchFreeformAsi(out.bundle, entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
   }
+  applyRacePicks(entry.name, out.bundle);
   if (entry.name === "Custom Lineage") {
     // Custom Lineage has a different structure: the ASI is a choice group with +2 options,
     // and there's no feature grant with the "plus_2_plus_1_or_three_plus_1s" description.
@@ -1460,10 +1544,45 @@ const SUBCLASS_PATCHERS = {
 
 export function patchedSubclassBundle(name, bundle) {
   const patcher = SUBCLASS_PATCHERS[name];
-  if (!patcher || !bundle) return bundle;
-  const out = { ...bundle, choiceGroups: [...(bundle.choiceGroups || [])], featureGrants: [...(bundle.featureGrants || [])] };
-  patcher(out);
+  const picks = SUBCLASS_PICKS[normSubclassKey(name)];
+  if ((!patcher && !picks) || !bundle) return bundle;
+  const out = { ...bundle, choiceGroups: [...(bundle?.choiceGroups || [])], featureGrants: [...(bundle?.featureGrants || [])] };
+  if (patcher) patcher(out);
+  if (picks) applySubclassPicks(out, picks);
   return out;
+}
+
+/** Attach the choice groups a feature is missing, and give that feature
+ *  the text it was compiled without.
+ *
+ *  Keyed by feature name rather than by position, because the compiled
+ *  data lists a feature's levels as separate grants ("Arcane Shot (2
+ *  options)", "Arcane Shot (3 options)") and the one the rules define the
+ *  CHOICE on is the first. A name that isn't found is skipped rather than
+ *  throwing, so a source re-export that renames a feature degrades to
+ *  "no picker" instead of taking the whole sheet down.
+ *
+ *  The group is added at the END of choiceGroups with `sortAfter` naming
+ *  the feature, so the pick renders under the rule it belongs to instead
+ *  of wherever the bundle happened to put it. */
+function applySubclassPicks(bundle, specs) {
+  for (const spec of specs) {
+    const grant = (bundle.featureGrants || []).find((g) => (g.name || "").trim().toLowerCase() === spec.feature.trim().toLowerCase());
+    if (!grant) continue;
+    if (spec.text && !(grant.description || "").trim()) grant.description = spec.text;
+    for (const group of spec.groups || []) {
+      if ((bundle.choiceGroups || []).some((g) => g.id === group.id)) continue;
+      bundle.choiceGroups.push({
+        ...group,
+        minLevel: group.minLevel ?? spec.level ?? grant.minLevel ?? 1,
+        source: spec.feature,
+        // Sits under the feature it belongs to when the wizard orders
+        // follow-ups by name.
+        sortAfter: group.sortAfter || null,
+      });
+    }
+  }
+  return bundle;
 }
 
 export const normSubclassKey = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
