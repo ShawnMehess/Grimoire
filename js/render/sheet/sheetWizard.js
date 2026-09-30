@@ -105,6 +105,56 @@ export function creationChoiceGroupsForState(state, bundleLookup, includedPacks 
   return orderFollowUpGroups(groups);
 }
 
+/** The choice groups a single OPTION carries, stamped and gated.
+ *
+ *  Most of the project expresses "this pick needs a second pick" as a
+ *  sibling top-level group with `requiresGroup`/`requiresOption` (see
+ *  creationChoiceGroupsForState) — that's the pattern that works, and
+ *  everything reads it. But a bundle can also hang `choiceGroups` on an
+ *  option, and that shape had nowhere to go: nothing descended into it,
+ *  no key was ever computed, and the option's own picker rendered only a
+ *  name and a description. The High Elf's extra language and cantrip were
+ *  sitting in exactly that shape, unreachable.
+ *
+ *  This lifts them into ordinary, keyed groups so the existing inline
+ *  pick machinery (languages dropdown, dialog-backed picks) can render
+ *  them with no further special-casing.
+ *
+ *  `parentKey` is the owning group's key, so a nested key reads
+ *  `creation:Race:Elf:elf-subrace:elf-subrace-high:elf-subrace-high-cantrip`
+ *  — unique by construction, since it is built from the ids above it.
+ *
+ *  Gated on the option being picked: an un-taken option contributes no
+ *  rows, same rule as a sibling follow-up. `pickedIds` is the parent
+ *  group's stored picks. Pure. */
+export function nestedChoiceGroupsFor(option, { parentKey, pickedIds = [], source = null } = {}) {
+  const nested = option?.choiceGroups;
+  if (!Array.isArray(nested) || !nested.length) return [];
+  // No parent key means no place to store a pick, so the groups would
+  // render controls that write nowhere. Drop them rather than pretend.
+  if (!parentKey) return [];
+  if (!pickedIds.includes(option.id)) return [];
+  const out = [];
+  nested.forEach((group, index) => {
+    if (group?.minLevel && !Number.isFinite(Number(group.minLevel))) return;
+    if (groupOptionsOf(group).length === 0) return;
+    out.push({
+      ...group,
+      key: `${parentKey}:${option.id}:${group.id || index}`,
+      source: source || group.source || null,
+      // An embedded group's own source is the option it hangs off, so a
+      // "which trait was this from" readout names the subrace, not the
+      // race's top-level pick.
+      parentOptionId: option.id,
+      parentGroupKey: parentKey,
+      minLevel: Number.isFinite(group.minLevel) ? group.minLevel : 0,
+      maxSelections: Math.max(1, Number.parseInt(group.maxSelections, 10) || 1),
+      minSelections: Math.max(0, Number.parseInt(group.minSelections, 10) || 0),
+    });
+  });
+  return out;
+}
+
 /** Move each group carrying `sortAfter` to sit directly after the group it
  *  names, so a follow-up row appears under the pick that caused it rather
  *  than wherever the bundle happened to list it. A `sortAfter` naming a

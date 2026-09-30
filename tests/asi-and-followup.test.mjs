@@ -17,6 +17,8 @@ import {
   buildFlexibleAsiChoice,
   flexibleAsiSummary,
   choiceDialogKindFor,
+  nestedChoiceGroupsFor,
+  groupOptionsOf,
 } from "../js/render/sheet/sheetWizard.js";
 import { FIXED_RACE_ENTRIES } from "../js/data/contentFixups.js";
 
@@ -223,5 +225,71 @@ describe("High Elf trait picks", () => {
     assert.deepEqual(speedOf("elf-subrace-wood"), ["35 ft. walking"]);
     assert.deepEqual(speedOf("elf-subrace-high"), ["30 ft. walking"]);
     assert.deepEqual(speedOf("elf-subrace-drow"), ["30 ft. walking"]);
+  });
+});
+
+describe("choice groups embedded on an option", () => {
+  // The High Elf's extra language and cantrip hang off the subrace
+  // OPTION, not off the race's top-level groups. Nothing descended into
+  // that shape, so they were in the data and nowhere else - the trait
+  // showed its text with no way to take it.
+  const parentKey = "creation:Race:Elf:elf-subrace";
+  const highElfOption = () => {
+    const subrace = (raceBundle("Elf").choiceGroups || []).find((g) => g.id === "elf-subrace");
+    return (subrace?.options || []).find((o) => o.id === "elf-subrace-high") || null;
+  };
+
+  it("lifts an option's groups once the option is picked", () => {
+    const nested = nestedChoiceGroupsFor(highElfOption(), { parentKey, pickedIds: ["elf-subrace-high"] });
+    assert.deepEqual(nested.map((g) => g.id), ["elf-subrace-high-language", "elf-subrace-high-cantrip"]);
+  });
+
+  it("contributes nothing while the option is un-taken", () => {
+    assert.deepEqual(nestedChoiceGroupsFor(highElfOption(), { parentKey, pickedIds: [] }), []);
+    assert.deepEqual(nestedChoiceGroupsFor(highElfOption(), { parentKey, pickedIds: ["elf-subrace-wood"] }), []);
+  });
+
+  it("keys each group under the option that owns it", () => {
+    const [language, cantrip] = nestedChoiceGroupsFor(highElfOption(), { parentKey, pickedIds: ["elf-subrace-high"] });
+    assert.equal(language.key, `${parentKey}:elf-subrace-high:elf-subrace-high-language`);
+    assert.equal(cantrip.key, `${parentKey}:elf-subrace-high:elf-subrace-high-cantrip`);
+    // Distinct by construction, so two subraces' picks can never collide.
+    assert.notEqual(language.key, cantrip.key);
+    assert.equal(language.parentGroupKey, parentKey);
+  });
+
+  it("normalizes min/max the way top-level groups are", () => {
+    const [group] = nestedChoiceGroupsFor(highElfOption(), { parentKey, pickedIds: ["elf-subrace-high"] });
+    assert.equal(group.minSelections, 1);
+    assert.equal(group.maxSelections, 1);
+    assert.equal(group.minLevel, 1);
+  });
+
+  it("drops groups with no parent key, since a pick would store nowhere", () => {
+    assert.deepEqual(nestedChoiceGroupsFor(highElfOption(), { pickedIds: ["elf-subrace-high"] }), []);
+  });
+
+  it("returns nothing for an option with no groups of its own", () => {
+    const elf = raceBundle("Elf");
+    const subrace = elf.choiceGroups.find((g) => g.id === "elf-subrace");
+    const wood = subrace.options.find((o) => o.id === "elf-subrace-wood");
+    assert.deepEqual(nestedChoiceGroupsFor(wood, { parentKey, pickedIds: ["elf-subrace-wood"] }), []);
+    assert.deepEqual(nestedChoiceGroupsFor(null, { parentKey }), []);
+  });
+
+  it("gives every language option something to grant", () => {
+    // An option with no statModifiers records a name and grants nothing.
+    const [language] = nestedChoiceGroupsFor(highElfOption(), { parentKey, pickedIds: ["elf-subrace-high"] });
+    for (const option of groupOptionsOf(language)) {
+      assert.ok((option.statModifiers || []).length, `${option.name} grants nothing`);
+      assert.equal(option.statModifiers[0].targetFieldId, "languages");
+      assert.equal(option.statModifiers[0].op, "grantTag");
+      assert.equal(option.statModifiers[0].value, option.name);
+    }
+  });
+
+  it("keeps the cantrip reachable as a spell dialog", () => {
+    const [, cantrip] = nestedChoiceGroupsFor(highElfOption(), { parentKey, pickedIds: ["elf-subrace-high"] });
+    assert.equal(choiceDialogKindFor(cantrip), "spells");
   });
 });

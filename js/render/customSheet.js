@@ -224,6 +224,7 @@ import {
   creationChoiceGroupsForState,
   creationFixedBundlesFor,
   groupOptionsOf,
+  nestedChoiceGroupsFor,
   slotLabelFor,
   isAsiSlotGroup,
   isFeaturePickGroup,
@@ -5323,7 +5324,7 @@ const closeDialog = () => {
               const group = subraceGroupFor(raceName);
               const option = group?.options.find((o) => o.name === subName);
               if (!option) return [];
-              return sharedMechanicsBulletsFor(
+              const sections = sharedMechanicsBulletsFor(
                 { statModifiers: option.statModifiers, featureGrants: option.featureGrants },
                 state.level,
                 {
@@ -5333,6 +5334,22 @@ const closeDialog = () => {
                   resolveLabel: (id) => resolveFieldById(id)?.label,
                 }
               );
+              // A subrace option can carry choice groups of its own — the
+              // High Elf's extra language and cantrip do. They used to be
+              // silently dropped, so those two traits showed their text
+              // and offered no way to take them. Lifted into keyed groups
+              // and rendered as live rows in the subrace's own picker row,
+              // which is where a subrace's rules are read.
+              const nested = nestedChoiceGroupsFor(option, {
+                parentKey: group.key,
+                pickedIds: state.choices?.[group.key] || [],
+                source: option.name,
+              });
+              if (!nested.length) return sections;
+              return withLiveBullets(sections, inlineChoiceBullets(
+                lockCommonGroups(nested),
+                saveRules
+              ).map((bullet) => ({ section: SHARED_MECHANICS_TITLES.innate, bullet })));
             },
             selectSubraceFn: (group, optionId) => {
               character.rules.choices = character.rules.choices || {};

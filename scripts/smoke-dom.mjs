@@ -937,3 +937,70 @@ if (failures) {
 } else {
   console.log("smoke-dom: all checks passed");
 }
+
+// Choices embedded on a subrace OPTION, rendered.
+//
+// The High Elf's extra language and cantrip hang off the subrace option
+// rather than the race's top-level groups. Nothing descended into that
+// shape, so both traits printed their text with no way to take them.
+// nestedChoiceGroupsFor lifts them into keyed groups; this checks they
+// then render as the same live rows every other pick does.
+{
+  const { nestedChoiceGroupsFor, renderLiveBulletItem } = wizard;
+  const { FIXED_RACE_ENTRIES } = await import("../js/data/contentFixups.js");
+  const elf = FIXED_RACE_ENTRIES.find((e) => e.name === "Elf");
+  const subrace = elf.bundle.choiceGroups.find((g) => g.id === "elf-subrace");
+  const high = subrace.options.find((o) => o.id === "elf-subrace-high");
+  const parentKey = "creation:Race:Elf:elf-subrace";
+
+  const picked = nestedChoiceGroupsFor(high, { parentKey, pickedIds: ["elf-subrace-high"], source: "High Elf" });
+  assert(picked.length === 2, "the High Elf's embedded picks are lifted when it is taken");
+  assert(picked.every((g) => g.key && g.key.startsWith(`${parentKey}:elf-subrace-high:`)),
+    "each embedded group is keyed under the option that owns it");
+  assert(nestedChoiceGroupsFor(high, { parentKey, pickedIds: [] }).length === 0,
+    "an un-taken subrace offers no embedded picks");
+
+  // The language group is an inline dropdown, like every other language
+  // pick; the cantrip is a dialog link.
+  const [language, cantrip] = picked;
+  const languageBullet = renderLiveBulletItem({
+    live: true,
+    topic: "Languages",
+    lead: [{ text: "Common" }, { text: "Elvish" }],
+    slots: language.options.slice(0, 1).map((o, i) => ({
+      key: `${language.key}#${i}`,
+      value: o.name,
+      placeholder: "Choose...",
+      options: groupOptionsFor(language).slice(0, 3).map((o) => ({ value: o.name, label: o.name })),
+    })),
+  });
+  const languageBox = document.createElement("div");
+  languageBox.append(languageBullet);
+  assert(languageBox.querySelector(".inline-pick-select"), "the extra language renders as a dropdown in the subrace row");
+  assert(languageBox.textContent.includes("Elvish"), "granted languages are shown beside the dropdown");
+  assert(languageBullet.querySelector(".inline-pick-select").getAttribute("data-inline-slot") === `${language.key}#0`,
+    "the slot key is the embedded group's own key, so the pick stores where it can be read back");
+
+  const cantripBullet = renderLiveBulletItem({
+    live: true,
+    topic: cantrip.label,
+    lead: [],
+    dialogOpener: () => {},
+  });
+  const cantripBox = document.createElement("div");
+  cantripBox.append(cantripBullet);
+  assert(cantripBox.querySelector(".inline-pick-link"), "the cantrip renders as a dialog link");
+  assert(cantripBox.textContent.includes("Choose"), "and says what it wants");
+
+  // Every language option must actually grant something, or the pick
+  // records a name and changes nothing.
+  for (const option of language.options) {
+    assert((option.statModifiers || []).length > 0, `${option.name} grants a language`);
+  }
+  assert(language.options.length === 15, "every language but Common is offered");
+  assert(!language.options.some((o) => o.name === "Common"), "Common is free, never a pick");
+}
+
+function groupOptionsFor(group) {
+  return [...(group.options || []), ...(group.categories || []).flatMap((c) => c.options || [])];
+}

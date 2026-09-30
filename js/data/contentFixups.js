@@ -1349,10 +1349,16 @@ function patchHighElfChoices(bundle) {
       maxSelections: 1,
       category: "languages",
       // Every language the sheet knows, minus Common (free and never a
-      // pick) â€” the same vocabulary the other language groups use.
+      // pick) — the same vocabulary the other language groups use. Each
+      // option grants the language through the usual `languages` tag, so
+      // picking it puts it on the sheet rather than only recording a name.
       options: LANGUAGES
         .filter((name) => name !== "Common")
-        .map((name) => ({ id: `elf-subrace-high-language-${String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, name })),
+        .map((name) => ({
+          id: `elf-subrace-high-language-${String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+          name,
+          statModifiers: [{ targetFieldId: "languages", op: "grantTag", value: name }],
+        })),
     });
   }
   if (!has("elf-subrace-high-cantrip")) {

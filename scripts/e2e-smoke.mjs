@@ -370,14 +370,19 @@ async function runViewportTests(viewport) {
     }
   }
 
-  // Simple View overflow check at mobile viewport. Guarded on playBtn:
-  // if the toggle is missing the check above has already failed, and
-  // clicking null here would throw and take every later check down with
-  // it instead of reporting them.
-  if (viewport.name === "mobile" && playBtn) {
-    await playBtn.click();
-    await page.waitForTimeout(400);
-    const overflow = await page.evaluate(() => {
+  // Simple View overflow check at mobile viewport.
+  //
+  // The toggle is re-queried rather than reusing the handle from earlier:
+  // the shape checks above reflow the sheet, which re-renders the toolbar
+  // and leaves a captured handle detached. Clicking a detached element
+  // throws and would take every later check down instead of reporting.
+  if (viewport.name === "mobile") {
+    const simpleToggle = await page.$("button:has-text('Simple View')");
+    if (!simpleToggle) {
+      check(false, "the Simple View toggle is present");
+    } else if (await simpleToggle.click().then(() => true).catch(() => false)) {
+      await page.waitForTimeout(400);
+      const overflow = await page.evaluate(() => {
       const grid = document.querySelector(".page-grid.is-simple");
       if (!grid) return { hasOverflow: true, reason: "no grid" };
       return {
@@ -387,8 +392,11 @@ async function runViewportTests(viewport) {
       };
     });
     check(!overflow.hasOverflow || overflow.scrollWidth - overflow.clientWidth <= 5, `Simple View has minimal horizontal overflow at ${viewport.width}px (scrollWidth: ${overflow.scrollWidth}, clientWidth: ${overflow.clientWidth}, diff: ${overflow.scrollWidth - overflow.clientWidth}px)`);
-    await playBtn.click();
+    // Back to Sheet View, and the stale-key check that follows it.
+    const back = await page.$("button:has-text('Sheet View')");
+    if (back) await back.click().catch(() => {});
     await page.waitForTimeout(400);
+    }
   }
 
   // B: offline vault — the exact flow that once crashed new-character
