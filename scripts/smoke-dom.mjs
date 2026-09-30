@@ -306,6 +306,35 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(pending.hp === "8", "HP prefilled with average + CON");
   assert(box.textContent.includes("Fixed average"), "HP math note renders");
 }
+// The HP method preference rows: no expand/collapse affordance (they have
+// nothing to expand), and an icon in the portrait slot instead of a letter
+// that couldn't tell "Roll In-Browser" from "Roll at the Table".
+{
+  const box = document.createElement("div");
+  let captured = null;
+  steps.renderPreferencesStepInto(box, {}, {
+    hpOptions: steps.HP_METHOD_OPTIONS,
+    currentMethod: "average",
+    updateFn: () => {},
+    selectableRowsFn: (c, names, opts) => { captured = { names, opts }; },
+  });
+  assert(captured.names.length === 3, "three HP methods render");
+  assert(captured.opts.collapsible === false && captured.opts.showControls === false,
+    "HP method rows carry no expand/collapse controls");
+  const icons = captured.names.map((n) => captured.opts.getIcon(n));
+  assert(icons.every(Boolean) && new Set(icons).size === 3, "each HP method gets its own icon");
+
+  // And the real renderer puts that icon where the portrait letter goes.
+  const real = document.createElement("div");
+  const list = wizard.renderPickerTableInto(real, captured.names, {
+    ...captured.opts,
+    getInfo: (n) => ({ description: "x" }),
+    onSelect: () => {},
+  });
+  const portraits = [...(list.children || [])].map((row) => row.children?.[0]);
+  assert(portraits.every((p) => (p?.className || "").includes("choice-row__portrait--icon")),
+    "HP method rows render an icon portrait, not a letter");
+}
 {
   const box = document.createElement("div");
   const pending = { asiMode: "single", asiAbility1: "", asiAbility2: "", featChoice: "" };

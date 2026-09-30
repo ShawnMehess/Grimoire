@@ -14,9 +14,9 @@ import { el } from "./sheetHelpers.js";
 export { ABILITY_DESCRIPTIONS };
 
 export const HP_METHOD_OPTIONS = [
-  { value: "average", label: "Fixed Average", description: "Always take the fixed average for your hit die (e.g. 5 for a d8), plus your Constitution modifier. Consistent and predictable, no rolling involved." },
-  { value: "roll", label: "Roll In-Browser", description: "Roll your hit die right here each time you level up, plus your Constitution modifier. Keeps the randomness without needing physical dice." },
-  { value: "manual", label: "Roll at the Table", description: "Roll however you prefer at the table (or elsewhere) and just type the result in when you level up." },
+  { value: "average", label: "Fixed Average", icon: "∑", description: "Always take the fixed average for your hit die (e.g. 5 for a d8), plus your Constitution modifier. Consistent and predictable, no rolling involved." },
+  { value: "roll", label: "Roll In-Browser", icon: "⚄", description: "Roll your hit die right here each time you level up, plus your Constitution modifier. ..." },
+  { value: "manual", label: "Roll at the Table", icon: "✎", description: "Roll however you prefer at the table (or elsewhere) and just type the result in when you level up." },
 ];
 
 export const POINT_BUY_MIN = 8;
@@ -308,6 +308,15 @@ export function renderPreferencesStepInto(container, state, deps) {
     selectedName: selected?.label,
     getInfo: (label) => ({ description: hpOptions.find((opt) => opt.label === label)?.description || "" }),
     onSelect: (label) => updateFn("hpMethod", hpOptions.find((opt) => opt.label === label)?.value),
+    // These rows have nothing to expand: each option is a method and its
+    // whole text is the description beside it. They still got the default
+    // collapsible treatment, which put a dead Expand All / Collapse All bar
+    // over a list of rows that only ever re-selected themselves. An icon
+    // carries the "how does this method work" part the letter-in-a-box
+    // never did ("Roll at the Table" and "Roll In-Browser" are both R).
+    collapsible: false,
+    showControls: false,
+    getIcon: (label) => hpOptions.find((opt) => opt.label === label)?.icon || null,
   });
 }
 

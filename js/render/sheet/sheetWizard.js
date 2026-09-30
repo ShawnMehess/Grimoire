@@ -1685,7 +1685,7 @@ export function preserveScrollWhile(fn) {
 }
 
 function renderSinglePickerRows(container, names, {
-  selectedName, onSelect, getInfo, getMechanics, getMechanicsList, afterRow, nested = false,
+  selectedName, onSelect, getInfo, getMechanics, getMechanicsList, afterRow, nested = false, getIcon = null,
   // Collapsed-by-default is the right shape for any list long enough to
   // scroll (Race, Class, Background, …): only the selected row's details
   // show, everything else is a scannable name + one-line description.
@@ -1775,9 +1775,20 @@ function renderSinglePickerRows(container, names, {
       },
       onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleRow(); } },
     });
-    row.append(info?.imageData
-      ? el("div", { class: "choice-row__portrait" }, el("img", { src: info.imageData, alt: "" }))
-      : el("div", { class: "choice-row__portrait", text: (name || "?").charAt(0).toUpperCase() }));
+    // Portrait slot: an icon when the caller has one for this option,
+    // otherwise the first letter as before. Either way it repeats the row
+    // label, so it's decorative to a screen reader.
+    const iconGlyph = getIcon ? getIcon(name) : null;
+    const portrait = el("div", { class: "choice-row__portrait" },
+      iconGlyph || (info?.imageData
+        ? el("img", { src: info.imageData, alt: "" })
+        : (name || "?").charAt(0).toUpperCase()));
+    if (iconGlyph) {
+      portrait.classList.add("choice-row__portrait--icon");
+      portrait.setAttribute("aria-hidden", "true");
+      portrait.title = "How this option works";
+    }
+    row.append(portrait);
     const body = el("div", { class: "choice-row__body" },
       el("div", { class: "choice-row__label", text: name }),
       el("div", { class: "choice-row__description" },

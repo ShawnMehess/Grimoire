@@ -60,6 +60,7 @@ import {
   abilityBonusNoteText,
   reviewLinesFor,
   resolvePrimaryRuleset,
+  HP_METHOD_OPTIONS,
 } from "../js/render/sheet/sheetWizardSteps.js";
 
 describe("choice-group satisfaction", () => {
@@ -498,3 +499,24 @@ describe("library option names and review lines", () => {
     assert.equal(pointBuyNoteText(10, 27), "Points spent: 10/27");
   });
 });
+
+describe("HP method preference rows", () => {
+  // The three HP methods are a list of methods, not a list of entries with
+  // hidden detail. They used to render through the same collapsible picker
+  // as Race/Class, which put a dead Expand All / Collapse All bar over rows
+  // that had nothing to expand. The rendering half of this (no controls,
+  // icon in the portrait slot) is covered in scripts/smoke-dom.mjs, which
+  // has the stub DOM; what's checkable purely is the option data.
+  it("gives every method a distinct icon", () => {
+    const icons = HP_METHOD_OPTIONS.map((o) => o.icon);
+    assert.ok(icons.length === 3 && icons.every(Boolean), "every HP method carries an icon");
+    // Two of the three labels start with "Roll", which is why the letter
+    // in the portrait box never told them apart.
+    assert.equal(new Set(icons).size, icons.length, "the icons are distinguishable");
+  });
+
+  it("still describes each method", () => {
+    assert.ok(HP_METHOD_OPTIONS.every((o) => o.value && o.label && o.description));
+  });
+});
+

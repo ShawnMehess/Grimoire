@@ -352,6 +352,41 @@ async function runViewportTests(viewport) {
     } else {
       check(false, "the Variable Trait dropdown is present");
     }
+
+    // An expanded row shows the choices THAT row offers, even when the
+    // row isn't the selected race. Human's only group is its extra
+    // language, so it's the cleanest probe: before this, profileSectionsFor
+    // returned the static preview for anything but state.species, so
+    // expanding an unselected row showed no picks at all.
+    const expandAll = await page.$(".choice-row-list__collapse-controls button:text-matches('Expand All')");
+    check(!!expandAll, "Identity step has an Expand All control");
+    if (expandAll) {
+      await expandAll.click();
+      await page.waitForTimeout(900);
+      const humanRow = '.choice-row[data-row-name="Human"]';
+      // The slot key is fully qualified: creation:Race:Human:human-languages#0
+      const humanSel = `${humanRow} select[data-inline-slot*="human-languages"]`;
+      check(!!(await page.$(humanSel)), "an unselected expanded row shows its own picks");
+      check(!(await page.$(`${humanRow}.choice-row--selected`)), "that row is still unselected");
+      await page.screenshot({ path: path.join(shotDir, `identity-expand-all-${viewport.name}.png`) });
+    }
+
+    // Clicking a row re-renders the sheet, which used to leave the page
+    // scrolled somewhere else entirely. The "before" reading has to be
+    // taken inside the page at click time: Playwright scrolls the target
+    // into view before dispatching, so anything sampled earlier would be
+    // measuring the harness, not the sheet.
+    const dragonborn = await page.$('.choice-row[data-row-name="Dragonborn"]');
+    if (dragonborn) {
+      await page.evaluate(() => {
+        window.__scrollAtClick = null;
+        document.addEventListener("click", () => { window.__scrollAtClick = window.scrollY; }, { capture: true, once: true });
+      });
+      await dragonborn.click();
+      await page.waitForTimeout(900);
+      const scrollDelta = await page.evaluate(() => (window.__scrollAtClick ?? window.scrollY) - window.scrollY);
+      check(Math.abs(scrollDelta) < 4, `clicking a picker row does not move the page (delta ${scrollDelta})`);
+    }
   }
 }
 

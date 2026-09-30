@@ -424,6 +424,25 @@
   object-fit: cover;
 }
 
+/* An option that brings its own icon instead of a portrait: the HP
+   methods, where a 96px letter box told you nothing ("Roll at the Table"
+   and "Roll In-Browser" are both an R). Sized to the glyph. */
+.choice-row__portrait--icon {
+  width: auto;
+  height: auto;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 1.2rem;
+  line-height: 1;
+  color: var(--color-accent);
+  background: var(--color-bg-inset);
+}
+.choice-row--expanded .choice-row__portrait--icon {
+  width: auto;
+  height: auto;
+}
+
 .choice-row__body {
   flex: 1 1 auto;
   min-width: 0;

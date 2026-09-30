@@ -3427,12 +3427,34 @@ const closeDialog = () => {
 
   function creationChoiceGroupsFor(state) {
     // Choice groups resolve against EVERY included source, not just
-    // the primary — a Xanathar-tagged bundle's picks surface whenever
+    // the primary - a Xanathar-tagged bundle's picks surface whenever
     // that source is checked, even with Homebrew primary. Pack-gated
     // groups/options (requiresPack, e.g. Tasha's optional rules) only
     // surface when their pack is included.
     const lookup = (category, name) => bundleFor(category, name, includedRulesetIds(state));
     return lockCommonInLanguageGroups(creationChoiceGroupsForState(state, lookup, includedRulesetIds(state)));
+  }
+
+  /** The choice groups ONE row of a picker table offers, whether or not
+   *  that row is the current pick.
+   *
+   *  creationChoiceGroupsForState only walks the state, so it can only ever
+   *  describe the selected race/background - which is why an expanded but
+   *  unselected row used to fall back to a static preview with no picks at
+   *  all. Same function, same lookup, same pack gating; only the name in
+   *  the slot is swapped, so for the selected row this returns exactly what
+   *  creationChoiceGroupsFor would.
+   *
+   *  Keys are per-source (`creation:Race:Human:human-languages`), so a pick
+   *  made while previewing lands on that row's own key and stays dormant
+   *  until the player actually picks that race. */
+  function choiceGroupsForRow(category, name, state) {
+    const slot = category === "Race" ? "species" : category === "Background" ? "background" : null;
+    if (!slot || !name) return [];
+    const lookup = (cat, n) => bundleFor(cat, n, includedRulesetIds(state));
+    const scoped = { ...state, [slot]: name };
+    return lockCommonInLanguageGroups(creationChoiceGroupsForState(scoped, lookup, includedRulesetIds(state)))
+      .filter((g) => g.source === name && (category !== "Race" || !g.subrace));
   }
 
   /** Common is known by default and can't be changed — applied
@@ -4868,20 +4890,35 @@ const closeDialog = () => {
    *  append beside fixed score lines. */
   function profileSectionsFor(category, name, saveRules) {
     const statik = mechanicsListFor(category, name, state.level);
-    const isRace = category === "Race" && name === state.species;
-    const isBg = category === "Background" && name === state.background;
+    const isRace = category === "Race";
+    const isBg = category === "Background";
     if (!isRace && !isBg) return statik;
-    const langGroups = isRace ? raceInlineLang : bgInlineLang;
-    const toolGroups = isBg ? bgInlineTool : [];
-    const asiGroups = isRace ? raceInlineAsi : [];
-    const featGroups = isRace ? raceInlineFeat : bgInlineFeat;
+    // The groups belong to the ROW, not to the current pick. Expanding a
+    // race or background shows the choices that row actually offers, so a
+    // player can read (and try) Dwarven Toughness's languages before
+    // committing to the dwarf. This used to be gated on
+    // `name === state.species`, so every unselected row fell back to the
+    // static preview and the whole point of expanding it was missing.
+    //
+    // A pick made from an unselected row writes to that group's own key.
+    // Those keys are only read by gating/compute for the SELECTED race
+    // (see raceChoiceGroups), so a previewed pick stays dormant — and
+    // becomes live, and still there, if the player goes on to pick that
+    // race rather than silently losing it.
+    const rowGroups = choiceGroupsForRow(category, name, state);
+    const langGroups = isRace ? rowGroups.filter(isInlineLangGroup) : [];
+    const toolGroups = isBg ? rowGroups.filter((g) => g.fieldId === "toolProf") : [];
+    const asiGroups = isRace ? rowGroups.filter(isAsiSlotGroup) : [];
+    const featGroups = rowGroups.filter((g) => isFeaturePickGroup(g) && !choiceDialogKindFor(g));
     // Dialog-pick leftovers (skills, tools, fighting styles, expertise,
     // feats) count here too — otherwise a row whose ONLY groups take
     // the dialog returns the static preview and its choices vanish.
-    const dialogGroups = (isRace ? raceChoiceGroups : backgroundChoiceGroups).filter((g) => choiceDialogKindFor(g));
+    const dialogGroups = rowGroups.filter((g) => choiceDialogKindFor(g));
     // A race-granted feat (Custom Lineage's "Feat" trait) renders as a
-    // link opening the feats picker dialog instead of a static note.
-    const lineageFeat = isRace ? liveLineageFeatBullet(saveRules) : null;
+    // link opening the feats picker dialog instead of a static note. It
+    // reads the staged lineage's own state, so it only describes the race
+    // actually in progress — never a row being previewed.
+    const lineageFeat = isRace && name === state.species ? liveLineageFeatBullet(saveRules) : null;
     if (!langGroups.length && !toolGroups.length && !asiGroups.length && !featGroups.length && !dialogGroups.length && !lineageFeat) return statik;
     const full = bundleFor(category, name, includedRulesetIds(state));
     if (!full) return statik;
@@ -4894,7 +4931,11 @@ const closeDialog = () => {
         && !(lineageFeat && /^feat$/i.test((f.name || "").trim()))),
     };
     const sections = mechanicsListFor(category, name, state.level, stripped);
-    const fixedBundle = isRace ? creationFixedBundles(state)[0] : creationFixedBundles(state)[3];
+    // The row's OWN bundle as the fixed-grant source, so its languages
+    // come from that race rather than from whichever race is selected.
+    // Identical to the old `creationFixedBundles(state)[0]/[3]` for the
+    // selected row — both resolve through bundleFor.
+    const fixedBundle = full;
     return withLiveBullets(sections, [
       langGroups.length
         ? { section: isRace ? SHARED_MECHANICS_TITLES.traits : SHARED_MECHANICS_TITLES.innate, bullet: liveLanguageBullet(langGroups, fixedBundle, saveRules) }
