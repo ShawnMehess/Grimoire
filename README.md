@@ -1,528 +1,503 @@
 # Grimoire
 
-A private, D&D-only character creator/manager, hosted statically via
-GitHub Pages, backed by Firebase (Firestore + Auth + Storage) for
-shared persistence among friends.
+A private, D&D-only character creator and manager. Statically hosted via
+GitHub Pages, backed by Firebase (Firestore + Auth + Storage) for shared
+persistence among friends, with a fully functional offline mode that needs
+no backend at all.
 
-## The sheet is a drag/resize/style builder, not a fixed form
+---
 
-The character sheet is fully custom-built by each user: blocks and
-fields can be added, removed, dragged, resized, restyled, and
-relabeled freely.
+## The sheet is a builder, not a fixed form
 
-### The core idea: one object, not two
+Nothing about a sheet's shape is baked in. Blocks and fields are added,
+removed, dragged, resized, restyled and relabelled freely, and the whole
+sheet can be re-flowed to a target screen shape and then rearranged by
+hand.
+
+### One object, not two
 
 A "stat block" and a "stat field" are the same underlying object (see
-`js/data/blockModel.js`) — a **node** with `kind: "block"` (a
-container with children) or `kind: "field"` (a leaf value: text,
-radio group, or checkbox group). `createBlock()` and `createField()`
-are just convenience wrappers around it.
+`js/data/blockModel.js`) — a **node** with `kind: "block"` (a container
+with children) or `kind: "field"` (a leaf value: text, radio group,
+checkbox group, dropdown, catalog, text list, formula). `createBlock()`
+and `createField()` are convenience wrappers around it.
+
+Every field and block ships with a **Label** child element that can be
+deleted and restored. Deleting it is a rendering choice only, never a
+rename: a field's `label` is also its formula variable name, its name in
+the left-hand list, and the name you drag onto the character card.
 
 ### One grid, every level
 
-Everything is positioned in whole cells of a single grid — `x, y, w, h`
-in `js/data/blockModel.js`, never free pixels. Column width is
-responsive (recalculated from the page's pixel width on resize); row
-height is fixed. A block's children use the **exact same column
-width** as the page grid, with the block's own `w` as their local
-column count — that's what makes "one cell" mean the same physical
-size whether you're looking at the page or inside a block. See
-`js/render/customSheet.js`'s file-level comment for the full math.
+Everything is positioned in whole cells of a single grid — `x, y, w, h` in
+`js/data/blockModel.js`, never free pixels. Column width is responsive
+(recalculated from the page's pixel width on resize); row height is fixed.
+A block's children use the **exact same column width** as the page grid,
+with the block's own `w` as their local column count — that is what makes
+"one cell" mean the same physical size whether you are looking at the page
+or inside a block. `js/render/customSheet.js`'s file-level comment has the
+full math.
 
-### Files
+### Modes
 
-- `js/data/blockModel.js` — the node shape, factories, and the
-  starter layout shown on a brand-new character.
-- `js/render/gridEngine.js` — pure grid math only (collision + a
-  simple "gravity pack" compaction). No DOM access, so it's usable at
-  every nesting level and easy to reason about in isolation. Only the
-  sizing helpers are currently called (placement is fully manual);
-  collision/compaction stay for a possible future "tidy up".
-- `js/render/customSheet.js` — the actual renderer: drag/resize
-  handles, the style popover, add/delete, label positioning, the
-  whole edit-mode UI. This is the file to read first if something's
-  behaving oddly.
-- `js/data/formula.js` (expression engine) +
-  `js/render/formulaEditor.js` (editor UI) — the live formula path.
-  The starter sheet ships with real formulas: all six ability
-  modifiers, save/skill modifiers (proficiency-gated), proficiency
-  bonus from level, spell save DC / attack bonus, initiative, and
-  passive Perception.
-- `js/data/expressDefaults.js` — per-class recommended defaults for
-  Express setup (ability spreads + skills). Data, not wizard logic.
-- `js/state/characterImages.js` — pure Storage shapes (sidecars, path
-  building, document slot walk). The Firebase side lives in
-  `characterStore.js`, the offline pass-through in `localStore.js`.
-- `js/render/sheet/` — one module per concern, all explicit-deps (no
-  sheet closure). Import specific modules, not the barrel, in new code.
+- **Sheet View** — the 2D grid above.
+- **Simple View** — a display mode that stacks every block into a
+  full-width section and every field into a full-width row. Saved `x/y/w/h`
+  are never written; the only DOM change is a flex `order` plus a class on
+  the grid, both cleared on the way out, so switching back restores the
+  grid exactly. Good for small screens.
 
-### Known simplifications in this pass (not hidden, just scoped)
+---
 
-- **Label repositioning is a 4-state cycle button**, not a literal
-  continuous drag gesture — click it and the label animates (FLIP
-  transform) to the next position (top → right → bottom → left → top).
-  A true drag-to-reposition version is a reasonable follow-up.
-- **Side labels (left/right) share their field's existing box** rather
-  than being an independently resizable adjacent grid cell. Widen the
-  whole field if a side label needs more room.
-- **Rich per-selection text formatting** (bold/italic/underline/color/
-  font applied to just a highlighted portion of text) only works
-  inside a text field's *value* — not its label, not a block's name.
-  Those stay plain text, though they still inherit whole-node font/
-  color choices via normal CSS inheritance (that's also how "apply to
-  the whole block, including its fields" works for free — style is
-  set as inline CSS on the block, and font/color properties cascade
-  down to children unless a field overrides them itself).
-- **Compaction is a full re-pack**, not a minimal-disturbance push —
-  see `gridEngine.js`'s file comment. Simple and fully trustworthy,
-  occasionally shuffles more than strictly necessary.
-- **Images upload to Firebase Storage, but nothing resizes them.**
-  Big uploads work (no more 1MB document pressure), but a 10MB photo
-  still costs 10MB of Storage and bandwidth — **client-side
-  downscaling is applied** (max 500px width, WebP 0.7 quality) before
-  upload, keeping storage and bandwidth costs low. Offline keeps data
-  URLs (with the old oversize warning, since the cap still applies
-  there). Catalog images and replaced-but-
-  never-deleted field images are also still stored, not cleaned up
-  (character delete wipes that character's Storage prefix).
-- **No importer for outside characters.** A character built elsewhere
-  (another app, paper) starts here as a fresh sheet — abilities,
-  inventory, and spells are entered through the creation wizard, not
-  imported.
+## Running it
+
+ES modules will not load from a `file://` path, so you need a static
+server rather than a double-click. From the project root:
+
+```
+python3 -m http.server 8080
+```
+
+(or `npx serve .`, or VS Code's Live Server — any static server works)
+
+- **http://localhost:8080/demo.html** — the real sheet with placeholder
+  data via `js/state/mockStore.js`. No setup at all; edits log to the
+  console.
+- **http://localhost:8080/?offline=1** — the real app backed by this
+  browser's localStorage. No Firebase, no sign-in, all features.
+- **http://localhost:8080/** — the Firebase app (see Setup).
+
+### Setup (Firebase)
+
+1. Create a Firebase project; enable **Firestore**, **Google Auth** and
+   **Storage**.
+2. Copy your web app config into `js/state/characterStore.js`
+   (`firebaseConfig`).
+3. Deploy `firestore.rules` (`firebase deploy --only firestore:rules`).
+4. Deploy `storage.rules` (`firebase deploy --only storage`) — needs the
+   Blaze plan, because the owner check reads the character document.
+5. Push, then enable GitHub Pages on the repo (serve from root; `docs/`
+   holds notes, not the site).
+
+---
 
 ## Structure
 
 ```
 css/
-  tokens.css        design tokens (colors, spacing, type) — edit palette here
+  tokens.css        design tokens: palette, spacing, type, 7 sheet themes
   base.css          resets, bare element defaults
-  layout.css        page-level scaffolding (header, packed section grid)
+  layout.css        page-level scaffolding
   components/       one file per reusable UI pattern
   main.css          @imports everything in cascade order
 js/
-  data/
-    schema.js            blank character factory + ABILITIES/SKILLS/LANGUAGES vocabularies
-    blockModel.js        node shape, factories, starter layout
-    expressDefaults.js   per-class Express-setup defaults (data, not logic)
-    characterImages.js   (in js/state/) pure Storage shapes — no Firebase imports
+  main.js           auth flow + routing between character list / sheet
+  data/             content and rules. Pure. No DOM, no Firebase.
+    schema.js           blank-character factory + ABILITIES/SKILLS/LANGUAGES
+    blockModel.js       node shape, factories, starter layout
+    dnd5e.js            ruleset registry, class hit dice, level plans
+    formula.js          expression engine
+    rulesEngine.js      rule evaluation for level-up gating
+    expressDefaults.js  per-class Express-setup defaults
+    themes.js           the 7 sheet themes and their border shapes
+    catalogLinks.js     stable catalog-entry ids + bundle↔catalog wiring
+    choiceCategories.js which page a choice group belongs to
+    pluralText.js       resolves "1 feat(s)" style lazy plurals
+    spellIndex.js       finds spell names in prose
+    featBundles.js      GENERATED - 83 feats
+    subclassContent.js  GENERATED - 117 subclasses
+    contentCatalogs.js  GENERATED - 537 spells + weapons, armour, gear
+    defaultContent.js   GENERATED - the hand-authored core bundles
+    raceContent.js      GENERATED - not wired; defaultContent.js +
+    bgContent.js        extraRaces.js are the live race bundles
+    contentFixups.js    hand-written patches over all of the above
+    extraRaces.js       hand-written race bundles
+    missingPicks.js     choice-group builders
+    subclassPicks.js    picks the sources left as feature names
+    classPicks.js       ditto, for class-level features
+    startingEquipment.js / portraitArt.js / pickerFlavor.js
   render/
-    customSheet.js    composition root for the drag/resize/style sheet builder.
-                      Owns session state + store wiring; every DOM structure and
-                      every pure computation lives in sheet/ and is called with
-                      explicit deps — no business logic inline.
-    sheet/            one module per concern, all explicit-deps (no sheet closure):
-      sheetConstants.js  grid + sizing constants (PAGE_COLS, GAP_PX, ...)
-      sheetHelpers.js    debounce, clone/newId, style compare/merge
-      sheetState.js      session-state factory + selection-set helpers
-      sheetMechanics.js  wizard preview text (stat summaries, categories)
-      sheetDrag.js       drag/resize/duplicate/nudge math + wire helpers
-      sheetSelection.js  selection paint/box, hover toolbars, grid click/drop
-      sheetToolbar.js    toolbar/chip/drop/toast builders
-      sheetFields.js     field nodes, value builders, menus, catalog UI
-      sheetBlocks.js     block nodes, sidebar, tabs helpers, grid lines
-      sheetLeveling.js   bundle math, computed values, tabs data, resources
-      sheetWizard.js     choice groups, spells, step shell, row renderers
-      sheetWizardSteps.js  creation + level-up step bodies, review/apply
-      sheetBundles.js    library materialization, choices editor, sync
-      sheetHistory.js    undo stacks, history buttons, shortcut decisions
-      sheetTabs.js       tab lookup/render/normalize
-      sheetStyles.js     style mapping, popover, rich-text selection
-      sheetRules.js      money/numeric/point-buy/ASI/ability helpers
-      sheetRender.js     main-grid render orchestration
-      index.js          barrel (import specific modules, not this, in new code)
+    customSheet.js    composition root. Owns session state + store wiring;
+                      every DOM structure and every pure computation lives
+                      in sheet/ and is called with explicit deps.
+    gridEngine.js     pure grid math (collision + gravity pack)
+    formulaEditor.js  the live formula editor
+    print-helpers.js  print scale, tab selection, the print stylesheet
+    catalogBrowser.js the catalog/shop browser
+    bundleLibraryEditor.js / catalogLibraryEditor.js  author-side editors
+    sheet/          one module per concern, all explicit-deps
+      sheetConstants, sheetHelpers, sheetState, sheetDrag, sheetSelection,
+      sheetToolbar, sheetFields, sheetBlocks, sheetAttacks, sheetRolls,
+      sheetLeveling, sheetWizard, sheetWizardSteps, sheetBundles,
+      sheetHistory, sheetTabs, sheetStyles, sheetRules, sheetRender,
+      sheetLayouts, simpleView, aspectPresets, featList, spellLinks,
+      linkedSheet, levelingModel
+      index.js          barrel (import specific modules, not this)
   state/
-    characterStore.js the ONLY file that imports Firebase. Everything else
-                       works with plain JS objects. Owns Storage uploads,
-                       deletes, and the data-URL migration.
-    localStore.js     offline backend (localStorage) — same exports, data
-                       URLs stay local, no Firebase anywhere.
-    characterImages.js  pure Storage shapes shared by both backends.
-    bundleMaps.js     shared bundle strip/hydrate so both backends agree.
-  main.js             auth flow + routing between character list / sheet
-scripts/
-  smoke-imports.mjs  node import + pure-logic checks (run after touching
-                       sheet/ or customSheet.js)
-  verify-content.mjs bundle<->choice wiring, target ids, creation-to-20
-                       simulation (run after touching content, sheet/,
-                       or compilers)
-  check-imports.mjs  static import-graph check (customSheet + sheet/)
-tests/               node:test unit suites — wizard gating, leveling,
-                       formulas, images (run: node --test tests/...)
-data/
-  classes.json, races.json, backgrounds.json  shared reference data (static,
-  not in Firestore — it's identical for everyone and read-heavy)
-firestore.rules       security rules: any signed-in friend can read, only the
-                        owner can write (see "Sharing" below)
-storage.rules         Storage rules mirroring the above for character images
-                        (deploy: firebase deploy --only storage)
-docs/                 notes, raw import sources, and working files (see below)
-index.html
+    characterStore.js the ONLY file that imports Firebase
+    localStore.js     offline backend, same exports
+    mockStore.js      demo.html's in-memory backend
+    characterImages.js / bundleMaps.js   shared by both backends
+scripts/            compilers, checks, and browser tests (see Checks)
+tests/              node:test unit suites
+data/               shared reference JSON + firestore.rules + storage.rules
+docs/               notes and import sources (see below)
+index.html  demo.html
 ```
 
-## Browser Testing
+---
 
-To run the browser-based tests (Playwright):
+## Checks
 
-```
-npm install          # installs playwright-core
-npm run test:e2e     # runs smoke test in headless Chrome
-npm run test:crawl   # full click-through crawl
-```
-
-**Requirements:** Google Chrome installed at one of the standard paths, or set `PLAYWRIGHT_CHROME_PATH` to point to your Chrome executable.
-
-The tests run in headless mode and save screenshots to the OS temp directory (`grimoire-e2e` / `grimoire-crawl` folders).
+Six gates. The first five are fast and need no browser; the last drives
+real Chrome.
 
 ```
-npm run test:smoke   # fast static + DOM smoke tests
-npm run verify       # content verification (creation-to-20 simulation)
+node --test tests/*.mjs          # 480 unit tests
+node scripts/check-imports.mjs   # import graph, syntax, CSS brace balance
+node scripts/smoke-imports.mjs   # module graph + pure-logic assertions
+node scripts/smoke-dom.mjs       # renderers against a stub DOM
+node scripts/verify-content.mjs  # content wiring + a 1-20 build simulation
+npm run test:e2e                 # real Chrome, desktop + mobile
 ```
 
-## Viewing it locally
+`verify-content.mjs` simulates full level 1–20 builds (Fighter, Light
+Cleric, Devotion Paladin, Lore Bard), a 12-class sweep, every starter
+race, a Cleric/Wizard multiclass cap check, and every Elf subrace. Every
+statModifier target, dropdownAccess id, and granted spell name must
+resolve or it fails. It also asserts that every shipped choice group
+carries an explicit category and choice kind.
 
-ES modules (`<script type="module">`) won't load from a `file://`
-path — browsers block that for security reasons — so you need a tiny
-local web server, not a double-click. From the project root:
+`npm run test:e2e` needs Chrome at a standard path or
+`PLAYWRIGHT_CHROME_PATH`, plus `npm install` for `playwright-core`. It
+serves the repo over local HTTP, drives the real app, fails on any page
+error, and writes screenshots and PDFs to `os.tmpdir()/grimoire-e2e`.
 
-```
-python3 -m http.server 8080
-```
-(or `npx serve .`, or VS Code's "Live Server" extension — any static
-server works)
+Print is verified against **real output**, not against what the CSS says:
+the e2e stubs `window.print()` to capture the print stage and the injected
+`@media print` stylesheet at the moment the print pipeline would have seen
+them, re-attaches them, and runs `page.pdf()` against real Chrome.
 
-Then open **http://localhost:8080/demo.html** — this loads the
-character sheet with placeholder data via `js/state/mockStore.js`
-instead of Firebase, so you can see the actual layout/styling
-immediately, with no project setup required. Typing in fields logs to
-the browser console instead of saving anywhere.
+---
 
-Once you've set up Firebase (below), **http://localhost:8080/**
-(`index.html`) is the real app — sign-in, character list, persistence.
-In a hurry (or offline)? Open **http://localhost:8080/?offline=1**
-instead — same app, characters persist in that browser's localStorage
-with no Firebase setup at all.
+## Content pipeline
 
-## Setup
-
-1. Create a Firebase project, enable **Firestore**, **Google Auth**,
-   and **Storage**.
-2. Copy your web app config into `js/state/characterStore.js`
-   (`firebaseConfig`).
-3. Deploy `firestore.rules` (`firebase deploy --only firestore:rules`)
-   or paste it into the Firebase console rules editor.
-4. Deploy `storage.rules` (`firebase deploy --only storage`) or paste
-   it into the Storage rules editor (needs the Blaze plan — the
-   owner check reads the character document).
-5. Push to GitHub, enable GitHub Pages on the repo (serve from root —
-   `docs/` holds notes and import sources, not the site).
-
-## Reference data (classes/races/spells/equipment)
-
-`scripts/fetch-srd-data.mjs` pulls the open D&D SRD content from the
-free [5e-bits SRD API](https://www.dnd5eapi.co) and writes it straight
-into `/data/*.json` in the shape `schema.js` expects, so the site never
-depends on a live third-party API at runtime.
+`docs/New Info/5e-*.txt` (Foundry VTT exports) compile into the bundle and
+catalog shapes the site reads:
 
 ```
-node scripts/fetch-srd-data.mjs
+node scripts/compile-foundry-feats.mjs        # 83 feats
+node scripts/compile-foundry-catalogs.mjs     # 537 spells + 831 items
+node scripts/compile-foundry-subclasses.mjs   # 117 subclasses
+node scripts/compile-foundry-races-bg.mjs     # thin race/bg placeholders,
+                                              # NOT wired (see above)
+node scripts/compile-mechanics-content.mjs    # the mechanics JSON
 ```
 
-Requires Node 18+ (built-in `fetch`), no dependencies. Takes a minute
-or two — it fetches full detail for every spell and equipment item, at
-a deliberately throttled rate so as not to hammer a free public API.
-Re-run it any time you want to refresh the data.
+**Generated files are never hand-edited.** Everything applied on top of
+them lives in a fixup layer, so the generators stay regenerable:
 
-Note: **backgrounds aren't available from this API** — the SRD only
-documents a handful of them, so `backgrounds.json` is seeded with the
-standard list directly in the script. Add homebrew backgrounds there
-by hand as you invent them.
+- `js/data/contentFixups.js` — the main patch layer: Fighting Styles,
+  Expertise, Metamagic, Eldritch Invocations + Pact Boon, Hunter's Prey,
+  the Elf/Dwarf/Gnome/Halfling/Genasi subraces, free-form racial ASIs,
+  the High Elf's extra language and cantrip, the dwarf's base tool rule,
+  the yuan-ti's languages, and the class/race choice features.
+- `js/data/subclassPicks.js` — 34 subclass features whose rules define a
+  *choice* but whose data arrived as a bare name (a Totem Warrior's Totem
+  Spirit, an Armorer's Armor Model, a Rune Knight's runes, the bonus
+  proficiency picks, and so on).
+- `js/data/classPicks.js` — the same at class level: the ranger's extra
+  favored enemies and terrain, the humanoid-type pick, the warlock's Mystic
+  Arcanum, the wizard's Spell Mastery and Signature Spells.
+- `js/data/catalogLinks.js` — every catalog entry gets a stable id
+  (`subclass:champion`), and every bundle records the id it reads flavor
+  from, so a rename on either side cannot break the pairing.
+- `js/data/choiceCategories.js` — every shipped choice group carries an
+  explicit `pageCategory`, so it isn't re-guessed from its label per
+  render.
 
-Everything this script pulls is limited to the **SRD** (System
-Reference Document) — the open-licensed subset of D&D content. It
-covers the core rules well but not every race/subclass from every
-splatbook; anything beyond that you'll want to enter yourself as
-homebrew, both for coverage and to stay on clean licensing ground.
+One regen caveat: the committed `subclassContent.js` carries hand fixes a
+clean re-run would clobber (a source typo ships corrected, plus
+formatting) — re-run, then re-apply them; see the note in
+`compile-foundry-subclasses.mjs`.
 
-## Extending it
+Save/load strips and rehydrates all default bundles so characters stay
+lean — `js/state/bundleMaps.js`, shared by both backends.
 
-### Rulesets and guided leveling
-
-`js/data/dnd5e.js` is a small ruleset registry, consumed by the generic
-Leveling tab rather than by the sheet builder itself. A ruleset provides a
-name plus class entries shaped like this:
-
-```js
-{
-  name: "Druid",
-  subclassLevel: 3,
-  subclasses: ["Circle of the Land", "Circle of the Moon"],
-  caster: "full", // "full", "half", or null
-}
-```
-
-The character toolbar stores the primary ruleset id on that character
-(the full included set lives in `rules.rulesetIds`). The
-guide then filters its Subclass dropdown, presents the right subclass choice
-at the configured level, and applies HP and supported spell-slot progression.
-One system is registered (`dnd5e-2014`) with three content books
-(`phb`, `xanathar`, `tashas`) covering 13 classes (12 PHB + Artificer);
-each class's subclass list is only whatever's in the free SRD (one per
-class) plus the compiled Foundry supplement — add the rest by hand as
-splatbook content. New games can use the same registry shape without
-changing the sheet renderer.
-
-### Importing 2024 SRD content into the Bundle Library / Catalogs
-
-`scripts/compile-2024-content.mjs` turns the raw 2024 SRD dumps in `/data/*-2024.json`
-into the same hand-authored bundle/catalog JSON shapes `default-bundles/`
-and `default-catalogs/` already use — classes, species, and backgrounds as
-importable bundles, feats as a browsable catalog. Run it, then import the
-output the same way as any other file in those folders (see their READMEs):
-
-```
-node scripts/compile-2024-content.mjs
-```
-
-It does not (and can't, from raw SRD text alone) express class skill
-*choices* or feat *effects* mechanically — those land as reference text,
-same limitation the 2014 pipeline already has. See the script's file-level
-comment and `default-bundles/README.md` for exactly what is and isn't
-covered.
-
-- **New field on the sheet** → add it in the sheet builder UI, or extend
-  the field types in `js/data/blockModel.js` + `js/render/sheet/sheetFields.js`.
-- **New field *type* not covered yet** (e.g. a dice-roll button) → add
-  a builder in `js/render/sheet/sheetFields.js`, plus one new CSS
-  file in `css/components/` if it needs its own look.
-- **New D&D rule/calculation** → add a pure function to the matching
-  `js/render/sheet/` or `js/data/` module (explicit deps, no sheet closure).
-- **Inventory / spells / features** → these are arrays on the
-  character document. They'll want their own small
-  render module following the same pattern as the other `sheet/`
-  modules — build list items from data, reuse the picker-table
-  component, no page-specific CSS.
-
-## Content pipeline (compiled Foundry data + hand-written core)
-
-`docs/New Info/5e-*.txt` (Foundry VTT exports) compile into the site's
-bundle/catalog shapes:
-
-```
-node scripts/compile-foundry-feats.mjs       # 83 feats -> js/data/featBundles.js
-node scripts/compile-foundry-catalogs.mjs    # 537 spells + 831 items -> js/data/contentCatalogs.js
-node scripts/compile-foundry-subclasses.mjs  # 116 subclasses -> js/data/subclassContent.js
-node scripts/compile-foundry-races-bg.mjs    # thin race/bg placeholders (NOT wired — see note in the output files)
-```
-
-Plus `js/data/extraRaces.js` — hand-written bundles for the five core
-races the mechanics JSON omits (Human, Elf, Half-Elf, Half-Orc,
-Tiefling), in the same shape as `defaultContent.js` entries.
-
-Plus `js/data/contentFixups.js` — hand-written pickers for choices
-the sources left as reference-key stubs, applied at runtime over the
-compiled bundles (so the generated files stay regenerable): Fighting
-Styles (Fighter/Paladin/Ranger + Champion), Expertise (Rogue/Bard),
-Metamagic, Eldritch Invocations + Pact Boon, Hunter's Prey, Elf/Dwarf/
-Gnome/Halfling/Genasi subraces, and free-form racial ASIs. Feat spell
-*choices* (Magic Initiate, Fey/Shadow Touched, Aberrant Dragonmark,
-Artificer Initiate, Wood Elf Magic) are compiled pickers in
-`featBundles.js` too. Bard Magical Secrets has a real picker (any-class
-spells, unlock-gated — see below); Warlock Mystic Arcanum stays a
-guided note.
-
-One regen caveat: the committed `subclassContent.js` carries hand
-fixes a clean re-run would clobber (the source's "Shephard" typo
-ships corrected as "Shepherd", plus formatting) — re-run, then
-re-apply them (see the note in `compile-foundry-subclasses.mjs`).
-
-Wiring: subclass bundles attach to the starter Subclass dropdown by
-normalized name (`blockModel.js`); the Spell List + equipment catalogs
-join `catalogCache` (`customSheet.js`); granted spells (`addItem`
-op — oath/domain/circle spells, feat spells, Tiefling legacy) land in
-the auto-created Spells Known list at selection time
-(`syncGrantedListItems`). Save/load strips + rehydrates all default
-bundles (class/race/background/subclass) so characters stay lean —
-see `js/state/bundleMaps.js`, shared by both backends.
-
-Checks (run all three after touching content, sheet/, or compilers):
-
-```
-node --test tests/             # fast unit suites (wizard gating, leveling, formulas, images)
-node scripts/smoke-imports.mjs   # module graph + pure-logic unit checks
-node scripts/verify-content.mjs  # bundle<->choice wiring, target ids, creation-to-20 simulation
-```
-
-`verify-content.mjs` simulates full 1–20 builds (Fighter, Light
-Cleric, Devotion Paladin, Lore Bard), a 12-class sweep, all 15 starter
-races, a Cleric/Wizard multiclass cap check, and every Elf subrace —
-every statModifier target, dropdownAccess id, and granted spell name
-must resolve or it fails.
+---
 
 ## Character creation wizard
 
-Six steps — choices appear where they originate: languages,
-ability-score increases, and feature picks (Custom Lineage's variable
-trait, Draconic Ancestry, Celestial Revelation) as sentences with
-dropdowns inside the race / background profile itself, everything
-else as collapsible "Your choices" sections directly under the pick
-that grants them (with Expand All / Collapse All), never on separate
-later pages:
+Six steps. Choices appear where they originate: languages, ability-score
+increases, and feature picks render as sentences with dropdowns inside the
+race or background profile itself. Everything else renders as collapsible
+sections directly under the pick that grants it, never on separate later
+pages.
 
-1. **Basics** — one ruleset at a time, then that ruleset's content
-   books (saved as your per-user default, so returning users don't
-   re-pick; always overridable per character), name, level, race,
-   plus race-granted choices (languages, subrace).
-2. **Class** — class, subclass if choosable now, class-granted
-   choices, the spell picker for casters, and Magical Secrets for
-   Bards with unlocks. **Express** lives here too: one click fills
-   every choice with the class's recommended defaults
-   (`expressDefaults.js`) and lands on Gear & Review.
-3. **Ability Scores** — Point Buy by default (Random Roll / Manual
-   Entry available); granted bonuses show under each score
-   ("+2 from Elf → 17 total") so nothing surprises.
-4. **Background** — background plus its granted languages, skills,
+1. **Basics** — one ruleset at a time, then that ruleset's content books
+   (saved as your per-user default, always overridable per character),
+   character name, starting level, race, and race-granted choices.
+2. **Class** — class, subclass where choosable now, class-granted
+   choices, the spell picker for casters, and Magical Secrets for Bards
+   with unlocks. **Express** lives here too: one click fills every choice
+   with the class's recommended defaults and lands on Gear & Review.
+3. **Ability Scores** — Point Buy by default (Random Roll / Manual also
+   available); granted bonuses show under each score ("+2 from Elf → 17
+   total") so nothing surprises. Feat ability minimums show here too, as a
+   warning with the shortfall, on the score that has to rise.
+4. **Background** — background plus its granted languages, skills and
    tools.
-5. **Feats** — only when a feat choice or race-granted feat (e.g.
-   Custom Lineage, Variant Human-style) actually offers one; skipped
-   otherwise, with a "skipped" marker on the progress dots.
-6. **Gear & Review** — starting equipment decisions (or fixed-average
-   gold) folded in as Gear, plus weapon/armor/tool training, the HP
-   method (Fixed Average by default), automatic grants, and Finish
-   Setup.
+5. **Feats** — only when something actually offers one; skipped otherwise,
+   with a "skipped" marker on the progress dots.
+6. **Gear & Review** — starting equipment, weapon/armor/tool training, the
+   HP method, automatic grants, and Finish Setup.
 
-- **Gated per section.** Next (and forward dot-jumps) stay disabled
-  until every section on the page is decided — picks, subclass where
-  choosable now, spell caps, equipment. Dots and Back always work
-  backward. A "Step X of N" counter plus progress bar tracks where
-  you are; auto-skipped steps stay plain greyed-out dots until you
-  pass them, then show a muted "skipped" tag instead of vanishing.
-- **Source changes revalidate.** Unchecking a content book keeps every
-  pick still offered under the remaining books, clears only orphaned
-  picks (and their choice-group picks, plus a race-granted feat with
-  its race), and reports what was removed. Adding a source never
-  clears anything.
-- **Finish Setup respects customized sheets.** Targets resolve by
-  field id (renames survive) across every tab (moves survive);
-  dropdown picks select-or-create their choice; list writes append
-  without touching existing entries. Anything with nowhere to land
-  (a deleted field) is reported in a notice — never dropped
-  silently, never overwriting user content.
-- **Sensible defaults.** A single source selects itself; fresh ability
-  scores start on Point Buy; HP defaults to Fixed Average; sources
-  persist per user.
-- **Picker rows** show a personality/playstyle blurb plus categorized,
-  bulleted mechanics (Statistical traits → Ability increases →
-  Proficiencies → Innate abilities), collapsible per row with
-  Expand All / Collapse All. Bullets list only what applies at the
+How it behaves:
+
+- **Gated per section.** Next stays disabled until every section on the
+  page is decided. Dots and Back always work backward. Auto-skipped steps
+  stay greyed out until you pass them, then show a muted "skipped" tag.
+  The progress bar is derived from the real step count.
+- **An expanded row shows its own picks**, whether or not that row is the
+  selected one. Each race row's mechanics and choice controls come from
+  that row's own bundle, so browsing a race you haven't picked still shows
+  what it would give you. Clicking a row never moves the page.
+- **Picker rows** show a personality blurb plus categorized, bulleted
+  mechanics, collapsible per row. Bullets list only what applies at the
   current level — never future unlocks, never "(level N)" tags.
-- **Abilities read abbreviated everywhere** ("STR", never "Strength"
-  in labels, bullets, dropdowns, or review lines), each hovering its
-  full name plus what the score governs. Compiled shorthand renders
-  as natural language ("@con.mod" → "CON modifier", "@prof" →
-  "proficiency bonus", "@profd4" → "a number of d4 hit points equal
-  to your proficiency bonus").
-- **Languages read as a profile sentence** ("Languages — Common,
-  Dwarvish, [▾]") inside the selected race/background's own traits:
-  known tongues as text, one dropdown per pick. Known tongues and the
-  other dropdown's pick grey out; Common is locked everywhere and
-  never counts against the pick budget. Spell rows show a mechanical
-  line (level · school · casting · range · duration + effect);
-  hitting a spell cap shows a tooltip on the row instead of an error
-  banner.
-- **Ability increases read as a sentence too** ("Ability Score
-  Increases — +1 to each of [▾], [▾]"): one dropdown per increasable
-  score, and the same ability may be picked twice (it stacks).
-  Retired combo picks migrate onto the new slots automatically.
-  Single-pick feature choices (Variable Trait, Draconic Ancestry,
-  Celestial Revelation) read the same way ("Variable Trait:
-  [Darkvision 60 ▾]").
-- **Magical Secrets** (Bard 10/14/18, College of Lore 6): an
-  any-class spell picker capped at the unlocked total, enforced in
-  creation and level-ups. Counting is deliberately lenient (a racial
-  spell counts too) so the step completes rather than traps.
+- **Abilities read abbreviated everywhere** ("STR", never "Strength"),
+  each hovering its full name. Compiled shorthand renders as prose
+  ("@con.mod" → "CON modifier", "@prof" → "proficiency bonus").
+- **Languages read as a profile sentence** ("Languages — Common, Dwarvish,
+  [▾]"): known tongues as text, one dropdown per pick. Common is locked
+  everywhere and never counts against the budget.
+- **Ability increases read as a sentence too** ("+1 to each of [▾], [▾]"),
+  and an ability may be picked twice. A feat that grants a free ASI offers
+  "+2 to" and "+1 to" dropdowns.
+- **A race's granted spells are filtered to the level in hand** — a
+  tiefling sees its cantrip at 1 and gains the higher-level unlocks as it
+  levels.
+- **Every spell named in prose links to that spell's entry** — in traits,
+  features, feats, descriptions, and the feature list on the sheet.
+- **Magical Secrets** (Bard 10/14/18, College of Lore 6) is a real
+  any-class spell picker, capped at the unlocked total.
+
+### Feats
+
+A Feats list: one row per feat — checkbox, icon, name, summary, then the
+mechanical text with **each benefit on its own line**. Feat prerequisites
+are parsed and acted on rather than printed: an unmet **ability** minimum
+leaves the feat pickable and shows a warning with the shortfall (and the
+same shortfall appears on the Ability Scores step); an unmet **race or
+lineage** rule hides the row, because a row you can never tick teaches
+nothing. Anything the parser cannot evaluate is treated as met — a rule we
+do not understand must never be the reason a feat disappears.
+
+The picker dialog is widened on large screens, because 83 feats with a
+mechanical line each is a lot to read in a narrow column.
+
+---
+
+## Leveling
+
+A **Leveling** tab, with two sub-tabs. It defaults to the walkthrough,
+because that is the tool people act on; the glance table is one click away.
+
+- **Walkthrough** — one step per level gained: which class takes it, HP,
+  ASI or feat, subclass, skills, tools, spells, features, notes, and a
+  review before anything is applied. Long rests restore feature uses and
+  pact slots; short rests restore short-rest uses.
+- **At a Glance** — everything by level, gathered from the same sources
+  the sheet applies, including secondary classes and taken feats.
+
+Every level-gated grant or removal projects into one shape regardless of
+category (`js/render/sheet/levelingModel.js`):
+
+```js
+{ id, type, conditions: [...], effect, removalConditions: [...] }
+```
+
+Keys within one condition entry are AND'd; entries in the array are OR'd,
+so a rule can require "an Orc **and** a Rogue" as easily as either alone.
+This is a projection, not a content migration — the data already exists in
+five shapes that each carry their own `minLevel`, and rewriting them would
+put the sourcing gates at risk.
+
+---
 
 ## Multiclassing
 
-Starting at total level 2, the Leveling tab asks which class gains
-each level: the primary class, an existing secondary, or a brand-new
-one (gated on 13+ in the right abilities, racial bonuses counted —
-Fighters need Str or Dex, Monks/Paladins/Rangers need both of
-theirs). Secondary classes live in `rules.multiclass`; the primary
-class's levels stay derived (total minus secondary), so single-class
-sheets behave exactly as before.
+Starting at total level 2, the Leveling tab asks which class gains each
+level: the primary, an existing secondary, or a new one (gated on 13+
+with racial bonuses counted — fighters need Str or Dex, monks/paladins/
+rangers need both of theirs).
 
-- Class/subclass features, resources, choice groups, and granted
-  spells gate on each class's own levels, not the total.
-- Spell slots follow the PHB multiclass table (Warlock pact slots
-  stay on their own short-rest track and merge by max per tracker).
-- Spell picks enforce the level's own class caps against that
-  class's spells only — the other class's spells in the shared Spells
-  Known list can neither satisfy nor block them.
-- New classes grant no save proficiencies and no armor/weapon fixed
-  grants (PHB); skills/tools stay pickable, and the Equipment
-  Proficiencies tab covers the rest by hand.
-- Each applied level records which class took it (visible on the
-  level rows). Secondary subclasses live on the multiclass entry —
-  the sheet's Subclass dropdown keeps showing the primary's.
-- Simplifications, stated plainly: skill pick counts use the class's
-  normal groups, and the spell picker shows the level's class
-  (anything else goes in Spells Known by hand).
+- Features, resources, choice groups and granted spells gate on each
+  class's own levels, not the total.
+- Spell slots follow the PHB multiclass table; Warlock pact slots stay on
+  their own short-rest track and merge by max per tracker.
+- Spell picks enforce the level's own class caps against that class's
+  spells only.
+- New classes grant no save proficiencies and no armor/weapon fixed grants
+  (PHB); skills and tools stay pickable, and the Equipment Proficiencies
+  block covers the rest by hand.
+- Each applied level records which class took it.
 
-## Character images (Firebase Storage)
+---
 
-Picture fields and background images upload to Firebase Storage, not
-the character document — the document keeps the renderable download
-URL plus a Storage-path sidecar (`imageRef` / `bgImageRef`) for
-deletes and re-resolution. Uploads apply preview-first (the picked
-image shows instantly, then swaps to the hosted URL); replacing an
-image deletes the replaced object, and deleting a character wipes its
-whole Storage prefix. Documents that still carry legacy data-URL
-images migrate on the next online load (uploaded, swapped, saved
-back — failures retry later and never block the load). Offline
-(`?offline=1`) keeps data URLs locally, exactly as before.
+## Other tab types
 
-## Sharing with friends / offline mode / access model
+Alongside the main, rules and leveling tabs:
 
-- **Shared (default):** the Firebase project is already configured in
-  `js/state/characterStore.js`. Enable Google Auth + Firestore +
-  Storage in the Firebase console, deploy `firestore.rules` and
-  `storage.rules`, and friends sign in — characters sync across
-  devices.
-- **Access model (intentional):** any signed-in friend can *read* any
-  character (that's the shared table — the DM and party can open each
-  other's sheets), but only the *owner* can create/update/delete their
-  own. Image reads mirror this; image writes/deletes are owner-only.
-  Tighten reads to owner-only only if the table should stop sharing.
-- **Offline (`?offline=1`):** append `?offline=1` to the URL (or open
-  with no connection) and the app uses `js/state/localStore.js`
-  instead — same features, data in this browser's localStorage only.
-  A banner on the character list says which mode you're in.
+- **Linked sheet** — a read-only tab showing another of your characters
+  (mounts, companions, anything), from a fixed table of facts. Read-only
+  is deliberate: editing through a link would write to a *different*
+  character record, and undo/redo is per-character, so the player would
+  undo something invisible or lose an edit. "not-owned", "self" and
+  "missing" are each reported rather than rendered blank.
 
-## `docs/` — notes and working files
+## Screen shape
 
-Loose working files live in `docs/`, not the repo root:
+Seven named shapes (16:9, 16:10, 4:3, phone portrait/landscape, tablet
+portrait/landscape) plus **user-defined** ones — "Add shape" asks for a
+name and a ratio and derives the column count from it, so naming a ratio
+does not require knowing the sheet is a 16-cell grid.
 
-- `docs/New Info/5e-*.txt` — the Foundry VTT exports the compile
-  scripts read (see "Content pipeline" above).
-- `docs/RESCUE-NOTES.md`, `docs/MECHANICS-IMPORT-NOTES.md` — how the
-  mechanics content was built and what's still hand-tracked.
-- `docs/Improvements to make.txt` (+ `.zip`) — the running wishlist.
+Selecting a shape re-flows the blocks into that many columns as a best
+guess: existing order, balanced by height, blocks never reordered, each
+block's own height untouched. Detection only ever *offers* — on load the
+matching shape becomes the control's placeholder text and nothing is
+applied, because reflowing a sheet behind the user's back is destructive
+and they may just be resizing the window.
 
-## Deliberately left out / known limits
+A hand-arranged shape is **restored** when you come back to it, not
+re-guessed: each (shape, tab) pair keeps its own snapshot, taken as you
+leave.
 
-- A few `SKILL_EXPERTISE` / `FEATURE_SELECT` / `SPELL_SELECT` class
-  choices carry only a reference key in the source data, so they show
-  as text notes instead of pickers (see `docs/RESCUE-NOTES.md`).
-  Warlock Mystic Arcanum is one: a free spell of choice with no
-  bounded picker — record it in Spells Known via the spell browser.
-- A catalog field linked to someone else's *personal* catalog opens
-  empty for the rest of the table (personal libraries are readable
-  only by their owner) — it fails gracefully with a notice, but the
-  entries won't show. Link a global catalog for table-wide lists.
-- Short Rests restore short-rest feature uses plus Warlock pact slots
-  (read off the level-up plan, single-class Warlocks). Long Rests
-  restore all feature uses, clear used spell slots, and heal to full
-  HP — all in one undoable commit (see `takeRest` in `customSheet.js`).
-- Language, ability-score, and feature picks live as sentences with
-  dropdowns inside the pick's own profile — there are no merged
-  cross-source pickers and no combo-option lists for ASIs.
+---
+
+## Printing
+
+The Display panel's Print button opens a checklist: which tabs, page
+orientation, scale (fit / actual / custom), background images, and
+hidden or calculated fields. Each selected tab renders into its own
+printed page, and `window.print()` is called **once** for the whole set.
+
+Unselected tabs are never built into the print tree at all, so they are
+excluded from the document rather than hidden with `display: none` — a
+hidden node still occupies a box in some print pipelines, which is how a
+"hidden" tab becomes a blank page.
+
+---
+
+## Themes and accessibility
+
+Seven sheet themes (Standard, Fancy Medieval, Simple Medieval, Modern,
+Cyberpunk, Space Sci-Fi, DOS) in light or dark mode, each with its own
+border shapes. Themes are colour-token swaps only, so every theme fits
+every layout.
+
+Both fields and blocks carry an optional hover description, edited
+through a "?" control in the node's toolbar. No element ships with a
+*default* description — inventing one per starter field would be exactly
+the unsourced guessing the content rules forbid — so the field is
+author-set.
+
+---
+
+## Images
+
+Picture fields and background images upload to Firebase Storage, not the
+character document: the document keeps the renderable URL plus a
+Storage-path sidecar for deletes and re-resolution. Uploads are
+preview-first; replacing an image deletes the replaced object, and
+deleting a character wipes its whole Storage prefix. Legacy data-URL
+images migrate on the next online load. Offline keeps data URLs.
+
+Uploads are downscaled in the browser (max 500px wide, WebP 0.7) before
+upload, so a large photo costs a fraction of the Storage and bandwidth it
+otherwise would.
+
+---
+
+## Sharing, offline mode, access model
+
+- **Shared (default).** Any signed-in friend can *read* any character —
+  that is the point of a shared table, so a DM and party can open each
+  other's sheets — but only the *owner* can create, update or delete
+  their own. Image reads mirror this; image writes and deletes are
+  owner-only. Tighten reads to owner-only if the table should stop
+  sharing.
+- **Offline (`?offline=1`).** Same app, same features, data in this
+  browser's localStorage. A banner on the character list says which mode
+  you're in.
+
+---
+
+## Extending it
+
+- **New field** → add it in the sheet builder, or extend the field types
+  in `js/data/blockModel.js` + `js/render/sheet/sheetFields.js`.
+- **New field type** → a builder in `sheetFields.js`, plus one CSS file in
+  `css/components/` if it needs its own look.
+- **New D&D rule** → a pure function in the matching `js/render/sheet/` or
+  `js/data/` module (explicit deps, no sheet closure).
+- **New race/class/subclass/background** → add it to the source export
+  and recompile, then add any choice it is missing to the relevant picks
+  table. Do not hand-edit a generated file.
+
+Rulesets live in `js/data/dnd5e.js` and are consumed by the generic
+Leveling tab rather than by the sheet builder, so a new game can register
+its own shape without touching the renderer.
+
+---
+
+## `docs/`
+
+- `docs/New Info/5e-*.txt` — the Foundry VTT exports the compilers read.
+- `docs/RESCUE-NOTES.md` — how the mechanics content was built, what is
+  generated, and what is hand-tracked.
+- `docs/MECHANICS-IMPORT-NOTES.md` — the mechanics-JSON import model.
+- `docs/SUBCLASS-CONTENT-AUDIT-2026-09.md` /
+  `docs/subclass-gaps.md` — the per-subclass sourcing audit and its
+  disposition list.
+- `docs/CONTENT-AUDIT-2026-09.md` — the same audit for races, classes and
+  backgrounds.
+- `docs/Improvements to make.txt` — the short list of what is still open.
+  Everything already built is documented in this file instead.
+
+---
+
+## Known limits
+
+Stated plainly rather than hidden:
+
+- **581 of 640 subclass features have no description.** Feature *names* ship
+  from the source exports; their *text* does not, and the compilers cannot
+  invent it. The features that are a **choice** all have working pickers
+  (see `subclassPicks.js`); the rest need prose written for them, which is
+  a content-authoring job rather than a missing mechanism.
+- **No importer for outside characters.** A character built elsewhere
+  starts here as a fresh sheet, filled in through the creation wizard.
+- **No feat icon art.** All 83 catalog entries ship with empty `imageData`
+  (compiled from a text export), so every feat row shows the same marker.
+- **Label repositioning is a 4-state cycle button**, not a free drag —
+  click it and the label animates to the next position. Side labels share
+  their field's box rather than being an independent resizable cell.
+- **Rich per-selection text formatting** applies inside a text field's
+  value, not to its label or a block's name. Those still inherit
+  whole-node font and colour through CSS.
+- **Compaction is a full re-pack**, not a minimal-disturbance push.
+- **A catalog field linked to someone else's *personal* catalog** opens
+  empty for the rest of the table (personal libraries are owner-only). It
+  fails with a notice; link a global catalog for table-wide lists.
+- **The bundle/catalog library editors have no choice-group UI.** Groups
+  arrive by JSON import; the editors cover entries, fields and metadata.
+- **`removalConditions`** is modelled and carried through the leveling
+  model, but no source data shape expresses a removal, so nothing populates
+  it. It is empty rather than guessed at.
+- **No dyslexia font option and no colour-blind-specific palette.** Seven
+  themes give a lot of contrast choices, but neither of those is a
+  deliberate option yet.
+- **No DM campaign management** — no campaigns, and no invitations binding
+  several characters together. Each character stands alone.
