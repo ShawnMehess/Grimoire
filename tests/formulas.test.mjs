@@ -49,6 +49,12 @@ import {
   buildLevelUpEntry,
   levelClassOptionsFor,
 } from "../js/render/sheet/sheetWizardSteps.js";
+import { grantedSpellsLine } from "../js/render/sheet/sheetMechanics.js";
+import { FIXED_RACE_ENTRIES } from "../js/data/contentFixups.js";
+
+// The tiefling is the probe for the spell-grant line: it splits its
+// legacy across three levels, so it shows whether the filter works.
+const tieflingBundle = FIXED_RACE_ENTRIES.find((e) => e.name === "Tiefling").bundle;
 
 describe("formula engine", () => {
   it("evaluates arithmetic with precedence", () => {
@@ -205,8 +211,50 @@ describe("mechanics previews", () => {
     assert.ok(traits && traits.items.join(" ").includes("Speed: 30 feet"), "races keep standard defaults");
   });
 
-  it("splits ability tokens for tooltips", () => {
-    assert.deepEqual(splitAbilityTokens("No abilities here."), [{ text: "No abilities here." }]);
+  it("lists a race's granted spells, filtered to the level in hand", () => {
+    // The data splits these by level; the trait's prose only names the
+    // cantrip, so this is the only place a level-5 tiefling sees the
+    // two spells their legacy actually grants.
+    const spellsAt = (level) => {
+      const section = mechanicsBulletsFor(tieflingBundle, level).find((s) => s.title === "Spells");
+      return section ? section.items[0] : null;
+    };
+    assert.equal(spellsAt(1), "Spells: Thaumaturgy");
+    assert.equal(spellsAt(2), "Spells: Thaumaturgy", "nothing new between 1 and 3");
+    assert.equal(spellsAt(3), "Spells: Thaumaturgy, Hellish Rebuke");
+    assert.equal(spellsAt(5), "Spells: Thaumaturgy, Hellish Rebuke, Darkness");
+  });
+
+  it("omits the Spells section for a race that grants no spells", () => {
+    const sections = mechanicsBulletsFor({ statModifiers: [], featureGrants: [] }, 20, {});
+    assert.ok(!sections.some((s) => s.title === "Spells"), "no empty Spells section");
+    assert.equal(grantedSpellsLine({ statModifiers: [], featureGrants: [] }, 20), null);
+  });
+
+  it("keeps a subrace's own spell grants out of the base race", () => {
+    // Drow's legacy lives on the subrace option, so the Elf row must not
+    // claim spells and the Drow row must claim only its own.
+    const elf = FIXED_RACE_ENTRIES.find((e) => e.name === "Elf");
+    const drow = elf.bundle.choiceGroups.find((g) => g.id === "elf-subrace").options
+      .find((o) => o.id === "elf-subrace-drow");
+    assert.equal(grantedSpellsLine(elf.bundle, 20), null);
+    assert.equal(grantedSpellsLine(drow, 1), "Spells: Dancing Lights");
+    assert.equal(grantedSpellsLine(drow, 5), "Spells: Dancing Lights, Faerie Fire, Darkness");
+  });
+
+  it("ignores spell grants that aren't spells", () => {
+    const bundle = {
+      statModifiers: [
+        { targetFieldId: "spellsKnown", op: "addItem", value: "Fireball" },
+        { targetFieldId: "items", op: "addItem", value: "a lamp" },
+        { targetFieldId: "spellsKnown", op: "grantTag", value: "Evoker" },
+      ],
+      featureGrants: [],
+    };
+    assert.equal(grantedSpellsLine(bundle, 5), "Spells: Fireball");
+  });
+
+  it("splits ability tokens for tooltips", () => {    assert.deepEqual(splitAbilityTokens("No abilities here."), [{ text: "No abilities here." }]);
     assert.deepEqual(splitAbilityTokens("+2 DEX"), [{ text: "+2 " }, { abbr: "DEX", id: "dex", name: "Dexterity" }]);
     assert.deepEqual(splitAbilityTokens("Wizards cast with Intelligence."),
       [{ text: "Wizards cast with " }, { abbr: "INT", id: "int", name: "Intelligence" }, { text: "." }]);

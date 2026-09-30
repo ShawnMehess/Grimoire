@@ -439,6 +439,48 @@ async function runViewportTests(viewport) {
         check(await page.$(`${tieflingRow}.choice-row--selected`), "the row is still selected after the entry closes");
       }
     }
+
+    // A race's granted spells, filtered to the level in hand. The tiefling
+    // is the probe: Thaumaturgy at 1, Hellish Rebuke at 3, Darkness at 5.
+    // The creator starts at level 1, so the two later spells must be
+    // absent here - which is the point of filtering rather than printing
+    // the trait's prose. (The bullet renders "Topic: detail" as
+    // "Topic — detail", so the line is compared in that shape.)
+    const spellsOnTiefling = async () => {
+      for (let i = 0; i < 3 && !(await tieflingSelected()); i += 1) {
+        await page.click(`${tieflingRow} .choice-row__label`);
+        await page.waitForTimeout(600);
+      }
+      return page.evaluate((rowSel) => {
+        const row = document.querySelector(rowSel);
+        const heads = [...(row?.querySelectorAll(".choice-row__mechanics-title") || [])];
+        const idx = heads.findIndex((h) => h.textContent === "Spells");
+        return idx === -1 ? null : (heads[idx].nextElementSibling?.textContent || "").trim();
+      }, tieflingRow);
+    };
+    check(await spellsOnTiefling() === "Spells — Thaumaturgy", "a level-1 tiefling sees only its cantrip");
+
+    // The level control is on this same step (Identity opens with
+    // Character Name and Starting Level), so proving the filter is
+    // dynamic is just: raise it, look again, lower it, look again.
+    const setLevel = async (value) => {
+      const input = await page.$('label:has-text("Starting Level") input[type="number"]');
+      if (!input) return false;
+      await input.fill(String(value));
+      await input.dispatchEvent("change");
+      await page.waitForTimeout(800);
+      return true;
+    };
+    if (await setLevel(5)) {
+      const at5 = await spellsOnTiefling();
+      check(/Hellish Rebuke/.test(at5 || "") && /Darkness/.test(at5 || ""),
+        `the same row gains its higher-level spells as the level rises (got ${at5})`);
+      if (await setLevel(1)) {
+        check(await spellsOnTiefling() === "Spells — Thaumaturgy", "and loses them again when the level drops");
+      }
+    } else {
+      check(false, "the wizard's Starting Level control is reachable");
+    }
   }
 }
 

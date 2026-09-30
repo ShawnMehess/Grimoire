@@ -673,7 +673,11 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
     ],
   }, 1, { abilityIds: ["dex"] });
   const titles = sections.map((s) => s.title);
-  assert(JSON.stringify(titles) === JSON.stringify(["Racial Traits", "Ability Score Increases", "Proficiencies", "Innate Abilities"]), "mechanicsBullets order");
+  // "Spells" trails the four legacy sections: it's a summary of the trait
+  // above it, not part of it, and it only appears when the bundle actually
+  // grants a spell (this fixture does, at spellsKnown above).
+  assert(JSON.stringify(titles) === JSON.stringify(["Racial Traits", "Ability Score Increases", "Proficiencies", "Innate Abilities", "Spells"]), "mechanicsBullets order");
+  assert(sections[4].items[0] === "Spells: Misty Step", "mechanicsBullets lists granted spells");
   assert(sections[0].items.some((i) => i.startsWith("Languages: Common, Elvish")), "mechanicsBullets tags grouped");
   assert(sections[1].items[0] === "+2 DEX", "mechanicsBullets score");
   assert(sections[2].items[0] === "perceptionProf", "mechanicsBullets prof fallback without vocab");

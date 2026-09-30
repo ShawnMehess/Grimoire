@@ -274,6 +274,7 @@ export const MECHANICS_TITLES = {
   bgEquipment: "Starting Equipment",
   bgFeature: "Background Feature",
   subclassFeatures: "Subclass Features",
+  spells: "Spells",
 };
 
 /** Plain-language ability reference, moved here from
@@ -427,6 +428,30 @@ export function resolveSpellSummary(summary, bundle, level = Infinity) {
  *  bundle's own level-gated spell grants). Pure. */
 export function isAutoSpellGrant(grant) {
   return String(grant?.description || "").includes("{spells}");
+}
+
+/** The spells this bundle grants at `level`, as one readable line — or
+ *  null when it grants none, or none yet.
+ *
+ *  A race that hands you spells splits them by level in the data
+ *  (Tiefling: Thaumaturgy at 1, Hellish Rebuke at 3, Darkness at 5), but
+ *  the trait's own prose only names the cantrip, so the row used to show
+ *  one spell and silently drop the two a level-5 character actually has.
+ *  This is the mechanical list, filtered to the level in hand, which is
+ *  what makes it update as the character levels: the caller passes
+ *  `state.level` and the line grows.
+ *
+ *  Cantrips are not separated from leveled spells here: the grant list
+ *  already has them in the order the trait grants them, and splitting
+ *  them would imply a rule this data doesn't carry. Pure. */
+export function grantedSpellsLine(bundle, level = Infinity) {
+  const mods = (bundle?.statModifiers || []).filter(
+    (m) => m?.op === "addItem" && m?.targetFieldId === "spellsKnown"
+      && (!m.minLevel || m.minLevel <= level)
+  );
+  const names = [...new Set(mods.map((m) => String(m.value || "").trim()).filter(Boolean))];
+  if (!names.length) return null;
+  return `Spells: ${names.join(", ")}`;
 }
 
 /** Name/description parts for an auto-spell grant with its token
@@ -707,6 +732,10 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   const savesLine = [...new Set(saveNames)].length
     ? `Saving Throws: ${[...new Set(saveNames)].join(", ")}`
     : null;
+  // The spells this bundle grants, filtered to `level`. Null when it
+  // grants none, so a race with no innate spellcasting shows no Spells
+  // section at all rather than an empty one.
+  const spellsLine = grantedSpellsLine(bundle, level);
 
   const out = [];
   if (classDisplay) {
@@ -740,6 +769,9 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     if (scores.length) out.push({ title: "Ability Score Increases", items: scores });
     if (profs.length) out.push({ title: MECHANICS_TITLES.proficiencies, items: [profs.join(", ")] });
     if (innate.length) out.push({ title: MECHANICS_TITLES.innate, items: innate });
+    // The spells this race grants, at the level in hand. Last so it reads
+    // as a summary of the trait above it rather than part of it.
+    if (spellsLine) out.push({ title: MECHANICS_TITLES.spells, items: [spellsLine] });
   }
   return out;
 }
