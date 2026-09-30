@@ -956,6 +956,47 @@
   text-decoration: underline;
 }
 
+/* A spell named in prose (a race trait, a feat, a class feature) links to
+   that spell's entry. Uses the arcane token, which was reserved for
+   exactly this and was still unused. Underlined rather than accent-
+   colored, so it doesn't read as a choice control next to
+   .inline-pick-link - a spell link goes somewhere, it doesn't pick. */
+.spell-link {
+  color: var(--color-arcane);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.spell-link:hover {
+  text-decoration-style: solid;
+}
+
+/* The spell's entry, opened by clicking a mention. */
+.spell-detail {
+  max-width: 620px;
+  text-align: left;
+}
+.spell-detail__name {
+  margin: 0 0 0.15em;
+  font-family: var(--font-display);
+}
+.spell-detail__meta {
+  margin: 0 0 0.75em;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.spell-detail__effect {
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre-line;
+}
+.spell-detail__status {
+  margin: 0.9em 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
 /* Shared choice dialog (skills, tools, fighting styles, expertise) —
    one dialog object reused across all instances of a kind. Same
    visual grammar as the feat picker above. */

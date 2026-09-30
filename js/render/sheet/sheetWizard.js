@@ -6,6 +6,7 @@
 
 import { briefDescription, capitalizeFirst, splitAbilityTokens, abilityTooltip, humanizeGameText, categorizeChoiceGroup } from "./sheetMechanics.js";
 import { el } from "./sheetHelpers.js";
+import { spellLinkNodes } from "./spellLinks.js";
 import { contentIdMatches } from "../../data/dnd5e.js";
 
 export function isStepApplicable(step) {
@@ -1548,15 +1549,24 @@ export function renderSelectableRowsInto(container, names, opts = {}) {
  *  strings. `<option>` elements can't contain markup, so dropdowns
  *  get `title` attributes instead — see the call sites. */
 export function richAbilityNodes(text) {
-  return splitAbilityTokens(text).map((run) => {
-    if (run.text !== undefined) return document.createTextNode(run.text);
+  const out = [];
+  for (const run of splitAbilityTokens(text)) {
+    // Plain runs get spell linking as well as the raw text: the two
+    // tokenizers are independent, so a sentence can carry an ability
+    // abbreviation and a spell name at once ("Darkvision 60 ft. lets you
+    // cast Darkness without a slot").
+    if (run.text !== undefined) {
+      out.push(...spellLinkNodes(run.text));
+      continue;
+    }
     const tip = abilityTooltip(run.id);
     const abbr = document.createElement("abbr");
     abbr.className = "ability-abbr";
     abbr.textContent = run.abbr;
     if (tip) abbr.title = tip;
-    return abbr;
-  });
+    out.push(abbr);
+  }
+  return out;
 }
 
 /** One profile bullet with embedded dropdowns ("Languages — Common,

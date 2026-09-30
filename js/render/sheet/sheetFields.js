@@ -6,6 +6,7 @@
 
 import { hideToggleBtnInto, labelToggleBtnInto } from "./sheetStyles.js";
 import { humanizeGameText, splitAbilityTokens, abilityTooltip } from "./sheetMechanics.js";
+import { spellLinkNodes } from "./spellLinks.js";
 
 // --- Field node DOM ---------------------------------------------------------
 //
@@ -791,11 +792,14 @@ export function buildFeatureListValueInto(features) {
     if (feature.description) {
       const desc = document.createElement("div");
       desc.className = "featurelist-row__description";
-      // Same ability tooltips as the picker bullets (local
-      // construction — this leaf module doesn't import the wizard).
+      // Same ability tooltips as the picker bullets, plus spell links:
+      // this is where a character actually reads "you know the Dancing
+      // Lights cantrip", so it's the mention that most needs to be
+      // clickable. (Local construction - this leaf module doesn't import
+      // the wizard; spellLinks is a data-only dependency.)
       for (const run of splitAbilityTokens(humanizeGameText(feature.description))) {
         if (run.text !== undefined) {
-          desc.append(document.createTextNode(run.text));
+          desc.append(...spellLinkNodes(run.text));
           continue;
         }
         const abbr = document.createElement("abbr");

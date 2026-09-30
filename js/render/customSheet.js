@@ -70,6 +70,7 @@ import { SUBCLASS_SUPPLEMENT } from "../data/subclassContent.js";
 import { stripSecondaryClassBundle, FIXED_RACE_ENTRIES, SUPERSEDED_RACE_NAMES, legacyRaceBundles, SUBCLASS_BUNDLE_MAP, normSubclassKey, LEGACY_ASI_COMBOS } from "../data/contentFixups.js";
 import { DEFAULT_CONTENT } from "../data/defaultContent.js";
 import { assignCatalogEntryIds, migrateBundleCatalogLinks, LINKED_FEAT_BUNDLES } from "../data/catalogLinks.js";
+import { setSpellLinkOpener, openSpellDetailDialog } from "./sheet/spellLinks.js";
 import { FEAT_CATALOG, FEAT_NAMES } from "../data/featBundles.js";
 import { SPELL_CATALOG, WEAPONS_ARMOR_CATALOG, GEAR_CATALOG } from "../data/contentCatalogs.js";
 import { RACE_EXTRA_CATALOG_ENTRIES } from "../data/extraRaces.js";
@@ -771,6 +772,28 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   refreshCatalogCache();
 
   root.innerHTML = "";
+
+  // Spell links.
+  //
+  // A spell named in a race trait, a class feature or a feat is a link to
+  // that spell's entry. The links are rebuilt on every render (they're
+  // produced inside the text renderers, which have no access to the
+  // character), so they're bound to a module-level opener set here rather
+  // than closing over this scope.
+  //
+  // Opening one is a dialog, because the sheet has no spell book to jump
+  // to: the `spellsKnown` text list is a flat list of names, so there's an
+  // entry to show for a spell the character knows and only the printed text
+  // for one they don't.
+  setSpellLinkOpener((spellName) => {
+    if (!spellName) return;
+    const known = knownSpellNames().has(spellName.toLowerCase());
+    openSpellDetailDialog({
+      name: spellName,
+      known,
+      onGoToSpellList: (name) => revealSpellOnSheet(name),
+    });
+  });
 
   // --- Toolbar: mode toggle + add-block (edit mode only) --------------
   const { toolbar, leftGroup, modeBtn, undoBtn, redoBtn, addBlockBtn } = buildToolbarShell();
@@ -3958,6 +3981,44 @@ const closeDialog = () => {
    *  report rather than silently skip. */
   function findSetupField(id, label) {
     return findStarterField(id, label) || findStarterFieldIn(flattenAllFieldsAcrossTabs(), id, label);
+  }
+
+  /** The spell names on this character's spell list, case-folded.
+   *
+   *  The list is a flat `items` array of names on the `spellsKnown` text
+   *  field - cantrips and leveled spells mixed, with no level recorded -
+   *  so this is the only way to answer "does this character know it". */
+  function knownSpellNames() {
+    return new Set((findSetupField("spellsKnown", "Spells Known")?.items || [])
+      .map((name) => (typeof name === "string" ? name : name?.text || name?.name || ""))
+      .filter(Boolean)
+      .map((name) => name.toLowerCase()));
+  }
+
+  /** Switch to the tab holding the spell list and pulse the entry.
+   *
+   *  Opened from the spell-entry dialog's "Show on spell list" action, so
+   *  the character has to already be on some tab when it's pressed; the
+   *  common case is that the spell list is on the same tab they were
+   *  reading the trait from, and this is a no-op scroll. The pulse class
+   *  is stripped on a timer rather than left on, so a second visit
+   *  re-flashes instead of finding a permanently highlighted row. */
+  function revealSpellOnSheet(spellName) {
+    const target = String(spellName || "").toLowerCase();
+    if (!target) return;
+    renderPageGrid();
+    requestAnimationFrame(() => {
+      const items = [...root.querySelectorAll(".textlist-item")];
+      const hit = items.find((el) => (el.textContent || "").trim().toLowerCase() === target)
+        || items.find((el) => (el.textContent || "").toLowerCase().includes(target));
+      if (!hit) {
+        showToastIn(root, `${spellName} isn't on the sheet's spell list.`);
+        return;
+      }
+      hit.scrollIntoView({ block: "center" });
+      hit.classList.add("is-revealed");
+      setTimeout(() => hit.classList.remove("is-revealed"), 1600);
+    });
   }
 
   // Older starter sheets only had slot fields through fifth level. When a

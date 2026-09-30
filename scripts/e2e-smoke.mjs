@@ -387,6 +387,58 @@ async function runViewportTests(viewport) {
       const scrollDelta = await page.evaluate(() => (window.__scrollAtClick ?? window.scrollY) - window.scrollY);
       check(Math.abs(scrollDelta) < 4, `clicking a picker row does not move the page (delta ${scrollDelta})`);
     }
+
+    // A spell named in a race trait links to that spell's entry. Tiefling
+    // is the probe: its Infernal Legacy names Thaumaturgy, Hellish Rebuke
+    // and Darkness in one sentence, and this is where a character reads it.
+    await (await page.$('.choice-row[data-row-name="Tiefling"]')).click();
+    await page.waitForTimeout(1200);
+    // Scoped to the Tiefling row: the invariant under test is that a
+    // spell link's click doesn't also land on the row containing it, so
+    // the row has to be the one that was already selected.
+    const tieflingRow = '.choice-row[data-row-name="Tiefling"]';
+    // Click the label, not the row's centre: an expanded row is taller
+    // than the viewport and its middle is prose, which is exactly where
+    // the spell links are. Clicking the row's own centre would test a
+    // spell link, not the row.
+    //
+    // Toggled to a known state rather than clicked once and assumed: the
+    // row's click is a toggle (select, or collapse+deselect), and Expand
+    // All already left it expanded, so a single click means different
+    // things depending on what ran before it.
+    const tieflingSelected = () => page.$(`${tieflingRow}.choice-row--selected`).then(Boolean);
+    for (let i = 0; i < 3 && !(await tieflingSelected()); i += 1) {
+      await page.click(`${tieflingRow} .choice-row__label`);
+      await page.waitForTimeout(600);
+    }
+    check(await tieflingSelected(), "a row can be selected by clicking its label");
+    // Infernal Legacy is the probe. Only its cantrip reaches the sheet
+    // (the rest of the trait is a per-level unlock the sheet doesn't
+    // render as prose), so this is one link, not three.
+    const spellLinks = await page.$$(`${tieflingRow} .spell-link`);
+    check(spellLinks.length >= 1, `a race trait links its spells (${spellLinks.length} links)`);
+    if (spellLinks.length) {
+      const first = spellLinks[0];
+      const spellName = await first.getAttribute("data-spell");
+      check(!!spellName, `a spell link names its spell (${spellName})`);
+      check(/click/i.test((await first.getAttribute("title")) || ""), "a spell link says what clicking does");
+      await first.click();
+      await page.waitForTimeout(500);
+      const dialog = await page.$(".spell-detail");
+      check(!!dialog, "clicking a spell mention opens the spell entry");
+      if (dialog) {
+        const shown = (await dialog.textContent()) || "";
+        check(!!spellName && shown.includes(spellName), "the entry is for the spell that was clicked");
+        check(/·/.test(shown), "the entry shows the spell's stat line");
+        check(await page.$(`${tieflingRow}.choice-row--selected`),
+          "clicking a spell link doesn't collapse or re-select the row it sits in");
+        await page.screenshot({ path: path.join(shotDir, `spell-entry-${viewport.name}.png`) });
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(300);
+        check(!(await page.$(".spell-detail")), "the spell entry closes on Escape");
+        check(await page.$(`${tieflingRow}.choice-row--selected`), "the row is still selected after the entry closes");
+      }
+    }
   }
 }
 

@@ -920,6 +920,18 @@
 .textlist-item.is-dragging {
   opacity: 0.4;
 }
+/* "Show on spell list" from a spell-entry dialog lands here: a one-shot
+   pulse so the player can see which row is the one they asked for. The
+   class is removed on a timer, so revisiting re-flashes. */
+.textlist-item.is-revealed {
+  background: var(--color-bg-raised);
+  box-shadow: 0 0 0 2px var(--color-arcane);
+  animation: textlist-reveal 1.6s ease-out;
+}
+@keyframes textlist-reveal {
+  0%, 70% { background: color-mix(in srgb, var(--color-arcane) 22%, transparent); }
+  100% { background: var(--color-bg-raised); }
+}
 
 .textlist-item__handle {
   flex: 0 0 auto;
