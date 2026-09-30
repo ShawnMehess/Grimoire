@@ -456,16 +456,21 @@ function flashBonusNote(bonusNote) {
   }, 1500);
 }
 
-export function abilityRowInto(scoresWrap, id, control, description, modifierFn, formatFn, bonusTextFn = null, bonus = 0) {
+export function abilityRowInto(scoresWrap, id, control, description, modifierFn, formatFn, bonusTextFn = null, bonus = 0, needTextFn = null) {
   const modValue = el("div", { class: "input-group__control wizard__ability-modifier-value" });
   const bonusNote = bonusTextFn ? el("p", { class: "wizard__ability-row-description wizard__ability-bonus" }) : null;
+  // Feat prerequisites the current scores don't meet yet (see
+  // featRequirementStatus). Shown on the score they'd have to reach, which
+  // is the one place the player can actually fix them.
+  const needNote = needTextFn ? el("p", { class: "wizard__ability-row-description wizard__ability-need" }) : null;
   const row = el("div", { class: "wizard__ability-row" },
     el("label", { class: "level-guide__field", text: id.toUpperCase(), title: abilityTooltip(id) ?? null, style: "font-weight: 700;" }, control),
     el("div", { class: "level-guide__field wizard__ability-modifier" },
       el("span", { text: "Modifier" }),
       modValue),
     el("p", { class: "wizard__ability-row-description" }, ...richAbilityNodes(humanizeGameText(description))),
-    bonusNote);
+    bonusNote,
+    needNote);
   scoresWrap.append(row);
 
   // Returns an updater the caller invokes whenever `control`'s value
@@ -478,6 +483,10 @@ export function abilityRowInto(scoresWrap, id, control, description, modifierFn,
     if (bonusNote) {
       bonusNote.textContent = bonusTextFn(id, base);
       bonusNote.hidden = !bonusNote.textContent;
+    }
+    if (needNote) {
+      needNote.textContent = needTextFn(id, base);
+      needNote.hidden = !needNote.textContent;
     }
   };
   updateModifier();
@@ -494,10 +503,25 @@ export function renderAbilitiesStepInto(container, deps) {
     // total" so granted bonuses never surprise. Absent means no
     // bonuses on file — rows render exactly as before.
     bonuses = null,
+    // Optional { [abilityId]: [{ feat, score }] } of feat ability minimums
+    // the staged feat list is waiting on. Rendered per row as a warning
+    // with the shortfall, so the player sees the points they still owe
+    // next to the score they'd have to raise. Absent means nothing is
+    // waiting, and rows render exactly as before.
+    featNeeds = null,
   } = deps;
   container.append(el("p", { class: "leveling-tab__intro", text: "Set your six ability scores. Switching methods below resets the scores to fit it." }));
   const bonusTextFn = bonuses
     ? (id, base) => abilityBonusNoteText(base, bonuses[id]?.bonus || 0, bonuses[id]?.sources || [])
+    : null;
+  const needTextFn = featNeeds
+    ? (id, base) => {
+      const unmet = (featNeeds[id] || []).filter(({ score }) => Number(base) < Number(score));
+      if (!unmet.length) return "";
+      return unmet
+        .map(({ feat, score }) => `${feat} needs ${Number(score)} - ${Number(score) - Number(base)} more`)
+        .join(". ");
+    }
     : null;
 
   const methodGroup = el("label", { class: "level-guide__field wizard__ability-method", text: "Method" });
@@ -548,7 +572,7 @@ export function renderAbilitiesStepInto(container, deps) {
           updateNote();
           updateModifier();
         }, displayValue);
-        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn, bonus);
+        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn, bonus, needTextFn);
         input.addEventListener("keydown", (e) => {
           if ((e.key === "ArrowDown" || e.key === "-") && Number(input.value) <= effectiveMin) {
             e.preventDefault();
@@ -584,7 +608,7 @@ export function renderAbilitiesStepInto(container, deps) {
         const bonus = bonusMap[id]?.bonus || 0;
         const effectiveMin = 8 + bonus;
         const input = scoreInput(id, effectiveMin, 18 + bonus, (target) => { scores[id] = Math.max(effectiveMin, Number(target.value) || effectiveMin) - bonus; saveFn(); modifierUpdaters[id].updateModifier(); }, scores[id] + bonus);
-        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn, bonus);
+        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn, bonus, needTextFn);
         input.addEventListener("keydown", (e) => {
           if ((e.key === "ArrowDown" || e.key === "-") && Number(input.value) <= effectiveMin) {
             e.preventDefault();
@@ -605,7 +629,7 @@ export function renderAbilitiesStepInto(container, deps) {
         const bonus = bonusMap[id]?.bonus || 0;
         const effectiveMin = 8 + bonus;
         const input = scoreInput(id, effectiveMin, 30 + bonus, (target) => { scores[id] = Math.max(effectiveMin, Number(target.value) || effectiveMin) - bonus; saveFn(); updateModifier(); }, scores[id] + bonus);
-        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn, bonus);
+        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn, bonus, needTextFn);
         input.addEventListener("keydown", (e) => {
           if ((e.key === "ArrowDown" || e.key === "-") && Number(input.value) <= effectiveMin) {
             e.preventDefault();

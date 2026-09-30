@@ -5300,6 +5300,10 @@ const closeDialog = () => {
               stagedBundles.map((bundle, i) => ({ source: stagedNames[i], bundle })),
               ABILITY_IDS
             ),
+            // Feats the player has already picked (or is looking at) that
+            // want a higher score than they've set, so the Abilities tab
+            // can say which ones are still short and by how much.
+            featNeeds: featAbilityNeeds(),
           });
         },
       },
@@ -5433,6 +5437,26 @@ const closeDialog = () => {
     if (wizard) pageGrid.append(wizard);
   }
 
+  /** Ability-score minimums the character's own feats are waiting on,
+   *  as { [abilityId]: [{ feat, score }] } for the Abilities step.
+   *
+   *  Derived from the feats the character holds, so it stays true as the
+   *  ASI/feat step changes without anything having to register itself. */
+  function featAbilityNeeds() {
+    const out = {};
+    const held = character.rules?.feats || [];
+    const bundles = held.map((f) => f?.name).map((n) => LINKED_FEAT_BUNDLES.find((b) => b.name === n)).filter(Boolean);
+    for (const row of featRowModels(bundles, FEAT_CATALOG.tabs.flatMap((t) => t.entries || []), {
+      takenFeats: held,
+      abilityScores: character.rules?.abilityScores || {},
+    })) {
+      for (const s of row.shortfalls || []) {
+        (out[s.ability] ||= []).push({ feat: row.name, score: s.score });
+      }
+    }
+    return out;
+  }
+
   /** Adapter: the level guide's ASI step knows only a list of feat NAMES.
    *  This resolves each to its bundle + catalog entry, builds the row
    *  model, and renders the spec'd feat list. The single-select behaviour
@@ -5445,7 +5469,14 @@ const closeDialog = () => {
       .map((name) => LINKED_FEAT_BUNDLES.find((b) => b.name === name))
       .filter(Boolean);
     const takenFeats = character.rules?.feats || [];
-    const rows = featRowModels(bundles, catalogEntries, { takenFeats, remaining: Infinity })
+    // Prerequisite filtering reads what the character actually has, so the
+    // list reflects this character rather than the whole catalog.
+    const rows = featRowModels(bundles, catalogEntries, {
+      takenFeats,
+      remaining: Infinity,
+      abilityScores: character.rules?.abilityScores || state.abilityScores || {},
+      raceName: state.raceName || character.rules?.race || "",
+    })
       .map((row) => ({ ...row, taken: row.id === selectedName }));
     renderFeatListInto(container, rows, {
       takenFeats,

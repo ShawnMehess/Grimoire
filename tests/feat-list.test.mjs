@@ -20,6 +20,10 @@ import {
   featRowModels,
   featPickableCount,
   featPickableLabel,
+  splitPrerequisiteBlock,
+  parseFeatRequirements,
+  featRequirementStatus,
+  featBenefitLines,
   FEAT_SOURCE_DM,
 } from "../js/render/sheet/featList.js";
 import { FEAT_BUNDLES, FEAT_CATALOG } from "../js/data/featBundles.js";
@@ -270,3 +274,80 @@ describe("every shipped feat produces a usable row", () => {
     assert.deepEqual(onlyInBundles, [], "mechanics with no catalog entry");
   });
 });
+
+describe("feat prerequisites", () => {
+  const bundleFor = (name) => FEAT_BUNDLES.find((b) => b.name === name);
+  const catalogEntry = (name) => FEAT_CATALOG.tabs.flatMap((t) => t.entries || []).find((e) => e.name === name);
+
+  it("lifts the Prerequisites block off the printed text", () => {
+    const split = splitPrerequisiteBlock("Prerequisites: Halfling\n\nYou have the luck of your people.");
+    assert.equal(split.text, "You have the luck of your people.");
+    assert.equal(split.prerequisiteText, "Halfling");
+  });
+
+  it("parses ability minimums and races, and leaves the rest unparsed", () => {
+    const reqs = parseFeatRequirements("Dexterity score of 13 or higher, Halfling, Spellcasting or Pact Magic feature");
+    assert.deepEqual(reqs.map((r) => r.kind), ["ability", "race", "other"]);
+    assert.equal(reqs[0].ability, "dex");
+    assert.equal(reqs[0].score, 13);
+  });
+
+  it("reports an ability shortfall instead of blocking", () => {
+    const status = featRequirementStatus(parseFeatRequirements("Dexterity score of 13 or higher"), {
+      abilityScores: { dex: 11 },
+    });
+    assert.equal(status.blocking.length, 0);
+    assert.equal(status.shortfalls.length, 1);
+    assert.equal(status.shortfalls[0].need, 2);
+  });
+
+  it("blocks on an unmet race but not on a met one", () => {
+    const reqs = parseFeatRequirements("Halfling");
+    assert.equal(featRequirementStatus(reqs, { raceName: "Human" }).blocking.length, 1);
+    assert.equal(featRequirementStatus(reqs, { raceName: "Halfling" }).blocking.length, 0);
+    // "Elf" is satisfied by any elf lineage.
+    assert.equal(featRequirementStatus(parseFeatRequirements("Elf (Drow)"), { raceName: "High Elf" }).blocking.length, 0);
+  });
+
+  it("never blocks on a rule it cannot evaluate", () => {
+    const status = featRequirementStatus(parseFeatRequirements("Spellcasting or Pact Magic feature"), { raceName: "Human" });
+    assert.equal(status.met, true);
+  });
+
+  it("hides the prerequisite text from the rendered row", () => {
+    for (const b of FEAT_BUNDLES) {
+      const row = featRowModel(b, catalogEntry(b.name), {});
+      assert.ok(!/Prerequisites:/i.test(row.effect), `${b.name} still prints its prerequisite`);
+    }
+  });
+
+  it("drops feats the character's race rules out, unless already held", () => {
+    const rows = featRowModels([bundleFor("Bountiful Luck")], [catalogEntry("Bountiful Luck")], { raceName: "Human" });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].hidden, true);
+    const held = featRowModels([bundleFor("Bountiful Luck")], [catalogEntry("Bountiful Luck")], {
+      raceName: "Human",
+      takenFeats: [{ name: "Bountiful Luck" }],
+    });
+    assert.equal(held[0].hidden, false);
+  });
+
+  it("splits benefits onto their own rows", () => {
+    const alert = bundleFor("Alert");
+    const { lead, benefits } = featBenefitLines(alert);
+    assert.match(lead, /following benefits/);
+    assert.equal(benefits.length, 3);
+    assert.ok(benefits.every((b) => !/^[-•*]/.test(b)));
+  });
+
+  it("reports what a chosen feat still needs from Ability Scores", () => {
+    const rows = featRowModels([bundleFor("Defensive Duelist")], [catalogEntry("Defensive Duelist")], {
+      abilityScores: { dex: 12 },
+      raceName: "Human",
+    });
+    assert.equal(rows[0].hidden, false, "an ability minimum is a warning, not a block");
+    assert.equal(rows[0].shortfalls.length, 1);
+    assert.equal(rows[0].shortfalls[0].need, 1);
+  });
+});
+

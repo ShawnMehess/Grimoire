@@ -196,6 +196,17 @@
   font-size: var(--text-sm);
 }
 
+/* A feat the character holds is waiting on a higher score. A warning on
+   the score itself, not a lock: the player may still want to take the
+   feat below its minimum. */
+.wizard__ability-need {
+  flex-basis: 100%;
+  color: var(--color-accent);
+}
+.wizard__ability-need::before {
+  content: "\26A0\FE0E ";
+}
+
 /* Preferences step — a plain label above a row-list of clickable
    options (same choice-row-list styling the Race/Class/Background
    pickers use), rather than a dropdown. */
@@ -1033,7 +1044,43 @@
   padding-left: 1.8em;
   font-size: var(--text-xs);
   color: var(--color-text-muted);
+}
+/* One row per benefit. The source writes them as bullets; run together
+   they read as a single wall of text. */
+.feat-list__effect p {
+  margin: 0 0 0.25em;
   white-space: pre-line;
+}
+.feat-list__effect p:last-child {
+  margin-bottom: 0;
+}
+.feat-list__benefit {
+  position: relative;
+  padding-left: 0.9em;
+}
+/* Marker drawn as a dot rather than shipped as text, so it follows the
+   row's own color instead of needing a second glyph. */
+.feat-list__benefit::before {
+  content: "";
+  position: absolute;
+  left: 0.15em;
+  top: 0.55em;
+  width: 0.28em;
+  height: 0.28em;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+}
+/* An unmet ability minimum: a warning, not a lock. The theme has no
+   warning token, so this borrows the accent and leans on the glyph. */
+.feat-list__warn {
+  margin: 0.35em 0 0;
+  padding-left: 1.8em;
+  font-size: var(--text-xs);
+  color: var(--color-accent);
+}
+.feat-list__warn::before {
+  content: "\26A0\FE0E ";
 }
 .feat-list__modifies {
   margin: 0;

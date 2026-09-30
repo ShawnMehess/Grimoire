@@ -88,15 +88,154 @@ export function featEffectSummary(bundle) {
 /** The mechanical effect line, in words. Uses the feat's own feature
  *  grant text — the same text the sheet shows when the feat is applied —
  *  rather than a summary, because this line's whole job is to be the
- *  authoritative "what does this actually do". */
-export function featEffectText(bundle) {
-  const grant = (bundle?.featureGrants || [])[0];
+ *  authoritative "what does this actually do".
+ *
+ *  The compiled grants start with a "Prerequisites:" block on 35 of the 83
+ *  shipped feats. That block is stripped here: the list decides what the
+ *  player can actually take (see featRequirements), so repeating the rule
+ *  in the description just adds a line the row can't act on. `featEffectText`
+ *  takes the already-split parts so the parse happens once per row. */
+export function featEffectText(bundle, grant = (bundle?.featureGrants || [])[0]) {
   const text = (grant?.description || "").trim();
   if (!text) return "";
   // The compiled grants append a "Sheet notes:" block for the sheet's own
   // bookkeeping. That's useful on the sheet but isn't part of the feat's
   // printed rules text, so the summary stops at it.
-  return text.split(/\n\s*Sheet notes:/i)[0].trim();
+  return splitPrerequisiteBlock(text.split(/\n\s*Sheet notes:/i)[0].trim()).text;
+}
+
+/** The leading "Prerequisites: ..." block of a feat's grant text, and the
+ *  text with it removed.
+ *
+ *  Returns `{ prerequisiteText, text, requirements }`. `requirements` is
+ *  the parsed, evaluable subset — the rest is prose we deliberately don't
+ *  interpret, so nothing is hidden or enabled on a guess. */
+export function splitPrerequisiteBlock(text) {
+  const raw = String(text || "");
+  const m = raw.match(/^\s*Prerequisites:\s*([\s\S]*?)(?=\n\s*\n|$)/i);
+  if (!m) return { prerequisiteText: "", text: raw.trim(), requirements: [] };
+  return {
+    prerequisiteText: m[1].trim().replace(/\s*\n\s*/g, ", "),
+    text: raw.slice(m[0].length).replace(/^\s*\n+/, "").trim(),
+    requirements: parseFeatRequirements(m[1]),
+  };
+}
+
+/** Split a prerequisite sentence into what we can actually check.
+ *
+ *  Only two things are evaluated, because only two are reliably derivable
+ *  from the sheet's own state: an ability-score minimum and a race. Anything
+ *  else ("Spellcasting or Pact Magic feature", "The Alert feat", "Medium or
+ *  Small size") is returned with `kind: "other"` and `met: true` — an
+ *  unparsed rule must never be the reason a feat vanishes from the list. */
+/** Race and lineage names as the source writes them in a prerequisite.
+ *  Matched as a whole clause, so "Dragonborn" and "Elf (Drow)" both land
+ *  here while "Spellcasting feature" does not. Anything not in this list
+ *  stays `kind: "other"` and is never used to hide a row. */
+const RACE_PREREQ_RE = /^(?:Aarakocra|Aasimar|Dragonborn|Dwarf|Elf|Gnome|Halfling|Human|Orc|Tiefling|Half-Elf|Hill Dwarf|Mountain Dwarf|High Elf|Wood Elf|Drow|Forest Gnome|Rock Gnome|Genasi|Goliath)\b(?:\s*\([^)]*\))?$/i;
+
+export function parseFeatRequirements(text) {
+  const flat = String(text || "").trim().replace(/\s*\n\s*/g, ", ");
+  if (!flat) return [];
+  const out = [];
+  for (const clause of flat.split(/,\s*|\band\b/i).map((s) => s.trim()).filter(Boolean)) {
+    const ability = clause.match(/\b(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma)\s+score\s+of\s+(\d+)/i);
+    if (ability) {
+      out.push({
+        kind: "ability",
+        ability: ability[1].toLowerCase().slice(0, 3),
+        score: Number(ability[2]),
+        label: clause,
+      });
+      continue;
+    }
+    if (RACE_PREREQ_RE.test(clause)) {
+      // "Elf (Drow)" names a race and a lineage. The sheet's own state
+      // here only carries the race, so the base name is what's checked
+      // and the lineage is recorded but never used to hide a row.
+      const paren = clause.match(/\(([^)]*)\)/);
+      out.push({
+        kind: "race",
+        race: clause.replace(/\s*\([^)]*\)/g, "").trim(),
+        lineage: paren ? paren[1].trim() : null,
+        label: clause,
+      });
+      continue;
+    }
+    if (/^(No other|Any other)\b/i.test(clause)) {
+      out.push({ kind: "exclusive", label: clause });
+      continue;
+    }
+    out.push({ kind: "other", label: clause });
+  }
+  return out;
+}
+
+/** Evaluate parsed requirements against what the character has.
+ *
+ *  `abilityScores` is the sheet's {str, dex, con, int, wis, cha} map and
+ *  `raceName` its picked race. Ability minimums come back as `shortfalls`
+ *  (the user can still take the feat, they just need points first) and
+ *  unmet race/exclusive rules come back as `blocking`. */
+export function featRequirementStatus(requirements, { abilityScores = {}, raceName = "" } = {}) {
+  const shortfalls = [];
+  const blocking = [];
+  for (const req of requirements || []) {
+    if (req.kind === "ability") {
+      const have = Number(abilityScores?.[req.ability] ?? 0);
+      if (Number.isFinite(have) && have < req.score) {
+        shortfalls.push({ ...req, have, need: req.score - have });
+      }
+      continue;
+    }
+    if (req.kind === "race") {
+      const wanted = req.race.toLowerCase();
+      const mine = String(raceName || "").toLowerCase();
+      // "Elf" is satisfied by any elf lineage, so match on the lineage
+      // name's own words too (High Elf / Wood Elf / Drow).
+      const satisfied = mine === wanted
+        || (wanted === "elf" && /\belf\b/.test(mine))
+        || new RegExp(`\\b${wanted}\\b`).test(mine);
+      if (!satisfied) blocking.push(req);
+      continue;
+    }
+    if (req.kind === "exclusive") {
+      // "No other dragonmark" - the sheet has no dragonmark to have, so
+      // there is nothing to conflict with.
+      continue;
+    }
+  }
+  return { shortfalls, blocking, met: !shortfalls.length && !blocking.length };
+}
+
+/** A feat's benefits as separate lines.
+ *
+ *  The compiled grant text is a lead sentence followed by "- " bullets
+ *  (Alert: "you gain the following benefits:" then three bullets). Rendered
+ *  as one blob those bullets run together, so they're split here and the
+ *  row gives each its own line. Returns `{ lead, benefits }`; `lead` is the
+ *  prose before the first bullet, which is the part that isn't a benefit. */
+export function featBenefitLines(bundle) {
+  const text = featEffectText(bundle);
+  if (!text) return { lead: "", benefits: [] };
+  const lead = [];
+  const benefits = [];
+  // Line-based, not block-based: some feats separate their bullets with a
+  // blank line and some don't, so blocks alone would glue three bullets
+  // into one. A bullet always starts a new benefit; any other line is prose
+  // that belongs to whatever came before it.
+  for (const raw of text.split(/\n+/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const bullet = line.match(/^[-•*]\s+(.*)$/);
+    if (bullet) {
+      benefits.push(bullet[1].trim());
+      continue;
+    }
+    if (benefits.length) benefits[benefits.length - 1] += ` ${line}`;
+    else lead.push(line);
+  }
+  return { lead: lead.join(" ").trim(), benefits };
 }
 
 /** The short summary line (the spec calls it the description line; for
@@ -126,18 +265,31 @@ export function featIconToken(catalogEntry) {
  * on purpose — a feat can be taken but no longer pickable (the gate is
  * spent), and the row has to show that rather than just being ticked.
  */
-export function featRowModel(bundle, catalogEntry, { taken = false, pickable = true, source = null } = {}) {
+export function featRowModel(bundle, catalogEntry, { taken = false, pickable = true, source = null, abilityScores = {}, raceName = "" } = {}) {
   const name = bundle?.name || catalogEntry?.name || "";
   if (!name) return null;
+  const grant = (bundle?.featureGrants || [])[0];
+  const { requirements } = splitPrerequisiteBlock((grant?.description || "").split(/\n\s*Sheet notes:/i)[0]);
+  const { shortfalls, blocking } = featRequirementStatus(requirements, { abilityScores, raceName });
+  const { lead, benefits } = featBenefitLines(bundle);
   return {
     id: name,
     name,
     icon: featIconToken(catalogEntry),
     summary: featSummaryText(catalogEntry, bundle),
     effect: featEffectText(bundle),
+    // Each benefit on its own line (the source writes them as bullets).
+    lead,
+    benefits,
     modifies: featEffectSummary(bundle),
     taken: Boolean(taken),
     pickable: Boolean(pickable),
+    // Unmet ability minimums: still takeable, but the player needs points
+    // first. The Ability Scores tab shows the shortfall next to the score.
+    shortfalls,
+    // Unmet race/lineage rules: the feat can't be taken at all, so the
+    // list drops it rather than showing a row that does nothing.
+    hidden: blocking.length > 0 && !taken,
     // "asi" (spending an ASI), "lineage" (Custom Lineage), "dm" (granted
     // at the table). Null when the feat isn't held.
     source: taken ? (source || "asi") : null,
@@ -153,16 +305,19 @@ export function featRowModel(bundle, catalogEntry, { taken = false, pickable = t
  *  within N rows of the top of the list", which is meaningless). It just
  *  decides whether ANY further pick is currently allowed.
  */
-export function featRowModels(bundles = [], catalogEntries = [], { takenFeats = [], remaining = Infinity } = {}) {
+export function featRowModels(bundles = [], catalogEntries = [], { takenFeats = [], remaining = Infinity, abilityScores = {}, raceName = "" } = {}) {
   const catalogByName = new Map(catalogEntries.map((e) => [e?.name, e]));
   const takenByName = new Map(takenFeats.map((f) => [f?.name, f]));
   const canPickMore = !(Number.isFinite(remaining) && remaining <= 0);
   return (bundles || [])
     .map((bundle) => {
       const held = takenByName.get(bundle?.name);
-      return featRowModel(bundle, catalogByName.get(bundle?.name), held
-        ? { taken: true, source: held.source, pickable: canPickMore }
-        : { pickable: canPickMore });
+      return featRowModel(bundle, catalogByName.get(bundle?.name), {
+        ...(held ? { taken: true, source: held.source } : {}),
+        pickable: canPickMore,
+        abilityScores,
+        raceName,
+      });
     })
     .filter(Boolean);
 }
@@ -253,6 +408,10 @@ export function renderFeatListInto(container, rows, deps = {}) {
   const list = doc.createElement("div");
   list.className = "feat-list";
   for (const row of rows) {
+    // A feat whose race/lineage prerequisite this character can't meet is
+    // dropped entirely: its prerequisite isn't printed, and a row that
+    // can't be ticked teaches nothing. Held feats always stay.
+    if (row.hidden) continue;
     const item = doc.createElement("div");
     item.className = "feat-list__row" + (row.taken ? " is-taken" : "") + (row.pickable ? "" : " is-locked");
     item.dataset.featId = row.id;
@@ -293,11 +452,41 @@ export function renderFeatListInto(container, rows, deps = {}) {
     top.className = "feat-list__top";
     top.append(check, icon, main);
 
-    const effect = doc.createElement("p");
+    const effect = doc.createElement("div");
     effect.className = "feat-list__effect";
-    effect.textContent = row.effect;
+    // Each benefit gets its own line. The source writes them as bullets
+    // under a lead sentence; run together they read as one wall of text.
+    if (row.lead) {
+      const lead = doc.createElement("p");
+      lead.className = "feat-list__lead";
+      lead.textContent = row.lead;
+      effect.append(lead);
+    }
+    for (const benefit of row.benefits || []) {
+      const line = doc.createElement("p");
+      line.className = "feat-list__benefit";
+      line.textContent = benefit;
+      effect.append(line);
+    }
+    if (!row.lead && !(row.benefits || []).length) {
+      const plain = doc.createElement("p");
+      plain.textContent = row.effect;
+      effect.append(plain);
+    }
 
     item.append(top, effect);
+
+    // An unmet ability minimum isn't a blocker - the feat stays pickable
+    // - but the player needs the points first, so say so rather than
+    // printing the prerequisite rule itself.
+    if ((row.shortfalls || []).length) {
+      const warn = doc.createElement("p");
+      warn.className = "feat-list__warn";
+      warn.textContent = row.shortfalls
+        .map((s) => `${s.ability.toUpperCase()} ${s.score} needed - ${s.need} more from Ability Scores`)
+        .join(". ");
+      item.append(warn);
+    }
 
     if (row.modifies) {
       const modifies = doc.createElement("p");
