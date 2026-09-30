@@ -4787,6 +4787,42 @@ const closeDialog = () => {
       if (kind === "flexibleAbilityBonus") {
         return liveAbilityAsiBullet([group], saveRules);
       }
+      // Spell picks (High Elf's cantrip) have no bundle options - the
+      // list is the spell catalog, so options are built at open time
+      // from the named list/level, and the pick is also added to the
+      // spell list so it shows up in the spell book.
+      if (kind === "spells") {
+        const spellLevel = group.spellPick.level ?? 0;
+        const spellList = spellsForLevel(spellLevel, group.spellPick.list)
+          .filter((s) => s && s.name)
+          .map((s) => ({ id: s.name, name: s.name, description: s.school || "" }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        const storedSpells = store[group.key] || [];
+        return {
+          live: true,
+          topic: group.label || "Choose a spell",
+          lead: [{ text: storedSpells.length ? storedSpells.join(", ") : "Choose a spell" }],
+          dialogOpener: () => openChoiceDialog({
+            title: group.label || "Choose a spell",
+            multi: group.maxSelections !== 1,
+            maxSelections: group.maxSelections || 1,
+            options: spellList,
+            initialSelected: storedSpells,
+            onAccept: (ids) => {
+              character.rules.choices = { ...(character.rules.choices || {}), [group.key]: ids };
+              const field = ensureSpellListField();
+              (ids || []).forEach((name) => {
+                if (!field || !name) return;
+                if (!(field.items || []).some((it) => (typeof it === "string" ? it : it?.text) === name)) {
+                  appendUniqueTextListItem(field, name);
+                }
+              });
+              saveRules();
+              renderPageGrid();
+            },
+          }),
+        };
+      }
       const opts = groupOptionsOf(group).filter((o) => o.name);
       const lockedIds = [...new Set([...(group.lockedOptionIds || []), ...opts.filter((o) => optionIsOwned(o, owned)).map((o) => o.id)])];
       const stored = store[group.key] || [];

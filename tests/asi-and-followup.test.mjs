@@ -16,6 +16,7 @@ import {
   flexibleAsiSelection,
   buildFlexibleAsiChoice,
   flexibleAsiSummary,
+  choiceDialogKindFor,
 } from "../js/render/sheet/sheetWizard.js";
 import { FIXED_RACE_ENTRIES } from "../js/data/contentFixups.js";
 
@@ -189,5 +190,38 @@ describe("the ASI dropdowns", () => {
 
   it("prompts when nothing is picked", () => {
     assert.match(flexibleAsiSummary(null), /Choose/);
+  });
+});
+
+describe("High Elf trait picks", () => {
+  const highElf = () => {
+    const subrace = (raceBundle("Elf").choiceGroups || []).find((g) => g.id === "elf-subrace");
+    return (subrace?.options || []).find((o) => o.id === "elf-subrace-high") || null;
+  };
+  const group = (id) => (highElf()?.choiceGroups || []).find((g) => g.id === id) || null;
+
+  it("offers an extra-language dropdown without Common", () => {
+    const g = group("elf-subrace-high-language");
+    assert.ok(g, "extra language group missing");
+    assert.equal(g.maxSelections, 1);
+    const names = (g.options || []).map((o) => o.name);
+    assert.ok(names.includes("Dwarvish"));
+    assert.ok(!names.includes("Common"), "Common is free, never a pick");
+  });
+
+  it("routes the cantrip through the wizard cantrip list", () => {
+    const g = group("elf-subrace-high-cantrip");
+    assert.ok(g, "cantrip group missing");
+    assert.deepEqual(g.spellPick, { list: "wizard", level: 0 });
+    assert.equal(choiceDialogKindFor(g), "spells");
+  });
+
+  it("leaves Wood Elf and Drow speeds alone", () => {
+    const subrace = (raceBundle("Elf").choiceGroups || []).find((g) => g.id === "elf-subrace");
+    const speedOf = (id) => ((subrace?.options || []).find((o) => o.id === id)?.featureGrants || [])
+      .filter((f) => /^Speed$/.test(f.name)).map((f) => f.description);
+    assert.deepEqual(speedOf("elf-subrace-wood"), ["35 ft. walking"]);
+    assert.deepEqual(speedOf("elf-subrace-high"), ["30 ft. walking"]);
+    assert.deepEqual(speedOf("elf-subrace-drow"), ["30 ft. walking"]);
   });
 });

@@ -1,4 +1,4 @@
-// contentFixups.js — hand-written pickers for choices the source data
+// contentFixups.js â€” hand-written pickers for choices the source data
 // left as reference-key stubs.
 //
 // DEFAULT_CONTENT (auto-generated, must stay regenerable) and
@@ -11,19 +11,19 @@
 // Single-source rule: FIXED_CLASS_ENTRIES / FIXED_RACE_ENTRIES /
 // patched subclass bundles are built ONCE here (deep-cloned, then
 // patched). blockModel.js (starter dropdowns) and bundleMaps.js
-// (save/load strip+hydrate) both consume these — never the raw
-// imports — so canonical-comparison stays exact. dnd5e.js keeps using
+// (save/load strip+hydrate) both consume these â€” never the raw
+// imports â€” so canonical-comparison stays exact. dnd5e.js keeps using
 // the raw entries (it only reads names/slots/subclass lists).
 //
 // What stays a note on purpose (a free spell of choice with no
-// bounded picker — record it in Spells Known via the spell browser):
+// bounded picker â€” record it in Spells Known via the spell browser):
 // - Warlock Mystic Arcanum. (Bard Magical Secrets used to be here too;
-//   it now has a real picker — see MAGICAL_SECRETS_UNLOCKS.)
+//   it now has a real picker â€” see MAGICAL_SECRETS_UNLOCKS.)
 
 import { DEFAULT_CONTENT } from "./defaultContent.js";
 import { SUBCLASS_SUPPLEMENT } from "./subclassContent.js";
 import { RACE_EXTRA_ENTRIES } from "./extraRaces.js";
-import { SKILLS, ABILITIES } from "./schema.js";
+import { SKILLS, ABILITIES, LANGUAGES } from "./schema.js";
 import {
   CLASS_L1_REPLACEMENTS,
   BG_FEATURE_REPLACEMENTS,
@@ -34,6 +34,7 @@ import {
 } from "./phase1Replacements.js";
 import { withCatalogLink } from "./catalogLinks.js";
 import { withChoiceGroupCategories } from "./choiceCategories.js";
+import { fixPluralDeep } from "./pluralText.js";
 
 const clone = (obj) => JSON.parse(JSON.stringify(obj));
 
@@ -41,10 +42,76 @@ const clone = (obj) => JSON.parse(JSON.stringify(obj));
  *  sheet: an explicit link to its flavor/portrait catalog entry, and
  *  explicit categories on its choice groups (so the wizard doesn't have to
  *  guess either one at render time). One helper so all four entry lists
- *  below stay in step — see js/data/catalogLinks.js and
+ *  below stay in step â€” see js/data/catalogLinks.js and
  *  js/data/choiceCategories.js. */
 const finalizeBundle = (bundle, kind, name) =>
-  withChoiceGroupCategories(withCatalogLink(bundle, kind, name));
+  fixPluralDeep(patchWoodElfSpeed(patchWording(withChoiceGroupCategories(withCatalogLink(bundle, kind, name)))));
+
+/** Race wording corrections, applied by name rather than by rewriting
+ *  compiled data (which must stay regenerable).
+ *
+ *  Each entry is a text replacement scoped to one feature, so a wording
+ *  fix can't quietly rewrite the same phrase somewhere it was correct. */
+const WORDING_FIXES = {
+  // "Max HP increases by 1 per level" is right but reads like a stat line
+  // rather than a rule; the player asked for the extra-per-level phrasing.
+  "Dwarven Toughness": { from: "Max HP increases by 1 per level.", to: "Max HP increases by 1 at 1st level, and by an extra 1 per level after 1st." },
+  // Wood Elf's +5 is applied as a stat modifier on top of the base Elf's
+  // 30 ft, so the total really is 35 - the grant text was just stale.
+  // Deliberately NOT a WORDING_FIXES entry: the grant is named "Speed"
+  // for every elf subrace, so a name-keyed rule would also bump High Elf
+  // and Drow to 35. patchWoodElfSpeed targets just the Wood Elf option.
+};
+
+/** Apply WORDING_FIXES across a bundle's feature grants.
+ *
+ *  Walks the WHOLE bundle, not just its top-level grants: subrace and
+ *  trait grants live inside `choiceGroups[].options[].featureGrants`
+ *  (Hill Dwarf's Dwarven Toughness), so a top-level-only pass silently
+ *  skips every one of them. */
+function patchWording(bundle) {
+  if (!bundle || typeof bundle !== "object") return bundle;
+  if (Array.isArray(bundle)) return bundle.map(patchWording);
+  if (bundle.name && bundle.description) {
+    const fix = WORDING_FIXES[bundle.name];
+    if (fix) {
+      const text = String(bundle.description);
+      if (text.includes(fix.from)) return { ...bundle, description: text.replace(fix.from, fix.to) };
+    }
+  }
+  const out = {};
+  for (const [k, v] of Object.entries(bundle)) {
+    out[k] = (v && typeof v === "object") ? patchWording(v) : v;
+  }
+  return out;
+}
+
+/** Wood Elf's walking speed really is 35 - the +5 is a stat modifier on
+ *  top of the base Elf's 30 - but the printed grant still read 30 ft.
+ *
+ *  Scoped to the subrace option by id rather than by the grant's name:
+ *  every subrace has a grant called "Speed", so a name-matched fix would
+ *  have quietly rewritten High Elf's 30 ft to 35 as well. */
+function patchWoodElfSpeed(bundle) {
+  const groups = (bundle?.choiceGroups || []).map((group) => {
+    if (group.id !== "elf-subrace" || !Array.isArray(group.options)) return group;
+    return {
+      ...group,
+      options: group.options.map((option) => {
+        if (option.id !== "elf-subrace-wood") return option;
+        return {
+          ...option,
+          featureGrants: (option.featureGrants || []).map((grant) => (
+            grant.name === "Speed" && String(grant.description || "").includes("30 ft")
+              ? { ...grant, description: "35 ft. walking" }
+              : grant
+          )),
+        };
+      }),
+    };
+  });
+  return { ...bundle, choiceGroups: groups };
+}
 
 function textOption(prefix, name, description) {
   return {
@@ -74,7 +141,7 @@ function skillExpertiseOptions(prefix) {
     statModifiers: [],
     featureGrants: [{
       name: `Expertise: ${s.label}`,
-      description: `Double your proficiency bonus for ${s.label} checks. The sheet has no doubling mechanic — proficiency plus this note; apply the doubled bonus by hand.`,
+      description: `Double your proficiency bonus for ${s.label} checks. The sheet has no doubling mechanic â€” proficiency plus this note; apply the doubled bonus by hand.`,
       minLevel: null,
     }],
     resourceGrants: [],
@@ -108,7 +175,7 @@ function fightingStyleGroup(prefix, minLevel, styles) {
     id: `${prefix}-fighting-style`, label: "Fighting Style", minLevel,
     minSelections: 1, maxSelections: 1,
     options: styles.map((s) => textOption(`${prefix}-fighting-style`, s,
-      `${FIGHTING_STYLES[s]} (Recorded here — conditional combat mechanics like this are tracked, not auto-applied.)`)),
+      `${FIGHTING_STYLES[s]} (Recorded here â€” conditional combat mechanics like this are tracked, not auto-applied.)`)),
   };
 }
 
@@ -163,12 +230,12 @@ const PACT_BOONS = {
 
 // --- Free-form racial ASIs ------------------------------------------------------
 // One independent +1 slot group per increasable score (three slots =
-// any 3-point split, duplicates stacking) — the old 15-pair +
+// any 3-point split, duplicates stacking) â€” the old 15-pair +
 // 20-triple combo picker couldn't express duplicate picks, and the
 // compute path collapses duplicate ids within a single group, so
 // combos had to go. The wizard renders one ability dropdown per slot.
 function asiSlotOptions(prefix, slot, abilityIds) {
-  // Abbreviated labels everywhere ("STR", never "Strength") — tooltips
+  // Abbreviated labels everywhere ("STR", never "Strength") â€” tooltips
   // on the rendered dropdowns carry the full names.
   return abilityIds.map((aid) => ({
     id: `${prefix}-asi-${slot}-${aid}`, name: aid.toUpperCase(), description: "",
@@ -185,7 +252,7 @@ function asiSlotGroups(prefix, minLevel, count, abilityIds = ABILITIES.map((a) =
 }
 // Retired combo groups ({prefix}-asi with 35 pair/triple options,
 // half-elf-abilities with 10 pair options) map onto the slot groups
-// above for characters that picked under the old shape — see
+// above for characters that picked under the old shape â€” see
 // migrateAsiComboPicks in sheetWizard.js. optionPrefix is the combo
 // option id stem; the trailing ability segments parse back into slot
 // picks (a 2-segment pair doubles its first ability: +2/+1).
@@ -233,12 +300,12 @@ function patchRogue(bundle) {
   const thieves = {
     id: "rogue-expertise-thieves-tools", name: "Thieves' Tools", description: "",
     statModifiers: [],
-    featureGrants: [{ name: "Expertise: Thieves' Tools", description: "Double your proficiency bonus with Thieves' Tools. Tracked here — apply manually.", minLevel: null }],
+    featureGrants: [{ name: "Expertise: Thieves' Tools", description: "Double your proficiency bonus with Thieves' Tools. Tracked here â€” apply manually.", minLevel: null }],
     resourceGrants: [],
   };
   levels.forEach((minLevel, i) => {
     const group = {
-      id: `rogue-expertise-${i}`, label: "Expertise — pick 2 of your proficiencies", minLevel,
+      id: `rogue-expertise-${i}`, label: "Expertise â€” pick 2 of your proficiencies", minLevel,
       minSelections: 2, maxSelections: 2,
       category: "skills",
       options: [...skillExpertiseOptions("rogue"), thieves],
@@ -252,7 +319,7 @@ function patchBard(bundle) {
   const levels = takeNotes(bundle, (g) => /^Expertise/.test(g.name || ""));
   levels.forEach((minLevel, i) => {
     const group = {
-      id: `bard-expertise-${i}`, label: "Expertise — pick 2 of your proficiencies", minLevel,
+      id: `bard-expertise-${i}`, label: "Expertise â€” pick 2 of your proficiencies", minLevel,
       minSelections: 2, maxSelections: 2,
       category: "skills",
       options: skillExpertiseOptions("bard"),
@@ -260,7 +327,7 @@ function patchBard(bundle) {
     bundle.choiceGroups.push(group);
   });
   // Magical Secrets stubs are removed (not replaced with a choice
-  // group — hundreds of spell options would bloat every save). The
+  // group â€” hundreds of spell options would bloat every save). The
   // picker lives in the wizard instead: MAGICAL_SECRETS_UNLOCKS in
   // sheetWizard.js plus the Magical Secrets section on the Bard's
   // spell steps, writing straight to Spells Known.
@@ -273,10 +340,10 @@ function patchSorcerer(bundle) {
   const counts = [2, 1, 1]; // L3 two, L10 +1, L17 +1
   levels.forEach((minLevel, i) => {
     const group = {
-      id: `sorcerer-metamagic-${i}`, label: `Metamagic — pick ${counts[i] ?? 1}`, minLevel,
+      id: `sorcerer-metamagic-${i}`, label: `Metamagic â€” pick ${counts[i] ?? 1}`, minLevel,
       minSelections: counts[i] ?? 1, maxSelections: counts[i] ?? 1,
       category: "features",
-      options: Object.entries(METAMAGIC).map(([n, d]) => textOption(`sorcerer-metamagic-${i}`, n, `${d} (Costs sorcery points — tracked, not auto-spent.)`)),
+      options: Object.entries(METAMAGIC).map(([n, d]) => textOption(`sorcerer-metamagic-${i}`, n, `${d} (Costs sorcery points â€” tracked, not auto-spent.)`)),
     };
     bundle.choiceGroups.push(group);
   });
@@ -290,10 +357,10 @@ function patchWarlock(bundle) {
   const tiers = [{ minLevel: base, count: 2 }, { minLevel: 5, count: 1 }, { minLevel: 7, count: 1 }, { minLevel: 9, count: 1 }, { minLevel: 12, count: 1 }, { minLevel: 15, count: 1 }, { minLevel: 18, count: 1 }];
   tiers.forEach((tier, i) => {
     const group = {
-      id: `warlock-invocations-${i}`, label: `Eldritch Invocations — pick ${tier.count} (level ${tier.minLevel}+)`, minLevel: tier.minLevel,
+      id: `warlock-invocations-${i}`, label: `Eldritch Invocations â€” pick ${tier.count} (level ${tier.minLevel}+)`, minLevel: tier.minLevel,
       minSelections: tier.count, maxSelections: tier.count,
       category: "features",
-      options: INVOCATIONS.map(([n, d]) => textOption(`warlock-invocations-${i}`, n, `${d} (Recorded here — prerequisites apply, see text.)`)),
+      options: INVOCATIONS.map(([n, d]) => textOption(`warlock-invocations-${i}`, n, `${d} (Recorded here â€” prerequisites apply, see text.)`)),
     };
     bundle.choiceGroups.push(group);
   });
@@ -307,7 +374,7 @@ function patchWarlock(bundle) {
     };
     bundle.choiceGroups.push(group);
   }
-  // Mystic Arcanum intentionally stays a note (free spell of choice —
+  // Mystic Arcanum intentionally stays a note (free spell of choice â€”
   // record it in Spells Known via the browser).
   return bundle;
 }
@@ -324,7 +391,7 @@ const CLASS_PATCHERS = {
 
 // --- Phase 1 content audit (docs/CONTENT-AUDIT-2026-09.md) ----------------------
 // Compiled defaultContent.js is generated and its original inputs are
-// not in this repo, so audit fixes land in this patch layer — the same
+// not in this repo, so audit fixes land in this patch layer â€” the same
 // layer blockModel.js (starter dropdowns) and bundleMaps.js (save/load
 // canonicals) already treat as canonical. Every replacement string
 // comes from js/data/phase1Replacements.js (verbatim audit-table
@@ -332,7 +399,7 @@ const CLASS_PATCHERS = {
 // items in docs/phase1-gaps.md.
 
 // Explicit choice-group categories (audit systemic fix 5). Set by
-// exact group id — never inferred from label text. Groups created by
+// exact group id â€” never inferred from label text. Groups created by
 // patchers above carry their category at birth; this fills in the
 // compiled groups. The 26 audit-listed ids are all here, plus the
 // Artificer's own skill/tool groups for consistency.
@@ -457,7 +524,7 @@ function applyPhase1Drops(name, bundle) {
 // Every other "(Optional)" class grant is a Tasha's optional rule
 // (Primal Knowledge, Steady Aim, Harness Divine Power, ...): not a
 // default grant, but genuine content for characters with the Tasha's
-// pack — so mark, don't drop. Display/compute layers filter
+// pack â€” so mark, don't drop. Display/compute layers filter
 // `requiresPack` grants against the included books.
 function markTashaOptionals(bundle) {
   for (const g of (bundle.featureGrants || [])) {
@@ -518,7 +585,7 @@ function rangerPhase1Groups() {
     },
     // The mutually exclusive alternative to the standard pair: one
     // explicit opt-in, visible only with the Tasha's pack, picked only
-    // by choosing it. The option carries a pointer, not rules text —
+    // by choosing it. The option carries a pointer, not rules text â€”
     // no sourced mechanics exist in this repo (see phase1-gaps.md).
     {
       id: "ranger-class-variant", label: "Class Feature Variant (Tasha's Cauldron)",
@@ -541,7 +608,7 @@ function acolytePhase1Groups(bundle) {
   if ((bundle.choiceGroups || []).some((g) => g.id === "acolyte-prayer-focus")) return bundle;
   // Prayer book or prayer wheel: one pick, driving both the review
   // line and the starting-equipment resolution (see
-  // BG_EQUIPMENT_LINKS in startingEquipment.js) — never two prompts.
+  // BG_EQUIPMENT_LINKS in startingEquipment.js) â€” never two prompts.
   bundle.choiceGroups.push({
     id: "acolyte-prayer-focus", label: "Prayer Focus", minLevel: 1,
     minSelections: 1, maxSelections: 1, category: "equipment",
@@ -585,7 +652,7 @@ function phase1BackgroundPatch(name, bundle) {
 // --- Artificer infusions (TCE, 16 total) --------------------------------------
 // Summaries below are short paraphrases of what each infusion does (item
 // type, attunement, level prerequisite), matching the tone of the other
-// hand-written pickers here — not the book's full prose. Level-gated
+// hand-written pickers here â€” not the book's full prose. Level-gated
 // infusions stay selectable with a "Requires Nth level" note, the same
 // way warlock invocation prerequisites are handled above.
 const ARTIFICER_INFUSIONS = [
@@ -595,7 +662,7 @@ const ARTIFICER_INFUSIONS = [
   ["Homunculus Servant", "A gem or crystal worth 100+ gp. Creates a flying scout companion that can channel your touch-range spells."],
   ["Mind Sharpener", "A suit of armor or robes (requires attunement). 4 charges; use a reaction to turn a failed concentration save into a success."],
   ["Returning Weapon", "A simple or martial weapon with the thrown property. +1 to attack and damage; returns to your hand after the attack."],
-  ["Replicate Magic Item", "Learn this multiple times (each pick is a different item). Replicate a common magic item from the leveled tables — record which item on the pick."],
+  ["Replicate Magic Item", "Learn this multiple times (each pick is a different item). Replicate a common magic item from the leveled tables â€” record which item on the pick."],
   ["Radiant Weapon", "Requires 6th level. A simple or martial weapon (requires attunement). +1; bonus-action light plus a reaction blind (4 charges)."],
   ["Repeating Shot", "A simple or martial weapon with the ammunition property (requires attunement). +1 to ranged attacks; ignores loading; conjures its own ammunition."],
   ["Repulsion Shield", "Requires 6th level. A shield (requires attunement). +1 to AC; reaction push when hit (4 charges)."],
@@ -609,10 +676,10 @@ const ARTIFICER_INFUSIONS = [
 
 function artificerInfusionGroup(index, minLevel, count) {
   return {
-    id: `artificer-infusions-${index}`, label: `Infusions Known — pick ${count} (level ${minLevel}+)`, minLevel,
+    id: `artificer-infusions-${index}`, label: `Infusions Known â€” pick ${count} (level ${minLevel}+)`, minLevel,
     minSelections: count, maxSelections: count,
     category: "features",
-    options: ARTIFICER_INFUSIONS.map(([n, d]) => textOption(`artificer-infusions-${index}`, n, `${d} (Recorded here — each infusion lives in one object at a time; see Infuse Item.)`)),
+    options: ARTIFICER_INFUSIONS.map(([n, d]) => textOption(`artificer-infusions-${index}`, n, `${d} (Recorded here â€” each infusion lives in one object at a time; see Infuse Item.)`)),
   };
 }
 
@@ -648,7 +715,7 @@ function patchFreeformAsi(bundle, prefix) {
 }
 
 // --- Dwarven subraces ---------------------------------------------------------------
-// Base Dwarves carry no traits or bonuses of their own — Hill,
+// Base Dwarves carry no traits or bonuses of their own â€” Hill,
 // Mountain, and Duergar each arrive as a full kit, with the shared
 // dwarven traits (Constitution, darkvision, poison resilience,
 // stonecunning, weapon training, languages, unslowed speed)
@@ -715,7 +782,7 @@ function dwarfBaseEntry(entry) {
                 { targetFieldId: "strScore", op: "add", value: 1, minLevel: null },
               ],
               // Superior darkvision replaces (not joins) the shared 60
-              // ft. — only the override is listed.
+              // ft. â€” only the override is listed.
               featureGrants: [
                 { name: "Dwarven Resilience", description: "Advantage on saving throw against poison damage.", minLevel: null },
                 { name: "Stonecunning", description: "Double proficiency bonus on history checks related to stonework origin.", minLevel: null },
@@ -737,12 +804,12 @@ function dwarfBaseEntry(entry) {
 
 // Standalone Hill/Mountain/Duergar races and standalone Air/Earth/
 // Fire/Water Genasi are superseded by the Dwarf/Genasi bases' subrace
-// pickers below — they leave the race list (existing characters
+// pickers below â€” they leave the race list (existing characters
 // holding one are migrated to the base race + the matching pick on
 // sheet open; see healLegacySubsumedRaces in customSheet.js).
 export const SUPERSEDED_RACE_NAMES = new Set(["Hill Dwarf", "Mountain Dwarf", "Duergar", "Air Genasi", "Earth Genasi", "Fire Genasi", "Water Genasi"]);
 
-/** Pre-subrace bundles for the gutted bases, keyed by race name —
+/** Pre-subrace bundles for the gutted bases, keyed by race name â€”
  *  each value is the list of historical shapes that count as "an
  *  uncustomized older copy, upgrade me". Dwarf/Gnome/Halfling are
  *  computed from the still-present compiled sources via the same
@@ -772,7 +839,7 @@ export function legacyRaceBundles() {
       { name: "Keen Senses", description: "You have proficiency in the Perception skill.", minLevel: 1 },
       { name: "Fey Ancestry", description: "You have advantage on saving throws against being charmed, and magic can't put you to sleep.", minLevel: 1 },
       { name: "Trance", description: "Elves don't need to sleep. You meditate for 4 hours instead (still considered a long rest).", minLevel: 1 },
-      { name: "Elven Subrace", description: "Choose a subrace with your DM (High, Wood, or Drow) — it grants extra traits. Track your subrace pick by hand for now; there is no subrace picker yet.", minLevel: 1 },
+      { name: "Elven Subrace", description: "Choose a subrace with your DM (High, Wood, or Drow) â€” it grants extra traits. Track your subrace pick by hand for now; there is no subrace picker yet.", minLevel: 1 },
       { name: "Speed", description: "30 ft. walking", minLevel: 1 },
     ],
     resourceGrants: [],
@@ -841,7 +908,7 @@ export function legacyRaceBundles() {
 }
 
 // --- Gnomish + Halfling subraces ------------------------------------------------
-// Base Gnomes/Halflings carry no traits or bonuses of their own —
+// Base Gnomes/Halflings carry no traits or bonuses of their own â€”
 // Forest/Rock and Lightfoot/Stout each arrive as a full kit, with the
 // shared traits duplicated onto every option (same rule as elves and
 // dwarves above).
@@ -1043,7 +1110,7 @@ function patchHunterConclave(bundle) {
     id: "hunter-conclave-prey", label: "Hunter's Prey", minLevel: 3, minSelections: 1, maxSelections: 1,
     category: "features",
     // Chosen once at 3rd level (a permanent build decision; later Hunter
-    // picks are separate level-gated groups, still unsourced — see
+    // picks are separate level-gated groups, still unsourced â€” see
     // docs/subclass-gaps.md).
     choiceKind: "build",
     options: [
@@ -1101,7 +1168,7 @@ export const FIXED_BG_ENTRIES = DEFAULT_CONTENT.bgEntries
 
 export const FIXED_CLASS_ENTRIES = [
   ...DEFAULT_CONTENT.classEntries.map(patchClassEntry),
-  // Artificer (TCE) — the compiled sources never covered this class,
+  // Artificer (TCE) â€” the compiled sources never covered this class,
   // so it lives here with the other hand-written gaps: saves, armor/
   // weapon/tool proficiencies, subclass access to its four specialists,
   // level-gated class features, infusion pickers, tracked resources,
@@ -1260,8 +1327,60 @@ function addLineageSkillFollowUp(bundle) {
   bundle.choiceGroups = without;
 }
 
+/** High Elf gets two choices its trait text only describes:
+ *  "one extra language of your choice" and "one cantrip of your choice
+ *  from the wizard spell list". Both were bare prose, so the player had
+ *  to read the rule and then work out where to make the pick. Giving each
+ *  a real choice group puts the control on the row, and the existing
+ *  dropdown/dialog machinery renders them like every other pick. */
+function patchHighElfChoices(bundle) {
+  const group = (bundle?.choiceGroups || []).find((g) => g.id === "elf-subrace");
+  if (!group) return bundle;
+  const high = (group.options || []).find((o) => o.id === "elf-subrace-high");
+  if (!high) return bundle;
+  const has = (id) => (high.choiceGroups || []).some((g) => g.id === id);
+  const extra = [];
+  if (!has("elf-subrace-high-language")) {
+    extra.push({
+      id: "elf-subrace-high-language",
+      label: "Extra Language",
+      minLevel: 1,
+      minSelections: 1,
+      maxSelections: 1,
+      category: "languages",
+      // Every language the sheet knows, minus Common (free and never a
+      // pick) â€” the same vocabulary the other language groups use.
+      options: LANGUAGES
+        .filter((name) => name !== "Common")
+        .map((name) => ({ id: `elf-subrace-high-language-${String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, name })),
+    });
+  }
+  if (!has("elf-subrace-high-cantrip")) {
+    extra.push({
+      id: "elf-subrace-high-cantrip",
+      label: "Cantrip",
+      minLevel: 1,
+      minSelections: 1,
+      maxSelections: 1,
+      category: "spells",
+      // Handled by the spells dialog rather than a dropdown - the wizard
+      // cantrip list is long, and the dialog already filters to the
+      // right spell list and level.
+      spellPick: { list: "wizard", level: 0 },
+      options: [{ id: "elf-subrace-high-cantrip-pending", name: "Choose a cantrip", description: "Opens the wizard cantrip list." }],
+    });
+  }
+  if (!extra.length) return bundle;
+  return {
+    ...bundle,
+    choiceGroups: (bundle.choiceGroups || []).map((g) => (
+      g.id === "elf-subrace" ? { ...g, options: (g.options || []).map((o) => (o.id === "elf-subrace-high" ? { ...o, choiceGroups: [...(o.choiceGroups || []), ...extra] } : o)) } : g
+    )),
+  };
+}
+
 // Custom Lineage's variable-trait option reads "Darkvision 60" in
-// compiled data — parenthesized range reads better everywhere the
+// compiled data â€” parenthesized range reads better everywhere the
 // name surfaces (profile dropdown, review lines, applied feature
 // list). Darkvision detection matches /darkvision/i on the name, so
 // categorization is unaffected. Option id untouched, so stored picks
@@ -1288,7 +1407,7 @@ function patchLineageTraitNames(bundle) {
 
 // Ability-named options ("+2 STR", "+1 STR") read better abbreviated
 // ("STR") everywhere the option name surfaces (profile dropdowns,
-// review lines, Leveling radios) — tooltips on the rendered controls
+// review lines, Leveling radios) â€” tooltips on the rendered controls
 // carry the full names. Derived from each option's own score target
 // (single score-add only), never parsed from the name. Copy options
 // before renaming: the array above is fresh but the option objects
@@ -1319,8 +1438,11 @@ export const FIXED_RACE_ENTRIES = [
       return entry;
     }),
   // Extra races arrive fully formed (subrace pickers attached in
-  // extraRaces.js) — no patching needed.
-  ...RACE_EXTRA_ENTRIES,
+  // extraRaces.js) â€” no patching needed, though the Elf's High
+  // subrace still needs its two trait picks turned into real rows.
+  ...RACE_EXTRA_ENTRIES.map((entry) => (
+    entry.name === "Elf" ? { ...entry, bundle: patchHighElfChoices(entry.bundle) } : entry
+  )),
   // Base Genasi with its four elemental subraces.
   genasiBaseEntry(),
 ].map((entry) => ({ ...entry, bundle: finalizeBundle(entry.bundle, "race", entry.name) }));
@@ -1347,7 +1469,7 @@ export const normSubclassKey = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]
 // fixed tags; skill/tool choice groups stay pickable as usual, and
 // the Equipment Proficiencies tab covers anything else by hand.
 // Subclass bundles are never stripped (their features are the point).
-// Returns a fresh object per call — never persisted, only computed.
+// Returns a fresh object per call â€” never persisted, only computed.
 export function stripSecondaryClassBundle(bundle) {
   if (!bundle) return null;
   return {
@@ -1358,7 +1480,7 @@ export function stripSecondaryClassBundle(bundle) {
   };
 }
 
-// Patched subclass bundles keyed by normalized subclass name — the
+// Patched subclass bundles keyed by normalized subclass name â€” the
 // single source blockModel (starter choices) and bundleMaps
 // (save/load canonicals) both read from.
 export const SUBCLASS_BUNDLE_MAP = new Map(

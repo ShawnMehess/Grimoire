@@ -98,15 +98,18 @@ export function linkEntries(entries, kind) {
 // last (after the pure helpers above) to keep the dependency one-way.
 import { FEAT_BUNDLES } from "./featBundles.js";
 import { withChoiceGroupCategories } from "./choiceCategories.js";
+import { fixPluralDeep } from "./pluralText.js";
 
-/** FEAT_BUNDLES with both fixups applied: linked to their FEAT_CATALOG
- *  entry (for flavor/portrait) and carrying explicit choice-group
- *  categories. Callers needing a feat's mechanics bundle should read this,
- *  not the raw export. Feat entries ARE bundles (they carry a name and
- *  category alongside their mechanics), not {name, bundle} wrappers, so
- *  they link directly. */
+/** FEAT_BUNDLES with every fixup applied: linked to their FEAT_CATALOG
+ *  entry (for flavor/portrait), carrying explicit choice-group
+ *  categories, and with the shared grammar pass run over the prose.
+ *  Feat benefit text is full of "one feat(s)" / "proficiency(ies)"
+ *  source placeholders, so it needs pluralText too. Callers needing a
+ *  feat's mechanics bundle should read this, not the raw export. Feat
+ *  entries ARE bundles (they carry a name and category alongside their
+ *  mechanics), not {name, bundle} wrappers, so they link directly. */
 export const LINKED_FEAT_BUNDLES = FEAT_BUNDLES.map((bundle) =>
-  withChoiceGroupCategories(withCatalogLink(bundle, "feat", bundle.name))
+  fixPluralDeep(withChoiceGroupCategories(withCatalogLink(bundle, "feat", bundle.name)))
 );
 
 /** Which kind a bundle's own `category` claims, for migration. Mirrors

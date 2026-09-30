@@ -1886,6 +1886,10 @@ function renderMultiPickerRows(container, names, { selectedSet, onToggle, getInf
 export function choiceDialogKindFor(group) {
   if (!group) return null;
   if (group.type === "flexibleAbilityBonus") return "flexibleAbilityBonus";
+  // A spell pick (High Elf's cantrip) is a real pick, but its options
+  // are the spell list rather than anything in the bundle, so the row
+  // opens the shared dialog over catalog entries.
+  if (group.spellPick) return "spells";
   const label = `${group.label || ""} ${group.source || ""}`;
   if (/fighting style/i.test(label)) return "styles";
   if (/expertise/i.test(label)) return "expertise";
