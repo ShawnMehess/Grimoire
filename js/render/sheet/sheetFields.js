@@ -1615,7 +1615,7 @@ export function openCatalogFieldConfigInto(field, wrapperEl, deps) {
 //   buildTagListValueInto(field, grantedSet, {commitFn})
 
 export function buildTextListValueInto(field, deps) {
-  const { commitFn } = deps;
+  const { commitFn, headerFn = null, rowExtrasFn = null, rowClassFn = null, displayItemsFn = null, removeRowFn = null } = deps;
   ensureItems(field);
   const el = document.createElement("div");
   el.className = "field-value field-value--textlist";
@@ -1625,36 +1625,60 @@ export function buildTextListValueInto(field, deps) {
   itemsWrap.className = "textlist-items";
   let dragFromIndex = null;
 
+  /** What to draw. Normally field.items itself; a caller whose rows come
+   *  from more than one list (the spell listing: held spells PLUS prepared
+   *  spells) supplies its own. Returns `{ text, itemsIndex }`, where
+   *  itemsIndex is null for a row with no entry in field.items to edit,
+   *  reorder or remove. */
+  function displayRows() {
+    if (typeof displayItemsFn === "function") return displayItemsFn();
+    return field.items.map((text, index) => ({ text, itemsIndex: index }));
+  }
+
   function renderItems() {
     itemsWrap.innerHTML = "";
-    field.items.forEach((text, index) => {
+    displayRows().forEach(({ text, itemsIndex }) => {
+      // Callers can hide rows - the spell listing's "prepared only" filter
+      // does - and index stays the index into field.items, not into the
+      // visible subset, so a hidden row still drags and removes correctly.
+      const editable = itemsIndex !== null && itemsIndex !== undefined;
+      if (typeof rowClassFn === "function") {
+        const classes = rowClassFn(text, itemsIndex);
+        if (typeof classes === "string" && classes.includes("is-hidden")) return;
+      }
       const row = document.createElement("div");
-      row.className = "textlist-item";
-      row.draggable = true;
+      row.className = "textlist-item" + (typeof rowClassFn === "function" ? ` ${rowClassFn(text, itemsIndex) || ""}`.trimEnd() : "");
+      // Only rows that have an entry in field.items can be dragged, since
+      // a reordering drag moves items in that array. A borrowed row (the
+      // spell listing's prepared-only spells) has nothing to move, so it
+      // shows no handle rather than a handle that silently does nothing.
+      row.draggable = editable;
 
-      row.addEventListener("dragstart", (e) => {
-        dragFromIndex = index;
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", ""); // Firefox needs data set to allow the drag
-        row.classList.add("is-dragging");
-      });
-      row.addEventListener("dragend", () => row.classList.remove("is-dragging"));
-      row.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-      });
-      row.addEventListener("drop", (e) => {
-        e.preventDefault();
-        if (dragFromIndex === null || dragFromIndex === index) return;
-        commitFn(() => {
-          moveListItem(field.items, dragFromIndex, index);
-        }, { render: false });
-        renderItems();
-      });
+      if (editable) {
+        row.addEventListener("dragstart", (e) => {
+          dragFromIndex = itemsIndex;
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", ""); // Firefox needs data set to allow the drag
+          row.classList.add("is-dragging");
+        });
+        row.addEventListener("dragend", () => row.classList.remove("is-dragging"));
+        row.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        });
+        row.addEventListener("drop", (e) => {
+          e.preventDefault();
+          if (dragFromIndex === null || dragFromIndex === itemsIndex) return;
+          commitFn(() => {
+            moveListItem(field.items, dragFromIndex, itemsIndex);
+          }, { render: false });
+          renderItems();
+        });
+      }
 
       const handle = document.createElement("span");
       handle.className = "textlist-item__handle";
-      handle.textContent = "⠿";
+      handle.textContent = editable ? "⠿" : "";
 
       const bullet = document.createElement("span");
       bullet.className = "textlist-item__bullet";
@@ -1662,15 +1686,17 @@ export function buildTextListValueInto(field, deps) {
 
       const textEl = document.createElement("div");
       textEl.className = "textlist-item__text";
-      textEl.contentEditable = "true";
+      textEl.contentEditable = editable ? "true" : "false";
       textEl.textContent = text;
       textEl.addEventListener("pointerdown", (e) => e.stopPropagation());
       textEl.addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
-      textEl.addEventListener("input", () => {
-        commitFn(() => {
-          setListItem(field.items, index, textEl.textContent);
-        }, { render: false });
-      });
+      if (editable) {
+        textEl.addEventListener("input", () => {
+          commitFn(() => {
+            setListItem(field.items, itemsIndex, textEl.textContent);
+          }, { render: false });
+        });
+      }
 
       const removeBtn = document.createElement("button");
       removeBtn.type = "button";
@@ -1682,16 +1708,36 @@ export function buildTextListValueInto(field, deps) {
       removeBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         commitFn(() => {
-          removeListItem(field.items, index);
+          // A borrowed row has no entry in field.items, so the caller says
+          // what removing it means - for prepared-only spells, that is
+          // unpreparing, not deleting a spell you do not have.
+          if (editable) removeListItem(field.items, itemsIndex);
+          else removeRowFn?.(text);
         }, { render: false });
         renderItems();
       });
 
       row.append(handle, bullet, textEl, removeBtn);
+      // Caller-supplied row furniture - the spell listing's prepared toggle.
+      // Appended after the remove button so the list's own controls stay in
+      // their familiar place and the extra one is at the far end of the row.
+      if (typeof rowExtrasFn === "function") {
+        for (const extra of rowExtrasFn(text, itemsIndex) || []) {
+          if (extra) row.append(extra);
+        }
+      }
       itemsWrap.append(row);
     });
   }
   renderItems();
+
+  // Header goes above the rows and OUTSIDE the re-rendered items wrapper,
+  // so a filter toggle does not rebuild the control that was pressed. The
+  // caller owns its state.
+  if (typeof headerFn === "function") {
+    const header = headerFn();
+    if (header) el.append(header);
+  }
 
   const addBtn = document.createElement("button");
   addBtn.type = "button";

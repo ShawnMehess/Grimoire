@@ -966,6 +966,119 @@
   gap: 2px;
 }
 
+/* --- Spell listing: prepared chrome ---------------------------------------
+ *
+ * The spell list is an ordinary textlist; these are the parts it asks the
+ * textlist shell for. A prepared counter's colour carries the state, so the
+ * numbers are always present as text too - colour alone would fail anyone
+ * who cannot distinguish it, and the whole point of the counter is the
+ * number.
+ *
+ * Nothing here renders for a class with no prepared list; see
+ * spellListChrome in customSheet.js. */
+
+.spell-list-chrome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-inset);
+  font-size: var(--text-sm);
+}
+
+.spell-list-chrome__count {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+/* Over the limit is a WARNING, not an error: the wizard asks for ability
+   scores after the class, so a correct prepared list can end up over one
+   the player never intended. Nothing is deleted for it. */
+.spell-list-chrome__count--over {
+  color: var(--color-negative);
+}
+
+.spell-list-chrome__warning {
+  flex: 1 1 14rem;
+  color: var(--color-negative);
+  font-size: var(--text-xs);
+}
+
+.spell-list-chrome__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+/* A prepared caster's unprepared spells. Dimmed rather than hidden by
+   default: the listing is the character's whole spellbook and hiding
+   anything without being asked would be lying about what they have. */
+.textlist-item.spell-row--unprepared .textlist-item__text {
+  color: var(--color-text-faint);
+}
+
+.textlist-item.spell-row--prepared .textlist-item__text {
+  font-weight: 600;
+}
+
+/* The "prepared only" filter removes the row outright. A filter that left
+   dimmed ghosts behind is one you have to read past. */
+.textlist-item.is-hidden {
+  display: none;
+}
+
+.spell-row__ritual {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.spell-row__prepared-toggle {
+  flex: none;
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.spell-row__prepared-toggle:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.spell-row__prepared-toggle.is-prepared {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* An always-prepared spell: shown, said to be prepared, and not clickable.
+   The cursor is not "not-allowed" because there is nothing to refuse - the
+   choice was made by the subclass, not refused by the app. */
+.spell-row__prepared-toggle.is-locked {
+  opacity: 0.55;
+  cursor: default;
+  border-style: dashed;
+}
+
 .textlist-item {
   display: flex;
   align-items: center;

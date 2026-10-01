@@ -258,6 +258,12 @@ import {
   preparedCountOver,
   levelUpSpellPickGroups,
   renderMagicalSecretsInto,
+  spellRowView,
+  preparedCounter,
+  togglePreparedSpell,
+  spellIsRitual,
+  preparedOnlyFor,
+  setPreparedOnlyFor,
   applySpellPickToItems,
   alwaysPreparedSpellNames,
   creationSpellPickGroups,
@@ -7749,11 +7755,217 @@ const closeDialog = () => {
   /** Draggable-to-reorder bulleted list — used by the "textlist" field
    *  type. Each item's own text is independently editable; the row
    *  itself (not the text) is the drag source, so dragging never
-   *  fights with placing a text caret. */
+   *  fights with placing a text caret.
+   *
+   *  The spell list IS a textlist, so rather than a second renderer that
+   *  would have to keep its own copy of the same list in step, the generic
+   *  shell asks its caller for row furniture and a header. Everything below
+   *  that is spell-specific lives in spellListChrome(). */
   function buildTextListValue(field) {
+    const spellChrome = isSpellListField(field) ? spellListChrome(field) : null;
     return buildTextListValueInto(field, {
       commitFn: (fn, opts) => commitMutation(fn, opts),
+      headerFn: spellChrome ? () => spellChrome.header() : null,
+      rowExtrasFn: spellChrome ? (name, index) => spellChrome.rowExtras(name, index) : null,
+      rowClassFn: spellChrome ? (name) => spellChrome.rowClass(name) : null,
+      displayItemsFn: spellChrome ? () => spellChrome.rows() : null,
+      removeRowFn: spellChrome ? (name) => spellChrome.removeRow(name) : null,
     });
+  }
+
+  /** Whether this field is THE spell list, rather than any other textlist. */
+  function isSpellListField(field) {
+    if (!field) return false;
+    return field.id === "spellsKnown" || /^spells known$/i.test(String(field.label || "").trim());
+  }
+
+  /** The spell listing's prepared chrome: the counter, the filter, and each
+   *  row's toggle.
+   *
+   *  Every part of it is suppressed for a class with no prepared list. A
+   *  Sorcerer seeing "0 / 0 prepared", a column of dead toggles and a
+   *  filter that can only dim spells they do not prepare is worse than
+   *  seeing none of it: it implies a prepared list exists and is empty.
+   *
+   *  Reads `character.rules` and the outer-scope ruleset helpers rather than
+   *  the wizard's `state`, because the sheet renders outside the creation
+   *  wizard - there is no `state` in this scope.
+   *
+    *  The filter's state lives in a module-level map rather than in this
+    *  closure or the DOM, because the rows re-render on every toggle. */
+  function spellListChrome(field) {
+    const rules = character.rules || {};
+    const levelClass = rules.className || "";
+    const level = rules.level || 1;
+    const model = spellcastingModelFor(levelClass, currentRulesetId(), {
+      infoFor: (name) => getSpellcastingInfo(name),
+    });
+    const hasPreparedList = Boolean(model?.hasPreparedList);
+    const limit = spellLimitFor(levelClass, level, rules.abilityScores);
+    const alwaysPrepared = [...alwaysPreparedSpellNames(
+      [bundleFor("Class", levelClass, includedRulesetIdsFor()), bundleFor("Subclass", rules.subclass, includedRulesetIdsFor())]
+        .filter(Boolean),
+      level,
+    )];
+    // Read once per render. A local `let` would already be back to false by
+    // the time the filter's own change handler ran renderPageGrid(), so the
+    // checkbox would visibly tick and then tick itself off again - the
+    // filter would never hide anything.
+    const preparedOnly = preparedOnlyFor(character?.id);
+
+    const spellOf = (name) => {
+      const text = typeof name === "string" ? name : name?.text;
+      if (!text) return null;
+      const level = spellLevelByName(text);
+      return level === null ? null : spellsForLevel(level, levelClass).find((s) => s.name === text) || { name: text, level };
+    };
+    /** The rows to draw: held/spellbook entries first, in their own order,
+     *  then prepared spells that are not among them.
+     *
+     *  A full-list preparer does not keep their prepared spells in `items` -
+     *  section 2 established that `items` holds what the player added, and
+     *  `preparedItems` holds what they chose to prepare, so that neither
+     *  number lies about the other. But this listing is the player's view of
+     *  their own spell list, and a prepared spell they cannot see is a
+     *  prepared spell they cannot unprepare without going back to the level
+     *  screen. So the listing is the union of the two, and each row records
+     *  which array it came from so editing and reordering still hit the
+     *  right one.
+     *
+     *  itemsIndex is null for a prepared-only row: there is no entry in
+     *  `items` to edit, drag or delete. */
+    function rows() {
+      const held = (field.items || []).map((text, index) => ({ text, itemsIndex: index }));
+      if (!hasPreparedList) return held;
+      const seen = new Set(held.map((r) => r.text));
+      const preparedOnly = (field.preparedItems || [])
+        .filter((name) => !seen.has(name))
+        .map((name) => {
+          seen.add(name);
+          return { text: name, itemsIndex: null };
+        });
+      return [...held, ...preparedOnly];
+    }
+
+    const viewOf = (name) => {
+      const spell = spellOf(name);
+      return spellRowView({
+        name: typeof name === "string" ? name : name?.text,
+        level: spell?.level ?? null,
+        hasPreparedList,
+        isPrepared: (field.preparedItems || []).includes(typeof name === "string" ? name : name?.text),
+        alwaysPrepared: alwaysPrepared.includes(typeof name === "string" ? name : name?.text),
+        isRitual: spellIsRitual(spell),
+        showPreparedOnly: preparedOnly,
+      });
+    };
+
+    return {
+      rows,
+      removeRow(text) {
+        commitMutation(() => {
+          field.preparedItems = (field.preparedItems || []).filter((n) => n !== text);
+        });
+      },
+      header() {
+        if (!hasPreparedList) return null;
+        const counter = preparedCounter({
+          prepared: field.preparedItems || [],
+          limit: limit?.spells || 0,
+          preparedFrom: model?.preparedFrom,
+          cantripsCountAsPrepared: model?.countsCantrips,
+          alwaysPrepared,
+          levelByNameFn: (n) => spellLevelByName(n),
+        });
+        if (!counter) return null;
+        const bar = el("div", { class: "spell-list-chrome" });
+        // `aria-live` so the count is announced when a toggle changes it -
+        // the number is the only feedback a toggle gives.
+        const count = el("span", {
+          class: `spell-list-chrome__count${counter.over ? " spell-list-chrome__count--over" : ""}`,
+          text: counter.text,
+          role: "status",
+        });
+        bar.append(count);
+        if (counter.over) {
+          bar.append(el("span", {
+            class: "spell-list-chrome__warning",
+            text: `${counter.overBy} over your limit — your casting ability may have gone down since you picked these.`,
+          }));
+        }
+        const filterLabel = el("label", { class: "spell-list-chrome__filter" });
+        const filter = el("input", { type: "checkbox", checked: preparedOnly });
+        filter.addEventListener("pointerdown", (e) => e.stopPropagation());
+        filter.addEventListener("change", (e) => {
+          e.stopPropagation();
+          setPreparedOnlyFor(character?.id, filter.checked);
+          renderPageGrid();
+        });
+        filterLabel.append(filter, " Prepared only");
+        bar.append(filterLabel);
+        return bar;
+      },
+      rowClass(name) {
+        if (!hasPreparedList) return "";
+        const view = viewOf(name);
+        const classes = [];
+        if (view.dimmed) classes.push("spell-row--unprepared");
+        if (view.hidden) classes.push("is-hidden");
+        if (view.pressed) classes.push("spell-row--prepared");
+        if (view.ritual) classes.push("spell-row--ritual");
+        return classes.join(" ");
+      },
+      rowExtras(name) {
+        const text = typeof name === "string" ? name : name?.text;
+        const view = viewOf(name);
+        const out = [];
+        if (view.ritual) {
+          out.push(el("span", {
+            class: "spell-row__ritual",
+            text: "Ritual",
+            title: "A ritual spell can be cast without being prepared.",
+          }));
+        }
+        if (!view.hasToggle) return out;
+        const btn = el("button", {
+          type: "button",
+          class: `spell-row__prepared-toggle${view.pressed ? " is-prepared" : ""}`,
+          // An accessible NAME, not a bare glyph: a screen reader announcing
+          // "button, pressed" for nine identical rows tells the player
+          // nothing about which spell they are on.
+          "aria-label": view.pressed ? `Unprepare ${text}` : `Mark ${text} prepared`,
+          "aria-pressed": String(view.pressed),
+          title: view.alwaysPrepared
+            ? `${text} is always prepared by your subclass.`
+            : (view.pressed ? `Unprepare ${text}` : `Mark ${text} prepared`),
+          text: view.pressed ? "◉" : "○",
+        });
+        if (view.locked) {
+          btn.disabled = true;
+          btn.classList.add("is-locked");
+        } else {
+          btn.addEventListener("pointerdown", (e) => e.stopPropagation());
+          btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            // One tap, no confirmation. This is a reversible checkbox, and
+            // asking "are you sure" about marking a spell prepared would
+            // make the whole listing feel slow.
+            const next = togglePreparedSpell({
+              prepared: field.preparedItems || [],
+              name: text,
+              alwaysPrepared,
+            });
+            if (!next.changed) return;
+            commitMutation(() => {
+              field.preparedItems = next.prepared;
+            });
+            renderPageGrid();
+          });
+        }
+        out.push(btn);
+        return out;
+      },
+    };
   }
 
   function buildTagListValue(field) {

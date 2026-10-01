@@ -1988,7 +1988,38 @@ export function ensureSpellListFieldIn(layout, findFn, createFn, syncFn) {
   const field = createFn({ fieldType: "textlist", label: "Spells Known", x: 0, y: 4, w: 6, h: 2 });
   field.id = "spellsKnown";
   spellcasting.children.push(field);
-  spellcasting.h = Math.max(spellcasting.h, 6);
+  // The field sits at y4, two rows below the Spellcasting block's own h4,
+  // so the block has to grow - and growing it in place pushed its bottom
+  // two rows INTO whatever block starts at y4 in the same column (Attacks,
+  // on the starter layout). Two absolutely positioned nodes then occupied
+  // the same cells, and the one later in the layout array painted over the
+  // other: the spell list was on screen but not clickable, because a real
+  // button underneath an overlapping block never sees the pointer.
+  //
+  // So anything below the new bottom is PUSHED DOWN by the growth rather
+  // than overlapped. The sheet allows overlapping blocks by design (a hand
+  // placed one may sit on top of another), which is exactly why growing
+  // into a neighbour cannot be left to sort itself out.
+  const before = spellcasting.h || 0;
+  const after = Math.max(before, 6);
+  spellcasting.h = after;
+  if (after > before) {
+    const growth = after - before;
+    for (const block of layout) {
+      if (block === spellcasting) continue;
+      // Only the same column, and only blocks that start at or below the row
+      // the growth eats into. A block further down is left where it is -
+      // there is a gap between them and the sheet is meant to have gaps.
+      if ((block.x || 0) !== (spellcasting.x || 0)) continue;
+      if ((block.y || 0) < before) continue;
+      block.y = (block.y || 0) + growth;
+      // ...and its own children move with it, since they are positioned
+      // relative to the block.
+      for (const child of block.children || []) {
+        if (typeof child.y === "number") child.y += growth;
+      }
+    }
+  }
   syncFn?.(field);
   return field;
 }
@@ -2000,6 +2031,30 @@ export function spellPickerUiStateFor(fieldId) {
   const key = fieldId || "spells";
   if (!spellPickerUiStates.has(key)) spellPickerUiStates.set(key, { tag: "all", sort: "name" });
   return spellPickerUiStates.get(key);
+}
+
+/** The spell listing's "prepared only" filter, per character.
+ *
+ *  Module-level rather than a closure local, for the same reason
+ *  spellPickerUiStates above is: every toggle re-renders the whole page
+ *  grid, so a value captured in the render closure is `false` again by the
+ *  time the filter's own change has been applied. A filter that resets on
+ *  the first re-render is a filter that does not work.
+ *
+ *  Keyed by character id, not by field: a filter is a way of looking at one
+ *  character's list, and two characters should not inherit each other's.
+ *  Kept out of the saved character deliberately - it is a viewing
+ *  preference, and writing it on every toggle would be a write per click.
+ *
+ *  Pure reads; the caller writes. */
+const preparedOnlyFilters = new Map();
+export function preparedOnlyFor(characterId) {
+  return preparedOnlyFilters.get(characterId || "default") === true;
+}
+export function setPreparedOnlyFor(characterId, on) {
+  const key = characterId || "default";
+  if (on) preparedOnlyFilters.set(key, true);
+  else preparedOnlyFilters.delete(key);
 }
 
 /** Sort + tag-filter one level's spell rows for the picker. Pure. */
@@ -2097,6 +2152,129 @@ export function renderMagicalSecretsInto(container, { className, level, subclass
     multiRowsFn,
   });
   void limitsFn;
+}
+
+/** Whether a spell is a ritual, from the catalog's own tags.
+ *
+ *  There is no `ritual: true` field in the spell data - but "ritual" IS one
+ *  of the catalog's `tags` on every ritual spell (34 of them), and
+ *  spellsForLevelIn passes `tags` through, so this is a read of existing data
+ *  rather than a new inference. It matters because a Wizard's ritual spells
+ *  can be cast without being prepared: they are in the spellbook, so a
+ *  prepared counter that required them would tell a player to prepare spells
+ *  they are allowed to leave alone. Pure. */
+export function spellIsRitual(spell) {
+  return Array.isArray(spell?.tags) && spell.tags.some((t) => /^\s*ritual\s*$/i.test(String(t)));
+}
+
+/** The prepared counter for the top of the spell listing: "Prepared: 3 / 8".
+ *
+ *  Returns null when the class has no prepared list at all, which is the
+ *  caller's cue to render NOTHING - not a counter, not a toggle column, not
+ *  a filter. A Sorcerer seeing "0 / 0 prepared" is worse than seeing
+ *  nothing, because it implies they have a prepared list of size zero.
+ *
+ *  Always-prepared spells count: they are prepared whether or not anyone
+ *  chose them, so a Life Domain Cleric with two domain spells is at 2/8
+ *  before touching anything. Cantrips never count - a cantrip is not a
+ *  prepared slot.
+ *
+ *  The limit is SOFT. `overBy` is what the counter turns its warning colour
+ *  on, not a reason to refuse a toggle: the wizard's ability scores come
+ *  after the class, so a correct prepared list can be over by the time the
+ *  player reaches the sheet.
+ *
+ *  Pure. */
+export function preparedCounter({
+  prepared = [], limit = 0, cantripsCountAsPrepared = false,
+  alwaysPrepared = [], levelByNameFn = null,
+} = {}) {
+  if (!limit || limit <= 0) return null;
+  const names = [...new Set([...(prepared || []), ...(alwaysPrepared || [])].filter(Boolean))];
+  const canTellLevel = typeof levelByNameFn === "function";
+  const counted = names.filter((name) => {
+    if (!canTellLevel) return true;
+    return levelByNameFn(name) !== 0 || Boolean(cantripsCountAsPrepared);
+  });
+  const count = counted.length;
+  return {
+    count,
+    limit,
+    overBy: Math.max(0, count - limit),
+    over: count > limit,
+    text: `Prepared: ${count} / ${limit}`,
+  };
+}
+
+/** Add or remove one spell from the prepared list. One tap, no confirmation.
+ *
+ *  An always-prepared spell is refused rather than silently accepted: it is
+ *  prepared by definition, so a toggle that appeared to work and then
+ *  reverted would read as a broken control. The caller shows it locked
+ *  instead, and says why.
+ *
+ *  Order is preserved for the spells that survive, so tapping through a list
+ *  and back does not shuffle it. Pure. */
+export function togglePreparedSpell({ prepared = [], name, alwaysPrepared = [] } = {}) {
+  if (!name) return { prepared: [...prepared], changed: false, reason: "no spell named" };
+  if ((alwaysPrepared || []).includes(name)) {
+    return { prepared: [...prepared], changed: false, reason: "always-prepared" };
+  }
+  const has = (prepared || []).includes(name);
+  return {
+    prepared: has ? prepared.filter((n) => n !== name) : [...(prepared || []), name],
+    changed: true,
+  };
+}
+
+/** What one row of the spell listing shows: its classes, whether it offers a
+ *  prepared toggle at all, and whether that toggle is locked.
+ *
+ *  Four different answers, and getting them confused is the whole risk here:
+ *
+ *   no prepared list   - the class has none. No toggle, ever.
+ *   cantrip            - a cantrip is never prepared, so no toggle, even for
+ *                        a prepared caster. Showing one would offer to
+ *                        prepare something that does not occupy a slot.
+ *   always-prepared    - the class grants it. Toggle shown but LOCKED and
+ *                        uncounted-elsewhere: the counter folds it in from
+ *                        the bundles rather than from this list, so a
+ *                        player cannot remove a domain spell they were given.
+ *   otherwise          - a normal spell the player can prepare or not.
+ *
+ *  Returns `{ hasToggle, locked, pressed, dimmed, hidden, ritual }`.
+ *
+ *  `dimmed` is for a prepared caster looking at an unprepared spell: the
+ *  list is long and the ones you can actually cast today are the ones you
+ *  want to see. `hidden` is the "show prepared only" filter, which removes
+ *  the row entirely rather than dimming it - a filter that leaves dimmed
+ *  ghosts is a filter you have to read past.
+ *
+ *  Pure. */
+export function spellRowView({
+  name,
+  level = null,
+  hasPreparedList = false,
+  isPrepared = false,
+  alwaysPrepared = false,
+  isRitual = false,
+  showPreparedOnly = false,
+} = {}) {
+  const isCantrip = level === 0;
+  const prepared = isPrepared || alwaysPrepared;
+  const toggleable = hasPreparedList && !isCantrip;
+  return {
+    hasToggle: toggleable,
+    // Locked when the class grants it. Never locked otherwise: an unprepared
+    // spell the player wants to prepare must be one tap away.
+    locked: toggleable && alwaysPrepared,
+    pressed: prepared,
+    dimmed: hasPreparedList && !prepared && !showPreparedOnly,
+    hidden: showPreparedOnly && !prepared,
+    ritual: Boolean(isRitual),
+    alwaysPrepared,
+    isCantrip,
+  };
 }
 
 export function renderSpellPickerInto(container, { rulesetId, className, level }, deps) {

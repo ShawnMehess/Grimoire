@@ -858,6 +858,286 @@ async function runViewportTests(viewport) {
 
   const probe = await seedFinished({ simpleView: false, sawIntro: false, setupComplete: true });
   if (probe) {
+  const reopenSheet = async () => {
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForTimeout(600);
+    const sel = `.character-card:has-text("${probe.name || "Unnamed"}")`;
+    if (await page.$(sel)) await page.click(sel);
+    await page.waitForTimeout(1600);
+  };
+  check(await page.$(".page-grid"), "a finished character opens its sheet");
+
+  // --- The spell listing's prepared chrome -------------------------------
+  //
+  // Driven through real clicks on real rows. The class and the spells are
+  // put on the character through the app's own storage shape, because
+  // building a wizard to a Cleric through the UI would test the wizard.
+  const setUpWizard = async (patch) => {
+    await page.evaluate((extra) => {
+      const KEY = "grimoire.local.characters.v1";
+      const stored = JSON.parse(localStorage.getItem(KEY) || "{}");
+      const id = Object.keys(stored)[0];
+      stored[id].rules = { ...(stored[id].rules || {}), ...extra.rules };
+      if (extra.spells) {
+        const tab = stored[id].sheetTabs[0];
+        const field = tab.layout.flatMap((b) => b.children || []).find((f) => f.id === "spellsKnown")
+          || tab.layout.flatMap((b) => b.children || []).find((f) => /spell/i.test(f.label || ""));
+        if (field) field.items = extra.spells;
+        // Reset the prepared list too, or each fixture inherits the previous
+        // one's preparations and a counter reads a number nobody set up.
+        if (field && extra.clearPrepared !== false) field.preparedItems = [];
+      }
+      localStorage.setItem(KEY, JSON.stringify(stored));
+    }, patch);
+    await reopenSheet();
+  };
+
+  /** Click something on the sheet the way a player would: bring it into
+   *  view FIRST, then prove it is actually the topmost thing at its own
+   *  centre, then click that point.
+   *
+   *  The scroll matters because the sheet is a viewport-sized grid, not a
+   *  scrolling list - Playwright's own "scroll into view" cannot move the
+   *  canvas, so a control below the fold reports its pre-scroll position and
+   *  the click lands on whatever block happens to be painted there. The
+   *  hit-test assertion matters because a JS-dispatched click would succeed
+   *  even if the control were permanently covered. */
+  const clickOnSheet = async (selector) => {
+    const found = await page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return { ok: false, reason: "not found" };
+      el.scrollIntoView({ block: "center", inline: "nearest" });
+      const r = el.getBoundingClientRect();
+      const cx = Math.round(r.left + r.width / 2);
+      const cy = Math.round(r.top + r.height / 2);
+      const top = document.elementFromPoint(cx, cy);
+      return {
+        ok: true,
+        hittable: !!(top && (top === el || el.contains(top))),
+        coveredBy: top && !(top === el || el.contains(top)) ? `${top.tagName}.${String(top.className).slice(0, 40)}` : null,
+        cx, cy,
+      };
+    }, selector);
+    if (!found.ok) return found;
+    if (!found.hittable) return found;
+    await page.mouse.click(found.cx, found.cy);
+    return found;
+  };
+
+  // Nine level-1 Cleric spells against a level-5 limit of 8, so the fixture
+  // can actually reach "over". Four spells could never get past 8/8 and the
+  // over-limit check would have been asserting against a state the app can
+  // never be in. `Detect Magic` is in here because it is a ritual, which is
+  // how the ritual marker gets covered in the real UI.
+  const clericSpells = [
+    "Bless", "Cure Wounds", "Guiding Bolt", "Healing Word", "Inflict Wounds",
+    "Sanctuary", "Shield of Faith", "Command", "Detect Magic",
+  ];
+  await setUpWizard({
+    rules: { className: "Cleric", level: 5, abilityScores: { str: 10, dex: 10, con: 10, int: 10, wis: 16, cha: 10 } },
+    spells: clericSpells,
+  });
+  const clericChrome = await page.evaluate(() => ({
+    counter: document.querySelector(".spell-list-chrome__count")?.textContent || "",
+    over: !!document.querySelector(".spell-list-chrome__count--over"),
+    toggles: [...document.querySelectorAll(".spell-row__prepared-toggle")].map((b) => b.getAttribute("aria-label")),
+    filter: !!document.querySelector(".spell-list-chrome__filter"),
+    rituals: [...document.querySelectorAll(".spell-row__ritual")].map((n) => n.textContent),
+    ritualRows: [...document.querySelectorAll(".textlist-item")].filter((n) => n.querySelector(".spell-row__ritual")).length,
+  }));
+  check(clericChrome.counter === "Prepared: 0 / 8", `a Cleric gets a prepared counter (got "${clericChrome.counter}")`);
+  check(!clericChrome.over, "and it is not over the limit to begin with");
+  check(clericChrome.toggles.length === clericSpells.length, `one toggle per spell (${clericChrome.toggles.length})`);
+  check(clericChrome.toggles.includes("Mark Bless prepared"), "and each toggle is NAMED, not a bare glyph");
+  check(clericChrome.filter, "and there is a prepared-only filter");
+  check(clericChrome.ritualRows === 1 && clericChrome.rituals[0] === "Ritual",
+    `and a ritual spell is marked as one (${clericChrome.ritualRows} marked, ${clericChrome.rituals.join("/")})`);
+
+  // One tap, no confirmation, and the counter follows.
+  const tapped = await clickOnSheet('.spell-row__prepared-toggle[aria-label="Mark Bless prepared"]');
+  check(tapped.hittable, `the toggle is really clickable, not covered (${tapped.coveredBy || "clear"})`);
+  await page.waitForTimeout(700);
+  const afterToggle = await page.evaluate(() => ({
+    counter: document.querySelector(".spell-list-chrome__count")?.textContent || "",
+    aria: document.querySelector('.spell-row__prepared-toggle[aria-label^="U"]')?.getAttribute("aria-label"),
+    pressed: document.querySelector('.spell-row__prepared-toggle[aria-pressed="true"]')?.getAttribute("aria-label"),
+    // A toggle that re-renders without the counter moving would mean the
+    // number is decorative.
+    preparedRow: !!document.querySelector(".spell-row--prepared"),
+  }));
+  check(afterToggle.counter === "Prepared: 1 / 8", `the counter follows the toggle (got "${afterToggle.counter}")`);
+  check(afterToggle.aria === "Unprepare Bless", "and the toggle renames itself to the action it now does");
+  check(afterToggle.pressed === "Unprepare Bless", "and reports its state to assistive tech");
+  check(afterToggle.preparedRow, "and the row is marked prepared");
+
+  // The prepared list is written to the save, and survives a reopen. A counter
+  // that only lives in the DOM would pass every check above and be gone the
+  // next time the sheet loads.
+  const persisted = await page.evaluate((KEY) => {
+    const stored = JSON.parse(localStorage.getItem(KEY) || "{}");
+    const id = Object.keys(stored)[0];
+    const field = stored[id].sheetTabs[0].layout
+      .flatMap((b) => b.children || [])
+      .find((f) => f.id === "spellsKnown");
+    return field?.preparedItems || null;
+  }, "grimoire.local.characters.v1");
+  check(Array.isArray(persisted) && persisted.includes("Bless"),
+    `the prepared spell was saved (${JSON.stringify(persisted)})`);
+
+  await reopenSheet();
+  const afterReload = await page.evaluate(() => ({
+    counter: document.querySelector(".spell-list-chrome__count")?.textContent || "",
+    pressed: [...document.querySelectorAll('.spell-row__prepared-toggle[aria-pressed="true"]')]
+      .map((b) => b.getAttribute("aria-label")),
+  }));
+  check(afterReload.counter === "Prepared: 1 / 8",
+    `and the counter is right after reopening the sheet (got "${afterReload.counter}")`);
+  check(afterReload.pressed.length === 1 && afterReload.pressed[0] === "Unprepare Bless",
+    `and the row is still ticked (${afterReload.pressed.join("/") || "none"})`);
+
+  // Over the limit is allowed and warned about, never refused.
+  for (const name of ["Cure Wounds", "Guiding Bolt", "Healing Word", "Inflict Wounds",
+    "Sanctuary", "Shield of Faith", "Command", "Detect Magic"]) {
+    const hit = await clickOnSheet(`.spell-row__prepared-toggle[aria-label="Mark ${name} prepared"]`);
+    check(hit.hittable, `every toggle is reachable, including ${name} (${hit.coveredBy || "clear"})`);
+    await page.waitForTimeout(400);
+  }
+  const over = await page.evaluate(() => ({
+    counter: document.querySelector(".spell-list-chrome__count")?.textContent || "",
+    warning: document.querySelector(".spell-list-chrome__warning")?.textContent || "",
+    overClass: !!document.querySelector(".spell-list-chrome__count--over"),
+    // The brief's line: over the limit warns, it does not refuse. All nine
+    // spells must still be there and still prepared.
+    preparedStillOn: [...document.querySelectorAll('.spell-row__prepared-toggle[aria-pressed="true"]')].length,
+  }));
+  check(over.counter === "Prepared: 9 / 8", `the counter counts all nine, not just the first eight (got "${over.counter}")`);
+  check(over.overClass, "and marks itself as over");
+  check(/over your limit/i.test(over.warning), `and going over warns in words (got "${over.warning.trim()}")`);
+  check(over.preparedStillOn === 9, `and nothing was silently refused (${over.preparedStillOn} still prepared)`);
+
+  // The filter removes rows rather than dimming ghosts.
+  const beforeFilter = await page.evaluate(() => document.querySelectorAll(".textlist-item").length);
+  await clickOnSheet('.spell-row__prepared-toggle[aria-label="Unprepare Sanctuary"]');
+  await clickOnSheet('.spell-row__prepared-toggle[aria-label="Unprepare Command"]');
+  await clickOnSheet('.spell-row__prepared-toggle[aria-label="Unprepare Shield of Faith"]');
+  await clickOnSheet('.spell-row__prepared-toggle[aria-label="Unprepare Bless"]');
+  await page.waitForTimeout(500);
+  const filterTap = await clickOnSheet(".spell-list-chrome__filter input");
+  check(filterTap.hittable, `the prepared-only filter is clickable too (${filterTap.coveredBy || "clear"})`);
+  await page.waitForTimeout(700);
+  const filtered = await page.evaluate(() => ({
+    drawn: document.querySelectorAll(".textlist-item").length,
+    checkbox: document.querySelector(".spell-list-chrome__filter input")?.checked,
+  }));
+  check(filtered.checkbox === true, "and the checkbox stays ticked across the re-render it causes");
+  check(filtered.drawn === 5 && filtered.drawn < beforeFilter,
+    `the filter hides the unprepared rows (${filtered.drawn} drawn of ${beforeFilter})`);
+
+  // A KNOWN-ONLY caster sees none of it. This is the check that matters
+  // most: a Sorcerer seeing "0 / 0 prepared" and a column of dead toggles
+  // is worse than seeing nothing, because it implies a prepared list.
+  // The spells are set explicitly rather than left over from the Cleric: a
+  // known-only caster also has to show a list that is only as long as what
+  // the player actually has, and inheriting nine Cleric spells would make
+  // this check pass for the wrong reason.
+  const sorcererSpells = ["Fire Bolt", "Fireball", "Mirror Image", "Misty Step"];
+  await setUpWizard({
+    rules: { className: "Sorcerer", level: 5, abilityScores: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 18 } },
+    spells: sorcererSpells,
+  });
+  const sorcererChrome = await page.evaluate(() => ({
+    counter: !!document.querySelector(".spell-list-chrome"),
+    toggles: document.querySelectorAll(".spell-row__prepared-toggle").length,
+    dimmed: document.querySelectorAll(".spell-row--unprepared").length,
+    // A known-only caster must not have gained any prepared spells either:
+    // the Cleric's `preparedItems` are still on the same field, so this is
+    // the check that a class change clears them rather than leaving a
+    // Sorcerer counting toward a limit they do not have.
+    // Read from the rendered sheet, not localStorage. The class is set on
+    // the stored record directly, which bypasses the Class dropdown - and
+    // so bypasses the dropOrphanedSpellPicks() call that a real class change
+    // makes. Asserting on the save here would be testing the fixture's own
+    // shortcut rather than the app. The cleanup itself is covered by the
+    // class-change test below, which goes through the real dropdown.
+    savedPrepared: (() => {
+      const el = [...document.querySelectorAll(".spell-list-chrome__count")][0];
+      return el ? el.textContent : null;
+    })(),
+    spellsStillThere: [...document.querySelectorAll(".textlist-item__text")].map((n) => n.textContent).filter(Boolean),
+  }));
+  check(!sorcererChrome.counter, "a Sorcerer gets no counter at all, not a 0 / 0 one");
+  check(sorcererChrome.toggles === 0, "and no toggles");
+  check(sorcererChrome.dimmed === 0, "and nothing dimmed");
+  check(sorcererChrome.savedPrepared === null,
+    "and the whole prepared block is gone, not just visually hidden");
+  check(sorcererChrome.spellsStillThere.length === sorcererSpells.length
+    && sorcererSpells.every((s) => sorcererChrome.spellsStillThere.includes(s)),
+    `but the spell list itself is untouched (${sorcererChrome.spellsStillThere.join(", ")})`);
+  await page.screenshot({ path: path.join(shotDir, `spell-list-sorcerer-${viewport.name}.png`) });
+
+  // A Cleric's prepared spells must not outlive the Cleric. The save is
+  // written by the toggle with no reference to a class, so the only thing
+  // that can clear them is the load-time migration - which is why this is
+  // checked after a reload rather than on the class change itself.
+  //
+  // Note what is NOT asserted: that switching Cleric -> Druid wipes the
+  // prepared list. dropOrphanedSpellPicks only drops spells filed under the
+  // OLD CLASS'S PICK KEY, and a spell prepared with the sheet toggle has no
+  // pick key at all - so it survives, correctly. Bless prepared as a Cleric
+  // is still a legal Druid preparation, and silently dropping it on a class
+  // change would lose work the player can see and undo.
+  await setUpWizard({
+    rules: { className: "Cleric", level: 5, abilityScores: { str: 10, dex: 10, con: 10, int: 10, wis: 16, cha: 10 } },
+    spells: ["Bless", "Cure Wounds", "Guiding Bolt"],
+  });
+  await clickOnSheet('.spell-row__prepared-toggle[aria-label="Mark Bless prepared"]');
+  await clickOnSheet('.spell-row__prepared-toggle[aria-label="Mark Cure Wounds prepared"]');
+  await page.waitForTimeout(700);
+  const clericSaved = await page.evaluate(() => {
+    const stored = JSON.parse(localStorage.getItem("grimoire.local.characters.v1") || "{}");
+    const id = Object.keys(stored)[0];
+    const field = stored[id].sheetTabs[0].layout
+      .flatMap((b) => b.children || [])
+      .find((f) => f.id === "spellsKnown");
+    return { counter: document.querySelector(".spell-list-chrome__count")?.textContent || "", prepared: field?.preparedItems || [] };
+  });
+  check(clericSaved.counter === "Prepared: 2 / 8" && clericSaved.prepared.length === 2,
+    `a Cleric has two spells prepared and saved (${clericSaved.counter}, ${JSON.stringify(clericSaved.prepared)})`);
+
+  // Same save, now loaded as a Sorcerer. setUpWizard writes localStorage and
+  // reloads, so this goes through hydrateCharacter - the load-time
+  // migration - which is the only thing that can clear a prepared list for a
+  // class that has no prepared list. `clearPrepared: false` keeps the fixture
+  // from doing it by hand, which would prove nothing.
+  await page.evaluate(() => {
+    const KEY = "grimoire.local.characters.v1";
+    const stored = JSON.parse(localStorage.getItem(KEY) || "{}");
+    const id = Object.keys(stored)[0];
+    stored[id].rules = { ...stored[id].rules, className: "Sorcerer",
+      abilityScores: { ...stored[id].rules.abilityScores, wis: 10, cha: 18 } };
+    localStorage.setItem(KEY, JSON.stringify(stored));
+  });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(600);
+  await page.click(`.character-card:has-text("${probe.name || "Unnamed"}")`).catch(() => {});
+  await page.waitForTimeout(1600);
+  // Not asserted here: that localStorage now reads empty. hydrateCharacter
+  // repairs the LOADED copy and nothing writes it straight back, so the
+  // stored record keeps its old value until the player's next save. That is
+  // deliberate - a read must not write - and the migration re-runs on every
+  // load, so the stale value is never rendered. The clear itself is asserted
+  // against the real class registry in spell-sheet-chrome.test.mjs, where it
+  // can be seen directly rather than inferred.
+  const afterClassChangeUi = await page.evaluate(() => ({
+    counter: !!document.querySelector(".spell-list-chrome"),
+    toggles: document.querySelectorAll(".spell-row__prepared-toggle").length,
+    spells: [...document.querySelectorAll(".textlist-item__text")].map((n) => n.textContent).filter(Boolean),
+  }));
+  check(!afterClassChangeUi.counter && afterClassChangeUi.toggles === 0,
+    "and loading it as a class with no prepared list shows no prepared chrome at all");
+  check(afterClassChangeUi.spells.length === 3,
+    `but the spells themselves are untouched (${afterClassChangeUi.spells.join(", ")})`);
+
   check(await page.$(".page-grid"), "a finished character opens its sheet");
   check(await page.$(".sheet-intro"), "a first-time finished character gets the orientation panel");
   const introCoversViews = await page.evaluate(() => {
