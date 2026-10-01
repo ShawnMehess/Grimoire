@@ -249,6 +249,12 @@ import {
   sanitizeSourceDefault,
   revalidateStagedPicks,
   pruneOrphanedChoiceKeys,
+  orphanedSpellPickNames,
+  applySpellPickToItems,
+  alwaysPreparedSpellNames,
+  creationSpellPickGroups,
+  spellPickDialogOptions,
+  NO_SPELL_CATALOG_NOTE,
   reconcileDropdownChoices,
   ownedSkillIdsFromBundles,
   optionIsOwned,
@@ -4382,6 +4388,11 @@ const closeDialog = () => {
       character.rules = normalizeRulesState(character.rules);
       cleanStaleSubclass(character.rules, (className) => liveSubclassData(className));
       if (key === "species") cleanStaleLineageFeat();
+      // Spells Known is a single global list, so switching class (or
+      // subclass) has to take the old class's spell picks back out of it -
+      // otherwise they stay in the spellbook as phantom picks the new class
+      // never made. See dropOrphanedSpellPicks.
+      if (key === "className" || key === "subclass") dropOrphanedSpellPicks();
       saveRules();
       renderPageGrid();
     };
@@ -4425,9 +4436,9 @@ const closeDialog = () => {
         cleanStaleLineageFeat();
         if (lineageName) removed.push({ category: "Feat", name: lineageName });
       }
-      const pruned = pruneOrphanedChoiceKeys(character.rules.choices || {}, picks);
-      character.rules.choices = pruned.choices;
-      return { removed, pruned: pruned.pruned };
+      // Prunes the orphaned choice keys AND takes the spells they granted
+      // back out of Spells Known (see dropOrphanedSpellPicks).
+      return { removed, ...dropOrphanedSpellPicks() };
     }
 
     function wizardFieldOptionNames(fieldId, fieldLabel) {
@@ -4469,28 +4480,17 @@ const closeDialog = () => {
     // See creationChoiceGroupsFor and categorizeChoiceGroup above.
     const creationGroups = creationChoiceGroupsFor(state);
     // Inline spell picks, in the same shape as every other pick (see
-    // creationSpellPickGroups). Appended here so the class row's existing
+    // inlineSpellPickGroups). Appended here so the class row's existing
     // "groups with a dialog kind render inline" filter picks them up with
     // no change to the row renderer: a Cantrips bullet and one per level,
     // each a link into the shared spell dialog.
-    //
-    // Reads the CLASS-level plan only. Subclass-granted spell picks already
-    // exist as real choice groups on the subclass bundle (Arcane Domain's
-    // cantrips, the Bard's Magical Secrets, Circle of the Land's cantrip),
-    // so they arrive through creationChoiceGroupsFor and are not duplicated
-    // here.
-    const creationSpellGroups = creationSpellPickGroups(
-      state.className,
-      state.subclass,
-      state.level,
-      character.rules?.abilityScores,
-      [bundleFor("Class", state.className, includedRulesetIds(state)),
-        bundleFor("Subclass", state.subclass, includedRulesetIds(state))].filter(Boolean)
-    );
+    const creationSpellGroups = inlineSpellPickGroups();
     const creationGroupsWithSpells = [...creationGroups, ...creationSpellGroups];
     // Per-step sections: a pick's own groups (subrace groups render
-    // nested under their race, never standalone).
-    const pickGroupsFor = (...sources) => creationGroups.filter((g) =>
+    // nested under their race, never standalone). Read from the list WITH
+    // spells so a caster's class row is gated on its spell picks the same as
+    // on its proficiencies.
+    const pickGroupsFor = (...sources) => creationGroupsWithSpells.filter((g) =>
       !g.subrace && sources.includes(g.source));
     // Full per-pick lists — gating always counts everything, wherever
     // each group renders.
@@ -4986,6 +4986,20 @@ const closeDialog = () => {
    *  Writes the same choicesStore keys the bottom renderer used, so
    *  wizard gating and hints are untouched. Already-granted options
    *  lock exactly like the flat renderer. */
+  /** Spell names held by any OTHER live creation pick, so a spell pick
+   *  never removes one another pick still needs. Reads every `creation:`
+   *  key rather than only the spell ones, because the racial cantrip and
+   *  Magical Secrets groups carry their own keys; a false positive only
+   *  means a spell is left in the list, which is the safe direction. */
+  function spellPickNamesHeldByOthers(excludeKey) {
+    const out = new Set();
+    for (const [key, names] of Object.entries(character.rules?.choices || {})) {
+      if (key === excludeKey || !key.startsWith("creation:")) continue;
+      (names || []).forEach((n) => out.add(n));
+    }
+    return [...out];
+  }
+
   function inlineChoiceBullets(choiceGroups, saveRules) {
     const store = character.rules?.choices || {};
     return (choiceGroups || []).filter((g) => choiceDialogKindFor(g)).map((group) => {
@@ -4999,49 +5013,56 @@ const closeDialog = () => {
       if (kind === "flexibleAbilityBonus") {
         return liveAbilityAsiBullet([group], saveRules);
       }
-      // Spell picks (High Elf's cantrip) have no bundle options - the
-      // list is the spell catalog, so options are built at open time
-      // from the named list/level, and the pick is also added to the
-      // spell list so it shows up in the spell book.
-if (kind === "spells") {
-          const spellLevel = group.spellPick.level ?? 0;
-          // `maxLevel` widens the pick to cantrips-through-N. The Bard's
-          // Magical Secrets are exactly that shape - 2 spells at a
-          // 10th-level unlock may be cantrips or anything up to 5th - and
-          // without it a pick could only ever offer one exact level.
-          const spellMax = group.spellPick.maxLevel ?? spellLevel;
-          const spellList = [];
-          for (let lvl = spellLevel; lvl <= spellMax; lvl += 1) {
-            for (const s of spellsForLevel(lvl, group.spellPick.list)) {
-              if (s?.name) spellList.push({ id: s.name, name: s.name, description: s.school || "" });
-            }
+      // Spell picks (the High Elf's cantrip, a class's own cantrips and
+      // spell levels) have no bundle options - the list is the spell
+      // catalog, so options are built at open time from the named
+      // list/level, and each pick is written into the Spells Known list so
+      // it shows up in the spell book.
+      if (kind === "spells") {
+          const spellList = spellPickDialogOptions({
+            spellPick: group.spellPick,
+            spellsForLevelFn: (lvl, list) => spellsForLevel(lvl, list),
+          });
+          const storedSpells = store[group.key] || [];
+          const summary = storedSpells.length ? storedSpells.join(", ") : "Choose a spell";
+          // No Spell List catalog imported means there is nothing to pick
+          // from. Opening an empty dialog reads as a bug, so show the same
+          // fallback note the level-up spell picker shows instead - and no
+          // link, because there is nothing behind it.
+          if (!spellList.length) {
+            return { live: true, topic: group.label || "Spells", lead: [{ text: NO_SPELL_CATALOG_NOTE }] };
           }
-          spellList.sort((a, b) => a.name.localeCompare(b.name));
-        const storedSpells = store[group.key] || [];
-        return {
-          live: true,
-          topic: group.label || "Choose a spell",
-          lead: [{ text: storedSpells.length ? storedSpells.join(", ") : "Choose a spell" }],
-          dialogOpener: () => openChoiceDialog({
-            title: group.label || "Choose a spell",
-            multi: group.maxSelections !== 1,
-            maxSelections: group.maxSelections || 1,
-            options: spellList,
-            initialSelected: storedSpells,
-            onAccept: (ids) => {
-              character.rules.choices = { ...(character.rules.choices || {}), [group.key]: ids };
-              const field = ensureSpellListField();
-              (ids || []).forEach((name) => {
-                if (!field || !name) return;
-                if (!(field.items || []).some((it) => (typeof it === "string" ? it : it?.text) === name)) {
-                  appendUniqueTextListItem(field, name);
+          return {
+            live: true,
+            topic: group.label || "Choose a spell",
+            lead: [{ text: summary }],
+            dialogOpener: () => openChoiceDialog({
+              title: group.label || "Choose a spell",
+              multi: group.maxSelections !== 1,
+              maxSelections: group.maxSelections ?? 1,
+              options: spellList,
+              initialSelected: storedSpells,
+              onAccept: (ids) => {
+                character.rules.choices = { ...(character.rules.choices || {}), [group.key]: ids };
+                const field = ensureSpellListField();
+                if (field) {
+                  // Deselecting a spell takes it back out of Spells Known:
+                  // the pick is what put it there, so it owns it. Anything
+                  // another live spell pick still holds is left alone.
+                  const heldElsewhere = spellPickNamesHeldByOthers(group.key);
+                  const next = applySpellPickToItems({
+                    items: field.items || [],
+                    previous: storedSpells,
+                    next: ids || [],
+                    heldByOtherPicks: heldElsewhere,
+                  });
+                  field.items = next.items;
                 }
-              });
-              saveRules();
-              renderPageGrid();
-            },
-          }),
-        };
+                saveRules();
+                renderPageGrid();
+              },
+            }),
+          };
       }
       let opts = groupOptionsOf(group).filter((o) => o.name);
 
@@ -5172,98 +5193,66 @@ if (kind === "spells") {
     ].filter(Boolean));
   }
 
-  /** Spells the staged bundles grant automatically - a domain's
-   *  domain spells, an oath's oath spells, a circle's circle spells.
+  /** The inline spell-pick groups for the class currently staged, at the
+   *  level the character is being created at. A thin adapter: the counting
+   *  and key shape live in creationSpellPickGroups (sheetWizard.js) so they
+   *  can be tested without a DOM, and so the picker, the gating and the
+   *  Review summary all read one function.
    *
-   *  They arrive as `spellsKnown` statModifiers with op "addItem" and are
-   *  already in the Spells Known list without the player doing anything.
-   *  Two consequences for the pick below: they must not be OFFERED (they
-   *  are not a choice), and they already count toward what the class may
-   *  know, so the pick has to start from whatever is left. Deriving this
-   *  from the bundles rather than a hand-written list means a new domain
-   *  or oath is covered the day it is added.
+   *  Reads the CLASS-level plan only. Subclass-granted spell picks already
+   *  exist as real choice groups on the subclass bundle (Arcane Domain's
+   *  cantrips, the Bard's Magical Secrets, Circle of the Land's cantrip),
+   *  so they arrive through creationChoiceGroupsFor and are not duplicated
+   *  here. The subclass bundle is still passed for always-prepared spells -
+   *  a domain's domain spells and a circle's circle spells arrive as
+   *  statModifiers on it. */
+  function inlineSpellPickGroups() {
+    const bundles = [
+      bundleFor("Class", state.className, includedRulesetIds(state)),
+      bundleFor("Subclass", state.subclass, includedRulesetIds(state)),
+    ].filter(Boolean);
+    return creationSpellPickGroups({
+      className: state.className,
+      level: state.level,
+      abilityScores: character.rules?.abilityScores,
+      bundles,
+      choices: character.rules?.choices || {},
+      knownItems: findStarterField("spellsKnown", "Spells Known")?.items || [],
+      limitFor: (name, lvl, scores) => spellLimitFor(name, lvl, scores),
+      availableLevelsFor: (name, lvl) => sharedAvailableSpellLevels(
+        getLevelUpPlan(state.rulesetId, name, lvl)
+      ),
+      levelByNameFn: (name) => spellLevelByName(name),
+    });
+  }
+
+  /** Removes from Spells Known every spell a no-longer-staged class pick
+   *  put there, then lets pruneOrphanedChoiceKeys drop the keys themselves.
    *
-   *  Pure given the bundles. */
-  function alwaysPreparedSpellNames(bundles, level) {
-    const names = new Set();
-    for (const bundle of bundles || []) {
-      for (const mod of bundle?.statModifiers || []) {
-        if (mod.targetFieldId !== "spellsKnown") continue;
-        if (mod.op !== "addItem") continue;
-        if (mod.minLevel && level < mod.minLevel) continue;
-        if (mod.value) names.add(mod.value);
+   *  Spells Known is one global list, so a Wizard's four cantrips would
+   *  otherwise sit in a Fighter's spellbook forever. Spells the player added
+   *  by hand are not under any pick key and are never touched. Returns the
+   *  number of spell names removed, for the caller's notice. */
+  function dropOrphanedSpellPicks() {
+    const choices = character.rules.choices || {};
+    const picks = {
+      species: state.species,
+      className: state.className,
+      subclass: state.subclass,
+      background: state.background,
+    };
+    const names = orphanedSpellPickNames(choices, picks, findStarterField("spellsKnown", "Spells Known")?.items || []);
+    if (names.length) {
+      const field = findStarterField("spellsKnown", "Spells Known");
+      if (field && Array.isArray(field.items)) {
+        const gone = new Set(names);
+        field.items = field.items.filter((item) => !gone.has(typeof item === "string" ? item : item?.text));
       }
     }
-    return names;
+    const pruned = pruneOrphanedChoiceKeys(choices, picks);
+    character.rules.choices = pruned.choices;
+    return { pruned: pruned.pruned, spellsRemoved: names.length };
   }
-
-  /** The inline spell-pick groups for the class (and subclass) currently
-   *  staged: one group per spell level the class may pick at this level,
-   *  cantrips included, each rendered as a "Cantrips - Choose N" bullet
-   *  whose link opens the shared spell dialog.
-   *
-   *  Built as ordinary choice groups with a `spellPick`, which is the
-   *  same shape the Bard's Magical Secrets and the High Elf's cantrip use,
-   *  so inlineChoiceBullets, the shared dialog, the Spells Known write and
-   *  the cap enforcement all come for free rather than being rebuilt.
-   *
-   *  Returns [] for a non-caster, and for a caster with nothing to pick at
-   *  this level - a half-caster at level 1 has cantrips: 0 and no slot
-   *  levels, and should show nothing rather than an empty picker. */
-  function creationSpellPickGroups(className, subclassName, level, abilityScores, bundles) {
-    const limit = spellLimitFor(className, level, abilityScores);
-    if (!limit) return [];
-    const plan = getLevelUpPlan(state.rulesetId, className, level);
-    const levels = sharedAvailableSpellLevels(plan) || [0];
-    const auto = alwaysPreparedSpellNames(bundles, level);
-    const field = findStarterField("spellsKnown", "Spells Known");
-    const known = new Set(field?.items || []);
-    const counts = sharedSpellCountByLevel(known, (n) => spellLevelByName(n));
-
-    const groups = [];
-    const wanted = new Map();
-    // Cantrips: every caster has one, and the cap is limit.cantrips minus
-    // whatever is already auto-granted at that level.
-    wanted.set(0, Math.max(0, limit.cantrips - countAuto(0)));
-    // Leveled spells: the cap is per available level, from limit.spells.
-    // A "prepared" caster's number depends on its spellcasting ability, so
-    // it comes from spellLimitFor already rather than being recomputed.
-    for (const lvl of levels) {
-      if (lvl === 0) continue;
-      const perLevel = Math.max(0, limit.spells - countAuto(lvl));
-      if (perLevel > 0) wanted.set(lvl, perLevel);
-    }
-
-    function countAuto(levelNum) {
-      let n = 0;
-      for (const name of auto) if (spellLevelByName(name) === levelNum) n += 1;
-      return n;
-    }
-
-    for (const [lvl, count] of [...wanted.entries()].sort((a, b) => a[0] - b[0])) {
-      if (count <= 0) continue;
-      groups.push({
-        id: `creation-spells-${className}-${lvl}`,
-        label: lvl === 0 ? "Cantrips" : `${ordinal(lvl)}-level spells`,
-        // The picker offers the class list, less the always-prepared
-        // spells. Excluding them matters: they are already in the list, so
-        // offering them would let the player "pick" something automatic.
-        spellPick: { list: className, level: lvl, exclude: [...auto] },
-        minSelections: Math.min(count, count - pickedAt(lvl)),
-        maxSelections: count,
-        minLevel: null,
-        choiceKind: "build",
-        category: "spells",
-      });
-    }
-    return groups;
-
-    function pickedAt(levelNum) {
-      if (levelNum === 0) return counts.cantrips - countAuto(0);
-      return 0;
-    }
-  }
-
   /** Fills cantrips + leveled spells to the class cap, first-available
    *  per spell level — the Express spell fill. Respects caps exactly
    *  like the picker (same limit helpers), never exceeding them. */
@@ -5603,7 +5592,7 @@ if (kind === "spells") {
           // classChoiceGroups is empty for every baked-in class now
           // (leftovers render in the row via inlineChoicesFn) — the
           // call stays as a safety net for groups no dialog covers.
-          renderYourChoicesSections(container, "class", classChoiceGroups.filter((g) => !choiceDialogKindFor(g)), saveRules);
+          renderYourChoicesSections(container, "class", classChoiceGroups.filter((g) => !choiceDialogKindFor(g)), saveRules, classChoiceGroups);
         },
       },
       {

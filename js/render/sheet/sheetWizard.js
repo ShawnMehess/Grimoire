@@ -543,6 +543,239 @@ export function pruneOrphanedChoiceKeys(choices = {}, picks = {}) {
   return { choices: kept, pruned };
 }
 
+// --- Inline creation spell picks --------------------------------------------------------
+//
+// The Spells creation step is a commented-out block (see customSheet.js), so
+// spell picking is an inline `spellPick` choice group on the class row - the
+// same shape as proficiency, language and feat picks. These are the pure
+// halves of that: which groups to offer, what their keys are, and what to do
+// to the sheet's one global Spells Known list when a pick changes or dies.
+
+/** Shown wherever a spell pick has nothing to offer because no Spell List
+ *  has been imported. One sentence, in player language: it says what is
+ *  missing, what to do about it, and that the sheet works without it.
+ *  Exported so every spell surface says the same thing — the level-up
+ *  picker and the creation wizard's inline spell picks both used to carry
+ *  their own copy, one of which named a manager screen by its developer
+ *  name. */
+export const NO_SPELL_CATALOG_NOTE = "No Spell List imported yet, so there are no spells to pick from here. Import a Spell List from your libraries, or just type spell names straight onto the sheet's Spells Known list.";
+
+/** The choicesStore key one inline creation spell pick is stored under.
+ *  Mirrors the `creation:Category:Name:groupId` shape everything else uses, so
+ *  the pick is pruned with the rest of its class and its spells can be traced
+ *  back to the class that granted them. Pure. */
+export function spellPickKey(className, spellLevel) {
+  return `creation:Class:${className}:creation-spells-${spellLevel}`;
+}
+
+/** Spell names a no-longer-staged pick put on the sheet: every value of
+ *  an orphaned `creation:` key that is actually in the Spells Known list,
+ *  minus anything a SURVIVING creation pick still holds.
+ *
+ *  Spells Known is one global list, so without this a Wizard's four cantrips
+ *  sit in it forever after the player switches to a Fighter. Membership of
+ *  the list is the test, not a key pattern: a race's, class's or subclass's
+ *  spell pick ids vary (`arcana-cantrips`, `circle-of-land-cantrip`,
+ *  `bard-magical-secrets-6`, …), whereas a pick's stored VALUES are always
+ *  the spell names the dialog wrote - the one shape a skill or feat pick
+ *  never produces. A value that never reached the list contributes nothing,
+ *  which is also the right answer for it.
+ *
+ *  "Surviving" is the same prefix rule pruneOrphanedChoiceKeys uses, so the
+ *  two always agree about which keys are orphans - including nested keys
+ *  like `creation:Race:Elf:elf-subrace:…:cantrip`, which stay as long as
+ *  Elf is the staged species.
+ *
+ *  Spells the player added by hand are under no pick key at all, so they are
+ *  never returned - which is the whole reason the record is kept on the key
+ *  rather than inferred from the list. Pure. `picks` is the same
+ *  `{ species, className, subclass, background }` shape
+ *  pruneOrphanedChoiceKeys takes. */
+export function orphanedSpellPickNames(choices = {}, picks = {}, knownItems = []) {
+  const live = [
+    ["Race", picks?.species],
+    ["Class", picks?.className],
+    ["Subclass", picks?.subclass],
+    ["Background", picks?.background],
+  ]
+    .filter(([, name]) => name)
+    .map(([category, name]) => `creation:${category}:${name}:`);
+  const isLive = (key) => live.some((prefix) => key.startsWith(prefix));
+  const textOf = (item) => (typeof item === "string" ? item : item?.text);
+  const listed = new Set((knownItems || []).map(textOf).filter(Boolean));
+  const heldElsewhere = new Set();
+  for (const [key, names] of Object.entries(choices || {})) {
+    if (!key.startsWith("creation:") || !isLive(key)) continue;
+    (names || []).forEach((n) => heldElsewhere.add(n));
+  }
+  const out = [];
+  for (const [key, names] of Object.entries(choices || {})) {
+    if (!key.startsWith("creation:") || isLive(key)) continue;
+    for (const name of names || []) {
+      if (!name || !listed.has(name) || heldElsewhere.has(name) || out.includes(name)) continue;
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+/** Reconciles the sheet's Spells Known list against one spell pick's new
+ *  selection. Names the pick dropped come back OUT - they were the pick's to
+ *  add - and names it keeps or newly adds go in, appended so the player's own
+ *  ordering in the list survives. A name another live spell pick still holds
+ *  is never removed, so overlapping picks (a High Elf cantrip and a Wizard's
+ *  own) cannot delete each other's spells. `items` entries may be plain
+ *  strings or `{ text }` objects; the shape is preserved. Returns
+ *  `{ items, added, removed }`. Pure. */
+export function applySpellPickToItems({ items = [], previous = [], next = [], heldByOtherPicks = [] } = {}) {
+  const textOf = (item) => (typeof item === "string" ? item : item?.text);
+  const held = new Set(heldByOtherPicks || []);
+  const keep = new Set(next || []);
+  const dropped = new Set((previous || []).filter((name) => !keep.has(name) && !held.has(name)));
+  const out = [];
+  const present = new Set();
+  for (const item of items || []) {
+    const text = textOf(item);
+    if (dropped.has(text)) continue;
+    if (text) present.add(text);
+    out.push(item);
+  }
+  const added = [];
+  for (const name of next || []) {
+    if (present.has(name)) continue;
+    present.add(name);
+    out.push(name);
+    added.push(name);
+  }
+  return { items: out, added, removed: [...dropped] };
+}
+
+/** Spells the staged bundles grant automatically - a domain's domain
+ *  spells, an oath's oath spells, a circle's circle spells.
+ *
+ *  They arrive as `spellsKnown` statModifiers with op "addItem" and are
+ *  already in the Spells Known list without the player doing anything. Two
+ *  consequences for an inline pick: they must not be OFFERED (they are not a
+ *  choice) and they already count toward what the class may hold, so the pick
+ *  has to start from whatever is left. Deriving this from the bundles rather
+ *  than a hand-written list means a new domain or oath is covered the day it
+ *  is added. Pure given the bundles. */
+export function alwaysPreparedSpellNames(bundles = [], level = 1) {
+  const names = new Set();
+  for (const bundle of bundles || []) {
+    for (const mod of bundle?.statModifiers || []) {
+      if (mod.targetFieldId !== "spellsKnown") continue;
+      if (mod.op !== "addItem") continue;
+      if (mod.minLevel && level < mod.minLevel) continue;
+      if (mod.value) names.add(mod.value);
+    }
+  }
+  return names;
+}
+
+/** The inline spell-pick groups for a staged class at a level: one group
+ *  per spell level the class may pick at this level, cantrips included,
+ *  each rendered as a "Cantrips — Choose 4" bullet whose link opens the
+ *  shared spell dialog.
+ *
+ *  Built as ordinary keyed choice groups carrying a `spellPick` - the shape
+ *  the Bard's Magical Secrets and the High Elf's cantrip already use - so
+ *  inlineChoiceBullets, the shared dialog, the Spells Known write and the cap
+ *  enforcement all come for free.
+ *
+ *  The counts come from `limitFor` (spellLimitFor), the app's single source
+ *  of truth, which the level-up spell picker and the Review summary already
+ *  read, so there is no second list of numbers to keep in step.
+ *
+ *  Returns [] for a non-caster, and for a caster with nothing to pick at this
+ *  level - a half-caster at level 1 has cantrips: 0 and no slot levels, and
+ *  should show nothing rather than an empty picker.
+ *
+ *  `knownItems` is the sheet's Spells Known list and `choices` the picks
+ *  store, both read to work out how much of the allowance this pick still
+ *  owes. minSelections is that shortfall, so gating is the ordinary
+ *  "picks made >= minSelections" every other group uses.
+ *
+ *  deps: { limitFor, availableLevelsFor, levelByNameFn }. Pure. */
+export function creationSpellPickGroups({
+  className,
+  level = 1,
+  abilityScores = {},
+  bundles = [],
+  choices = {},
+  knownItems = [],
+  limitFor = () => null,
+  availableLevelsFor = () => [],
+  levelByNameFn = () => null,
+} = {}) {
+  if (!className) return [];
+  const limit = limitFor(className, level, abilityScores);
+  if (!limit) return [];
+  const levels = availableLevelsFor(className, level) || [];
+  const auto = alwaysPreparedSpellNames(bundles, level);
+  const autoAt = (levelNum) => [...auto].filter((name) => levelByNameFn(name) === levelNum).length;
+  const knownAt = (levelNum) => (knownItems || [])
+    .filter((item) => levelByNameFn(typeof item === "string" ? item : item?.text) === levelNum).length;
+  const wanted = new Map();
+  if (limit.cantrips > 0) wanted.set(0, limit.cantrips);
+  for (const levelNum of levels) {
+    if (levelNum === 0) continue;
+    if (limit.spells > 0) wanted.set(levelNum, limit.spells);
+  }
+  const groups = [];
+  for (const [levelNum, cap] of [...wanted.entries()].sort((a, b) => a[0] - b[0])) {
+    // Always-prepared spells already hold part of the class's allowance, so
+    // the player only chooses the remainder - and is never offered a spell
+    // they did not get to choose.
+    const remaining = cap - autoAt(levelNum);
+    if (remaining <= 0) continue;
+    // Spells at this level the class already holds from somewhere else: a
+    // racial cantrip, or the player's own hand-typed entries. They count
+    // toward the allowance, so nobody is made to pick a spell they have.
+    // This pick's OWN selections are excluded - minSelections is compared
+    // against how many it has made, so crediting them here would let a
+    // half-finished pick read as complete.
+    const key = spellPickKey(className, levelNum);
+    const own = (choices?.[key] || []).length;
+    const owedElsewhere = Math.max(0, knownAt(levelNum) - autoAt(levelNum) - own);
+    const allowance = Math.max(0, remaining - owedElsewhere);
+    groups.push({
+      id: `creation-spells-${levelNum}`,
+      key,
+      label: levelNum === 0 ? "Cantrips" : `${ordinal(levelNum)}-level spells`,
+      source: className,
+      spellPick: { list: className, level: levelNum, exclude: [...auto] },
+      minSelections: allowance,
+      maxSelections: allowance,
+      minLevel: null,
+      choiceKind: "build",
+      category: "spells",
+    });
+  }
+  return groups;
+}
+
+/** Which of `items` the shared spell dialog would offer for a spell pick -
+ *  the class list at the pick's level (through `maxLevel`), minus the
+ *  always-prepared spells the pick already excludes, sorted by name.
+ *  Empty when no Spell List catalog is imported, which is the caller's cue to
+ *  show the fallback note rather than an empty dialog. Pure. */
+export function spellPickDialogOptions({ spellPick = {}, spellsForLevelFn = () => [] } = {}) {
+  const levelNum = spellPick.level ?? 0;
+  const maxLevel = spellPick.maxLevel ?? levelNum;
+  const excluded = new Set(spellPick.exclude || []);
+  const out = [];
+  for (let lvl = levelNum; lvl <= maxLevel; lvl += 1) {
+    for (const spell of spellsForLevelFn(lvl, spellPick.list) || []) {
+      const name = typeof spell === "string" ? spell : spell?.name;
+      if (!name || excluded.has(name)) continue;
+      out.push({ id: name, name, description: spell?.school || "" });
+    }
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
 /** Validates a persisted source default against the currently known
  *  rulesets: the primary system must still exist, and at least one
  *  stored content book must still belong to it. Returns
@@ -1370,7 +1603,7 @@ export function renderSpellPickerInto(container, { rulesetId, className, level }
     updateLimitNote();
     const note = document.createElement("p");
     note.className = "leveling-tab__intro";
-    note.textContent = "No spells found in an imported Spell List catalog yet — Import one from the Catalog Libraries manager, or just track spells directly on the sheet's Spells Known list.";
+    note.textContent = NO_SPELL_CATALOG_NOTE;
     container.append(note);
     return;
   }
