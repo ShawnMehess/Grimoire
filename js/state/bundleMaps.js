@@ -19,6 +19,8 @@
 
 import { DEFAULT_CONTENT } from "../data/defaultContent.js";
 import { FIXED_BG_ENTRIES, FIXED_CLASS_ENTRIES, FIXED_RACE_ENTRIES, SUBCLASS_BUNDLE_MAP, normSubclassKey } from "../data/contentFixups.js";
+import { spellcastingModelFor } from "../data/spellcastingModels.js";
+import { getSpellcastingInfo } from "../data/dnd5e.js";
 
 function normBundleName(s) { return (s || "").trim().toLowerCase(); }
 const normSubclassName = normSubclassKey;
@@ -101,7 +103,100 @@ export function hydrateCharacter(data) {
   if (Array.isArray(data.sheetTabs)) {
     data.sheetTabs.forEach((tab) => { if (tab && tab.layout) hydrateDefaultBundlesInLayout(tab.layout); });
   }
+  // Passed the class model AND `infoFor`, because spellcastingModelFor
+  // derives most classes from getSpellcastingInfo and returns null without
+  // it. Without `infoFor` every derived class looks unknown, and every save
+  // takes the "trust the data" path - the Cleric's own spells would survive
+  // a class change but so would anything else.
+  migratePreparedSpellLists(data, {
+    modelFor: (className, rulesetId) =>
+      spellcastingModelFor(className, rulesetId, { infoFor: getSpellcastingInfo }),
+  });
   return data;
+}
+
+/** Bring the Spells Known field's prepared list into a state the sheet can
+ *  trust, once, at load.
+ *
+ *  Existing characters have no `preparedItems` at all, and that is the
+ *  intended migration rather than a gap: an absent list reads as nothing
+ *  prepared, which is exactly right for every character that predates the
+ *  field. A known-only caster is unaffected in BEHAVIOUR - the sheet renders
+ *  no counter and no toggles for one at all - which is what
+ *  spellcastingModelFor decides, not this function.
+ *
+ *  Two things are repaired rather than assumed:
+ *
+ *  - The list becomes an array if it is missing or malformed, so every
+ *    reader downstream can treat it as one. `undefined` and `null` are the
+ *    shapes a hand-edited save produces and both used to reach the render.
+ *  - For a class with no prepared list at all (Sorcerer, Bard), the list is
+ *    emptied. There is nothing to prepare from and nothing to spend the
+ *    count on, and the sheet shows no counter and no toggles for such a
+ *    class - so the list is invisible AND unclearable by the player.
+ *
+ *  - A prepared name that is no longer in `items` is dropped, but only for
+ *    the models where that means the character no longer holds it. For a
+ *    full-list preparer (preparedFrom "classList") the prepared spell is
+ *    SUPPOSED to be absent from `items` - that is the shape section 2
+ *    settled on - so filtering on `items` there would quietly unprepared
+ *    every Cleric, Druid and Paladin the first time their save loaded.
+ *    Only spellbook-derived preparation ("known": a Wizard, or a domain
+ *    spell added by a subclass) can go stale, and only that is filtered.
+ *
+ *  Runs on every load rather than once behind a version flag: it is a few
+ *  string comparisons over a list already in memory, and being
+ *  unconditionally true means a character fixed by hand stays fixed, and a
+ *  character re-imported from an old export is fixed again.
+ *
+ *  Mutates, like hydrateCharacter. Returns the character for chaining. */
+export function migratePreparedSpellLists(character, { modelFor } = {}) {
+  // Resolved once per character, not per field: the class is on the
+  // character, and a character with two spell lists has the same answer
+  // twice. No model means no filtering at all - see below.
+  const className = character?.rules?.className || "";
+  // Same order the sheet uses: character.rules.rulesetId is the primary
+  // SYSTEM, character.rulesetId is the older top-level field. Reading only
+  // the latter would resolve the model against "" and silently take the
+  // "unknown class, trust everything" path for every current save.
+  const rulesetId = character?.rules?.rulesetId || character?.rulesetId || "";
+  const model = typeof modelFor === "function" ? modelFor(className, rulesetId) : null;
+  // A class with NO prepared list cannot have prepared spells, whatever else
+  // is true. A Sorcerer, Bard or Wizard has nothing to prepare from and
+  // nothing to spend the count on, so a name here is meaningless in the
+  // strictest sense - and the sheet renders no counter and no toggles for
+  // such a class, so the list is invisible and, being invisible, unclearable
+  // by the player too. Only the sheet's own class-change cleanup removes it
+  // today, and that fires on a dropdown change, not on a save edited
+  // elsewhere. So: emptied here.
+  //
+  // Beyond that, only a model that says so positively counts as "prepares
+  // from items". An unrecognised class yields null, and null is not
+  // permission to drop: removing a prepared spell is something the player
+  // cannot undo, while a name left behind is at worst a row they can clear
+  // themselves.
+  const noPreparedListAtAll = model?.hasPreparedList === false;
+  const preparedComesFromItems = model?.preparedFrom === "known";
+  for (const tab of (Array.isArray(character?.sheetTabs) ? character.sheetTabs : [])) {
+    const layout = tab?.layout;
+    if (!Array.isArray(layout)) continue;
+    for (const block of layout) {
+      for (const field of block?.children || []) {
+        if (field?.id !== "spellsKnown" && !/^spells known$/i.test(String(field?.label || "").trim())) continue;
+        const held = new Set(
+          (Array.isArray(field.items) ? field.items : [])
+            .map((item) => (typeof item === "string" ? item : item?.text))
+            .filter(Boolean),
+        );
+        const prepared = Array.isArray(field.preparedItems) ? field.preparedItems : [];
+        const names = prepared.filter((n) => typeof n === "string" && n);
+        field.preparedItems = noPreparedListAtAll
+          ? []
+          : [...new Set(preparedComesFromItems ? names.filter((n) => held.has(n)) : names)];
+      }
+    }
+  }
+  return character;
 }
 
 /** Two bundles are "the same" for dedupe purposes if they share a scope
