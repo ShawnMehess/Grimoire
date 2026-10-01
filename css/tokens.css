@@ -15,15 +15,29 @@
 
   --color-text:          #e8e0d0;
   --color-text-muted:    #a89a82;
-  --color-text-faint:    #6b5f4f;
+  /* Was #6b5f4f — 3.02:1 against --color-bg, under the 4.5:1 WCAG AA
+     threshold for normal text. This is the "quietest" text token and it
+     still renders words (empty-field hints, secondary labels), so it has to
+     clear the same bar as --color-text-muted. 4.81:1 now. */
+  --color-text-faint:    #90826c;
 
-  --color-accent:        #b3492b;   /* sealing-wax red */
+  --color-accent:        #b3492b;   /* sealing-wax red — button BACKGROUND */
   --color-accent-hover:  #d4602f;
   --color-accent-muted:  #7a3a2680;
+  /* Separate token for accent used as TEXT, because one value cannot serve
+     both jobs: #b3492b clears 5.38:1 under white button labels (which is
+     why it is the background) but only 3.50:1 against the page background,
+     so any accent-coloured text on the page failed AA. Raising the
+     background token to fix the text would have dropped white-on-accent
+     below 4.5 and made the buttons worse. Two tokens, two jobs. 4.94:1. */
+  --color-accent-text:   #d4602f;
 
   --color-arcane:        #5b7f9e;   /* used for spell-related UI only */
   --color-positive:      #6a8f5c;
-  --color-negative:      #a3413a;
+  /* Was #a3413a — 3.02:1, and this one is error text. It is the least
+     readable colour on the default theme and it is the one carrying the
+     most important message. 4.89:1 now. */
+  --color-negative:      #cc6259;
 
   /* --- Spacing scale (multiples of 4px) --- */
   --space-1:  0.25rem;
@@ -96,12 +110,16 @@
   --color-border-strong: #a89a7c;
   --color-text:          #2a241c;
   --color-text-muted:    #6b5f4c;
-  --color-text-faint:    #9a8d76;
+  /* Was #9a8d76 — 2.77:1 on --color-bg and 2.42:1 on --color-bg-inset, so
+     the quietest text in light mode was the hardest to read. Darkened to
+     clear 4.5:1 on the raised surface as well as the base. */
+  --color-text-faint:    #695f50;
   --color-accent:        #9c3a22;
   --color-accent-hover:  #b3492b;
   --color-accent-muted:  #d8bd9c;
+  --color-accent-text:   #9c3a22;
   --color-arcane:        #2f5d7c;
-  --color-positive:      #4a7a3f;
+  --color-positive:      #406936;
   --color-negative:      #a3413a;
   --shadow-sm: 0 1px 2px rgba(60,45,20,0.18);
   --shadow-md: 0 4px 12px rgba(60,45,20,0.2);
@@ -126,13 +144,13 @@
   --color-border-strong: #4a5a3f;
   --color-text:          #e3e8d5;
   --color-text-muted:    #a3ad8f;
-  --color-text-faint:    #6a7358;
+  --color-text-faint:    #828d6c;
   --color-accent:        #5c8a3c;
   --color-accent-hover:  #74a84e;
   --color-accent-muted:  #3f5c2a80;
   --color-arcane:        #5b7f9e;
   --color-positive:      #7aa45c;
-  --color-negative:      #a3413a;
+  --color-negative:      #ca706a;
   --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 4px 16px -2px rgba(92,138,60,0.35);
   --gradient-accent: linear-gradient(155deg, #74a84e, var(--color-accent) 55%, #3f5c2a);
   --gradient-surface: linear-gradient(160deg, #1e2818, var(--color-bg-raised) 60%);
@@ -152,13 +170,13 @@
   --color-border-strong: #46547c;
   --color-text:          #dfe4f2;
   --color-text-muted:    #93a0c0;
-  --color-text-faint:    #5d6884;
+  --color-text-faint:    #7c87a2;
   --color-accent:        #4a6fd4;
   --color-accent-hover:  #5f86e8;
   --color-accent-muted:  #33437c80;
   --color-arcane:        #7fb2dd;
   --color-positive:      #6a8f5c;
-  --color-negative:      #a3413a;
+  --color-negative:      #c96d66;
   --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 4px 16px -2px rgba(74,111,212,0.4);
   --gradient-accent: linear-gradient(155deg, #5f86e8, var(--color-accent) 55%, #2c3f7c);
   --gradient-surface: linear-gradient(160deg, #1a2138, var(--color-bg-raised) 60%);
@@ -181,13 +199,13 @@
   --color-border-strong: #4d545f80;
   --color-text:          #ececf1;
   --color-text-muted:    #a7adb8;
-  --color-text-faint:    #6e7480;
+  --color-text-faint:    #858b97;
   --color-accent:        #3b6fd4;
   --color-accent-hover:  #5b8aee;
   --color-accent-muted:  #2c4a8a80;
   --color-arcane:        #6a86c9;
   --color-positive:      #5d9b62;
-  --color-negative:      #b0514b;
+  --color-negative:      #c27671;
   --font-display: "Inter", system-ui, sans-serif;
   --font-body:    "Inter", system-ui, sans-serif;
   --radius-md: 6px;
@@ -204,10 +222,13 @@
   --color-border-strong: #9aa2ae;
   --color-text:          #1c2026;
   --color-text-muted:    #5b6470;
-  --color-text-faint:    #8b93a0;
+  /* Was #8b93a0 — 2.81:1 on this background. */
+  --color-text-faint:    #626875;
   --color-accent:        #2456b8;
   --color-accent-hover:  #3b6fd4;
   --color-accent-muted:  #b9cdf3;
+  --color-accent-text:   #2456b8;
+  --color-negative:      #a3413a;
   --shadow-sm: 0 1px 2px rgba(30,40,60,0.14);
   --shadow-md: 0 4px 12px rgba(30,40,60,0.16);
   --shadow-lg: 0 12px 32px rgba(30,40,60,0.2);
@@ -225,7 +246,7 @@
   --color-border-strong: #a8894acc;
   --color-text:          #f0e6cf;
   --color-text-muted:    #c0a97a;
-  --color-text-faint:    #7d6c4e;
+  --color-text-faint:    #96825e;
   --color-accent:        #b3492b;
   --color-accent-hover:  #d4602f;
   --color-accent-muted:  #7a3a2680;
@@ -242,8 +263,8 @@
   --color-border:        #b49b62;
   --color-border-strong: #8a713d;
   --color-text:          #33270f;
-  --color-text-muted:    #6f5c36;
-  --color-text-faint:    #9a8a64;
+  --color-text-muted:    #685633;
+  --color-text-faint:    #625840;
   --color-accent:        #8f2f1c;
   --color-accent-hover:  #b3492b;
   --color-accent-muted:  #dcbf85;
@@ -267,7 +288,7 @@
   --color-border-strong: #6b5f45;
   --color-text:          #e9dfc8;
   --color-text-muted:    #b0a184;
-  --color-text-faint:    #77694f;
+  --color-text-faint:    #968463;
   --color-accent:        #8a6d3b;
   --color-accent-hover:  #a8874e;
   --color-accent-muted:  #5c4a2680;
@@ -286,8 +307,8 @@
   --color-border:        #b3a480;
   --color-border-strong: #86744f;
   --color-text:          #2e2718;
-  --color-text-muted:    #6a5e43;
-  --color-text-faint:    #97876a;
+  --color-text-muted:    #64583f;
+  --color-text-faint:    #615744;
   --color-accent:        #6f5627;
   --color-accent-hover:  #8a6d3b;
   --color-accent-muted:  #cfc09c;
@@ -304,7 +325,7 @@
   --color-border-strong: #3f4c5c;
   --color-text:          #e8eef4;
   --color-text-muted:    #93a3b3;
-  --color-text-faint:    #5d6b7a;
+  --color-text-faint:    #778798;
   --color-accent:        #0ea5e9;
   --color-accent-hover:  #38bdf8;
   --color-accent-muted:  #0c4a6e80;
@@ -325,7 +346,7 @@
   --color-border-strong: #8296a9;
   --color-text:          #16202a;
   --color-text-muted:    #4d5f72;
-  --color-text-faint:    #8296a9;
+  --color-text-faint:    #526678;
   --color-accent:        #0284c7;
   --color-accent-hover:  #0ea5e9;
   --color-accent-muted:  #bae6fd;
@@ -344,7 +365,7 @@
   --color-border-strong: #00e5ff;
   --color-text:          #f2f0ff;
   --color-text-muted:    #9d97c9;
-  --color-text-faint:    #5b567e;
+  --color-text-faint:    #817ba5;
   --color-accent:        #ff2ea6;
   --color-accent-hover:  #ff6ec4;
   --color-accent-muted:  #ff2ea633;
@@ -367,7 +388,7 @@
   --color-border-strong: #0e7490;
   --color-text:          #1c0f30;
   --color-text-muted:    #5b4391;
-  --color-text-faint:    #9788c2;
+  --color-text-faint:    #6954a4;
   --color-accent:        #c81e7e;
   --color-accent-hover:  #ff2ea6;
   --color-accent-muted:  #f5c2e2;
@@ -394,7 +415,7 @@
   --color-border-strong: #4cc9f0;
   --color-text:          #dcecff;
   --color-text-muted:    #8ba7cc;
-  --color-text-faint:    #54678a;
+  --color-text-faint:    #6c80a5;
   --color-accent:        #4cc9f0;
   --color-accent-hover:  #90e0ff;
   --color-accent-muted:  #1d4e6b80;
@@ -415,7 +436,7 @@
   --color-border-strong: #3d7cae;
   --color-text:          #0d1f36;
   --color-text-muted:    #3d5a80;
-  --color-text-faint:    #7d9bbd;
+  --color-text-faint:    #466589;
   --color-accent:        #1573b8;
   --color-accent-hover:  #4cc9f0;
   --color-accent-muted:  #b9d9f2;
@@ -437,7 +458,7 @@
   --color-border-strong: #00ff00;
   --color-text:          #00ff00;
   --color-text-muted:    #00c000;
-  --color-text-faint:    #007700;
+  --color-text-faint:    #008b00;
   --color-accent:        #00ff00;
   --color-accent-hover:  #66ff66;
   --color-accent-muted:  #003300;
@@ -475,7 +496,7 @@
   --color-border-strong: #1a4d1a;
   --color-text:          #0d0f0d;
   --color-text-muted:    #2e4d2e;
-  --color-text-faint:    #6b7a5a;
+  --color-text-faint:    #515d44;
   --color-accent:        #0d6b0d;
   --color-accent-hover:  #149414;
   --color-accent-muted:  #9db894;
@@ -598,3 +619,147 @@
 :root[data-theme="dos"][data-mode="light"] .app-header h1::after {
   color: #000;
 }
+
+/* ========================================================================
+ * Accessibility options
+ *
+ * Set by js/ui/accessibility.js as `data-cb` / `data-dyslexia` on :root,
+ * always to "1" or "0" - never removed - so a stale value from a previous
+ * theme can never mean something different from a fresh one.
+ *
+ * These live at the END of the file on purpose. Every [data-theme] block
+ * above sets the same custom properties, and a custom property set later at
+ * equal specificity wins. Putting these first would mean every one of the
+ * seven themes silently overrode them, and the toggles would appear to do
+ * nothing.
+ * ===================================================================== */
+
+/* --- Colour-blind safe --------------------------------------------------
+ *
+ * The fix is NOT "use blue instead of green". Almost every attempt at that
+ * swaps the hue and leaves the two colours at the same lightness, which is
+ * exactly the pair that collapses into one under deuteranopia and
+ * protanopia - both of which reduce the red-green axis while preserving
+ * brightness. A blue/green swap at matched lightness fails for the people
+ * who need it most.
+ *
+ * So this changes TWO things at once:
+ *
+ *  1. Hue moves onto the blue/orange axis, which survives all three common
+ *     forms of colour blindness (protan, deutan, tritan).
+ *  2. The two colours differ in RELATIVE LIGHTNESS by a wide margin, so
+ *     they stay distinguishable for a fully achromatopsic reader and for
+ *     anyone looking at a washed-out screen in sunlight. This is the half
+ *     that usually gets left out.
+ *
+ * Per mode, because the background differs and a fixed pair cannot clear
+ * contrast against both a near-black ink and a pale parchment.
+ *
+ * On LIGHT backgrounds the achievable lightness gap is much smaller - about
+ * 0.11 rather than 0.24 - and that is not a tuning failure. Both status
+ * colours have to be dark enough to clear 4.5:1 against pale parchment,
+ * which pins them into a narrow luminance band; no blue/amber pair can do
+ * better without one of them failing contrast. This is precisely why the
+ * option ships the tick/cross marks below: in light mode the shape of the
+ * control carries the meaning and the colour reinforces it, rather than the
+ * colour carrying it alone. verify-content asserts both halves of that.
+ *
+ * Only --color-positive / --color-negative / --color-arcane are touched.
+ * The accent is deliberately left alone: it is decoration and selection, not
+ * a status, and recolouring every button in a theme nobody asked to change
+ * is a bigger change than the problem needs. */
+:root[data-cb="1"] {
+  --color-positive: #7fc4f0;   /* pale sky blue    */
+  --color-negative: #e8661a;   /* saturated orange */
+  --color-arcane:   #9d8cff;   /* violet, off both axes */
+}
+:root[data-cb="1"][data-mode="light"] {
+  --color-positive: #2b6f9e;
+  --color-negative: #5e2600;
+  --color-arcane:   #5b3fd6;
+}
+
+/* A second, non-colour cue for the same states. Colour is never the only
+ * thing carrying meaning - that is the whole rule, and it is why this
+ * exists separately from the palette above. Applies to the controls that
+ * exist to say yes or no. */
+:root[data-cb="1"] .btn--primary::after,
+:root[data-cb="1"] .btn--danger::after {
+  /* A tick and a cross, drawn in text so they need no icon font. content
+     is hidden from assistive tech, which already announces the button's
+     own label - this is a visual reinforcement, not new information. */
+  position: absolute;
+  inset-inline-end: 0.35em;
+  font-size: 0.85em;
+  line-height: 1;
+}
+:root[data-cb="1"] .btn--primary::after { content: "\2713"; }
+:root[data-cb="1"] .btn--danger::after  { content: "\2715"; }
+:root[data-cb="1"] .btn--primary,
+:root[data-cb="1"] .btn--danger {
+  position: relative;
+  padding-inline-end: 1.5em;
+}
+
+/* --- Dyslexia-friendly text ---------------------------------------------
+ *
+ * Four changes, each targeting a specific and well-documented difficulty,
+ * and none of them touching reading order or the grid - a reader who needs
+ * this must still be able to find every field in the same place.
+ *
+ *  - A humanist sans with open apertures and tall x-height. No webfont: this
+ *    has to work offline and in the first paint, and a font that arrives
+ *    late causes a reflow of text somebody is mid-word in.
+ *  - Letter spacing. Inter at 0 is tight for a reader who is tracking
+ *    letters rather than recognising words.
+ *  - Word spacing, which is the one that most visibly stops adjacent words
+ *    reading as one.
+ *  - Line height, so the eye has somewhere to return to on the next line.
+ *
+ * --font-display is included because the headings use it, and headings in
+ * Cinzel are the hardest thing on the page to read. */
+:root[data-dyslexia="1"] {
+  --font-display: "Atkinson Hyperlegible", "Verdana", "Trebuchet MS", system-ui, sans-serif;
+  --font-body:    "Atkinson Hyperlegible", "Verdana", "Trebuchet MS", system-ui, sans-serif;
+  --font-mono:    "Atkinson Hyperlegible", "Consolas", "Courier New", monospace;
+  /* line-height is the one property that cannot be a token here: the sheet
+     sets line-height per rule in many places, so this only reaches the ones
+     that inherit. The token bump covers the rest. */
+  --a11y-letter-spacing: 0.035em;
+  --a11y-word-spacing:   0.12em;
+  --a11y-line-height:   1.75;
+}
+
+/* Applied through :root rather than `*` so a rule that sets letter-spacing
+ * for its own reasons (an uppercase micro-label, a monospace code chip) is
+ * left alone unless it inherits. */
+:root[data-dyslexia="1"] body {
+  letter-spacing: var(--a11y-letter-spacing);
+  word-spacing: var(--a11y-word-spacing);
+  line-height: var(--a11y-line-height);
+}
+
+/* Prose the player actually READS rather than scans - choice rows,
+ * mechanics bullets, the wizard's explanation paragraphs. These are the
+ * blocks where the extra leading does the most good and the least harm. */
+:root[data-dyslexia="1"] .choice-row__description,
+:root[data-dyslexia="1"] .choice-row__mechanics-meta,
+:root[data-dyslexia="1"] .leveling-tab__intro,
+:root[data-dyslexia="1"] .wizard__step-description,
+:root[data-dyslexia="1"] .wizard__field-help,
+:root[data-dyslexia="1"] .wizard__review-row,
+:root[data-dyslexia="1"] .sheet-intro__list,
+:root[data-dyslexia="1"] .field-value--textarea {
+  line-height: var(--a11y-line-height);
+  letter-spacing: var(--a11y-letter-spacing);
+}
+
+/* Textareas are the one place a player types for a long time, and cramped
+ * lines make re-reading your own prose harder. */
+:root[data-dyslexia="1"] .field-value--textarea,
+:root[data-dyslexia="1"] textarea {
+  line-height: var(--a11y-line-height);
+  padding-block: var(--space-2);
+}
+
+

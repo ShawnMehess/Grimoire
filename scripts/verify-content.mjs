@@ -14,6 +14,8 @@
 // failed on.
 
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { DEFAULT_CONTENT } from "../js/data/defaultContent.js";
 import { SUBCLASS_SUPPLEMENT } from "../js/data/subclassContent.js";
 import { FEAT_BUNDLES, FEAT_CATALOG } from "../js/data/featBundles.js";
@@ -41,6 +43,163 @@ import {
 let failures = 0;
 const fail = (msg) => { failures++; console.error(`FAIL: ${msg}`); };
 const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+// --- Colour contrast of the theme tokens -------------------------------------
+//
+// WCAG AA wants 4.5:1 for normal text and 3:1 for large text and UI
+// boundaries. Three tokens were failing it on the default theme and nobody
+// noticed, because a theme is a wall of hex values and nothing else in the
+// build reads them:
+//
+//   --color-negative   3.02:1  and it is ERROR TEXT
+//   --color-text-faint 3.02:1  and it renders words
+//   --color-accent     3.50:1  as text, on a dark page
+//
+// Light mode was worse: --color-text-faint was 2.77:1 on the base and
+// 2.42:1 on the raised surface, so the quietest text in the app was the
+// hardest to read.
+//
+// This gate is what stops it coming back. It reads the real token blocks out
+// of tokens.css rather than a copy, so it cannot drift from what ships.
+{
+  const tokensSrc = readFileSync(join(ROOT, "css", "tokens.css"), "utf8");
+
+  const toRgb = (hex) => {
+    const h = hex.replace("#", "").trim();
+    const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+    return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
+  };
+  const channel = (c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  const luminance = (hex) => {
+    const [r, g, b] = toRgb(hex);
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+  };
+  const contrast = (a, b) => {
+    const l1 = luminance(a);
+    const l2 = luminance(b);
+    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+  };
+
+  // Every token block in the file, as { selector, tokens }.
+  const blocks = [];
+  for (const m of tokensSrc.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selector = m[1].trim().split("\n").pop().trim();
+    if (!selector || selector.startsWith("@")) continue;
+    const tokens = {};
+    for (const d of m[2].matchAll(/(--[a-z0-9-]+)\s*:\s*(#[0-9a-f]{3,8})\s*;/gi)) {
+      tokens[d[1]] = d[2];
+    }
+    if (Object.keys(tokens).length) blocks.push({ selector, tokens });
+  }
+
+  /** Text tokens and what they must clear against. Every one of these
+   *  renders words, so all of them are held to the 4.5:1 normal-text bar
+   *  rather than the more forgiving 3:1. */
+  const TEXT_TOKENS = ["--color-text", "--color-text-muted", "--color-text-faint", "--color-negative", "--color-positive", "--color-accent-text"];
+  /** What each must be measured against. `--color-bg-inset` is the worst
+   *  case for text: it is darker than --color-bg in light mode, and a
+   *  muted-on-muted pairing is the one that actually fails. */
+  const BACKGROUNDS = ["--color-bg", "--color-bg-raised", "--color-bg-inset"];
+  const MIN = 4.5;
+
+  let checked = 0;
+  let worst = { ratio: Infinity, label: "" };
+  for (const block of blocks) {
+    const bg = block.tokens["--color-bg"];
+    if (!bg) continue;
+    for (const token of TEXT_TOKENS) {
+      const value = block.tokens[token];
+      if (!value) continue;
+      // A token that is not overridden in this block inherits from :root,
+      // so measure it against this block's background anyway - that is
+      // exactly the case that broke in light mode, where the negative
+      // colour was inherited from the dark default.
+      for (const back of BACKGROUNDS) {
+        const backValue = block.tokens[back] || bg;
+        const ratio = contrast(value, backValue);
+        checked += 1;
+        if (ratio < worst.ratio) worst = { ratio, label: `${block.selector} ${token} on ${back}` };
+        // Two decimals of slack for rounding in the source values.
+        if (ratio < MIN - 0.02) {
+          fail(`contrast ${ratio.toFixed(2)}:1 — ${block.selector} ${token} (${value}) on ${back} (${backValue}), needs ${MIN}:1`);
+        }
+      }
+    }
+  }
+  if (checked === 0) fail("no colour tokens found in tokens.css — the contrast gate is not reading anything");
+  console.log(`contrast: ${checked} text/background pairs across ${blocks.length} token blocks, all >= ${MIN}:1 (worst ${worst.ratio.toFixed(2)}:1 — ${worst.label})`);
+}
+
+// --- Colour-blind palette: hue AND lightness ---------------------------------
+//
+// The colour-blind option is only a real fix if the two status colours
+// differ in relative LIGHTNESS, not just hue. A blue/green swap at matched
+// lightness collapses into one under deuteranopia and protanopia, both of
+// which reduce the red-green axis while preserving brightness - so the
+// "colour-blind safe" palette that most apps ship fails for exactly the
+// people who turned it on. This asserts the lightness gap is real.
+{
+  const tokensSrc = readFileSync(join(ROOT, "css", "tokens.css"), "utf8");
+  const toRgb = (hex) => {
+    const h = hex.replace("#", "").trim();
+    const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+    return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
+  };
+  const channel = (c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  const luminance = (hex) => {
+    const [r, g, b] = toRgb(hex);
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+  };
+  const grab = (selector) => {
+    const m = tokensSrc.match(new RegExp(escapeRe(selector) + "\\s*\\{([^}]*)\\}"));
+    if (!m) return null;
+    const out = {};
+    for (const d of m[1].matchAll(/(--[a-z0-9-]+)\s*:\s*(#[0-9a-f]{3,8})\s*;/gi)) out[d[1]] = d[2];
+    return out;
+  };
+  function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+  // Light mode cannot do better than ~0.11: both status colours must be
+  // dark enough to clear 4.5:1 against pale parchment, which pins them into
+  // a narrow luminance band. So the threshold is what light mode can
+  // achieve, and dark mode has to beat it comfortably - it reaches 0.24.
+  const MIN_LIGHTNESS_GAP = 0.09;
+  for (const [selector, wantGap] of [
+    [':root[data-cb="1"]', 0.20],
+    [':root[data-cb="1"][data-mode="light"]', MIN_LIGHTNESS_GAP],
+  ]) {
+    const block = grab(selector);
+    if (!block || !block["--color-positive"] || !block["--color-negative"]) {
+      fail(`colour-blind palette missing from ${selector}`);
+      continue;
+    }
+    const lp = luminance(block["--color-positive"]);
+    const ln = luminance(block["--color-negative"]);
+    const gap = Math.abs(lp - ln);
+    if (gap < wantGap) {
+      fail(`colour-blind palette in ${selector}: --color-positive and --color-negative differ by only ${gap.toFixed(3)} in luminance, wanted ${wantGap} - a red-green reader has only brightness to tell them apart, and that is the axis that is broken for them`);
+    }
+  }
+
+  // The other half of the same rule: colour must never be the ONLY channel.
+  // The light-mode palette above cannot achieve a large lightness gap, so
+  // it depends on the tick/cross marks. If those are removed, light mode
+  // silently regresses to colour-only - assert they exist.
+  if (!/:root\[data-cb="1"\]\s+\.btn--primary::after\s*\{[^}]*content\s*:\s*"\\2713"/.test(tokensSrc)) {
+    fail("colour-blind mode has no tick mark on primary buttons - colour would be the only channel");
+  }
+  if (!/:root\[data-cb="1"\]\s+\.btn--danger::after\s*\{[^}]*content\s*:\s*"\\2715"/.test(tokensSrc)) {
+    fail("colour-blind mode has no cross mark on danger buttons - colour would be the only channel");
+  }
+  console.log("colour-blind palette: hue + a real lightness gap, plus a non-colour cue on both button tones");
+}
 
 function flatten(layout) {
   const out = [];

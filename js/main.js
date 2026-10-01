@@ -13,6 +13,7 @@ import { computeAllFormulas } from "./data/formula.js";
 import { applySheetTheme } from "./data/themes.js";
 import { el } from "./render/sheet/sheetHelpers.js";
 import { alertDialog, confirmDialog } from "./ui/dialogs.js";
+import { applyA11yMode } from "./ui/accessibility.js";
 
 const appRoot = document.getElementById("app-main");
 const authArea = document.getElementById("auth-area");
@@ -26,6 +27,12 @@ backBtn.style.display = "none";
 // down below any time we're about to leave whichever character this
 // points at.
 let openSheet = null;
+
+// The most recently opened sheet's accessibility preferences. The vault
+// renders before any character is opened on a first visit, so this starts
+// empty and the options are simply off there until a sheet says otherwise.
+let lastA11y = {};
+const lastA11yPrefs = () => lastA11y;
 function leaveCurrentSheet(next) {
   // window.confirm is DELIBERATE here and is the one place in the app that
   // still uses a native dialog. Browsers do not permit an asynchronous dialog
@@ -231,6 +238,11 @@ async function renderCharacterList() {
   // use) so the vault never inherits the last-opened sheet's look
   // or the unthemed orange base palette.
   applySheetTheme("standard", "dark");
+  // ...but the accessibility options are reading preferences, not a theme,
+  // and they carry over on purpose. Somebody who needs wider spacing needs
+  // it on the character list too, and having it silently reset here would
+  // mean re-finding the toggle every time they came back from a sheet.
+  applyA11yMode(lastA11yPrefs());
   backBtn.style.display = "none";
   appRoot.innerHTML = "";
 
@@ -427,6 +439,11 @@ async function createNewBlankCharacter() {
 
 async function openCharacter(characterId) {
   const character = await loadCharacter(characterId);
+  // Remember this sheet's reading preferences so the vault can restore them.
+  // Kept as a plain local rather than read back from storage, because the
+  // vault renders before any character is opened on a first visit and a
+  // storage round trip per render is not worth it.
+  lastA11y = { ...(character.a11y || {}) };
   appRoot.innerHTML = "";
   backBtn.style.display = "";
 

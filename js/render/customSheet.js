@@ -378,6 +378,7 @@ import {
   clearLayoutVariant,
 } from "./sheet/aspectPresets.js";
 import { confirmDialog, alertDialog, promptDialog, chooseDialog } from "../ui/dialogs.js";
+import { A11Y_OPTIONS, a11yEnabled, applyA11yMode } from "../ui/accessibility.js";
 import { applySimpleViewOrder, shouldShowIntro, INTRO_LINES } from "./sheet/simpleView.js";
 import { featRowModels, renderFeatListInto } from "./sheet/featList.js";
 import {
@@ -1049,6 +1050,43 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   lightModeCheckbox.addEventListener("change", applyAndPersistTheme);
   displayRow("Theme", themeSelect);
   displayRow("Brightness", lightModeLabel);
+
+  // Accessibility options. Stored on the character alongside themeId and
+  // sheetMode, so they follow it across devices the same way - somebody who
+  // needs one of these needs it on every device, and re-discovering that on
+  // each login is exactly the failure an accessibility feature must not
+  // have.
+  //
+  // Applied BEFORE the theme on the way in and not inside applyAndPersistTheme
+  // on purpose: they are independent, so changing a theme must not silently
+  // reset them and changing one must not reset the other.
+  const a11yToggles = A11Y_OPTIONS.map((opt) => {
+    const box = el("input", { type: "checkbox" });
+    box.checked = a11yEnabled(character.a11y, opt.id);
+    const row = el("label", {
+      class: "toolbar-display__a11y",
+      // The description is in the title because a Display dropdown row is
+      // too narrow for a sentence, and the reason these exist is not
+      // obvious from the label alone.
+      title: opt.description,
+    }, box, ` ${opt.name}`);
+    return { opt, box, row };
+  });
+  const a11yRow = displayRow("Reading", ...a11yToggles.map((t) => t.row));
+  a11yRow.classList.add("toolbar-display__row--stack");
+  const applyA11yPrefs = () => {
+    const next = {};
+    for (const { opt, box } of a11yToggles) next[opt.id] = box.checked;
+    character.a11y = next;
+    applyA11yMode(next);
+    store.saveCharacterFields(character.id, { a11y: next }).catch((err) => {
+      console.error("Failed to save accessibility preferences:", err);
+    });
+  };
+  for (const { box } of a11yToggles) box.addEventListener("change", applyA11yPrefs);
+  // Restored on load, not only on change - a preference that only takes
+  // effect after you toggle it off and on again is not a preference.
+  applyA11yMode(character.a11y);
 
   const modeSelect = document.createElement("select");
   modeSelect.className = "input-group__control";

@@ -908,6 +908,104 @@ async function runViewportTests(viewport) {
     await page.waitForTimeout(600);
     await reopen();
     check(!(await page.$(".page-grid.is-simple")), "Sheet View survives a reload too");
+
+    // --- Reading options ---------------------------------------------------
+    //
+    // Driven through the real checkboxes and asserted on the COMPUTED
+    // styles, not on the attributes: an attribute can be set correctly and
+    // still produce no visual change if the CSS selector does not match it,
+    // which is the whole class of bug the a11y module's "always write 0, never
+    // remove" rule is guarding against.
+    const readingRow = '.toolbar-display__a11y input';
+    const a11yOpen = async () => {
+      const panel = await page.$(".toolbar-display[open]");
+      if (!panel) {
+        await page.click(".toolbar-display summary");
+        await page.waitForTimeout(300);
+      }
+    };
+    await a11yOpen();
+    const readingBoxes = await page.$$(readingRow);
+    check(readingBoxes.length === 2, `the Display panel offers both reading options (${readingBoxes.length})`);
+    const spacingOf = (selector) => page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      return { letter: cs.letterSpacing, word: cs.wordSpacing, line: cs.lineHeight };
+    }, selector);
+
+    const before = await spacingOf("body");
+    // Tick the dyslexia-friendly box, named by its label rather than by
+    // position - a positional selector here toggled both boxes and then
+    // asserted one was off, which is how the first run of this check
+    // "failed".
+    const clickReading = (needle) => page.evaluate((text) => {
+      const box = [...document.querySelectorAll(".toolbar-display__a11y input")]
+        .find((b) => b.closest("label")?.textContent.includes(text));
+      if (!box || box.checked) return false;
+      box.click();
+      return true;
+    }, needle);
+    await clickReading("Dyslexia");
+    await page.waitForTimeout(400);
+    const dyslexiaAttrs = await page.evaluate(() => ({
+      dyslexia: document.documentElement.dataset.dyslexia,
+      cb: document.documentElement.dataset.cb,
+    }));
+    check(dyslexiaAttrs.dyslexia === "1", `the dyslexia option sets its attribute (got ${dyslexiaAttrs.dyslexia})`);
+    check(dyslexiaAttrs.cb === "0", "and the other one is explicitly 0, not left unset");
+    const after = await spacingOf("body");
+    check(before && after && after.letter !== before.letter,
+      `letter spacing actually widens (${before?.letter} -> ${after?.letter})`);
+    check(before && after && parseFloat(after.line) > parseFloat(before.line),
+      `line height actually grows (${before?.line} -> ${after?.line})`);
+
+    // Reload: the preference has to survive, and has to be reapplied on the
+    // way in rather than only on change.
+    //
+    // The card is selected by the name seedFinished reported back, not a
+    // literal. A hardcoded name silently matched nothing here, no sheet
+    // reopened, and the attribute came back "0" - which looked exactly like
+    // a persistence bug and was not one.
+    await reopen();
+    const restoredAttrs = await page.evaluate(() => document.documentElement.dataset.dyslexia);
+    check(restoredAttrs === "1", `the reading option survives a reload (got ${restoredAttrs})`);
+    const restoredSpacing = await spacingOf("body");
+    check(restoredSpacing && restoredSpacing.letter === after.letter, "and the spacing comes back with it");
+
+    // The colour-blind option, likewise. Ticked on top of dyslexia, so the
+    // two are also shown to be independent - turning one on must not clear
+    // the other.
+    await a11yOpen();
+    const stillOn = await page.evaluate(() => document.documentElement.dataset.dyslexia);
+    check(stillOn === "1", "the dyslexia option is still on while the other is toggled");
+    await clickReading("Colour-blind");
+    await page.waitForTimeout(400);
+    const cbState = await page.evaluate(() => {
+      const pos = getComputedStyle(document.documentElement).getPropertyValue("--color-positive").trim();
+      const neg = getComputedStyle(document.documentElement).getPropertyValue("--color-negative").trim();
+      return { attr: document.documentElement.dataset.cb, pos, neg };
+    });
+    check(cbState.attr === "1", `the colour-blind option sets its attribute (got ${cbState.attr})`);
+    // The status colours must actually resolve to the colour-blind palette,
+    // not merely flip an attribute. An earlier version of this check tried
+    // to read the "default" off a probe element, which of course returns the
+    // current computed value - so it compared the palette against itself.
+    // The palette's own values are asserted in tests/accessibility.test.mjs;
+    // here it is enough that they are the colour-blind ones.
+    check(/^#(7fc4f0|e8661a|9d8cff)$/i.test(cbState.pos) && /^#(7fc4f0|e8661a|9d8cff)$/i.test(cbState.neg),
+      `the colour-blind palette is what resolves (${cbState.pos} / ${cbState.neg})`);
+    const stillSpaced = await spacingOf("body");
+    check(stillSpaced && stillSpaced.letter === after.letter,
+      "and the dyslexia spacing is untouched by it");
+    await page.screenshot({ path: path.join(shotDir, `reading-options-${viewport.name}.png`) });
+
+    // Back to off, so the next viewport's fixture starts clean.
+    await page.evaluate(() => {
+      const boxes = [...document.querySelectorAll(".toolbar-display__a11y input")];
+      for (const b of boxes) if (b.checked) b.click();
+    });
+    await page.waitForTimeout(300);
   }
   }
 }
