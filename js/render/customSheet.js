@@ -4981,12 +4981,20 @@ const closeDialog = () => {
       // list is the spell catalog, so options are built at open time
       // from the named list/level, and the pick is also added to the
       // spell list so it shows up in the spell book.
-      if (kind === "spells") {
-        const spellLevel = group.spellPick.level ?? 0;
-        const spellList = spellsForLevel(spellLevel, group.spellPick.list)
-          .filter((s) => s && s.name)
-          .map((s) => ({ id: s.name, name: s.name, description: s.school || "" }))
-          .sort((a, b) => a.name.localeCompare(b.name));
+if (kind === "spells") {
+          const spellLevel = group.spellPick.level ?? 0;
+          // `maxLevel` widens the pick to cantrips-through-N. The Bard's
+          // Magical Secrets are exactly that shape - 2 spells at a
+          // 10th-level unlock may be cantrips or anything up to 5th - and
+          // without it a pick could only ever offer one exact level.
+          const spellMax = group.spellPick.maxLevel ?? spellLevel;
+          const spellList = [];
+          for (let lvl = spellLevel; lvl <= spellMax; lvl += 1) {
+            for (const s of spellsForLevel(lvl, group.spellPick.list)) {
+              if (s?.name) spellList.push({ id: s.name, name: s.name, description: s.school || "" });
+            }
+          }
+          spellList.sort((a, b) => a.name.localeCompare(b.name));
         const storedSpells = store[group.key] || [];
         return {
           live: true,
@@ -5215,10 +5223,16 @@ const closeDialog = () => {
       }
     }
     saveRules();
-    // Land on Gear & Review: the shell resolves the persisted step id
-    // to its index on the next render, bypassing forward-gating (dots
-    // still gate manual forward jumps; backward is always free).
-    creationWizardState.stepId = "gear-review";
+    // Land on Review: the shell resolves the persisted step id to its index
+    // on the next render, bypassing forward-gating (dots still gate manual
+    // forward jumps; backward is always free).
+    //
+    // This used to say "gear-review", which has never been a step id - the
+    // ids are "gear" and "review" - so the lookup failed silently and
+    // dropped the player on the first step instead of the end. With the
+    // Gear tab gone there is only one place worth landing, and "review" is
+    // the step that follows everything they just filled in.
+    creationWizardState.stepId = "review";
     persistWizardProgressSoon();
     renderPageGrid();
   }
@@ -5517,8 +5531,14 @@ const closeDialog = () => {
       },
       {
         id: "abilities",
-        title: "Ability Scores",
+        // Renamed from "Ability Scores". This step is now where the
+        // character states what they START with: their six scores and
+        // their starting kit. Spells and equipment left the wizard as
+        // tabs (both live in the catalogs now), so this is the last step
+        // before Review and the name has to say more than "scores".
+        title: "Starting Conditions",
         descriptionItems: [
+          "Set your six ability scores, then pick your starting equipment. Both apply when you finish setup.",
           "Each ability has a score (raw talent) and a modifier beside it — the modifier is the number you actually add to attack rolls, saves, and checks at the table.",
           "Modifiers come from scores automatically (10–11 is +0, 12–13 is +1, 8–9 is −1, and so on) — you never set them by hand.",
           "Point Buy spends 27 points across all six (fair, no luck). Random Roll rolls dice for each. Manual Entry types in rolls from the table.",
@@ -5557,49 +5577,95 @@ const closeDialog = () => {
             // can say which ones are still short and by how much.
             featNeeds: featAbilityNeeds(),
           });
-        },
-      },
-      {
-        id: "spells",
-        title: "Spells",
-        description: "Pick only the spells your class allows — counts and levels are capped automatically.",
-        isApplicable: () => Boolean(getRulesetClass(state.rulesetId, state.className)?.caster),
-        unavailableMessage: wizardUnavailableMessage,
-        isComplete: () => {
-          if (!getRulesetClass(state.rulesetId, state.className)?.caster) return true;
-          if (!spellPicksComplete(state.className, state.level)) return false;
-          return secretsSatisfiedFor(state.className, state.level, state.subclass);
-        },
-        render(container) {
-          const spellWrap = sectionInto(container, "Spells");
-          renderSpellPicker(spellWrap, { rulesetId: state.rulesetId, className: state.className, level: state.level });
-          renderSecretsSectionInto(container, state.className, state.level, state.subclass);
-        },
-      },
-      {
-        id: "gear",
-        title: "Gear",
-        description: "Choose starting gear (or take gold instead) and weapon/armor/tool training.",
-        isComplete: () => {
-          const entry = CLASS_STARTING_EQUIPMENT[state.className];
-          if (!state.className || !entry) return true;
-          const se = character.rules.startingEquipment || {};
-          if (se.gold) return true;
-          if (se.picks) {
-            return (entry.decisions || []).every((d) => se.picks[d.id]
-              && d.options.some((o) => o.id === se.picks[d.id]));
-          }
-          return Boolean(se.classOptionId);
-        },
-        render(container) {
+
+          // Starting equipment moved here from the Gear tab, which is no
+          // longer a step. It is the one thing that tab held which the
+          // item catalog cannot reproduce: the catalog lets you add any
+          // item, but only this carries the PHB "pick one of these rows,
+          // or take gold instead" either/or choices and knows what Finish
+          // Setup will actually grant.
+          //
+          // The separator is deliberate - ability scores and starting gear
+          // are two unrelated things that happen to land on one page, and
+          // running them together reads as one long form.
+          container.append(el("hr", { class: "wizard__separator" }));
           const gearWrap = sectionInto(container, "Starting Equipment");
           renderStartingEquipmentStepInto(gearWrap, state, saveRules);
-          const equipWrap = sectionInto(container, "Weapons, Armor & Tools");
-          renderEquipmentProficienciesStepInto(equipWrap, state, saveRules);
-          const innateWrap = sectionInto(container, "What You Get Automatically");
-          renderInnateAbilitiesStepInto(innateWrap, innateAbilitySections(state));
+          // The free-form weapon/armor/tool/vehicle proficiency picks
+          // moved to the MAIN sheet (an Equipment Proficiencies control
+          // there), because they are not starting gear: they are extra
+          // proficiencies you hold for the life of the character, and the
+          // sheet is where everything lasting belongs.
         },
       },
+      // ----------------------------------------------------------------
+      // COMMENTED OUT 2026-10-01 - DO NOT DELETE DURING A CODE AUDIT.
+      //
+      // These two creation steps were removed from the wizard at the
+      // user's instruction: spells and gear are chosen from the Spell
+      // Catalog and the Item Catalog on the sheet instead. Parked, not
+      // deleted, because the code under them is still live elsewhere:
+      //
+      //   spells -> renderSpellPicker / renderSecretsSectionInto remain
+      //             the creation-time spell pickers. Only the UI entry
+      //             point went away. The Bard's Magical Secrets moved to
+      //             a picker on the Bard's class entry (patchBard in
+      //             contentFixups.js) precisely because it was the one
+      //             thing this step held that the spell catalog cannot
+      //             reproduce - it is a count-limited cross-class pick.
+      //   gear   -> renderStartingEquipmentStepInto moved to the
+      //             "Starting Conditions" step (it carries the PHB
+      //             either/or rows and the gold-instead option, which no
+      //             catalog reproduces).
+      //             renderEquipmentProficienciesStepInto moved to the
+      //             main sheet as an Equipment Proficiencies control.
+      //             renderInnateAbilitiesStepInto moved to Review.
+      //
+      // Every renderer referenced below is still called from somewhere.
+      // A future audit that flags this block as dead code has not
+      // followed the calls.
+      // ----------------------------------------------------------------
+//       {
+//         id: "spells",
+//         title: "Spells",
+//         description: "Pick only the spells your class allows — counts and levels are capped automatically.",
+//         isApplicable: () => Boolean(getRulesetClass(state.rulesetId, state.className)?.caster),
+//         unavailableMessage: wizardUnavailableMessage,
+//         isComplete: () => {
+//           if (!getRulesetClass(state.rulesetId, state.className)?.caster) return true;
+//           if (!spellPicksComplete(state.className, state.level)) return false;
+//           return secretsSatisfiedFor(state.className, state.level, state.subclass);
+//         },
+//         render(container) {
+//           const spellWrap = sectionInto(container, "Spells");
+//           renderSpellPicker(spellWrap, { rulesetId: state.rulesetId, className: state.className, level: state.level });
+//           renderSecretsSectionInto(container, state.className, state.level, state.subclass);
+//         },
+//       },
+//       {
+//         id: "gear",
+//         title: "Gear",
+//         description: "Choose starting gear (or take gold instead) and weapon/armor/tool training.",
+//         isComplete: () => {
+//           const entry = CLASS_STARTING_EQUIPMENT[state.className];
+//           if (!state.className || !entry) return true;
+//           const se = character.rules.startingEquipment || {};
+//           if (se.gold) return true;
+//           if (se.picks) {
+//             return (entry.decisions || []).every((d) => se.picks[d.id]
+//               && d.options.some((o) => o.id === se.picks[d.id]));
+//           }
+//           return Boolean(se.classOptionId);
+//         },
+//         render(container) {
+//           const gearWrap = sectionInto(container, "Starting Equipment");
+//           renderStartingEquipmentStepInto(gearWrap, state, saveRules);
+//           const equipWrap = sectionInto(container, "Weapons, Armor & Tools");
+//           renderEquipmentProficienciesStepInto(equipWrap, state, saveRules);
+//           const innateWrap = sectionInto(container, "What You Get Automatically");
+//           renderInnateAbilitiesStepInto(innateWrap, innateAbilitySections(state));
+//         },
+//       },
       {
         id: "review",
         title: "Review",
@@ -5695,9 +5761,19 @@ const closeDialog = () => {
             summarizeFn: (m) => statModifierSummary(m),
             mechanicsListFn: (category, name) => profileSectionsFor(category, name, saveRules),
           });
-          // The summary box went up top, before the picks; the button stays
+          // The summary box goes up top, before the picks; the button stays
           // at the bottom, where "Finish Setup" belongs after reading them.
           reviewFinishButtonInto(container, reviewDeps());
+
+          // "What You Get Automatically" moved here from the Gear tab. It
+          // is a read-only roll-up of every race/class/subclass/background
+          // grant at the current level, and Review is where that belongs:
+          // the one place on the last step that shows what you actually
+          // hold. It is the view that carries the fetched subclass feature
+          // text, so before it moved here the only way to read those rules
+          // during creation was a tab that no longer exists.
+          const innateWrap = sectionInto(container, "What You Get Automatically");
+          renderInnateAbilitiesStepInto(innateWrap, innateAbilitySections(state));
         },
       },
     ];

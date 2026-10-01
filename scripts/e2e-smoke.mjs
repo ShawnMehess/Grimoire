@@ -178,6 +178,29 @@ async function runViewportTests(viewport) {
     // so a stale one would reorder the grid the next time it's painted.
     const stale = await page.evaluate(() => [...document.querySelectorAll(".grid-node")].filter((n) => n.style.order).length);
     check(stale === 0, `Sheet View clears Simple View's sort keys (${stale} left)`);
+
+    // Equipment proficiencies on the main sheet. The creation wizard's Gear
+    // tab used to offer these as free-form pickers; it is no longer a step,
+    // so the sheet is where they live. Asserted on the rendered block, not
+    // on the layout data, because the question is whether the player can
+    // actually reach them.
+    const equipProfs = await page.evaluate(() => {
+      const block = [...document.querySelectorAll(".block, .sheet-block, [class*='block']")]
+        .find((b) => /^Equipment Proficiencies/.test((b.textContent || "").trim().slice(0, 40)));
+      if (!block) return { block: false };
+      const text = block.textContent || "";
+      return {
+        block: true,
+        armor: /Armor/.test(text),
+        weapons: /Weapons/.test(text),
+        tools: /Tools/.test(text),
+        vehicles: /Vehicles/.test(text),
+        taglists: block.querySelectorAll("[data-field-type='taglist'], .taglist").length,
+      };
+    });
+    check(equipProfs.block, "main sheet has an Equipment Proficiencies block");
+    check(equipProfs.armor && equipProfs.weapons && equipProfs.tools && equipProfs.vehicles,
+      `it covers all four categories (${JSON.stringify(equipProfs)})`);
   }
   // Print dialog opens, previews, and closes via Escape.
   // NOTE: the Display control is a <details>/<summary>, not a button.
@@ -414,7 +437,11 @@ async function runViewportTests(viewport) {
   if (nextBtn) {
     await nextBtn.click();
     await page.waitForTimeout(800);
-    const stepText = (await page.textContent("body")).includes("Step 2 of 7");
+    // Derived from the rendered counter, not hardcoded. The wizard is eight
+    // steps long or six depending on which tabs exist, and a check that
+    // fails when a step is removed is a check that discourages removing
+    // one. What matters is that Next MOVED the wizard.
+    const stepText = /Step 2 of \d+/.test(await page.textContent("body"));
     check(stepText, "creator wizard advances to step 2");
     await page.screenshot({ path: path.join(shotDir, `creator-step2-${viewport.name}.png`) });
   }
@@ -753,7 +780,7 @@ const nextBtn = await vaultPage.$(".wizard button:has-text('Next')");
 if (nextBtn) {
   await nextBtn.click();
   await vaultPage.waitForTimeout(800);
-  const stepText = (await vaultPage.textContent("body")).includes("Step 2 of 7");
+  const stepText = /Step 2 of \d+/.test(await vaultPage.textContent("body"));
   vaultCheck(stepText, "creator wizard advances to step 2");
   await vaultPage.screenshot({ path: path.join(shotDir, "creator-step2.png") });
 }

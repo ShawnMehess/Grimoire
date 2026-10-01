@@ -113,6 +113,12 @@ function checkBundle(bundle, where) {
     const flatCount = Array.isArray(g.options) ? g.options.length : 0;
     const catCount = Array.isArray(g.categories)
       ? g.categories.reduce((n, c) => n + ((c.options || []).length), 0) : 0;
+    // A spell-pick group has neither: its options are the spell catalog,
+    // filtered by level when the dialog opens (the High Elf cantrip, the
+    // Bard's Magical Secrets). Not having a baked-in list is the whole
+    // point of a spell pick, so it is not the empty group this check is
+    // looking for. Same distinction creationChoiceGroupsForState makes.
+    if (g.spellPick) continue;
     if (!flatCount && !catCount) { fail(`${where}: choice group ${g.id} has no options`); continue; }
     for (const o of (g.options || [])) {
       checkMods(o.statModifiers, `${where} option ${o.name}`);

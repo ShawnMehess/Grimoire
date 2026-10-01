@@ -39,6 +39,7 @@ import { ALL_SUBCLASS_PICKS as SUBCLASS_PICKS } from "./subclassPicks.js";
 import { SUBCLASS_FEATURE_TEXT } from "./subclassFeatureText.js";
 import { CLASS_PICKS, CLASS_PICK_TEXT, isUnpickableNote } from "./classPicks.js";
 import { languagePick, toolPick, DWARF_BASE_TOOLS, ARTISAN_TOOLS } from "./missingPicks.js";
+import { MAGICAL_SECRETS_UNLOCKS } from "./magicalSecrets.js";
 
 const clone = (obj) => JSON.parse(JSON.stringify(obj));
 
@@ -320,6 +321,47 @@ function patchRogue(bundle) {
 }
 
 function patchBard(bundle) {
+  // Magical Secrets: at each unlock, steal spells from ANY class list.
+  //
+  // This lived on the creation wizard's Spells tab and existed nowhere
+  // else, so it was the one thing that tab held which the spell catalog
+  // cannot reproduce: the catalog has no notion of "2 extra spells from
+  // any list", so removing that tab would silently delete the feature.
+  // It is a picker on the Bard's own class entry instead.
+  //
+  // One group per unlock, gated by minLevel, because the count is per
+  // unlock and not a running total - a Bard picks 2 at 10th, 2 more at
+  // 14th, 2 more at 18th. `subclasses` marks the College of Lore's
+  // earlier unlock, which is the one unlock that is subclass-specific.
+  //
+  // The spell level cap is half the Bard level, rounded down, which is
+  // the rule for how high a Secret may be: 3 at 6th, 5 at 10th, 7 at
+  // 14th, 9 at 18th. `level: 0` with `maxLevel` is how the dialog is told
+  // "cantrips through this level", rather than one exact level.
+  for (const unlock of MAGICAL_SECRETS_UNLOCKS) {
+    const id = `bard-magical-secrets-${unlock.minLevel}${unlock.subclasses ? `-${unlock.subclasses[0]}` : ""}`;
+    if ((bundle.choiceGroups || []).some((g) => g.id === id)) continue;
+    bundle.choiceGroups.push({
+      id,
+      label: unlock.subclasses
+        ? `Magical Secrets (${unlock.count} spells from any class list, College of Lore)`
+        : `Magical Secrets (${unlock.count} spells from any class list)`,
+      minLevel: unlock.minLevel,
+      minSelections: unlock.count,
+      maxSelections: unlock.count,
+      choiceKind: "build",
+      category: "spells",
+      // Only the Lore College's early unlock. An empty list means "every
+      // subclass", which is the case for the rest.
+      subclasses: unlock.subclasses || null,
+      spellPick: { list: null, level: 0, maxLevel: Math.floor(unlock.minLevel / 2) },
+      // Deliberately NO options: the pick's options are the spell catalog,
+      // filtered by level at open time. A group with neither options nor a
+      // spellPick would be treated as empty and skipped.
+      spellPickOnly: true,
+    });
+  }
+
   const levels = takeNotes(bundle, (g) => /^Expertise/.test(g.name || ""));
   levels.forEach((minLevel, i) => {
     const group = {

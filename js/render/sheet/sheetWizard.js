@@ -53,7 +53,12 @@ export function filterGroupByPack(group, includedPacks) {
   }
   const optionCount = (options || []).length
     + (categories || []).reduce((n, c) => n + ((c.options || []).length), 0);
-  if (optionCount === 0) return null;
+  // A spell-pick group has no baked-in options at all: its options are the
+  // spell catalog, filtered by level when the dialog opens (the High Elf
+  // cantrip, the Bard's Magical Secrets). Dropping it here for having an
+  // empty option list is what silently deleted those picks - the group was
+  // removed before the caller could see its spellPick.
+  if (optionCount === 0 && !group.spellPick) return null;
   const pruned =
     (options || []).length !== ((group.options || []).length)
     || (categories || []).length !== ((group.categories || []).length);
@@ -67,14 +72,25 @@ export function creationChoiceGroupsForState(state, bundleLookup, includedPacks 
   const push = (category, name) => {
     if (!name) return;
     const lib = bundleLookup(category, name, state.rulesetId);
-    (lib?.choiceGroups || []).forEach((group, index) => {
+(lib?.choiceGroups || []).forEach((group, index) => {
       if (group.minLevel && level < group.minLevel) return;
+      // Subclass-only groups. A Bard who is not a College of Lore does not
+      // get that College's earlier Magical Secrets unlock, and a group
+      // carrying `subclasses` says so. The name match is on fragments, the
+      // same convention `magicalSecretsUnlocked` uses, so "lore" matches
+      // "College of Lore".
+      if (Array.isArray(group.subclasses) && group.subclasses.length) {
+        const sub = String(state.subclass || "").toLowerCase();
+        if (!group.subclasses.some((s) => sub.includes(String(s).toLowerCase()))) return;
+      }
       const gated = filterGroupByPack(group, includedPacks);
       if (!gated) return;
-      // Flat options OR cross-category options count — a group with
+      // Flat options OR cross-category options count - a group with
       // neither has nothing to offer (and a cross-category group with
-      // no flat list must NOT be mistaken for an empty group).
-      if (groupOptionsOf(gated).length === 0) return;
+      // no flat list must NOT be mistaken for an empty group). A spell
+      // pick is the third case: its options are the catalog, built when
+      // the dialog opens, so a group with only a `spellPick` is NOT empty.
+      if (groupOptionsOf(gated).length === 0 && !gated.spellPick) return;
       const key = `creation:${category}:${name}:${group.id || index}`;
       // A group can be a FOLLOW-UP to another pick in the same bundle:
       // "Variable Trait → Skill Proficiency" needs a second row to
@@ -1208,47 +1224,19 @@ export function canLearnMore(levelNum, limit, cantripCount, spellCount) {
   return current < cap;
 }
 
-/** Bard Magical Secrets unlocks (2014 PHB): College of Lore learns 2
- *  extra spells at 6th, every Bard learns 2 more at 10th, 14th, and
- *  18th — each pick from any class's list. `subclasses` names the
- *  subclass-name fragments an entry requires (null = every Bard).
- *  Data, so future rulesets adjust the table, not the wizard. */
-export const MAGICAL_SECRETS_UNLOCKS = [
-  { minLevel: 6, count: 2, subclasses: ["lore"] },
-  { minLevel: 10, count: 2, subclasses: null },
-  { minLevel: 14, count: 2, subclasses: null },
-  { minLevel: 18, count: 2, subclasses: null },
-];
-
-/** Total Magical Secrets picks unlocked for a Bard of `classLevel`
- *  (0 for any other class). Pure. */
-export function magicalSecretsUnlocked(className, subclassName, classLevel) {
-  if (String(className || "").trim().toLowerCase() !== "bard") return 0;
-  const sub = String(subclassName || "").toLowerCase();
-  let total = 0;
-  for (const unlock of MAGICAL_SECRETS_UNLOCKS) {
-    if ((classLevel ?? 0) < unlock.minLevel) continue;
-    if (unlock.subclasses && !unlock.subclasses.some((s) => sub.includes(s))) continue;
-    total += unlock.count;
-  }
-  return total;
-}
-
-/** How many of the known spells look like Secrets picks: anything in
- *  Spells Known outside the Bard's own lists. Deliberately lenient
- *  (a racial or feat spell counts too) so the Secrets step completes
- *  rather than traps — the picker, not this count, is the mechanism.
- *  Pure. */
-export function secretsPickedCount(knownItems = [], bardSpellNames = []) {
-  const bard = new Set(bardSpellNames || []);
-  return (knownItems || []).filter((name) => !bard.has(name)).length;
-}
-
-/** Whether the Secrets picks are done: none unlocked, or at least
- *  the unlocked total picked. Pure. */
-export function secretsCompleteFor(unlocked, picked) {
-  return (picked ?? 0) >= (unlocked ?? 0);
-}
+// Bard Magical Secrets lives in the data layer now
+// (js/data/magicalSecrets.js), because the Bard's class bundle builds its
+// pickers from the same table and js/data must not import a browser
+// module - sheetWizard touches `document`, which would drag it into every
+// node test and every content compile. Re-exported here so the existing
+// importers in customSheet.js are unchanged.
+export {
+  MAGICAL_SECRETS_UNLOCKS,
+  magicalSecretsUnlocked,
+  magicalSecretsMaxSpellLevel,
+  secretsPickedCount,
+  secretsCompleteFor,
+} from "../../data/magicalSecrets.js";
 
 /** Spell-pick completeness for ONE class sharing a sheet-wide Spells
  *  Known list (multiclass level-ups): only spells on that class's own

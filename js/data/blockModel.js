@@ -621,6 +621,50 @@ export function createStarterLayout() {
     field({ fieldType: "checkbox", label: "Death ✗", x: 1, y: 4, w: 1, h: 1, tooltip: "Death saving throw failures. Three failures kills your character." }, "deathFailures"),
   ];
 
+  // Equipment proficiencies the player sets for themselves.
+  //
+  // These four taglists were already defined in this module, but on a
+  // block that is not part of the starter layout, so the main sheet had
+  // no control for them at all: a character's armor/weapon/tool/vehicle
+  // proficiencies could only ever arrive from a Race, Class, Background
+  // or Subclass bundle. Anything extra - a campaign boon, a racial trait
+  // the data does not carry, a house rule - had nowhere to go.
+  //
+  // They moved here from the creation wizard's Gear tab, which offered
+  // the same four categories as free-form pickers and is no longer a
+  // step. The sheet is the better home for them anyway: a proficiency is
+  // something you hold for the life of the character, not something you
+  // chose once while filling in a form.
+  //
+  // Tool Prof. keeps its tagGroups so the dropdown is grouped into
+  // artisan's tools / instruments / gaming sets / kits / vehicles -
+  // matching what the picker now offers, so the two do not disagree
+  // about what counts as which kind of tool.
+  // Laid out 2x2 so the block is three rows tall, and every top-level column
+  // on the sheet ends on the same row (verify-content enforces it - the
+  // layout is printed and a ragged bottom edge shows). No block had a spare
+  // row to borrow, so the left and middle columns shift down by the same
+  // three rows rather than one column growing past the others.
+  const equipProfs = createBlock({ name: "Equipment Proficiencies", x: 10, y: 28, w: 6, h: 3 });
+  equipProfs.children = [
+    tagListField({
+      label: "Armor", x: 0, y: 0, w: 3, h: 1,
+      tooltip: "Armor you're proficient in. Sets your armor class when you wear it.",
+    }, ARMOR_PROFICIENCIES, "armorProf"),
+    tagListField({
+      label: "Weapons", x: 3, y: 0, w: 3, h: 1,
+      tooltip: "Weapons you're proficient in. Your proficiency bonus applies to attacks with these.",
+    }, WEAPON_PROFICIENCIES, "weaponProf"),
+    tagListField({
+      label: "Tools", x: 0, y: 1, w: 3, h: 1,
+      tooltip: "Tools and instruments you're proficient in.",
+    }, TOOL_PROFICIENCIES, "toolProf", TOOL_PROFICIENCY_GROUPS),
+    tagListField({
+      label: "Vehicles", x: 3, y: 1, w: 3, h: 1,
+      tooltip: "Vehicles you're proficient in, for the chase rules.",
+    }, VEHICLE_PROFICIENCIES, "vehicleProf"),
+  ];
+
   const attacks = createBlock({ name: "Attacks", x: 10, y: 4, w: 6, h: 5 });
   attacks.children = [
     field({ fieldType: "textlist", label: "Name — to hit — damage/type", x: 0, y: 0, w: 6, h: 4 }, "attacks"),
@@ -637,7 +681,7 @@ export function createStarterLayout() {
     field({ fieldType: "textlist", label: "Items", x: 0, y: 1, w: 6, h: 5 }),
   ];
 
-  const features = createBlock({ name: "Features & Traits", x: 0, y: 21, w: 4, h: 7 });
+  const features = createBlock({ name: "Features & Traits", x: 0, y: 24, w: 4, h: 7 });
   features.children = [
     // Computed, not manually typed — see collectGrantedFeatures in
     // customSheet.js. Shows whatever the character's Class/Race/
@@ -660,7 +704,7 @@ export function createStarterLayout() {
     tagListField({ label: "Vehicle Prof.", x: 0, y: 5, w: 6, h: 2 }, VEHICLE_PROFICIENCIES, "vehicleProf"),
   ];
 
-  const personality = createBlock({ name: "Personality", x: 4, y: 21, w: 6, h: 7 });
+  const personality = createBlock({ name: "Personality", x: 4, y: 24, w: 6, h: 7 });
   personality.children = [
     field({ fieldType: "textarea", label: "Personality Traits", x: 0, y: 0, w: 3, h: 2 }),
     field({ fieldType: "textarea", label: "Ideals", x: 3, y: 0, w: 3, h: 2 }),
@@ -669,7 +713,7 @@ export function createStarterLayout() {
     field({ fieldType: "textarea", label: "Notes", x: 0, y: 4, w: 6, h: 2 }),
   ];
 
-  return [identity, abilities, spellcasting, saves, skills, combat, attacks, inventory, features, details, personality];
+  return [identity, abilities, spellcasting, saves, skills, combat, attacks, inventory, features, details, personality, equipProfs];
 }
 
 /** Find a top-level block, or a field nested one level inside a block. */
