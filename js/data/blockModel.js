@@ -704,13 +704,40 @@ export function createStarterLayout() {
     tagListField({ label: "Vehicle Prof.", x: 0, y: 5, w: 6, h: 2 }, VEHICLE_PROFICIENCIES, "vehicleProf"),
   ];
 
-  const personality = createBlock({ name: "Personality", x: 4, y: 24, w: 6, h: 7 });
+  // "Personality" became "Story" when Appearance and Backstory moved in
+  // (below). Renaming the block rather than adding a second one is what
+  // keeps the sheet legible: a sheet whose story is split across two
+  // distant blocks, one labelled "Personality" holding bonds and flaws and
+  // another holding appearance, is worse than the single blank rows it
+  // replaces. Display-only change - block ids are random and generated per
+  // character, so saved sheets keep the name they were built with.
+  //
+  // It moves UP from y24 to y20 and grows from 7 rows to 11, using the
+  // four-row gap between Character Details (ends y19) and this block. The
+  // middle column had that gap and the other two columns did not, so
+  // growing downward would have ended this column four rows below the
+  // others and tripped verify-content's even-column-bottoms check - which
+  // exists because the sheet is printed and a ragged bottom edge shows.
+  const personality = createBlock({ name: "Story", x: 4, y: 20, w: 6, h: 11 });
   personality.children = [
-    field({ fieldType: "textarea", label: "Personality Traits", x: 0, y: 0, w: 3, h: 2 }),
-    field({ fieldType: "textarea", label: "Ideals", x: 3, y: 0, w: 3, h: 2 }),
-    field({ fieldType: "textarea", label: "Bonds", x: 0, y: 2, w: 3, h: 2 }),
-    field({ fieldType: "textarea", label: "Flaws", x: 3, y: 2, w: 3, h: 2 }),
-    field({ fieldType: "textarea", label: "Notes", x: 0, y: 4, w: 6, h: 2 }),
+    // Appearance and Backstory are the two blanks the sheet had nowhere to
+    // put. Every other part of a character was representable and these two
+    // were not, which meant a player had to keep them somewhere else and
+    // re-type them every session.
+    //
+    // Both are plain textareas on purpose. Appearance and Backstory have no
+    // sourced vocabulary in this data - no catalog carries "distinguishing
+    // marks" or a list of features - so any option list here would be
+    // invented, and a dropdown that only offers what the data happens to
+    // hold is worse than an empty box for two fields whose whole purpose is
+    // whatever you want to say.
+    field({ fieldType: "textarea", label: "Appearance", x: 0, y: 0, w: 3, h: 4, tooltip: "How your character looks: height, build, hair, eyes, clothing, distinguishing marks. Anything you want to remember them by." }),
+    field({ fieldType: "textarea", label: "Backstory", x: 3, y: 0, w: 3, h: 4, tooltip: "Where your character came from and what happened before this. Your background's mechanical benefits are picked elsewhere - this is the story behind them." }),
+    field({ fieldType: "textarea", label: "Personality Traits", x: 0, y: 4, w: 3, h: 3 }),
+    field({ fieldType: "textarea", label: "Ideals", x: 3, y: 4, w: 3, h: 3 }),
+    field({ fieldType: "textarea", label: "Bonds", x: 0, y: 7, w: 3, h: 3 }),
+    field({ fieldType: "textarea", label: "Flaws", x: 3, y: 7, w: 3, h: 3 }),
+    field({ fieldType: "textarea", label: "Notes", x: 0, y: 10, w: 6, h: 1 }),
   ];
 
   return [identity, abilities, spellcasting, saves, skills, combat, attacks, inventory, features, details, personality, equipProfs];

@@ -536,7 +536,38 @@ function featListWith(namesAndLevels) {
   if (new Set(ends).size !== 1) fail(`jagged sheet columns (bottoms: ${[...bottoms.entries()].map(([k, v]) => `${k}→${v}`).join(", ")})`);
   // Vehicle proficiency field exists for the Equipment Proficiencies tab.
   if (!byLabel("Vehicle Prof.")) fail("starter sheet has no Vehicle Prof. field");
-  console.log(`sheet: dropdowns alphabetical, subclass beside class, columns even (${ends[0]}), vehicle field present`);
+  // Appearance and Backstory: the two blanks the sheet used to have nowhere
+  // to put. Plain textareas on purpose - neither has sourced vocabulary in
+  // this data, so a dropdown would only offer what the data happens to hold.
+  for (const label of ["Appearance", "Backstory"]) {
+    const f = byLabel(label);
+    if (!f) fail(`starter sheet has no ${label} field`);
+    else if (f.fieldType !== "textarea") fail(`${label} should be a free-text box, not a ${f.fieldType}`);
+  }
+  // Both belong with the rest of the character's story, not in their own block.
+  const story = layout.find((b) => (b.children || []).some((f) => f.label === "Appearance"));
+  if (!story || story !== blockOf("Personality Traits")) {
+    fail("Appearance is not in the same block as Personality Traits");
+  }
+  if (story && !story.children.some((f) => f.label === "Backstory")) {
+    fail("Backstory is not in the Appearance block");
+  }
+  // The Story block grew from 7 rows to 11 to make room for two more
+  // textareas, and a child's box has to actually fit inside its block or the
+  // sheet prints overlapping text.
+  //
+  // Only the overflow direction is checked. A full overlap check flags the
+  // Spellcasting slot trackers, and correctly so: a radio's width comes from
+  // syncOptionWidth (its option count), not from the w it was handed, so
+  // "2nd" with three options is two cells wide and starts on top of "1st"'s
+  // second cell by design. That arrangement is deliberate and predates
+  // anything here.
+  for (const b of layout) {
+    for (const f of b.children || []) {
+      if ((f.y || 0) + (f.h || 1) > (b.h || 0)) fail(`${b.name}: ${f.label} overflows the block (y${f.y}+h${f.h} > h${b.h})`);
+    }
+  }
+  console.log(`sheet: dropdowns alphabetical, subclass beside class, columns even (${ends[0]}), vehicle field present, Appearance + Backstory on Story`);
 }
 
 // --- 6d. Starting equipment data ---------------------------------------------

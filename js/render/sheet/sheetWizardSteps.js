@@ -351,6 +351,73 @@ export function renderChoicePageStepInto(container, groups, saveRules, renderCho
   renderChoiceGroupsFn(container, groups, saveRules);
 }
 
+// --- Story step -------------------------------------------------------------------
+//
+// Appearance and Backstory. Every other part of a character is picked from
+// bundled data; these two are the ones with no data behind them, so they are
+// free text, and they were the two blanks the sheet had nowhere to put.
+//
+// Free text means the step CANNOT be gated. An empty Backstory is a perfectly
+// finished character - plenty of tables start playing with a backstory worked
+// out in the first session - so there is no isComplete, and this page never
+// appears in the Review page's "Still to decide" list.
+
+/** The two free-text story fields, in render order. Labels are the sheet
+ *  field labels they write to, not decoration: one lookup finds both the
+ *  control's current value and the field it saves into. */
+export const STORY_FIELDS = [
+  {
+    label: "Appearance",
+    rows: 6,
+    placeholder: "Height, build, hair, eyes, clothing, distinguishing marks — whatever you want to picture them by.",
+    help: "How your character looks. Nothing here is checked against anything; it is yours to fill in.",
+  },
+  {
+    label: "Backstory",
+    rows: 6,
+    placeholder: "Where they came from, and what happened before this.",
+    help: "The story behind your background. Your background's mechanical benefits are picked on the Background page — this is what they are about.",
+  },
+];
+
+/**
+ *   renderStoryStepInto(container, {
+ *     fieldFn, values, saveFn, missingLabels,
+ *   })
+ *
+ * `values` is `{ [label]: string }` from the sheet; `saveFn(label, value)` is
+ * called on input, debounced by the caller. `missingLabels` lists any story
+ * field the sheet has no control for, so an unwriteable field says so instead
+ * of rendering an input that quietly goes nowhere.
+ *
+ * No re-render on input: a step that rebuilt itself per keystroke would take
+ * the caret with it. The value is already in the sheet, so there is nothing to
+ * re-read either — the same reasoning as the Identity step's name field. */
+export function renderStoryStepInto(container, deps) {
+  const { fieldFn, values = {}, saveFn, missingLabels = [] } = deps;
+  if (missingLabels.length) {
+    // Better a named gap than a silent one. This step is reachable on a
+    // character whose layout predates these fields, and a textarea that
+    // accepts typing and loses it is the worst of the three outcomes.
+    container.append(el("p", {
+      class: "leveling-tab__intro",
+      text: `This sheet has no ${missingLabels.join(" or ")} box, so there is nowhere to put what you type here. Everything else on this page works normally.`,
+    }));
+  }
+  for (const spec of STORY_FIELDS) {
+    if (missingLabels.includes(spec.label)) continue;
+    const control = el("textarea", {
+      class: "input-group__control",
+      rows: spec.rows,
+      placeholder: spec.placeholder,
+      value: values[spec.label] || "",
+      oninput: (e) => { if (typeof saveFn === "function") saveFn(spec.label, e.target.value); },
+    });
+    fieldFn(container, spec.label, control);
+    container.append(el("p", { class: "wizard__field-help", text: spec.help }));
+  }
+}
+
 /** Read-only reference list of everything the chosen Race/Class/
  *  Subclass/Background grant automatically (fixed feature grants, one
  *  section per source). `sections` is [{ source, features: [{ name,

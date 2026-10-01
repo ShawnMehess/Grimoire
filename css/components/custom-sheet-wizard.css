@@ -261,6 +261,16 @@
   text-transform: uppercase;
 }
 
+/* One line under a control saying what it is for and, where it matters,
+   what it is NOT — the free-text boxes need the second half more than
+   the first, because there is no rule saying what belongs in them. */
+.wizard__field-help {
+  grid-column: 1 / -1;
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
 /* Review step — first line (name) reads as a header, the rest flow
    in two columns, Finish Setup centered below. */
 .wizard__review-rows {

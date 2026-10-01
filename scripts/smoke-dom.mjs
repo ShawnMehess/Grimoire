@@ -323,6 +323,50 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(labels.includes("Fighter") && labels.includes("Wizard"), "guide class rows render taken + untaken");
 }
 
+// --- Story step: two free-text boxes, no gating, no lost typing --------------
+{
+  const box = document.createElement("div");
+  const written = [];
+  const labelled = [];
+  steps.renderStoryStepInto(box, {
+    fieldFn: (c, label, control) => { labelled.push(label); c.append(control); },
+    values: { Appearance: "Tall, grey beard" },
+    saveFn: (label, value) => written.push([label, value]),
+    missingLabels: [],
+  });
+  assert(labelled.join("|") === "Appearance|Backstory", "story step offers both boxes, in order");
+  const areas = [];
+  const walk = (n) => {
+    if (n.tag === "textarea") areas.push(n);
+    for (const c of n.children || []) walk(c);
+  };
+  walk(box);
+  assert(areas.length === 2, "both story boxes are textareas");
+  // Existing text comes back off the sheet rather than starting blank.
+  assert(areas[0].value === "Tall, grey beard", "appearance reads back what the sheet holds");
+  assert((areas[1].placeholder || "").length > 0, "an empty box says what to write");
+  // Writing reports the label, so the caller knows which field to save.
+  areas[0].listeners.input[0]({ target: { value: "Tall, grey beard, red cloak" } });
+  assert(written.length === 1 && written[0][0] === "Appearance", "typing writes to the named field");
+  assert(box.textContent.includes("Nothing here is checked against anything"), "free-text boxes say they are not validated");
+}
+{
+  // A sheet with nowhere to put the text must say so, not render a box that
+  // silently swallows whatever you type.
+  const box = document.createElement("div");
+  steps.renderStoryStepInto(box, {
+    fieldFn: (c, label, control) => c.append(control),
+    values: {},
+    saveFn: () => {},
+    missingLabels: ["Backstory"],
+  });
+  assert(/no Backstory box/.test(box.textContent), "an unwritable field is named");
+  const areas = [];
+  const walk = (n) => { if (n.tag === "textarea") areas.push(n); for (const c of n.children || []) walk(c); };
+  walk(box);
+  assert(areas.length === 1, "the unwritable field renders no box at all");
+}
+
 // --- HP / ASI / features / review steps --------------------------------------
 {
   const box = document.createElement("div");

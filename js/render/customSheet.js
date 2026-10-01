@@ -344,6 +344,8 @@ import {
   renderGuideFeaturesStepInto,
   renderGuideHpStepInto,
   renderGuideNotesStepInto,
+  renderStoryStepInto,
+  STORY_FIELDS,
   checkLevelPrereqs,
   applyAsiToScores,
   buildLevelUpEntry,
@@ -5357,6 +5359,69 @@ const closeDialog = () => {
       return (character.rules.feats || []).find((f) => f.source === "lineage") || null;
     }
 
+    /** The Story block on the sheet — the one holding Personality Traits,
+     *  Ideals, Bonds and Flaws, and (on a current sheet) Appearance and
+     *  Backstory. Located by a field that has been in it since the start,
+     *  not by block name: the block was renamed "Personality" → "Story"
+     *  when the two fields joined it, and a saved sheet still carries the
+     *  old name. */
+    function storyBlock() {
+      return globalLayout().find((b) => (b.children || []).some((f) => f.label === "Personality Traits")) || null;
+    }
+
+    /** The sheet field a story box writes to, created on demand.
+     *
+     *  The wizard only runs on a character still in setup, and those are
+     *  built from the current starter layout, so the boxes are normally
+     *  already there. But a character can be resumed from a save written
+     *  before these fields existed, and a Story step whose textareas quietly
+     *  go nowhere is the worst of the available outcomes — so the field is
+     *  added to the layout the first time it is written to, below whatever
+     *  the block already holds. Returns null only when the character has no
+     *  Story block at all, which the caller reports rather than hides.
+     *
+     *  Placed below the existing children rather than at the starter layout's
+     *  coordinates, because an older block's rows are a different shape and
+     *  writing to fixed coordinates would drop a second textbox on top of
+     *  the first. */
+    function ensureStoryField(label) {
+      const existing = findStarterField(null, label);
+      if (existing) return existing;
+      const block = storyBlock();
+      if (!block) return null;
+      const bottom = (block.children || []).reduce((max, f) => Math.max(max, (f.y || 0) + (f.h || 1)), 0);
+      const sideBySide = (block.children || []).some((f) => f.y === bottom && f.x === 0);
+      const made = createField({
+        fieldType: "textarea",
+        label,
+        x: sideBySide ? 3 : 0,
+        y: bottom,
+        w: 3,
+        h: 4,
+      });
+      block.children.push(made);
+      block.h = Math.max(block.h || 0, bottom + 4);
+      return made;
+    }
+
+    /** Debounced writer for a story box. Saves the LAYOUT, not rules: a
+     *  story box is a sheet field, so this is the first wizard step that
+     *  persists layout rather than character.rules. */
+    function storyFieldSaver() {
+      const write = debounce(() => {
+        unsavedChanges = true;
+        store.saveCharacterFields(character.id, { layout: character.sheetTabs[0].layout }).catch((err) => {
+          console.error("Failed to save story fields:", err);
+        });
+      }, 600);
+      return (label, value) => {
+        const target = ensureStoryField(label);
+        if (!target) return;
+        target.value = value;
+        write();
+      };
+    }
+
     const steps = [
       {
         id: "rules",
@@ -5691,6 +5756,41 @@ const closeDialog = () => {
           // (leftovers render in the row via inlineChoiceBullets) — the
           // call stays as a safety net for groups no dialog covers.
           renderYourChoicesSections(container, "background", bgSectionGroups, saveRules, backgroundChoiceGroups);
+        },
+      },
+      {
+        id: "story",
+        title: "Story",
+        // No isComplete, deliberately. Appearance and Backstory are free
+        // text with no data behind them, so an empty one is a finished
+        // character, not an unfinished page — plenty of tables start
+        // playing with a backstory worked out in the first session. Gating
+        // here would block Finish Setup on two boxes that have no right
+        // answer, which is the same trap the spell picks nearly shipped.
+        descriptionItems: [
+          "Two free-text boxes, and nothing else. Write as much or as little as you like — you can fill them in later on the sheet.",
+          "Both land on your sheet's Story block, next to Personality Traits, Ideals, Bonds, and Flaws, and you can edit them there at any time.",
+          "Nothing here is checked against anything. It is not part of your character’s mechanics.",
+        ],
+        render(container) {
+          // Read the values back off the sheet rather than keeping wizard
+          // state for them: these ARE the sheet's fields, and a second
+          // copy could disagree with the first.
+          const values = {};
+          const missingLabels = [];
+          for (const spec of STORY_FIELDS) {
+            const target = findStarterField(null, spec.label);
+            if (target) values[spec.label] = target.value || "";
+            else missingLabels.push(spec.label);
+          }
+          renderStoryStepInto(container, {
+            fieldFn: (c, label, control) => field(c, label, control),
+            values,
+            missingLabels,
+            // One debounced saver for the pair, so typing in either box
+            // does not write two separate layout saves.
+            saveFn: storyFieldSaver(),
+          });
         },
       },
       {
