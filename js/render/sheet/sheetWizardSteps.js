@@ -950,14 +950,22 @@ export function renderGuideLevelClassStepInto(container, pending, deps) {
           onclick: (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (confirmFn && !confirmFn(`Drop all ${name} levels? Its features and spells will stop applying.`)) return;
-            if (removeFn) removeFn(name);
-            if (pending.className === name) {
-              pending.className = primaryName;
-              pending.newClassName = "";
-              pending.subclass = subclassForFn(primaryName) || "";
-            }
-            if (onChangeFn) onChangeFn();
+            // Async because confirmFn is now a themed dialog (see
+            // js/ui/dialogs.js). The removal waits for the answer rather
+            // than happening first and being second-guessed, so the button
+            // does nothing at all until the dialog is resolved.
+            Promise.resolve(confirmFn
+              ? confirmFn(`Drop all ${name} levels? Its features and spells will stop applying.`)
+              : true).then((ok) => {
+              if (!ok) return;
+              if (removeFn) removeFn(name);
+              if (pending.className === name) {
+                pending.className = primaryName;
+                pending.newClassName = "";
+                pending.subclass = subclassForFn(primaryName) || "";
+              }
+              if (onChangeFn) onChangeFn();
+            });
           },
         }));
       },
@@ -1023,14 +1031,19 @@ export function renderGuideLevelClassStepInto(container, pending, deps) {
       title: `Remove ${entry.name} levels (features recompute without them)`,
       onclick: (e) => {
         e.preventDefault();
-        if (confirmFn && !confirmFn(`Drop all ${entry.name} levels? Its features and spells will stop applying.`)) return;
-        if (removeFn) removeFn(entry.name);
-        if (pending.className === entry.name) {
-          pending.className = primaryName;
-          pending.newClassName = "";
-          pending.subclass = subclassForFn(primaryName) || "";
-        }
-        if (onChangeFn) onChangeFn();
+        // Async for the same reason as the primary-class row above.
+        Promise.resolve(confirmFn
+          ? confirmFn(`Drop all ${entry.name} levels? Its features and spells will stop applying.`)
+          : true).then((ok) => {
+          if (!ok) return;
+          if (removeFn) removeFn(entry.name);
+          if (pending.className === entry.name) {
+            pending.className = primaryName;
+            pending.newClassName = "";
+            pending.subclass = subclassForFn(primaryName) || "";
+          }
+          if (onChangeFn) onChangeFn();
+        });
       },
     }));
   });

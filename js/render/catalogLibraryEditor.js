@@ -18,6 +18,7 @@
 import { positionCollectionMenu } from "./collectionMenuLayout.js";
 import { MAX_IMAGE_BYTES } from "./sheet/sheetConstants.js";
 import { deepClone, newLocalId } from "./sheet/sheetHelpers.js";
+import { confirmDialog, alertDialog } from "../ui/dialogs.js";
 
 // --- Effects targeting --------------------------------------------------
 // Only Effects rows get this — who/where an effect applies, kept as a
@@ -156,9 +157,12 @@ function readImageFile(file, onLoaded) {
   const reader = new FileReader();
   reader.onload = () => {
     if (reader.result.length > MAX_IMAGE_BYTES) {
-      window.alert(
-        "That image is large enough that it (plus the rest of this catalog) may not fit in a single Firestore document (1MB limit). It'll be applied, but saving might fail — try a smaller image if so."
-      );
+      // Not awaited: onLoaded has to run either way, and the warning is
+      // about something that may or may not happen later.
+      alertDialog({
+        title: "That image is large",
+        message: "It (plus the rest of this catalog) may not fit in a single Firestore document (1MB limit). It'll be applied, but saving might fail — try a smaller image if so.",
+      });
     }
     onLoaded(reader.result);
   };
@@ -238,7 +242,7 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
     el.addEventListener("dragleave", () => {
       el.classList.remove("catalog-archetype__drop-target--active");
     });
-    el.addEventListener("drop", (e) => {
+    el.addEventListener("drop", async (e) => {
       el.classList.remove("catalog-archetype__drop-target--active");
       const payload = e.dataTransfer.getData("application/x-sheet-field");
       if (!payload) return;
@@ -247,7 +251,7 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
       try { parsed = JSON.parse(payload); } catch { return; }
       const field = resolveField(parsed.fieldId);
       if (!field) {
-        window.alert("Couldn't find that field — try dragging it in again.");
+        await alertDialog({ title: "Couldn't find that field", message: "Try dragging it in again." });
         return;
       }
       onFieldDropped(field, parsed.checkboxIndex);
@@ -638,7 +642,13 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
       deleteBtn.className = "btn btn--danger";
       deleteBtn.textContent = "Delete";
       deleteBtn.addEventListener("click", async () => {
-        if (!window.confirm(`Delete the "${selected.name || "Unnamed"}" catalog? Any field linked to it will show as unconfigured afterward.`)) return;
+        const ok = await confirmDialog({
+          title: `Delete "${selected.name || "Unnamed"}"?`,
+          message: "Any field linked to it will show as unconfigured afterward.",
+          confirmLabel: "Delete",
+          tone: "danger",
+        });
+        if (!ok) return;
         await store.deleteCatalog(selected.scope, selected.id);
         selectEntry(null, true);
         await refresh();
@@ -1100,8 +1110,19 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
     removeTabBtn.className = "btn formula-toolbar__btn";
     removeTabBtn.textContent = "✕";
     removeTabBtn.setAttribute("aria-label", "Remove tab");
-    removeTabBtn.addEventListener("click", () => {
-      if (tab.entries.length > 0 && !window.confirm(`Delete tab "${tab.name}" and its ${tab.entries.length} item(s)?`)) return;
+    removeTabBtn.addEventListener("click", async () => {
+      const count = tab.entries.length;
+      // The confirm only appeared when the tab had entries. An empty tab is
+      // nothing to lose, so asking anyway is a dialog about a no-op.
+      if (count > 0) {
+        const ok = await confirmDialog({
+          title: `Delete "${tab.name}"?`,
+          message: `This deletes the tab and its ${count} ${count === 1 ? "entry" : "entries"}.`,
+          confirmLabel: "Delete tab",
+          tone: "danger",
+        });
+        if (!ok) return;
+      }
       selected.tabs.splice(tabIndex, 1);
       renderEditor();
     });

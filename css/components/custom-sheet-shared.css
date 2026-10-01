@@ -222,6 +222,112 @@
   gap: var(--space-2);
 }
 
+/* --- App dialogs (js/ui/dialogs.js) ---
+   Replacements for window.alert / confirm / prompt. They reuse the modal
+   shell above so they match every other surface in the app, which was the
+   whole point: a stock OS dialog in the middle of a themed app reads as a
+   different program. */
+
+.app-dialog__box {
+  /* Wider than the default modal box (420px) because these carry sentences,
+     and a confirm that wraps to five lines is hard to scan for the one word
+     that matters. Still capped for small screens. */
+  max-width: min(520px, calc(100vw - 32px));
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.app-dialog__box--danger {
+  border-color: var(--color-negative);
+}
+
+.app-dialog__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--color-text);
+}
+
+.app-dialog__message {
+  margin: 0;
+  color: var(--color-text);
+  white-space: pre-line;
+}
+
+.app-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.app-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.app-dialog__label {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+}
+
+.app-dialog__input {
+  width: 100%;
+}
+
+/* Set by promptDialog's `validate`. aria-live would be better but a role=alert
+   paragraph already announces, and this is the only text that changes while
+   the field keeps focus. */
+.app-dialog__error {
+  margin: 0;
+  color: var(--color-negative);
+  font-size: var(--text-sm);
+}
+
+.app-dialog__options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: min(50vh, 420px);
+  overflow-y: auto;
+}
+
+/* One option per row, full width, so the list reads as a list. This is what
+   replaces the numbered text menu ("type 2") the shape picker used to ask
+   for - a choice you can see is not a choice you can mistype. */
+.app-dialog__option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-inset);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.app-dialog__option:hover {
+  border-color: var(--color-accent);
+  background: var(--color-bg);
+}
+
+.app-dialog__option-label {
+  font-weight: 600;
+}
+
+.app-dialog__option-description {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
 .modal-box--formula {
   position: fixed;
   top: 76px;

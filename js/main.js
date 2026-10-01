@@ -12,6 +12,7 @@ import { renderCustomSheet } from "./render/customSheet.js";
 import { computeAllFormulas } from "./data/formula.js";
 import { applySheetTheme } from "./data/themes.js";
 import { el } from "./render/sheet/sheetHelpers.js";
+import { alertDialog, confirmDialog } from "./ui/dialogs.js";
 
 const appRoot = document.getElementById("app-main");
 const authArea = document.getElementById("auth-area");
@@ -26,6 +27,11 @@ backBtn.style.display = "none";
 // points at.
 let openSheet = null;
 function leaveCurrentSheet(next) {
+  // window.confirm is DELIBERATE here and is the one place in the app that
+  // still uses a native dialog. Browsers do not permit an asynchronous dialog
+  // during unload, so a themed one cannot answer this question in time; a
+  // guard that silently never resolves is worse than an inelegant one. Every
+  // other native dialog has been replaced (see js/ui/dialogs.js).
   if (openSheet && openSheet.hasUnsavedChanges() &&
       !window.confirm("You have unsaved changes on this character. Leave anyway?")) {
     return;
@@ -295,7 +301,7 @@ async function renderCharacterList() {
             await renderCharacterList();
           } catch (err) {
             console.error("Failed to duplicate character:", err);
-            window.alert("Couldn't duplicate that character — see the console for details.");
+            await alertDialog({ title: "Couldn't duplicate that character", message: "See the console for details." });
             duplicateBtn.disabled = false;
           }
         },
@@ -305,7 +311,12 @@ async function renderCharacterList() {
         title: "Delete character",
         onclick: async (e) => {
           e.stopPropagation();
-          const confirmed = window.confirm(`Delete "${c.name || "Unnamed"}"? This can't be undone.`);
+          const confirmed = await confirmDialog({
+            title: `Delete "${c.name || "Unnamed"}"?`,
+            message: "This can't be undone.",
+            confirmLabel: "Delete",
+            tone: "danger",
+          });
           if (!confirmed) return;
           deleteBtn.disabled = true;
           try {
@@ -313,7 +324,7 @@ async function renderCharacterList() {
             await renderCharacterList();
           } catch (err) {
             console.error("Failed to delete character:", err);
-            window.alert("Couldn't delete that character — see the console for details.");
+            await alertDialog({ title: "Couldn't delete that character", message: "See the console for details." });
             deleteBtn.disabled = false;
           }
         },

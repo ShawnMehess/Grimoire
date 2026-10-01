@@ -22,6 +22,7 @@ import { positionCollectionMenu } from "./collectionMenuLayout.js";
 import { deepClone, newLocalId } from "./sheet/sheetHelpers.js";
 import { listContentPacks, listRulesets } from "../data/dnd5e.js";
 import { CREATION_CHOICE_CATEGORIES } from "./sheet/sheetMechanics.js";
+import { confirmDialog, alertDialog } from "../ui/dialogs.js";
 
 const MODIFIER_OPS = [
   { value: "add", label: "+ Add" },
@@ -212,14 +213,20 @@ export function openBundleLibraryManager(store, onChange) {
         deleteBtn.textContent = "✕";
         deleteBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
-          if (!window.confirm(`Delete the "${lib.name || "Unnamed"}" bundle? This won't undo it on characters it's already been applied to.`)) return;
+          const ok = await confirmDialog({
+            title: `Delete "${lib.name || "Unnamed"}"?`,
+            message: "This won't undo it on characters this bundle has already been applied to.",
+            confirmLabel: "Delete",
+            tone: "danger",
+          });
+          if (!ok) return;
           try {
             await store.deleteBundleLibrary(lib.scope, lib.id);
             if (!isNew && selected.id === lib.id) selectEntry(null, true);
             await refresh();
             onChange();
           } catch (err) {
-            window.alert(err.message || "Couldn't delete that bundle.");
+            await alertDialog({ title: "Couldn't delete that bundle", message: err.message || "See the console for details." });
           }
         });
 
@@ -451,7 +458,13 @@ export function openBundleLibraryManager(store, onChange) {
       deleteBtn.className = "btn btn--danger";
       deleteBtn.textContent = "Delete";
       deleteBtn.addEventListener("click", async () => {
-        if (!window.confirm(`Delete the "${selected.name || "Unnamed"}" bundle? This won't undo it on characters it's already been applied to.`)) return;
+        const ok = await confirmDialog({
+          title: `Delete "${selected.name || "Unnamed"}"?`,
+          message: "This won't undo it on characters this bundle has already been applied to.",
+          confirmLabel: "Delete",
+          tone: "danger",
+        });
+        if (!ok) return;
         await store.deleteBundleLibrary(selected.scope, selected.id);
         selectEntry(null, true);
         await refresh();

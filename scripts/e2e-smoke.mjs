@@ -352,15 +352,57 @@ async function runViewportTests(viewport) {
     const addBtn = await page.$("button:has-text('Add shape')");
     check(!!addBtn && (await addBtn.isVisible()), "the shape control offers to define your own");
     if (addBtn && (await addBtn.isVisible())) {
-      const answers = ["Desk monitor", "21:9", true];
-      const responder = (d) => {
-        const next = answers.length ? answers.shift() : true;
-        d.accept(typeof next === "string" ? next : undefined);
+      // Driven through the REAL dialogs, not answered as native ones. The
+      // old flow was two window.prompts answered by a "dialog" handler; now
+      // it is a themed prompt with an in-place validator, and typing into it
+      // is the only way to check that works.
+      //
+      // The ratio prompt comes SECOND (name first, as before), so the
+      // validator gets its own assertion below.
+      const fillDialogInput = async (value) => {
+        await page.waitForSelector(".app-dialog__input", { timeout: 5000 });
+        await page.fill(".app-dialog__input", value);
       };
-      page.on("dialog", responder);
+      const dialogButtons = () => page.$$(".app-dialog button");
+
       await addBtn.click();
-      await page.waitForTimeout(1500);
-      page.off("dialog", responder);
+      await fillDialogInput("Desk monitor");
+      let buttons = await dialogButtons();
+      await buttons[buttons.length - 1].click();
+      await page.waitForTimeout(400);
+      const ratioOpen = await page.$(".app-dialog__input");
+      check(!!ratioOpen, "the name dialog leads to a ratio dialog");
+
+      // The validator: a bad ratio must be refused IN PLACE, with the field
+      // still there. The old flow closed the prompt, opened an alert, and
+      // started the whole sequence over.
+      await page.fill(".app-dialog__input", "21x9x");
+      buttons = await dialogButtons();
+      await buttons[buttons.length - 1].click();
+      await page.waitForTimeout(300);
+      const refused = await page.evaluate(() => {
+        const err = document.querySelector(".app-dialog__error");
+        return { open: !!document.querySelector(".app-dialog"), shown: !!err && !err.hidden, text: err?.textContent || "" };
+      });
+      check(refused.open && refused.shown, "a ratio that isn't one is refused in place");
+      check(/isn't a ratio/i.test(refused.text), `the refusal says why (got "${refused.text}")`);
+      await page.screenshot({ path: path.join(shotDir, `shape-bad-ratio-${viewport.name}.png`) });
+
+      // Correct it and carry on - the field keeps what was already typed.
+      await page.fill(".app-dialog__input", "21:9");
+      buttons = await dialogButtons();
+      await buttons[buttons.length - 1].click();
+      await page.waitForTimeout(600);
+      // Adding a shape applies it straight away, which reflows every tab and
+      // therefore asks first. Click it through - the point of the check
+      // below is the reflowed layout, not the question.
+      const reflowAsk = await page.$(".app-dialog");
+      check(!!reflowAsk, "applying a new shape asks before re-flowing every tab");
+      if (reflowAsk) {
+        const btns = await dialogButtons();
+        await btns[btns.length - 1].click();
+        await page.waitForTimeout(1200);
+      }
 
       const shapeOptions = () => page.evaluate(() => {
         const sel = [...document.querySelectorAll("select")].find((s) => /target screen shape/.test(s.title || ""));
@@ -387,13 +429,27 @@ async function runViewportTests(viewport) {
       const removeBtn = await page.$("button:has-text('Remove shape')");
       check(!!removeBtn && (await removeBtn.isVisible()), "a custom shape can be removed");
       if (removeBtn && (await removeBtn.isVisible())) {
-        const remover = (d) => d.accept(d.type() === "prompt" ? "1" : "");
-        page.on("dialog", remover);
+        // Picking from a list of buttons, not typing an index into a prompt.
         await removeBtn.click();
-        await page.waitForTimeout(1200);
-        page.off("dialog", remover);
+        await page.waitForSelector(".app-dialog__option", { timeout: 5000 });
+        const optionCount = (await page.$$(".app-dialog__option")).length;
+        check(optionCount >= 1, `the remove dialog lists the shapes to choose from (${optionCount})`);
+        const optionText = await page.textContent(".app-dialog__option");
+        check(/Desk monitor/.test(optionText || ""), `the shape is named in the list (got "${(optionText || "").trim()}")`);
+        await page.screenshot({ path: path.join(shotDir, `shape-remove-list-${viewport.name}.png`) });
+        await page.click(".app-dialog__option");
+        await page.waitForTimeout(400);
+        // Which then asks for confirmation, as a separate dialog.
+        const confirmOpen = await page.$(".app-dialog__box--danger");
+        check(!!confirmOpen, "choosing a shape asks before deleting it");
+        if (confirmOpen) {
+          const dialogButtons2 = await page.$$(".app-dialog button");
+          await dialogButtons2[dialogButtons2.length - 1].click();
+          await page.waitForTimeout(900);
+        }
         const after = await shapeOptions();
         check(!after.some((o) => o.value === "custom:desk-monitor"), "the removed shape leaves the picker");
+        check(!(await page.$(".app-dialog")), "the delete dialog closes afterwards");
       }
     }
   }

@@ -373,8 +373,11 @@ import {
   customAspectPresetsFor,
   makeCustomPreset,
   describeRatio,
+  colsForRatio,
+  parseRatio,
   clearLayoutVariant,
 } from "./sheet/aspectPresets.js";
+import { confirmDialog, alertDialog, promptDialog, chooseDialog } from "../ui/dialogs.js";
 import { applySimpleViewOrder, shouldShowIntro, INTRO_LINES } from "./sheet/simpleView.js";
 import { featRowModels, renderFeatListInto } from "./sheet/featList.js";
 import {
@@ -1077,11 +1080,16 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   LAYOUT_PRESETS.forEach((preset) => {
     layoutSelect.append(el("option", { value: preset.id, text: preset.name }));
   });
-  layoutSelect.addEventListener("change", () => {
+  layoutSelect.addEventListener("change", async () => {
     const preset = LAYOUT_PRESETS.find((p) => p.id === layoutSelect.value);
     layoutSelect.value = "";
     if (!preset) return;
-    if (!window.confirm(`Rearrange every tab with the ${preset.name} layout? (Undo restores it.)`)) return;
+    const ok = await confirmDialog({
+      title: `Rearrange every tab?`,
+      message: `This replaces the arrangement on every tab with the ${preset.name} layout. Undo restores it.`,
+      confirmLabel: `Rearrange`,
+    });
+    if (!ok) return;
     commitMutation(() => {
       (character.sheetTabs || []).forEach((tab) => {
         if (Array.isArray(tab.layout)) applyLayoutPresetTo(tab.layout, preset.id);
@@ -1102,18 +1110,38 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   //  - It doesn't re-guess a shape the user has already adjusted. Each
   //    (preset, tab) pair keeps its own snapshot, so coming back to a
   //    preset restores their arrangement (switchTabToPreset handles that).
-  const applyAspect = (presetId, { force }) => {
+  const applyAspect = async (presetId, { force }) => {
     const preset = aspectPresetById(presetId, character);
     if (!preset) return;
     const willReflow = force || !(character.sheetTabs || []).some(
       (t) => stashedLayoutFor(character, presetId, t.id)
     );
-    if (force && !window.confirm(
-      `Re-flow every tab into ${preset.name}, replacing any hand-arranged version? (Undo restores it.)`
-    )) return;
-    if (!force && !willReflow && !window.confirm(
-      `You have a hand-arranged ${preset.name} layout — use that, or re-flow from scratch?`
-    )) return;
+    if (force) {
+      const ok = await confirmDialog({
+        title: `Re-flow into ${preset.name}?`,
+        message: "This replaces the arrangement on every tab, including any hand-arranged version. Undo restores it.",
+        confirmLabel: "Re-flow",
+      });
+      if (!ok) return;
+    } else if (!willReflow) {
+      // A three-way question, which is what this has always been: there is a
+      // hand-arranged version for this shape, and the player has to choose
+      // between it and a fresh automatic run. window.confirm could only ask
+      // a yes/no and used to use one of its answers to mean "yes, re-flow",
+      // so "use my layout" and "cancel" were the same click. chooseDialog
+      // gives both answers their own button, plus Cancel.
+      const choice = await chooseDialog({
+        title: `You have a hand-arranged ${preset.name} layout`,
+        options: [
+          { value: "keep", label: "Use my layout", description: "Go back to the arrangement you made for this shape." },
+          { value: "reflow", label: "Re-flow from scratch", description: "Replace it with the automatic arrangement. Undo restores yours." },
+        ],
+        cancelLabel: "Cancel",
+      });
+      if (choice === "reflow") willReflow = true;
+      else if (choice === "keep") willReflow = false;
+      else return;
+    }
     commitMutation(() => {
       (character.sheetTabs || []).forEach((tab) => {
         if (Array.isArray(tab.layout)) switchTabToPreset(character, tab, presetId, { force });
@@ -1149,22 +1177,53 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     applyAspect(presetId, { force: false });
   });
 
-  // User-defined shapes. Two prompts rather than a dialog: the whole
-  // definition is a name and a ratio, and a modal form for two fields
-  // costs more attention than it's worth. The column count is derived -
-  // see colsForRatio - because naming a ratio shouldn't require knowing
-  // the sheet is a 16-cell grid.
-  const addCustomAspect = () => {
-    const name = window.prompt("Name this shape (e.g. Desk monitor, Storybook):", "");
-    if (!name || !name.trim()) return;
-    const ratio = window.prompt(`Ratio for "${name.trim()}" — width:height, e.g. 21:9 or 1.78:`, "");
+  // User-defined shapes. The whole definition is a name and a ratio, and the
+  // column count is derived from the ratio (see colsForRatio) because
+  // naming a ratio shouldn't require knowing the sheet is a 16-cell grid.
+  //
+  // This used to be two window.prompt calls, then a window.alert to explain
+  // that what you typed wasn't a ratio, then a third prompt presenting the
+  // existing shapes as a numbered list to type an index from. Four native
+  // dialogs for two fields, and the ratio check happened AFTER the dialog
+  // that took the ratio had already closed - so fixing a typo meant starting
+  // over. The name is still asked for first (it is what the ratio prompt
+  // used to refer back to), but both are now validated in place.
+  const addCustomAspect = async () => {
+    const name = await promptDialog({
+      title: "Name this shape",
+      label: "Name",
+      message: "What the shape is — Desk monitor, Storybook, whatever you will recognise later.",
+      placeholder: "Desk monitor",
+      confirmLabel: "Next",
+      validate: (value) => {
+        const trimmed = value.trim();
+        if (!trimmed) return "Give it a name, or press Cancel.";
+        // The old flow checked for a duplicate name only AFTER both prompts
+        // had run, so a clash cost the whole sequence.
+        const clash = customAspectPresetsFor(character).some((p) => p.name === trimmed);
+        return clash ? `You already have a shape called "${trimmed}".` : null;
+      },
+    });
+    if (name === null) return;
+    const ratio = await promptDialog({
+      title: `Ratio for "${name}"`,
+      label: "Aspect ratio (width : height)",
+      message: "For example 16:9 for a widescreen sheet, or 1.78 for the same thing as a decimal.",
+      placeholder: "21:9",
+      confirmLabel: "Add shape",
+      // Refuses here rather than in a follow-up alert, and puts the caret
+      // back in the field. The old flow closed, alerted, and started over.
+      validate: (value) => (parseRatio(value) === null
+        ? "That isn't a ratio. Try something like 21:9, 4:3, or 0.56."
+        : null),
+    });
+    if (ratio === null) return;
     const preset = makeCustomPreset({ name, ratio });
     if (!preset) {
-      window.alert(`"${String(ratio ?? "").trim()}" isn't a ratio. Try something like 21:9, 4:3, or 0.56.`);
-      return;
-    }
-    if (aspectPresetById(preset.id, character)) {
-      window.alert(`You already have a shape called "${preset.name}".`);
+      // Unreachable while parseRatio and makeCustomPreset agree about what a
+      // ratio is; kept so a future divergence is visible rather than silently
+      // dropping the shape.
+      await alertDialog({ title: "Couldn't add that shape", message: "That ratio isn't one the sheet can lay out." });
       return;
     }
     commitMutation(() => {
@@ -1174,19 +1233,32 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     applyAspect(preset.id, { force: true });
   };
 
-  const removeCustomAspect = () => {
+  const removeCustomAspect = async () => {
     const custom = customAspectPresetsFor(character);
     if (!custom.length) {
-      window.alert("You haven't defined any shapes of your own yet.");
+      await alertDialog({ title: "No shapes to remove", message: "You haven't defined any shapes of your own yet." });
       return;
     }
-    const menu = [...custom.map((p, i) => `${i + 1}) ${p.name} (${describeRatio(p.ratio)})`), "Cancel"]
-      .join("\n");
-    const pick = window.prompt(`Which shape?\n${menu}`, "1");
-    const index = Number(pick) - 1;
-    if (!Number.isInteger(index) || index < 0 || index >= custom.length) return;
-    const target = custom[index];
-    if (!window.confirm(`Delete "${target.name}"? Tabs currently on it keep their layout.`)) return;
+    // A list you can click, instead of a numbered menu to type an index from.
+    // Nothing to mistype, and nothing to parse back.
+    const pickedId = await chooseDialog({
+      title: "Remove which shape?",
+      options: custom.map((p) => ({
+        value: p.id,
+        label: p.name,
+        description: `${describeRatio(p.ratio)} — ${colsForRatio(p.ratio)} columns`,
+      })),
+    });
+    if (pickedId === null) return;
+    const target = custom.find((p) => p.id === pickedId);
+    if (!target) return;
+    const confirmed = await confirmDialog({
+      title: `Delete "${target.name}"?`,
+      message: "Tabs currently on this shape keep the layout they already have.",
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     commitMutation(() => {
       character.customAspectPresets = custom.filter((p) => p.id !== target.id);
       // The per-shape memory goes with it, so re-adding the name later
@@ -2239,9 +2311,20 @@ const closeDialog = () => {
     });
   }
 
-  function deleteBlockNode(block) {
+  async function deleteBlockNode(block) {
     const viewBlock = effectiveBlock(block);
-    if ((viewBlock.children || []).length > 0 && !window.confirm(`Delete block "${viewBlock.name}" and everything in it?`)) return;
+    // Named count, not "everything in it": the field list can be long and
+    // the sentence is the only thing telling you what is about to go.
+    const childCount = (viewBlock.children || []).length;
+    if (childCount > 0) {
+      const ok = await confirmDialog({
+        title: `Delete "${viewBlock.name}"?`,
+        message: `This deletes the block and the ${childCount} ${childCount === 1 ? "field" : "fields"} in it. Undo restores it.`,
+        confirmLabel: "Delete block",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
     commitMutation(() => {
       removeBlockFromLayout(currentLayout(), block.id);
     });
@@ -5502,10 +5585,16 @@ const closeDialog = () => {
             defaultContentPackIdsFn: (rid) => defaultContentPackIds(rid),
             includedIds: includedRulesetIds(state),
             primaryId: primaryRulesetId(state),
-            setPrimaryFn: (rulesetId, opts) => {
+            setPrimaryFn: async (rulesetId, opts) => {
               const prevPrimary = primaryRulesetId(state);
               if (rulesetId !== prevPrimary && (state.species || state.className || state.subclass || state.background)) {
-                if (!window.confirm("Changing the ruleset clears your Race, Class, Subclass, and Background choices below. Continue?")) {
+                const ok = await confirmDialog({
+                  title: "Change the ruleset?",
+                  message: "Your Race, Class, Subclass and Background picks are cleared, because they come from the books you have selected.",
+                  confirmLabel: "Change ruleset",
+                  tone: "danger",
+                });
+                if (!ok) {
                   renderPageGrid();
                   return;
                 }
@@ -5522,7 +5611,7 @@ const closeDialog = () => {
               renderPageGrid();
               if (syncMessage) statusEl.textContent = syncMessage;
             },
-            updateIdsFn: (nextIds, opts) => {
+            updateIdsFn: async (nextIds, opts) => {
               const prevIds = includedRulesetIds(state);
               const removed = prevIds.filter((id) => !nextIds.includes(id));
               // Adding a book never disturbs existing picks — only
@@ -5530,7 +5619,16 @@ const closeDialog = () => {
               // The actual cleanup below keeps every pick still offered
               // under the remaining books and reports what went away.
               if (removed.length > 0 && (state.species || state.className || state.subclass || state.background)) {
-                if (!window.confirm("Removing a content book clears the Race, Class, Subclass, and Background picks that only come from it. Picks available in the remaining books stay. Continue?")) {
+                const titles = listContentPacks()
+                  .filter((p) => removed.includes(p.id))
+                  .map((p) => p.name)
+                  .filter(Boolean);
+                const ok = await confirmDialog({
+                  title: titles.length === 1 ? `Remove ${titles[0]}?` : "Remove these books?",
+                  message: "Your Race, Class, Subclass and Background picks are cleared if they only come from a book being removed. Anything still available in the books that remain is kept.",
+                  confirmLabel: "Remove",
+                });
+                if (!ok) {
                   renderPageGrid();
                   return;
                 }
@@ -6446,7 +6544,7 @@ const closeDialog = () => {
               });
               renderPageGrid();
             },
-            confirmFn: (msg) => window.confirm(msg),
+              confirmFn: (msg) => confirmDialog({ title: "Are you sure?", message: msg, confirmLabel: "Remove", tone: "danger" }),
             onChangeFn: () => renderPageGrid(),
           });
         },

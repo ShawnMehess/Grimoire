@@ -12,6 +12,10 @@
 // alongside scripts/smoke-imports.mjs.
 
 // --- Minimal document stub -----------------------------------------------
+// `focused` stands in for document.activeElement: the dialog module moves
+// focus into the dialog and restores it on close, and a stub with no
+// concept of focus makes that crash rather than merely go unasserted.
+let focused = null;
 function makeNode(tag) {
   const node = {
     tag, nodeType: 1, children: [], parent: null, listeners: {},
@@ -95,6 +99,7 @@ function makeNode(tag) {
       return null;
     },
     click() { (this.listeners.click || []).forEach((f) => f({ target: this, preventDefault() {}, stopPropagation() {} })); },
+    focus() { focused = this; },
     get firstElementChild() { return (this.children || []).find((c) => c.tag) || null; },
   };
   node._classes = new Set();
@@ -134,11 +139,32 @@ function makeText(text) {
   return { nodeType: 3, text: String(text), parent: null, get textContent() { return this.text; } };
 }
 
+// The document itself. `body` is the node dialogs mount onto, and the
+// listener registry + querySelector let a test exercise a document-level
+// Escape handler and find what a dialog rendered - both things a
+// hand-rolled dialog module does that the old native ones never had to.
+const docNode = makeNode("body");
+docNode.listeners = {};
 globalThis.document = {
   createElement: (tag) => makeNode(tag),
   createElementNS: (_ns, tag) => makeNode(tag),
   createTextNode: (text) => makeText(text),
+  body: docNode,
+  addEventListener(t, f) { (docNode.listeners[t] ||= []).push(f); },
+  removeEventListener(t, f) {
+    const list = docNode.listeners[t] || [];
+    const i = list.indexOf(f);
+    if (i !== -1) list.splice(i, 1);
+  },
+  querySelector(sel) { return docNode.querySelector(sel); },
+  querySelectorAll(sel) { return docNode.querySelectorAll(sel); },
+  get activeElement() { return focused; },
 };
+// Listeners on the document are readable by tests through `document` — the
+// stub puts them on the body node, so mirror the reference.
+Object.defineProperty(globalThis.document, "listeners", {
+  get() { return docNode.listeners; },
+});
 globalThis.window = globalThis;
 
 let failures = 0;
@@ -365,6 +391,130 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   const walk = (n) => { if (n.tag === "textarea") areas.push(n); for (const c of n.children || []) walk(c); };
   walk(box);
   assert(areas.length === 1, "the unwritable field renders no box at all");
+}
+
+// --- App dialogs (js/ui/dialogs.js) ----------------------------------------
+//
+// Replacements for window.alert / confirm / prompt. The behaviour worth
+// pinning here is the part a native dialog gives you for free and a
+// hand-rolled one usually drops: every dismissal route resolves the same
+// way, and the validator refuses IN PLACE rather than closing and starting
+// over.
+{
+  const { confirmDialog, alertDialog, promptDialog, chooseDialog } = await import("../js/ui/dialogs.js");
+  const openDialog = () => document.querySelector(".app-dialog");
+  const dialogButtons = () => {
+    const found = [];
+    const walk = (n) => {
+      for (const c of n.children || []) { if (c.tag === "button") found.push(c); walk(c); }
+    };
+    walk(openDialog() || document.createElement("div"));
+    return found;
+  };
+  const dismissAll = async () => { while (openDialog()) { openDialog().listeners.click[0](); await Promise.resolve(); } };
+
+  // confirm: true / false / backdrop, and exactly one dialog per call.
+  let settled = confirmDialog({ title: "Delete?", message: "Gone for good.", confirmLabel: "Delete" });
+  assert(!!openDialog(), "confirm dialog mounts");
+  assert(openDialog().classList.contains("app-dialog"), "confirm carries the dialog class");
+  dialogButtons()[1].click();
+  assert((await settled) === true, "the confirm button resolves true");
+
+  settled = confirmDialog({ title: "Delete?" });
+  dialogButtons()[0].click();
+  assert((await settled) === false, "the cancel button resolves false");
+
+  settled = confirmDialog({ title: "Delete?" });
+  openDialog().listeners.click[0](); // the backdrop
+  assert((await settled) === false, "a backdrop click resolves false, not true");
+
+  // Escape is registered on the document with capture, so it is reachable
+  // from anywhere in the page rather than only from inside the dialog.
+  settled = alertDialog({ title: "Heads up" });
+  const docKeydowns = document.listeners?.keydown || [];
+  assert(docKeydowns.length > 0, "a dialog registers a document keydown listener");
+  docKeydowns[docKeydowns.length - 1]({ key: "Escape", preventDefault() {} });
+  // null, not undefined: "cancelled" is one answer for every dialog, and a
+  // caller comparing against undefined would miss it.
+  assert((await settled) === null, "Escape resolves the alert");
+  assert(!openDialog(), "and closes it");
+  await dismissAll();
+  assert(!openDialog(), "dismissing removes the dialog from the document");
+
+  // prompt: validator refuses in place, keeps the text, trims on accept.
+  settled = promptDialog({
+    title: "Name this shape",
+    label: "Name",
+    value: "  Desk monitor  ",
+    validate: (v) => (v.trim() ? null : "Give it a name."),
+  });
+  await Promise.resolve();
+  let input = document.querySelector(".app-dialog__input");
+  assert(!!input, "prompt dialog has a field");
+  assert(input.value === "  Desk monitor  ", "prompt seeds the field");
+  input.value = "";
+  let btns = dialogButtons();
+  btns[btns.length - 1].click(); // the OK button
+  assert(!!openDialog(), "a refused value leaves the dialog open");
+  let error = document.querySelector(".app-dialog__error");
+  assert(!!error && error.hidden === false, "and shows the complaint");
+  assert(/Give it a name/.test(error.textContent || ""), "in the validator's own words");
+  input.value = "  Storybook  ";
+  btns = dialogButtons();
+  btns[btns.length - 1].click();
+  assert((await settled) === "Storybook", "prompt resolves the trimmed value");
+
+  // A validator that throws must not strand the dialog open with nothing
+  // able to close it but Escape.
+  settled = promptDialog({
+    title: "Boom",
+    validate: () => { throw new Error("kaboom"); },
+  });
+  await Promise.resolve();
+  input = document.querySelector(".app-dialog__input");
+  input.value = "x";
+  btns = dialogButtons();
+  btns[btns.length - 1].click();
+  assert(!!openDialog(), "a throwing validator leaves the dialog open");
+  error = document.querySelector(".app-dialog__error");
+  assert(!!error && error.hidden === false, "and says something went wrong rather than throwing");
+  btns = dialogButtons();
+  btns[0].click();
+  assert((await settled) === null, "cancelling a prompt resolves null");
+
+  // choose: a list of buttons, not an index to type.
+  settled = chooseDialog({
+    title: "Remove which shape?",
+    options: [
+      { value: "a", label: "Desk monitor", description: "21:9 - 8 columns" },
+      { value: "b", label: "Storybook", description: "3:4 - 12 columns" },
+    ],
+  });
+  let options = [];
+  {
+    // Exact class, not a substring: "app-dialog__option-label" and
+    // "-description" both CONTAIN "app-dialog__option", so a substring match
+    // collects each option three times.
+    const walk = (n) => { for (const c of n.children || []) { if (c.className === "app-dialog__option") options.push(c); walk(c); } };
+    walk(openDialog());
+  }
+  assert(options.length === 2, "choose dialog lists every option");
+  assert(/Desk monitor/.test(options[0].textContent), "and names them");
+  assert(/8 columns/.test(options[0].textContent), "with the description beside it");
+  options[1].click();
+  assert((await settled) === "b", "choose resolves the option's value, not its index");
+
+  // An empty list still has a way out.
+  settled = chooseDialog({ title: "Remove which shape?", options: [] });
+  await Promise.resolve();
+  assert(/nothing to choose from/i.test(openDialog().textContent || ""), "an empty choose says so");
+  btns = dialogButtons();
+  btns[0].click();
+  assert((await settled) === null, "and can still be cancelled");
+
+  // Nothing left behind.
+  await dismissAll();
+  assert(!openDialog(), "no dialogs left mounted");
 }
 
 // --- HP / ASI / features / review steps --------------------------------------
