@@ -1315,7 +1315,8 @@
 }
 .feat-list__source {
   margin-left: auto;
-  font-size: 10px;
+  /* Was 10px - a word, so it clears 12px. */
+  font-size: var(--text-xs);
   text-transform: uppercase;
   color: var(--color-text-muted);
 }

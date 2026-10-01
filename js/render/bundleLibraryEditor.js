@@ -226,7 +226,7 @@ export function openBundleLibraryManager(store, onChange) {
             await refresh();
             onChange();
           } catch (err) {
-            await alertDialog({ title: "Couldn't delete that bundle", message: err.message || "See the console for details." });
+            await alertDialog({ title: "Couldn't delete that bundle", message: String(err?.message || "").trim() || "Nothing more to go on — try again in a moment." });
           }
         });
 

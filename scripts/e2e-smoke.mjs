@@ -987,6 +987,42 @@ if (vaultLineage) {
   }
 }
 
+// --- The page that cannot start --------------------------------------------
+//
+// A module script fails SILENTLY. main.js does a top-level await and a
+// syntax error or a bad import path rejects the module record without
+// running a line of app code, so the loading screen just sits there - no
+// error, no message, nothing to click. That is the worst state a page can
+// be in, and nothing about it was testable before.
+//
+// Driven by loading a page whose entry script is blocked, which is exactly
+// what a stale cache or a missing deploy looks like from the browser's side.
+{
+  const brokenPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  // A blocked script IS the thing under test, so this page's own errors are
+  // not collected into `problems` - they are the expected result.
+  await brokenPage.route("**/js/main.js*", (route) => route.abort());
+  await brokenPage.goto(`${base}/index.html`, { waitUntil: "domcontentloaded" });
+  await brokenPage.waitForTimeout(1500);
+  const broke = await brokenPage.evaluate(() => ({
+    failure: !!document.querySelector(".app-load-failure"),
+    text: document.querySelector(".app-load-failure")?.textContent || "",
+    hasReload: !!document.querySelector(".app-load-failure button"),
+    spinnerGone: !document.querySelector(".app-loading-screen"),
+    noscriptHidden: document.getElementById("app-noscript")?.hidden === true,
+  }));
+  vaultCheck(broke.failure, "a blocked entry script produces a failure page, not a stuck spinner");
+  vaultCheck(/couldn't start/i.test(broke.text), "and it says what happened");
+  vaultCheck(broke.hasReload, "with a Reload button to act on it");
+  vaultCheck(broke.spinnerGone, "the loading screen is gone, not left behind under it");
+  // The <noscript> panel is for a different failure (no JS at all) and must
+  // not appear here. It claimed to be hidden while actually covering the
+  // page and eating clicks, which this check exists to keep fixed.
+  vaultCheck(broke.noscriptHidden, "the no-JavaScript panel stays out of the way when JS is merely failing");
+  await brokenPage.screenshot({ path: path.join(shotDir, "load-failure.png") });
+  await brokenPage.close();
+}
+
 await browser.close();
 server.close();
 

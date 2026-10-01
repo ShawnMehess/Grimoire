@@ -251,8 +251,14 @@ async function renderCharacterList() {
       type: "button", class: "btn btn--primary", text: "Retry",
       onclick: () => renderCharacterList(),
     });
+    // The actual reason, not "see the console". Nobody who hits this can
+    // open a console, and the message is usually the only thing that
+    // distinguishes "you're offline" from "this browser is blocking
+    // storage" - which have completely different fixes.
+    const detail = String(err?.message || "").trim();
     appRoot.append(
-      el("p", { class: "leveling-tab__intro", text: "Couldn't load your characters — check your connection and try again. (See the console for details.)" }),
+      el("p", { class: "leveling-tab__intro", text: "Couldn't load your characters — check your connection and try again." }),
+      detail ? el("p", { class: "leveling-tab__intro character-vault__error-detail", text: detail }) : null,
       retryBtn);
     return;
   }
@@ -301,7 +307,12 @@ async function renderCharacterList() {
             await renderCharacterList();
           } catch (err) {
             console.error("Failed to duplicate character:", err);
-            await alertDialog({ title: "Couldn't duplicate that character", message: "See the console for details." });
+            await alertDialog({
+              title: "Couldn't duplicate that character",
+              // The real reason where there is one. "See the console for
+              // details" is advice aimed at a developer, shown to a player.
+              message: String(err?.message || "").trim() || "Nothing more to go on — try again in a moment.",
+            });
             duplicateBtn.disabled = false;
           }
         },
@@ -324,7 +335,10 @@ async function renderCharacterList() {
             await renderCharacterList();
           } catch (err) {
             console.error("Failed to delete character:", err);
-            await alertDialog({ title: "Couldn't delete that character", message: "See the console for details." });
+            await alertDialog({
+              title: "Couldn't delete that character",
+              message: String(err?.message || "").trim() || "Nothing more to go on — try again in a moment.",
+            });
             deleteBtn.disabled = false;
           }
         },

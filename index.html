@@ -34,10 +34,104 @@
     </div>
   </main>
 
+  <!-- Without JavaScript there is no app: main.js is a module that does a
+       top-level await, so nothing at all runs. The loading screen would sit
+       there forever with no explanation, which reads as a broken page rather
+       than a missing capability. This is hidden by default and revealed by the
+       <noscript> below, so it costs a JS-enabled user nothing. -->
+  <div class="app-noscript" id="app-noscript" hidden>
+    <div class="app-noscript__inner">
+      <h1>Grimoire needs JavaScript</h1>
+      <p>The character sheet, the setup wizard and the vault all run in the browser, so there is nothing to show without it.</p>
+      <p>Enable JavaScript for this page and reload. If a setting, an extension or a strict privacy mode is blocking it, that is usually the cause.</p>
+      <p>If you are on a browser without JavaScript support at all, this app will not work for you.</p>
+    </div>
+  </div>
+  <noscript>
+    <style>
+      /* Hide the loading screen and reveal the explanation. Scoped to
+         :root so it cannot leak any other rule, and it is the only inline
+         <style> in the app. */
+      #app-noscript[hidden] { display: block !important; }
+      .app-loading-screen { display: none !important; }
+    </style>
+    <script>document.getElementById("app-noscript").hidden = false;</script>
+  </noscript>
+
   <!-- ?v= cache-busts the entry script on each release: static hosts
        and browsers cache JS aggressively, and a stuck copy of main.js
        fails before any app code can even run. Bump the version
        whenever shipped JS changes. -->
+  <script>
+    // Module scripts fail SILENTLY: a syntax error, a bad import path, or a
+    // rejected top-level await rejects the module record without running a
+    // line of app code, so the loading screen above stays up forever with no
+    // error, no message and nothing to click. main.js cannot catch its own
+    // load failure, so the listener is installed here - before it, in plain
+    // classic script, which runs even when the module graph does not parse.
+    //
+    // The 12s arm is a backstop for the case that DOES run but hangs (a
+    // promise that never settles). The error listener covers the case that
+    // throws; neither covers a silent stall, and a blank spinner with no
+    // exit is the worst outcome the page has.
+    (function () {
+      var shown = false;
+      function bail(reason, detail) {
+        if (shown) return;
+        shown = true;
+        var root = document.getElementById("app-main");
+        if (!root) return;
+        root.innerHTML = "";
+        var box = document.createElement("div");
+        box.className = "app-load-failure";
+        var h = document.createElement("h1");
+        h.textContent = "Grimoire couldn't start";
+        var p = document.createElement("p");
+        p.textContent = reason;
+        var d = document.createElement("p");
+        d.className = "app-load-failure__detail";
+        // The browser's own message is the useful part here - "Failed to
+        // fetch dynamically imported module" is the difference between
+        // "check your connection" and "that file is missing", and it is
+        // shown rather than logged because nobody reading this can open a
+        // console.
+        d.textContent = detail || "";
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "btn btn--primary";
+        b.textContent = "Reload";
+        b.addEventListener("click", function () { location.reload(); });
+        box.append(h, p);
+        if (detail) box.append(d);
+        box.append(b);
+        root.append(box);
+      }
+      window.addEventListener("error", function (e) {
+        // Only module-load failures. A runtime error AFTER the app is up is
+        // the app's own problem to report, and hijacking it here would
+        // replace a working sheet with a reload button.
+        if (document.querySelector(".app-load-failure")) return;
+        if (e.target && e.target.tagName === "SCRIPT") {
+          bail("A script the page needs could not be loaded.", "This is usually a connection problem, or a stale cached copy of the page. Reloading often fixes it.");
+          return;
+        }
+        if (!document.querySelector(".app-main > *:not(.app-loading-screen)")) {
+          bail("Something went wrong while starting up.", e.message || "");
+        }
+      }, true);
+      window.addEventListener("unhandledrejection", function (e) {
+        if (!document.querySelector(".app-main > *:not(.app-loading-screen)")) {
+          var why = (e.reason && e.reason.message) || "";
+          bail("Something went wrong while starting up.", why);
+        }
+      });
+      setTimeout(function () {
+        if (!document.querySelector(".app-main > *:not(.app-loading-screen)")) {
+          bail("This is taking longer than expected.", "Grimoire may be blocked from using your browser's storage. Private Browsing and strict privacy settings are the usual cause - try a normal window, or allow storage for this page.");
+        }
+      }, 12000);
+    })();
+  </script>
   <script type="module" src="js/main.js?v=20260925"></script>
 </body>
 </html>

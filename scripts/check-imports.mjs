@@ -133,11 +133,105 @@ for (const file of cssFiles) {
   if (/(^|[,{\s])button\s*\{[^}]*display\s*:\s*none/.test(withoutPrint)) {
     cssErrors.push(`${file}: bare 'button { display: none }' outside @media print`);
   }
+
+  // Nothing that renders WORDS may be smaller than 12px.
+  //
+  // There is a real allowlist, because the alternative is worse than the
+  // problem: a drag handle (⠿), a disclosure caret (▸) and a ✕ delete button
+  // are glyphs inside fixed-size affordances, and enlarging the glyph to
+  // 12px overflows the affordance it lives in. Those are listed by selector
+  // and left alone deliberately.
+  //
+  // What this catches is the case that actually matters: a text label
+  // somebody set to 10px because it was a "small caption", which is how the
+  // three uppercase labels in this app ended up at 10px in the first place.
+  // Uppercase is the worst case at a small size, so the three that were
+  // fixed were all `text-transform: uppercase`.
+  const GLYPH_ONLY_SELECTORS = new Set([
+    ".character-card__delete",              // ✕
+    ".character-card__duplicate",           // ⧉
+    ".dropdown-choices-editor__handle",    // drag handle
+    ".bundle-library-list__group-caret",   // ▸ / ▾
+    ".identity-card-fields__chip button",  // ✕ on a card-field chip
+    ".textlist-item__handle",              // drag handle
+    ".textlist-item__remove",              // ✕
+    ".taglist-chip__remove",               // ✕
+    ".drag-handle",                        // ⠿
+    ".resize-handle",                      // corner grip
+    ".node-toolbar button",                // ✕ / ⤢ in the hover toolbar
+    ".equation-hint",                      // ƒ glyph
+    ".field-type-preview-label",           // icon preview in the picker
+    ".field-type-preview-tag",             // icon preview in the picker
+    ".field-type-preview-dropdown",        // icon preview in the picker
+    ".field-roll button",                  // die glyph
+    ".formula-error-badge",                // glyph badge
+    ".style-badge",                        // glyph badge
+    "input[type=\"checkbox\"]:checked::after",   // ✓ glyph
+  ]);
+  for (const match of src.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selector = match[1].trim().split("\n").pop().trim();
+    const decls = match[2];
+    if (!selector || selector.startsWith("@")) continue;
+    // Allowlist is matched against the whole selector AND against its last
+    // compound part, with pseudo-classes stripped. Both matter: the entries
+    // are written the way the rules are written (".a button"), and a
+    // bare descendant like ".node-toolbar button" otherwise resolves to just
+    // "button", which says nothing about what it styles.
+    const strip = (s) => s.replace(/:(hover|focus|active|focus-visible)$/, "");
+    const whole = strip(selector);
+    const compound = strip(whole.split(/[\s,]+/).pop());
+    if (GLYPH_ONLY_SELECTORS.has(whole) || GLYPH_ONLY_SELECTORS.has(compound)) continue;
+    const size = decls.match(/font-size\s*:\s*(\d+(?:\.\d+)?)px/);
+    if (size && Number(size[1]) < 12) {
+      cssErrors.push(`${file}: ${selector} sets font-size: ${size[1]}px - text must be 12px or larger (add the selector to GLYPH_ONLY_SELECTORS in check-imports.mjs if it is a glyph in a fixed-size box)`);
+    }
+  }
 }
 console.log(`checked ${cssFiles.length} css files`);
 if (cssErrors.length) {
   console.error("CSS ERRORS:\n" + cssErrors.join("\n"));
   process.exit(1);
 } else {
-  console.log("css: braces balanced, screen chrome visible");
+  console.log("css: braces balanced, screen chrome visible, no sub-12px text");
+}
+
+// --- index.html: the page's only non-JS fallbacks --------------------------
+//
+// Both of these exist because the alternative is a page that silently does
+// nothing, and neither is exercised by any other check: the loading screen
+// is markup in the HTML, so a CSS or JS change cannot break it, but deleting
+// the panel beside it can. Both are cheap to assert and impossible to notice
+// by eye once they are gone.
+{
+  const html = readFileSync(join(ROOT, "index.html"), "utf8");
+  const htmlErrors = [];
+  if (!/<noscript>/i.test(html)) {
+    htmlErrors.push("index.html has no <noscript> — a visitor without JavaScript gets the loading screen forever");
+  }
+  if (!/id="app-noscript"/.test(html)) {
+    htmlErrors.push("index.html's <noscript> has no #app-noscript panel to reveal");
+  }
+  // The inline <style> in <noscript> has to neutralize the loading screen,
+  // or the two are stacked and only the hidden one is reachable.
+  if (!/\.app-loading-screen\s*\{\s*display:\s*none\s*!important/.test(html)) {
+    htmlErrors.push("index.html's <noscript> does not hide the loading screen");
+  }
+  // The load-failure listener must be a CLASSIC script, before the module.
+  // A module that fails to parse takes the recovery down with it.
+  const listenerAt = html.search(/addEventListener\(\s*["']unhandledrejection["']/);
+  const moduleAt = html.search(/<script\s+type=["']module["']/);
+  if (listenerAt === -1) {
+    htmlErrors.push("index.html has no unhandledrejection listener — a rejected top-level await hangs the loading screen forever");
+  } else if (moduleAt !== -1 && listenerAt > moduleAt) {
+    htmlErrors.push("index.html's load-failure listener is AFTER the module script — it cannot catch the module failing to load");
+  }
+  // A 12s backstop, or the "runs but hangs" case is still a blank spinner.
+  if (!/setTimeout\([\s\S]{0,400}?\b12\d{3}\b/.test(html)) {
+    htmlErrors.push("index.html's load-failure watchdog is missing or not ~12s");
+  }
+  if (htmlErrors.length) {
+    console.error("HTML ERRORS:\n" + htmlErrors.map((e) => `index.html: ${e}`).join("\n"));
+    process.exit(1);
+  }
+  console.log("index.html: noscript fallback + load-failure recovery present and ordered correctly");
 }

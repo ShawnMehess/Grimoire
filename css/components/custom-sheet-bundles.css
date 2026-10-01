@@ -266,7 +266,8 @@
   background: var(--color-accent-muted);
 }
 .bundle-library-list__scope {
-  font-size: 10px;
+  /* Was 10px - a word, so it clears 12px. */
+  font-size: var(--text-xs);
   color: var(--color-text-faint);
   text-transform: uppercase;
 }

@@ -1464,6 +1464,48 @@
   background: var(--color-bg-inset);
 }
 
+/* --- Focus on the sheet's editable surfaces -------------------------------
+ *
+ * Every one of these is a contenteditable / click-to-edit text surface that
+ * kills its own outline, because on this sheet the border already reads as
+ * "this is the thing you type in" and a ring on top of it looked like a
+ * second, redundant border.
+ *
+ * The cost was that the ring base.css sets for :focus-visible stopped
+ * applying. A class selector and a pseudo-class have the SAME specificity,
+ * and these files load after base.css, so `outline: none` here silently beat
+ * the global rule - and a keyboard user tabbing across the sheet got no
+ * indication of where they were at all, on the one surface where they are
+ * most likely to be typing.
+ *
+ * The opt-out is only for the pointer path, which is the honest version of
+ * the original intent: clicking to edit shows no ring (the border is the
+ * affordance and a mouse user already knows where they clicked), while
+ * :focus-visible brings it back for the keyboard. */
+.sheet-tab__name:focus-visible,
+.label-block-text:focus-visible,
+.block-name:focus-visible,
+.field-label:focus-visible,
+.field-value:focus-visible,
+.textlist-item__text:focus-visible,
+.formula-input:focus-visible,
+.formula-ghost:focus-visible,
+.dropdown-choices-editor__text:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Selectable row lists (Race/Class/Background pickers) are divs with
+ * tabindex=0 rather than buttons, so they miss the global rule the same way
+ * a styled button would not - and they are the single most tabbed-through
+ * region of the app. */
+.choice-row:focus-visible,
+.wizard__dot:focus-visible,
+.character-card:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
 .field-type-preview-label {
   display: inline-flex;
   align-items: center;

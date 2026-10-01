@@ -88,7 +88,10 @@
 
 .style-popover__badge {
   color: var(--color-accent);
-  font-size: 10px;
+  /* Was 10px. A word, not a glyph, so it has to clear 12px like any other
+     text - and uppercase labels are the worst case, since small caps-style
+     capitals are harder to read than lowercase at the same size. */
+  font-size: var(--text-xs);
   text-transform: uppercase;
 }
 
