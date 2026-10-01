@@ -375,7 +375,7 @@ import {
   describeRatio,
   clearLayoutVariant,
 } from "./sheet/aspectPresets.js";
-import { applySimpleViewOrder } from "./sheet/simpleView.js";
+import { applySimpleViewOrder, shouldShowIntro, INTRO_LINES } from "./sheet/simpleView.js";
 import { featRowModels, renderFeatListInto } from "./sheet/featList.js";
 import {
   allGrantsIn,
@@ -826,38 +826,54 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // exactly as it was. The only thing written to the DOM is a flex
   // `order` on each node (see simpleView.js) and a class on the grid,
   // both of which are removed again on the way out.
-  let simpleView = false;
+  //
+  // Persisted on the character, like sheetMode and themeId. It used to
+  // start off on every single load, which made it a preference you had to
+  // re-assert every session - and a display preference is exactly the kind
+  // of thing anyone expects to have remembered. Read once here; every later
+  // read goes through simpleView so there is one source of truth.
+  let simpleView = character.simpleView === true;
 
-  const playViewBtn = document.createElement("button");
-  playViewBtn.type = "button";
-  playViewBtn.className = "btn btn--secondary";
-  playViewBtn.textContent = "Simple View";
-  playViewBtn.title = "Switch to Simple View - every block and field stacked full-width (display only; your layout is untouched)";
-  playViewBtn.addEventListener("click", () => {
-    simpleView = !simpleView;
+  /** Turn Simple View on or off: the grid class, the sort keys, the
+   *  builder chrome that means nothing over a read-only stacked view, and
+   *  (unless `persist` is false) the character. One function so the button,
+   *  the first-load restore and the tab switch can never disagree about
+   *  what state the sheet is in. */
+  function applySimpleView(on, { persist = true } = {}) {
+    simpleView = Boolean(on);
     playViewBtn.textContent = simpleView ? "Sheet View" : "Simple View";
     playViewBtn.title = simpleView
       ? "Switch back to the editable grid - your saved layout is exactly where you left it"
       : "Switch to Simple View - every block and field stacked full-width (display only; your layout is untouched)";
     pageGrid.classList.toggle("is-simple", simpleView);
     applySimpleViewOrder(pageGrid, simpleView);
-    if (simpleView) {
-      // Editing chrome is meaningless over a read-only stacked view.
-      sidebarToggleBtn.style.display = "none";
-      modeSelect.style.display = "none";
-      rulesetSelect.style.display = "none";
-      themeSelect.style.display = "none";
-      displayDetails.style.display = "none";
-      cardZonesWrap.hidden = true;
-    } else {
-      sidebarToggleBtn.style.display = "";
-      modeSelect.style.display = "";
-      rulesetSelect.style.display = "";
-      themeSelect.style.display = "";
-      displayDetails.style.display = "";
-      cardZonesWrap.hidden = false;
-      // The order values were cleared above, so the grid is back to its
-      // normal pixel positioning with nothing stale left on the nodes.
+    sidebarToggleBtn.style.display = simpleView ? "none" : "";
+    modeSelect.style.display = simpleView ? "none" : "";
+    rulesetSelect.style.display = simpleView ? "none" : "";
+    themeSelect.style.display = simpleView ? "none" : "";
+    displayDetails.style.display = simpleView ? "none" : "";
+    cardZonesWrap.hidden = simpleView;
+    if (!persist) return;
+    character.simpleView = simpleView;
+    if (!store.saveCharacterFields) return;
+    store.saveCharacterFields(character.id, { simpleView }).catch((err) => {
+      console.error("Failed to save Simple View preference:", err);
+    });
+  }
+
+  const playViewBtn = document.createElement("button");
+  playViewBtn.type = "button";
+  playViewBtn.className = "btn btn--secondary";
+  playViewBtn.textContent = simpleView ? "Sheet View" : "Simple View";
+  playViewBtn.title = "Switch to Simple View - every block and field stacked full-width (display only; your layout is untouched)";
+  playViewBtn.addEventListener("click", () => {
+    const turningOn = !simpleView;
+    applySimpleView(turningOn);
+    if (!turningOn) {
+      // Leaving Simple View is the only transition that needs a rebuild:
+      // the order values are cleared above, so the grid is back to its
+      // normal pixel positioning, and renderAll restamps everything that
+      // depends on the grid being laid out.
       renderAll();
     }
   });
@@ -1598,6 +1614,39 @@ const closeDialog = () => {
   }
 
   root.append(toolbar);
+
+  // One-time orientation, the first time a FINISHED character is opened.
+  // Placed between the toolbar and the tabs because that is where the
+  // buttons it describes are: everything it has to say is "these buttons do
+  // things, here is which".
+  //
+  // Skipped entirely while the creation wizard is still running (see
+  // shouldShowIntro) — the wizard is itself the guided first run, and a
+  // panel about switching display modes appearing over it is noise about a
+  // feature the player has not reached.
+  if (shouldShowIntro(character)) {
+    const intro = el("div", { class: "sheet-intro", role: "note" });
+    intro.append(el("p", { class: "sheet-intro__title", text: "Getting started" }));
+    const list = el("ul", { class: "sheet-intro__list" });
+    INTRO_LINES.forEach((line) => list.append(el("li", { text: line })));
+    intro.append(list);
+    const dismiss = el("button", {
+      type: "button",
+      class: "btn btn--secondary sheet-intro__dismiss",
+      text: "Got it",
+      onclick: () => {
+        intro.remove();
+        character.sawIntro = true;
+        if (store.saveCharacterFields) {
+          store.saveCharacterFields(character.id, { sawIntro: true }).catch((err) => {
+            console.error("Failed to save intro dismissal:", err);
+          });
+        }
+      },
+    });
+    intro.append(dismiss);
+    root.append(intro);
+  }
 
   const tabsBar = el("div", { class: "sheet-tabs" });
   root.append(tabsBar);
@@ -6972,11 +7021,19 @@ const closeDialog = () => {
     renderBlockFrame();
     renderPageGrid();
     // Simple View's sort keys live on the DOM, so they have to be
-    // restamped after every rebuild — otherwise switching tabs (or any
+    // restamped after every rebuild - otherwise switching tabs (or any
     // re-render) would silently drop back to DOM order. The nodes were
     // just recreated, so there is nothing stale to clear first.
     if (simpleView) applySimpleViewOrder(pageGrid, true);
   }
+
+  // Re-assert the stored Simple View preference over the freshly built
+  // grid: the class on pageGrid and the chrome hiding are set by
+  // applySimpleView, but they have to be applied AFTER renderAll, which is
+  // what rebuilds pageGrid's children. `persist: false` because this is a
+  // restore of what is already stored, not a change to it - calling this
+  // on every load must not write to the character.
+  if (simpleView) applySimpleView(true, { persist: false });
 
   function renderTabs() {
     renderTabsInto(tabsBar, {

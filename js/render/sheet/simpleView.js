@@ -51,8 +51,45 @@ export function applySimpleViewOrder(container, on, cols = PAGE_COLS) {
       if (node.style) node.style.order = "";
       continue;
     }
-    const order = simpleViewOrderFromNode(node, cols);
-    if (order === null) continue;
-    if (node.style) node.style.order = String(order);
+  const order = simpleViewOrderFromNode(node, cols);
+  if (order === null) continue;
+  if (node.style) node.style.order = String(order);
   }
 }
+
+/** Whether to show the one-time orientation panel.
+ *
+ *  Shown once per character and remembered on the character, not in local
+ *  storage: a new character is exactly the case where someone has no idea
+ *  what the toolbar does, and a global flag would mean the second character
+ *  they ever make gets no explanation at all.
+ *
+ *  Not shown while the creation wizard is still running. The wizard already
+ *  walks a new player through building a character one page at a time, and a
+ *  panel about "switching views" appearing over the top of it is noise about
+ *  a feature they have not reached.
+ *
+ *  `sawIntro` is only ever set to true, so a character whose field is missing
+ *  or falsy for any reason gets the panel again rather than never. Pure. */
+export function shouldShowIntro({ setupComplete, sawIntro } = {}) {
+  return setupComplete === true && sawIntro !== true;
+}
+
+/** The orientation panel's content: what this is, and the one thing about
+ *  the sheet that is genuinely non-obvious. Kept as data so the wording is
+ *  reviewable in one place and testable without a DOM.
+ *
+ *  The two-view point is the one worth making. Sheet View is a positioned
+ *  grid with drag and resize handles, and a new player's first instinct on
+ *  seeing handles is to move everything - which is a real, saved change to
+ *  a layout that is normally well-tuned. Simple View is display-only and
+ *  cannot break anything, so it is offered as the safe way to read a
+ *  character. Pure. */
+export const INTRO_LINES = [
+  "This is your character sheet. Click any box to type in it; everything saves as you go.",
+  "Sheet View lays everything out on a grid, with drag handles to move blocks around. Moving one changes your saved layout, so undo takes a click.",
+  "Simple View stacks every block and field full-width in reading order instead. It is display only — you can read and fill in as normal, but nothing can be dragged out of place.",
+  "Both views remember which one you were using.",
+  "The Character Setup wizard builds a new character for you; toolbar buttons cover rules, themes, and layout tools.",
+];
+

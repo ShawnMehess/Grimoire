@@ -19,6 +19,8 @@ import {
   simpleViewOrder,
   simpleViewOrderFromNode,
   applySimpleViewOrder,
+  shouldShowIntro,
+  INTRO_LINES,
 } from "../js/render/sheet/simpleView.js";
 import { PAGE_COLS } from "../js/render/sheet/sheetLayouts.js";
 
@@ -138,5 +140,68 @@ describe("applySimpleViewOrder", () => {
   it("tolerates being handed nothing", () => {
     assert.doesNotThrow(() => applySimpleViewOrder(null, true));
     assert.doesNotThrow(() => applySimpleViewOrder({}, true));
+  });
+});
+
+// --- First-run orientation panel --------------------------------------------
+//
+// Two independent reasons this exists. Simple View was not remembered, so it
+// was something you had to re-assert every session; and nothing anywhere
+// told a new player what the toolbar does or that dragging a block is a
+// saved change to their layout.
+
+describe("shouldShowIntro", () => {
+  it("shows for a finished character that has never been told", () => {
+    assert.equal(shouldShowIntro({ setupComplete: true }), true);
+    assert.equal(shouldShowIntro({ setupComplete: true, sawIntro: false }), true);
+  });
+
+  it("stays away once dismissed", () => {
+    assert.equal(shouldShowIntro({ setupComplete: true, sawIntro: true }), false);
+  });
+
+  it("stays away while the creation wizard is still running", () => {
+    // The wizard is itself the guided first run. A panel about switching
+    // display modes over the top of it is noise about a feature nobody has
+    // reached yet.
+    assert.equal(shouldShowIntro({ setupComplete: false }), false);
+    assert.equal(shouldShowIntro({ setupComplete: false, sawIntro: true }), false);
+  });
+
+  it("only ever reads true as seen, so a lost flag means shown, not hidden", () => {
+    assert.equal(shouldShowIntro({ setupComplete: true, sawIntro: "yes" }), true);
+    assert.equal(shouldShowIntro({ setupComplete: true, sawIntro: 0 }), true);
+    assert.equal(shouldShowIntro({ setupComplete: true, sawIntro: null }), true);
+  });
+
+  it("treats anything other than exactly true as unfinished", () => {
+    // setupComplete is a boolean in the data; a truthy string from a
+    // hand-edited save must not unlock the panel for an unfinished wizard.
+    assert.equal(shouldShowIntro({ setupComplete: "true" }), false);
+    assert.equal(shouldShowIntro({}), false);
+  });
+});
+
+describe("INTRO_LINES", () => {
+  it("says how to fill the sheet in and that saving is automatic", () => {
+    assert.ok(INTRO_LINES.some((l) => /click any box to type/i.test(l)), "says the sheet is typeable");
+    assert.ok(INTRO_LINES.some((l) => /saves as you go/i.test(l)), "says saving needs no action");
+  });
+
+  it("names both views, and warns that moving a block is a real change", () => {
+    // The warning is the whole point. A new player's first instinct on
+    // seeing drag handles is to move everything, and in Sheet View that is
+    // a persisted layout change - so Simple View is offered as the safe way
+    // to read a character.
+    assert.ok(INTRO_LINES.some((l) => /Simple View/.test(l)), "names Simple View");
+    assert.ok(INTRO_LINES.some((l) => /Sheet View/.test(l)), "names Sheet View");
+    assert.ok(INTRO_LINES.some((l) => /saved layout|changes your saved layout/i.test(l)),
+      "warns that dragging saves");
+    assert.ok(INTRO_LINES.some((l) => /display only/i.test(l)),
+      "says Simple View cannot break the layout");
+  });
+
+  it("says the choice is remembered", () => {
+    assert.ok(INTRO_LINES.some((l) => /remember which one you were using/i.test(l)));
   });
 });

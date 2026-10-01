@@ -110,6 +110,11 @@ async function runViewportTests(viewport) {
   };
 
   // A: demo sheet (mock store) — toolbar, Simple View toggle, print dialog.
+  //
+  // The reload/persistence half of the Simple View checks lives on the
+  // OFFLINE page below, not here: the demo store rebuilds its character
+  // from scratch on every load and logs what it would have saved, so a
+  // reload there proves nothing about persistence by construction.
   await page.goto(`${base}/demo.html`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1200);
   check(await page.$(".sheet-toolbar"), "demo sheet toolbar renders (no aborted render)");
@@ -431,6 +436,11 @@ async function runViewportTests(viewport) {
   if (newBtn) await newBtn.click();
   await page.waitForTimeout(2000);
   check(await page.$(".wizard"), "creator wizard renders after + New Character");
+  // The one-time orientation panel is for a FINISHED character, so it must
+  // NOT appear while the creation wizard is running - the wizard is itself
+  // the guided first run, and a panel about display modes sitting on top of
+  // it is noise about a feature nobody has reached yet.
+  check(!(await page.$(".sheet-intro")), "no orientation panel over the creation wizard");
   await page.screenshot({ path: path.join(shotDir, `creator-${viewport.name}.png`) });
   // Advance one wizard step to prove the wizard is alive, not paint.
   const nextBtn = await page.$(".wizard button:has-text('Next')");
@@ -751,6 +761,98 @@ async function runViewportTests(viewport) {
     } else {
       check(false, "the wizard's Starting Level control is reachable");
     }
+  }
+
+  // --- Display preferences on a FINISHED character -------------------------
+  //
+  // Simple View and the one-time orientation panel both behave differently
+  // once setup is done, and both need to SURVIVE a reload to be worth
+  // anything. That cannot be checked on the demo page: the demo store
+  // rebuilds its character from scratch on every load and only logs what it
+  // would have saved, so a reload there proves nothing about persistence by
+  // construction. The offline store is real localStorage, so this seeds a
+  // finished character into it and drives the actual sheet.
+  const seedFinished = async (patch) => {
+    await page.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    // Patch a character the APP created rather than writing one from scratch:
+    // a hand-written document has to guess at every derived field, and a
+    // probe that fails because its fixture was wrong tells you nothing.
+    const ok = await page.evaluate((extra) => {
+      const KEY = "grimoire.local.characters.v1";
+      const stored = JSON.parse(localStorage.getItem(KEY) || "{}");
+      const ids = Object.keys(stored);
+      if (ids.length === 0) return { ok: false, reason: "no stored characters" };
+      // Newest first: the character made by "+ New Character" above is the
+      // one with a full layout and tabs, and any probe character would be
+      // a bare shell.
+      const target = ids[ids.length - 1];
+      stored[target] = { ...stored[target], ...extra };
+      localStorage.setItem(KEY, JSON.stringify(stored));
+      return { ok: true, id: target, name: stored[target].name };
+    }, patch);
+    check(ok.ok, `finished-character fixture is patchable (${ok.reason || ok.id})`);
+    if (!ok.ok) return null;
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForTimeout(600);
+    const selector = `.character-card:has-text("${ok.name || "Unnamed"}")`;
+    if (await page.$(selector)) await page.click(selector);
+    await page.waitForTimeout(1800);
+    return ok;
+  };
+
+  const probe = await seedFinished({ simpleView: false, sawIntro: false, setupComplete: true });
+  if (probe) {
+  check(await page.$(".page-grid"), "a finished character opens its sheet");
+  check(await page.$(".sheet-intro"), "a first-time finished character gets the orientation panel");
+  const introCoversViews = await page.evaluate(() => {
+    const text = document.querySelector(".sheet-intro")?.textContent || "";
+    return { simple: /Simple View/.test(text), sheet: /Sheet View/.test(text), drag: /drag/i.test(text) };
+  });
+  check(introCoversViews.simple && introCoversViews.sheet,
+    "the orientation panel explains both views");
+  check(introCoversViews.drag, "the orientation panel warns that moving a block is a saved change");
+  await page.screenshot({ path: path.join(shotDir, `intro-${viewport.name}.png`) });
+
+  // Dismissing remembers, on the character - not in a module-level flag, and
+  // not globally, so a SECOND character still gets told.
+  const reopen = async () => {
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForTimeout(600);
+    const sel = `.character-card:has-text("${probe.name || "Unnamed"}")`;
+    if (await page.$(sel)) await page.click(sel);
+    await page.waitForTimeout(1600);
+  };
+  await page.click(".sheet-intro__dismiss");
+  await page.waitForTimeout(500);
+  check(!(await page.$(".sheet-intro")), "the orientation panel dismisses");
+  await reopen();
+  check(!(await page.$(".sheet-intro")), "a dismissed orientation panel stays dismissed after a reload");
+
+  // Simple View on, reload, still on.
+  const simpleToggle = await page.$("button:has-text('Simple View')");
+  check(!!simpleToggle, "a finished character offers the Simple View toggle");
+  if (simpleToggle) {
+    await simpleToggle.click();
+    await page.waitForTimeout(600);
+    check(await page.$(".page-grid.is-simple"), "Simple View engages on a finished character");
+    await page.screenshot({ path: path.join(shotDir, `simple-view-persisted-${viewport.name}.png`) });
+    await reopen();
+    check(await page.$(".page-grid.is-simple"), "Simple View survives a reload");
+    const restored = await page.evaluate(() => ({
+      toggle: [...document.querySelectorAll(".sheet-toolbar button")]
+        .map((b) => b.textContent || "")
+        .find((t) => /View$/.test(t)) || "",
+      stamped: [...document.querySelectorAll(".grid-node")].filter((n) => n.style.order).length,
+    }));
+    check(restored.toggle === "Sheet View", `the restored toggle offers the way back (got "${restored.toggle}")`);
+    check(restored.stamped > 0, `the restored Simple View re-stamps its sort keys (${restored.stamped})`);
+    // And back the other way, so the preference is a preference and not a
+    // one-way door.
+    await page.click("button:has-text('Sheet View')");
+    await page.waitForTimeout(600);
+    await reopen();
+    check(!(await page.$(".page-grid.is-simple")), "Sheet View survives a reload too");
+  }
   }
 }
 
