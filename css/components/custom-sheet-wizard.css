@@ -1086,6 +1086,15 @@
   cursor: default;
 }
 
+/* A soft-limit overflow on a live bullet. Uses the negative token, which is
+   the app's only "something is wrong with this number" colour, and says so
+   in words rather than tinting the number - a coloured count with no
+   explanation is the kind of thing people learn to ignore. */
+.mechanics-pick__warning {
+  color: var(--color-negative);
+  font-size: var(--text-sm);
+}
+
 /* A spell named in prose (a race trait, a feat, a class feature) links to
    that spell's entry. Uses the arcane token, which was reserved for
    exactly this and was still unused. Underlined rather than accent-

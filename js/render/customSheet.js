@@ -255,6 +255,7 @@ import {
   preparedItemsWithAuto,
   preparedLineLock,
   applySpellPickWrite,
+  preparedCountOver,
   applySpellPickToItems,
   alwaysPreparedSpellNames,
   creationSpellPickGroups,
@@ -3846,7 +3847,14 @@ const closeDialog = () => {
 
   /** Spell picks complete for the given class/level: every available
    *  spell level is at its cantrips/spells cap. Non-casters (or a
-   *  missing limit) are trivially complete. */
+   *  missing limit) are trivially complete.
+   *
+   *  Still used by the LEVEL-UP wizard's Spells step, which is a different
+   *  flow from creation: there the player is topping up an existing character
+   *  rather than filling a blank sheet, and the step asks "have you taken the
+   *  spells this level gives you" rather than gating a from-scratch pick.
+   *  The creation wizard no longer needs it - the inline class-row picks gate
+   *  through groupPicksSatisfied like every other choice group. */
   function spellPicksComplete(className, level) {
     if (!getRulesetClass(character.rules?.rulesetId, className)?.caster) return true;
     const limit = spellLimitFor(className, level, character.rules?.abilityScores);
@@ -4000,7 +4008,12 @@ const closeDialog = () => {
    *  (other classes trivially pass). Counts Spells Known entries
    *  outside the firm Bard list against the unlock total — lenient by
    *  design (a racial spell counts too), so the step completes rather
-   *  than traps. */
+   *  than traps.
+   *
+   *  The LEVEL-UP wizard's Spells step, which is where Magical Secrets are
+   *  still unpicked. Creation does not need it: Magical Secrets is a real
+   *  choice group on the Bard's class bundle, so during creation they are
+   *  picked on the class row and gated there. */
   function secretsSatisfiedFor(className, classLevel, subclassName) {
     const unlocked = magicalSecretsUnlocked(className, subclassName, classLevel);
     if (!unlocked) return true;
@@ -4013,42 +4026,10 @@ const closeDialog = () => {
     return secretsCompleteFor(unlocked, picked);
   }
 
-  /** Magical Secrets picker section (Bard 10/14/18, Lore 6): an
-   *  any-class multi-picker over the Bard's available spell levels
-   *  (Bard-listed spells excluded — those belong to the class picker),
-   *  capped at the still-unpicked unlock total through the shared
-   *  spell picker, writing straight to Spells Known. Renders nothing
-   *  when no Secrets are unlocked, so non-Bards never see it. */
-  function renderSecretsSectionInto(container, className, classLevel, subclassName) {
-    const unlocked = magicalSecretsUnlocked(className, subclassName, classLevel);
-    if (!unlocked) return;
-    const rulesetId = character.rules?.rulesetId || character.rulesetId;
-    const plan = getLevelUpPlan(rulesetId, "Bard", Math.max(1, classLevel));
-    const levels = sharedAvailableSpellLevels(plan);
-    const bardNames = firmBardSpellNames(levels);
-    const known = findSetupField("spellsKnown", "Spells Known")?.items || [];
-    const picked = secretsPickedCount(known, [...bardNames]);
-    const remaining = Math.max(0, unlocked - picked);
-    container.append(el("p", { class: "wizard__section-label", text: `Magical Secrets — stolen spells (${Math.min(picked, unlocked)}/${unlocked})` }));
-    if (!spellsForLevel(0, null).length && !levels.some((lvl) => lvl > 0 && spellsForLevel(lvl, null).length)) {
-      noteInto(container, "No Spell List catalog imported yet — track Magical Secrets directly on the sheet's Spells Known list.");
-      return;
-    }
-    renderSpellPickerInto(container, { rulesetId, className: "Bard", level: Math.max(1, classLevel) }, {
-      spellcastingInfoFn: (name) => getSpellcastingInfo(name),
-      ensureFieldFn: () => ensureSpellListField(),
-      planFn: (id, name, lvl) => getLevelUpPlan(id, name, lvl),
-      // Secrets are leveled spells from any list — no cantrips, and
-      // only the still-unpicked unlock total (recomputed every render).
-      limitFn: () => ({ cantrips: 0, spells: remaining, style: "known" }),
-      levelByNameFn: (name) => spellLevelByName(name),
-      spellsForLevelFn: (lvl) => spellsForLevel(lvl, null).filter((s) => !bardNames.has(s.name)),
-      appendUniqueFn: (field, name) => appendUniqueTextListItem(field, name),
-      saveFn: () => saveWithStatus("layout", character.layout),
-      gridFn: () => renderPageGrid(),
-      multiRowsFn: (c, names, opts) => renderPickerRows(c, names, { ...opts, mode: "multi" }),
-    });
-  }
+  // renderSecretsSectionInto used to live here, for the commented-out
+  // creation Spells step. Removed with it: Magical Secrets during creation is
+  // a choice group on the Bard's class bundle, so it renders on the class row
+  // like every other pick. Nothing else called it.
 
   /** Equipment Proficiencies tab: one picker per category over the
    *  full vocabulary, with already-granted tags shown locked. A
@@ -5251,6 +5232,26 @@ const closeDialog = () => {
           }
 
           const summary = storedSpells.length ? storedSpells.join(", ") : `Choose ${group.maxSelections}`;
+
+          // Over the limit, warn - never delete. The prepared count is level
+          // plus an ability modifier, and the wizard takes ability scores
+          // AFTER the class, so lowering the casting ability can put a
+          // finished prepared list over a limit that has since dropped.
+          // Silently trimming it would delete choices the player made while
+          // the number was still correct.
+          const alwaysPrepared = alwaysPreparedSpellNames(spellBundles(), state.level);
+          const overBy = preparedCountOver({
+            prepared: (field?.preparedItems || []).concat([...alwaysPrepared]),
+            limit: group.maxSelections,
+            preparedFrom: model?.preparedFrom,
+            cantripsCountAsPrepared: model?.countsCantrips,
+            knownItems: field?.items || [],
+            levelByNameFn: (name) => spellLevelByName(name),
+          });
+          const warning = overBy > 0
+            ? `You have ${overBy} more prepared than you can cast at this level — that's fine while you are still setting ability scores.`
+            : null;
+
           // No Spell List catalog imported means there is nothing to pick
           // from. Opening an empty dialog reads as a bug, so show the same
           // fallback note the level-up spell picker shows instead - and no
@@ -5264,6 +5265,7 @@ const closeDialog = () => {
             live: true,
             topic: group.label || "Choose a spell",
             lead: [{ text: summary }],
+            warning,
             indent: isPreparedLine,
             dialogOpener: () => openChoiceDialog({
               title: group.label || "Choose a spell",
@@ -5484,13 +5486,21 @@ const closeDialog = () => {
     });
   }
 
-  /** Removes from Spells Known every spell a no-longer-staged class pick
-   *  put there, then lets pruneOrphanedChoiceKeys drop the keys themselves.
+  /** Removes every spell a no-longer-staged class pick put on the sheet, then
+   *  lets pruneOrphanedChoiceKeys drop the keys themselves.
    *
    *  Spells Known is one global list, so a Wizard's four cantrips would
    *  otherwise sit in a Fighter's spellbook forever. Spells the player added
-   *  by hand are not under any pick key and are never touched. Returns the
-   *  number of spell names removed, for the caller's notice. */
+   *  by hand are not under any pick key and are never touched.
+   *
+   *  Both lists are checked. `orphanedSpellPickNames` filters by membership of
+   *  a list it is given, so it is asked about each in turn: prepared spells
+   *  live in `preparedItems` and never in `items`, so asking only about
+   *  `items` would leave a Cleric's prepared spells behind forever - they are
+   *  under the orphaned `creation-spells-prepared` key but appear on no list
+   *  the old call looked at.
+   *
+   *  Returns how many names went from each list, for the caller's notice. */
   function dropOrphanedSpellPicks() {
     const choices = character.rules.choices || {};
     const picks = {
@@ -5499,17 +5509,23 @@ const closeDialog = () => {
       subclass: state.subclass,
       background: state.background,
     };
-    const names = orphanedSpellPickNames(choices, picks, findStarterField("spellsKnown", "Spells Known")?.items || []);
-    if (names.length) {
-      const field = findStarterField("spellsKnown", "Spells Known");
-      if (field && Array.isArray(field.items)) {
-        const gone = new Set(names);
-        field.items = field.items.filter((item) => !gone.has(typeof item === "string" ? item : item?.text));
-      }
+    const field = findStarterField("spellsKnown", "Spells Known");
+    const textOf = (item) => (typeof item === "string" ? item : item?.text);
+    const knownOrphans = new Set(orphanedSpellPickNames(choices, picks, field?.items || []));
+    const preparedOrphans = new Set(orphanedSpellPickNames(choices, picks, field?.preparedItems || []));
+    if (field && Array.isArray(field.items) && knownOrphans.size) {
+      field.items = field.items.filter((item) => !knownOrphans.has(textOf(item)));
+    }
+    if (field && Array.isArray(field.preparedItems) && preparedOrphans.size) {
+      field.preparedItems = field.preparedItems.filter((name) => !preparedOrphans.has(name));
     }
     const pruned = pruneOrphanedChoiceKeys(choices, picks);
     character.rules.choices = pruned.choices;
-    return { pruned: pruned.pruned, spellsRemoved: names.length };
+    return {
+      pruned: pruned.pruned,
+      spellsRemoved: knownOrphans.size,
+      preparedRemoved: preparedOrphans.size,
+    };
   }
   /** Fills cantrips + leveled spells to the class cap, first-available
    *  per spell level — the Express spell fill. Respects caps exactly
@@ -5924,6 +5940,8 @@ const closeDialog = () => {
           "Pick what your character does best — the class sets hit points, attacks, and features.",
           "If a subclass is available at your level, pick it under your class, then make that class's choices in its row.",
           "Cantrips and spells are picks here too, when your class has them: they open the same spell list as everything else, and they land on your sheet's Spells Known.",
+          "Spell lines work differently by class. A class that knows its spells has one list and nothing to prepare. A class that prepares spells has a line for that instead — a Cleric picks prepared spells straight from what the class can cast. A Wizard has both: a spellbook to fill in, and prepared spells chosen from it.",
+          "How many you can pick is a total across spell levels, not a number per level. Cantrips are counted on their own.",
           "Only classes from the source books you ticked on the Rules page are offered.",
         ],
         isComplete: () => {
@@ -6131,20 +6149,21 @@ const closeDialog = () => {
         },
       },
       // ----------------------------------------------------------------
-      // COMMENTED OUT 2026-10-01 - DO NOT DELETE DURING A CODE AUDIT.
+      // COMMENTED OUT 2026-10-01. The Gear step is still parked; the Spells
+      // step is not, and its body is below with a note.
       //
-      // These two creation steps were removed from the wizard at the
-      // user's instruction: spells and gear are chosen from the Spell
-      // Catalog and the Item Catalog on the sheet instead. Parked, not
-      // deleted, because the code under them is still live elsewhere:
+      // These two creation steps were removed from the wizard at the user's
+      // instruction: spells and gear are chosen from the catalogs and the
+      // sheet instead. Parked, not deleted, because the code under them was
+      // still live elsewhere at the time:
       //
-      //   spells -> renderSpellPicker / renderSecretsSectionInto remain
-      //             the creation-time spell pickers. Only the UI entry
-      //             point went away. The Bard's Magical Secrets moved to
-      //             a picker on the Bard's class entry (patchBard in
-      //             contentFixups.js) precisely because it was the one
-      //             thing this step held that the spell catalog cannot
-      //             reproduce - it is a count-limited cross-class pick.
+      //   spells -> renderSpellPicker is still the LEVEL-UP wizard's
+      //             picker (see the leveling steps below). The Bard's
+      //             Magical Secrets moved to a picker on the Bard's class
+      //             entry (patchBard in contentFixups.js) precisely because
+      //             it was the one thing this step held that the spell
+      //             catalog cannot reproduce - it is a count-limited
+      //             cross-class pick.
       //   gear   -> renderStartingEquipmentStepInto moved to the
       //             "Starting Conditions" step (it carries the PHB
       //             either/or rows and the gold-instead option, which no
@@ -6157,23 +6176,21 @@ const closeDialog = () => {
       // A future audit that flags this block as dead code has not
       // followed the calls.
       // ----------------------------------------------------------------
-//       {
-//         id: "spells",
-//         title: "Spells",
-//         description: "Pick only the spells your class allows — counts and levels are capped automatically.",
-//         isApplicable: () => Boolean(getRulesetClass(state.rulesetId, state.className)?.caster),
-//         unavailableMessage: wizardUnavailableMessage,
-//         isComplete: () => {
-//           if (!getRulesetClass(state.rulesetId, state.className)?.caster) return true;
-//           if (!spellPicksComplete(state.className, state.level)) return false;
-//           return secretsSatisfiedFor(state.className, state.level, state.subclass);
-//         },
-//         render(container) {
-//           const spellWrap = sectionInto(container, "Spells");
-//           renderSpellPicker(spellWrap, { rulesetId: state.rulesetId, className: state.className, level: state.level });
-//           renderSecretsSectionInto(container, state.className, state.level, state.subclass);
-//         },
-//       },
+      // The SPELLS half of this block has since been deleted rather than
+      // parked, and that is a real change rather than a tidy-up: the
+      // inline picks on the class row (creationSpellPickGroups) now gate
+      // completeness and land on the sheet, so this step's isComplete
+      // checked a thing that no longer exists. What went with it:
+      //
+      //   spellPicksComplete      - read the old per-level pick keys.
+      //   secretsSatisfiedFor     - Magical Secrets is now a real choice
+      //                             group on the Bard's class bundle.
+      //   renderSecretsSectionInto- nothing called it but this block; the
+      //                             Magical Secrets picker lives on the
+      //                             class row now.
+      //
+      // renderSpellPicker survives, and is the level-up wizard's.
+      // ----------------------------------------------------------------
 //       {
 //         id: "gear",
 //         title: "Gear",

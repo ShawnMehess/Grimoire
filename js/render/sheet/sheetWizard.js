@@ -767,6 +767,50 @@ export function preparedLineLock({ preparedFrom = "classList", knownNames = [] }
   return "Choose your spellbook spells first";
 }
 
+/** How many prepared spells the character has over their limit, counting 0
+ *  when they are not over.
+ *
+ *  Always-prepared spells are counted in: they occupy a slot whether or not
+ *  the player chose them, so a Cleric with a domain's two domain spells has
+ *  two fewer of their own to pick.
+ *
+ *  Cantrips are excluded unless a model says otherwise - in this data no class
+ *  prepares cantrips, and a cantrip is never a prepared slot.
+ *
+ *  `preparedFrom` decides whether `knownItems` is a filter at all:
+ *
+ *   "known"     - a Wizard prepares out of its own spellbook, so a prepared
+ *                 name the character does not hold is not prepared. It can
+ *                 happen: the spellbook is an editable textlist.
+ *   "classList" - a Cleric prepares straight out of the class list and its
+ *                 prepared spells are deliberately NOT on the spellbook (see
+ *                 applySpellPickWrite). Requiring membership here would drop
+ *                 every one of them and report a false zero.
+ *
+ *  `levelByNameFn` is optional. Without it we cannot tell a cantrip from a
+ *  leveled spell, and counting a cantrip would report a false overflow - so
+ *  we count everything and under-report rather than accuse someone of
+ *  preparing more than they can.
+ *
+ *  Returns a number so the caller can say how far over they are rather than
+ *  just that they are. Pure. */
+export function preparedCountOver({
+  prepared = [], limit = 0, preparedFrom = "classList", cantripsCountAsPrepared = false,
+  knownItems = [], levelByNameFn = null,
+} = {}) {
+  if (!limit || limit <= 0) return 0;
+  const held = new Set((knownItems || []).map((item) => (typeof item === "string" ? item : item?.text)).filter(Boolean));
+  const needsHeld = preparedFrom === "known";
+  const canTellLevel = typeof levelByNameFn === "function";
+  const counted = (prepared || []).filter((name) => {
+    if (!name) return false;
+    if (canTellLevel && levelByNameFn(name) === 0) return Boolean(cantripsCountAsPrepared);
+    if (needsHeld && held.size > 0 && !held.has(name)) return false;
+    return true;
+  });
+  return Math.max(0, counted.length - limit);
+}
+
 /** Where one accepted spell pick lands on the sheet.
  *
  *  This is the single decision that separates a known caster from a prepared
@@ -1465,7 +1509,19 @@ export function spellPickShortfallPhrase(groups = [], picks = {}) {
     const short = Math.max(0, (group?.minSelections ?? 0) - ((picks || {})[group.key] || []).length);
     if (!short) continue;
     const n = (word, plural) => `${short} ${word}${short === 1 ? "" : plural}`;
-    parts.push(group.level === 0 ? n("cantrip", "s") : n(`${ordinal(group.level)}-level spell`, "s"));
+    // Read the spell levels off the PICK, not off the group. A spell pick
+    // carries them in `spellPick` (level, and maxLevel for a line that spans
+    // several); the group itself has no `level`, so reading it there produced
+    // "NaN-level spells".
+    //
+    // A line spanning more than one level is a TOTAL across those levels - the
+    // whole point of the fix - so it is phrased as a plain count rather than
+    // naming one level it does not exclusively cover.
+    const from = group?.spellPick?.level;
+    const to = group?.spellPick?.maxLevel ?? from;
+    if (from === 0) parts.push(n("cantrip", "s"));
+    else if (to > from) parts.push(n("spell", "s"));
+    else parts.push(n(`${ordinal(from)}-level spell`, "s"));
   }
   return parts.length ? `${parts.join(" and ")} still to choose` : "";
 }
@@ -2193,7 +2249,13 @@ export function renderLiveBulletItem(item) {
     if (lead.length) li.append(document.createTextNode(", "));
     li.append(el("span", { class: "inline-pick-collective", text: `${item.collective} ` }));
   }
-  slots.forEach((slot, i) => {
+  // A soft-limit overflow, said in words on the bullet itself. Never a
+  // deletion: the prepared limit moves with an ability modifier the wizard
+  // only asks about on a LATER page, so a list that was correct when it was
+  // made can be over by the time the player reaches this one.
+  if (item.warning) {
+    li.append(document.createTextNode(" "), el("span", { class: "mechanics-pick__warning", text: item.warning }));
+  }  slots.forEach((slot, i) => {
     if (i > 0 || (lead.length && !item.collective)) li.append(document.createTextNode(", "));
     const select = el("select", {
       class: "input-group__control inline-pick-select",

@@ -98,8 +98,9 @@ describe("outstandingSteps", () => {
 });
 
 describe("spellPickShortfallPhrase", () => {
-  const cantrips = { key: "k0", level: 0, minSelections: 3 };
-  const level1 = { key: "k1", level: 1, minSelections: 3 };
+  const cantrips = { key: "k0", spellPick: { level: 0, maxLevel: 0 }, minSelections: 3 };
+  const level1 = { key: "k1", spellPick: { level: 1, maxLevel: 1 }, minSelections: 3 };
+  const manyLevels = { key: "k2", spellPick: { level: 1, maxLevel: 3 }, minSelections: 6 };
 
   it("counts what is still short, in the user's words", () => {
     assert.equal(spellPickShortfallPhrase([cantrips, level1], { k0: ["a"], k1: ["b", "c"] }), "2 cantrips and 1 1st-level spell still to choose");
@@ -118,14 +119,32 @@ describe("spellPickShortfallPhrase", () => {
   });
 
   it("pluralizes the level nouns and handles a zero shortfall group", () => {
-    const level2 = { key: "k2", level: 2, minSelections: 2 };
+    const level2 = { key: "k3", spellPick: { level: 2, maxLevel: 2 }, minSelections: 2 };
     assert.equal(spellPickShortfallPhrase([level2], {}), "2 2nd-level spells still to choose");
-    const done = { key: "k3", level: 3, minSelections: 0 };
+    const done = { key: "k4", spellPick: { level: 3, maxLevel: 3 }, minSelections: 0 };
     assert.equal(spellPickShortfallPhrase([done], {}), "");
   });
 
+  it("phrases a multi-level line as a plain count", () => {
+    // A line spanning 1st-3rd is a TOTAL across those levels - the whole
+    // point of the totals fix - so naming any one of them would misdescribe
+    // what is being asked for.
+    assert.equal(spellPickShortfallPhrase([manyLevels], {}), "6 spells still to choose");
+    assert.equal(spellPickShortfallPhrase([manyLevels], { k2: ["a"] }), "5 spells still to choose");
+  });
+
+  it("reads the spell levels off the pick, not off a level the group never had", () => {
+    // A spell pick carries level/maxLevel in spellPick. The group has no
+    // `level` of its own, so reading it there produced "NaN-level spells".
+    assert.doesNotMatch(spellPickShortfallPhrase([level1], {}), /NaN|undefined/);
+  });
+
   it("joins three groups with 'and' for the first two, as the two-group case does", () => {
-    const three = [{ key: "a", level: 0, minSelections: 1 }, { key: "b", level: 1, minSelections: 1 }, { key: "c", level: 2, minSelections: 1 }];
+    const three = [
+      { key: "a", spellPick: { level: 0, maxLevel: 0 }, minSelections: 1 },
+      { key: "b", spellPick: { level: 1, maxLevel: 1 }, minSelections: 1 },
+      { key: "c", spellPick: { level: 2, maxLevel: 2 }, minSelections: 1 },
+    ];
     assert.equal(spellPickShortfallPhrase(three, {}), "1 cantrip and 1 1st-level spell and 1 2nd-level spell still to choose");
   });
 

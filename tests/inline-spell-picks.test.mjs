@@ -36,6 +36,7 @@ import {
   preparedItemsWithAuto,
   preparedLineLock,
   applySpellPickWrite,
+  preparedCountOver,
   pruneOrphanedChoiceKeys,
   groupPicksSatisfied,
 } from "../js/render/sheet/sheetWizard.js";
@@ -771,5 +772,114 @@ describe("the lines each class gets", () => {
         }
       }
     }
+  });
+});
+
+// ===========================================================================
+// Section 3: the prepared limit moves with the casting ability, because the
+// wizard asks for ability scores on a LATER page than the class.
+describe("the prepared limit moves with the ability score", () => {
+  // Cleric/Wizard prepare `ability mod + level`. The wizard's step order is
+  // Rules -> Identity -> Class -> Background -> Story -> Starting Conditions,
+  // so a class pick can be made before its casting score exists.
+  it("the cap follows the score the character is actually going to have", () => {
+    // `prepared(level, mod)` is max(1, mod + level), and abilityMod is
+    // floor((score - 10) / 2). At level 5: WIS 8 is -1, 10 is +0, 16 is +3,
+    // 20 is +5.
+    const at = (wis) => preparedOf(groupsFor("Cleric", 5, { abilityScores: { ...SCORES, wis } })).maxSelections;
+    assert.equal(at(8), 4, "WIS 8 is -1: 5 + (-1)");
+    assert.equal(at(10), 5, "WIS 10 is +0");
+    assert.equal(at(16), 8, "WIS 16 is +3");
+    assert.equal(at(20), 10, "WIS 20 is +5");
+  });
+
+  it("a default 10 score is the floor, not an error", () => {
+    // The wizard has no score yet when the class row renders, and
+    // abilityMod already treats a missing score as 10. Pinned because a
+    // NaN cap here would silently make the line unsatisfiable.
+    const groups = creationSpellPickGroups({
+      className: "Cleric",
+      level: 5,
+      abilityScores: {},
+      limitFor: spellLimitFor,
+      availableLevelsFor,
+      levelByNameFn: levelByName,
+      model: modelFor("Cleric"),
+    });
+    const cap = preparedOf(groups).maxSelections;
+    assert.ok(Number.isFinite(cap), "the cap is a number, not NaN");
+    assert.equal(cap, 5, "a missing score reads as 10, so level + 0");
+  });
+
+  it("a known caster's cap does NOT move with its score", () => {
+    // Bard/Sorcerer spells known come from a table, not from a modifier. If
+    // this ever moved, a character would gain spells by raising a score.
+    const at = (cha) => leveledOf(groupsFor("Bard", 5, { abilityScores: { ...SCORES, cha } })).maxSelections;
+    assert.equal(at(8), at(20), "the same at both ends of the range");
+    assert.equal(at(20), spellLimitFor("Bard", 5, { ...SCORES, cha: 20 }).spells);
+  });
+});
+
+// ===========================================================================
+// Section 3: over the prepared limit is a warning, never a deletion.
+describe("preparedCountOver", () => {
+  const levelBy = (n) => SPELL_LEVEL[n] ?? null;
+
+  it("is 0 when at or under the limit", () => {
+    assert.equal(preparedCountOver({ prepared: ["A", "B"], limit: 3, levelByNameFn: levelBy }), 0);
+    assert.equal(preparedCountOver({ prepared: ["A", "B", "C"], limit: 3, levelByNameFn: levelBy }), 0);
+  });
+
+  it("says how far over, so the warning can be specific", () => {
+    assert.equal(preparedCountOver({ prepared: ["A", "B", "C", "D", "E"], limit: 3, levelByNameFn: levelBy }), 2);
+  });
+
+  it("counts always-prepared spells, which occupy a slot either way", () => {
+    // The caller passes them already concatenated in; this asserts the limit
+    // is applied to the combined count rather than to the picks alone.
+    assert.equal(preparedCountOver({ prepared: ["Bless", "Shield"], limit: 1, levelByNameFn: levelBy }), 1);
+  });
+
+  it("never counts a cantrip, because a cantrip is not a prepared slot", () => {
+    assert.equal(
+      preparedCountOver({ prepared: ["Fire Bolt", "Mage Hand"], limit: 1, levelByNameFn: levelBy }),
+      0,
+      "two cantrips and a limit of one is not over",
+    );
+  });
+
+  it("would count cantrips if a model ever said to", () => {
+    assert.equal(
+      preparedCountOver({ prepared: ["Fire Bolt", "Mage Hand"], limit: 1, cantripsCountAsPrepared: true, levelByNameFn: levelBy }),
+      1,
+    );
+  });
+
+  it("drops a prepared name the character no longer holds, but only for a spellbook class", () => {
+    // A Wizard's spellbook entry deleted underneath the prepared subset.
+    assert.equal(
+      preparedCountOver({
+        prepared: ["Shield", "Fireball"], knownItems: ["Shield"], preparedFrom: "known",
+        limit: 1, levelByNameFn: levelBy,
+      }),
+      0,
+      "Fireball is prepared but not held, so it is not counted",
+    );
+    // A Cleric's prepared spells are deliberately NOT on the spellbook -
+    // that is the whole point of the prepared line. Membership must not be
+    // required there, or every one of them drops and the count reports zero.
+    assert.equal(
+      preparedCountOver({
+        prepared: ["Bless", "Shield", "Fireball"], knownItems: [],
+        preparedFrom: "classList", limit: 1, levelByNameFn: levelBy,
+      }),
+      2,
+      "a full-list preparer is counted whether or not the spell is on the spellbook",
+    );
+  });
+
+  it("has no limit to exceed", () => {
+    assert.equal(preparedCountOver({ prepared: ["A"], limit: 0 }), 0);
+    assert.equal(preparedCountOver(), 0);
   });
 });

@@ -28,15 +28,33 @@ const bardBundle = () => entries(FIXED_CLASS_ENTRIES).find(([, e]) => e.name ===
 describe("the wizard has no Spells or Gear tab", () => {
   const src = fs.readFileSync(new URL("../js/render/customSheet.js", import.meta.url), "utf8");
 
-  it("parks both steps as comments, with a reason", () => {
+  it("still parks the Gear step, with a reason", () => {
     // Commented, not deleted, at the user's request. The banner has to
     // survive, because a future audit that flags the block as dead code
     // needs the reason it is parked and the note that every renderer in it
     // is still called from elsewhere.
-    assert.match(src, /COMMENTED OUT[^\n]*DO NOT DELETE DURING A CODE AUDIT/);
-    assert.match(src, /Magical Secrets moved to/);
+    assert.match(src, /COMMENTED OUT 2026-10-01\. The Gear step is still parked/);
     assert.match(src, /renderStartingEquipmentStepInto moved to the/);
     assert.match(src, /renderInnateAbilitiesStepInto moved to Review/);
+  });
+
+  it("documents why the Spells half was DELETED rather than parked", () => {
+    // This is not a tidy-up. The inline class-row picks now gate
+    // completeness and land on the sheet, so the parked step's isComplete
+    // checked something that no longer exists. The note has to say that, or
+    // the next reader assumes the block is merely disabled.
+    assert.match(src, /SPELLS half of this block has since been deleted/);
+    assert.match(src, /spellPicksComplete\s+- read the old per-level pick keys/);
+    assert.match(src, /renderSpellPicker survives, and is the level-up wizard's/);
+  });
+
+  it("has no function left that only the deleted step called", () => {
+    // renderSecretsSectionInto was creation-only. spellPicksComplete and
+    // secretsSatisfiedFor survive because the LEVEL-UP wizard's Spells step
+    // still uses them - deleting those would break leveling.
+    assert.doesNotMatch(src, /function renderSecretsSectionInto/);
+    assert.match(src, /function spellPicksComplete\(/, "still used by level-up");
+    assert.match(src, /function secretsSatisfiedFor\(/, "still used by level-up");
   });
 
   it("leaves no live Spells or Gear step in the CREATION wizard", () => {
@@ -65,6 +83,7 @@ describe("the wizard has no Spells or Gear tab", () => {
       "renderStartingEquipmentStepInto",
       "renderEquipmentProficienciesStepInto",
       "renderInnateAbilitiesStepInto",
+      "renderSpellPicker",
     ]) {
       const calls = src.split(`\n`).filter((l) => l.includes(`${fn}(`) && !l.trim().startsWith("//"));
       assert.ok(calls.length > 0, `${fn} has no live caller left`);

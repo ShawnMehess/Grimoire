@@ -45,7 +45,7 @@ export const CLASS_L1_REPLACEMENTS = {
   Bard: [
     {
       grant: "Spellcasting",
-      text: "You use Charisma for bard spells; choose your cantrips and spells in the Spells step.",
+      text: "You use Charisma for bard spells; choose your cantrips and spells in the Spells Known line on your class.",
     },
     {
       grant: "Bardic Inspiration",
@@ -55,7 +55,7 @@ export const CLASS_L1_REPLACEMENTS = {
   Cleric: [
     {
       grant: "Spellcasting",
-      text: "You use Wisdom for cleric spells. Prepare your spells and choose your cantrips in the Spells step.",
+      text: "You use Wisdom for cleric spells. Prepare your spells and choose your cantrips in the Prepared Spells line on your class.",
     },
   ],
   Druid: [
@@ -65,7 +65,7 @@ export const CLASS_L1_REPLACEMENTS = {
     },
     {
       grant: "Spellcasting",
-      text: "You use Wisdom for druid spells. Prepare your spells and choose your cantrips in the Spells step.",
+      text: "You use Wisdom for druid spells. Prepare your spells and choose your cantrips in the Prepared Spells line on your class.",
     },
     {
       grant: "Armor Restriction",
@@ -95,13 +95,13 @@ export const CLASS_L1_REPLACEMENTS = {
   Warlock: [
     {
       grant: "Pact Magic",
-      text: "You use Charisma for warlock spells. Choose two cantrips and two 1st-level spells in the Spells step; your spell slots return when you finish a short or long rest.",
+      text: "You use Charisma for warlock spells. Choose two cantrips and two 1st-level spells in the Spells Known line on your class; your spell slots return when you finish a short or long rest.",
     },
   ],
   Wizard: [
     {
       grant: "Spellcasting",
-      text: "You use Intelligence for wizard spells. Your spellbook starts with six 1st-level wizard spells; choose your cantrips and prepared spells in the Spells step.",
+      text: "You use Intelligence for wizard spells. Your spellbook starts with six 1st-level wizard spells; choose your cantrips and prepared spells in the Spellbook and Prepared Spells lines on your class.",
     },
     {
       grant: "Arcane Recovery",
@@ -111,7 +111,7 @@ export const CLASS_L1_REPLACEMENTS = {
   Sorcerer: [
     {
       grant: "Spellcasting",
-      text: "You use Charisma for sorcerer spells. Choose your cantrips and spells known in the Spells step.",
+      text: "You use Charisma for sorcerer spells. Choose your cantrips and spells known in the Spells Known line on your class.",
     },
   ],
 };
