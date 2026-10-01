@@ -8,6 +8,7 @@ import { briefDescription, capitalizeFirst, splitAbilityTokens, abilityTooltip, 
 import { el } from "./sheetHelpers.js";
 import { spellLinkNodes } from "./spellLinks.js";
 import { contentIdMatches } from "../../data/dnd5e.js";
+import { UNLIMITED_SPELL_CAP } from "../../data/spellcastingModels.js";
 
 export function isStepApplicable(step) {
   return !step.isApplicable || step.isApplicable();
@@ -563,9 +564,57 @@ export const NO_SPELL_CATALOG_NOTE = "No Spell List imported yet, so there are n
 /** The choicesStore key one inline creation spell pick is stored under.
  *  Mirrors the `creation:Category:Name:groupId` shape everything else uses, so
  *  the pick is pruned with the rest of its class and its spells can be traced
- *  back to the class that granted them. Pure. */
-export function spellPickKey(className, spellLevel) {
-  return `creation:Class:${className}:creation-spells-${spellLevel}`;
+ *  back to the class that granted them. Pure.
+ *
+ *  `part` distinguishes the three spell lines a class can have: "cantrips",
+ *  the class's known/spellbook list, and its prepared list. Before the
+ *  per-level split was removed the leveled key was keyed by spell LEVEL
+ *  (creation-spells-1, creation-spells-2, …) - see migrateSpellPickKeys. */
+export function spellPickKey(className, part = "spells") {
+  return `creation:Class:${className}:creation-${part}`;
+}
+
+/** Spell pick keys, and the picks they hold, under the pre-per-level shape.
+ *
+ *  `creation-spells-0` / `-1` / `-2` meant one pick per spell LEVEL, each
+ *  given the full `limit.spells` total as its own cap. That was the bug this
+ *  migration exists for: a level-5 Sorcerer was offered 6 + 6 + 6 against a
+ *  limit of 6. The fix made the leveled line ONE pick spanning every
+ *  available level, so the old keys have to be folded into it or every spell
+ *  picked through them is orphaned - and an orphan key's spells are removed
+ *  from Spells Known by orphanedSpellPickNames, which is a silent data loss
+ *  for anyone who used the old build.
+ *
+ *  Folds in ascending level order and de-duplicates, so a name picked at two
+ *  levels survives once. Returns the choices store with the new keys added
+ *  and every old leveled key removed; the CANTRIP key is left alone, because
+ *  `creation-spells-0` is spelled the same in both shapes and the spell level
+ *  0 is still a real distinction.
+ *
+ *  Pure. Returns the input unchanged when there is nothing to migrate. */
+export function migrateSpellPickKeys(choices = {}, { className } = {}) {
+  const out = { ...(choices || {}) };
+  if (!className) return out;
+  const old = [];
+  const pattern = new RegExp(`^creation:Class:${className.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:creation-spells-(\\d+)$`);
+  for (const key of Object.keys(out)) {
+    const m = key.match(pattern);
+    if (m && Number(m[1]) > 0) old.push({ key, level: Number(m[1]) });
+  }
+  if (old.length === 0) return out;
+  const merged = [];
+  const seen = new Set();
+  for (const { key } of old.sort((a, b) => a.level - b.level)) {
+    for (const name of out[key] || []) {
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      merged.push(name);
+    }
+    delete out[key];
+  }
+  const target = spellPickKey(className, "spells");
+  out[target] = [...new Set([...(out[target] || []), ...merged])];
+  return out;
 }
 
 /** Spell names a no-longer-staged pick put on the sheet: every value of
@@ -673,30 +722,115 @@ export function alwaysPreparedSpellNames(bundles = [], level = 1) {
   return names;
 }
 
-/** The inline spell-pick groups for a staged class at a level: one group
- *  per spell level the class may pick at this level, cantrips included,
- *  each rendered as a "Cantrips — Choose 4" bullet whose link opens the
- *  shared spell dialog.
+/** The prepared-spells list after one prepared pick is accepted.
+ *
+ *  A parallel list of NAMES, living on the sheet field beside `items` rather
+ *  than as a flag on each entry. That was the other option and it is the wrong
+ *  one here: `field.items` is read as a flat array of strings by the spell
+ *  link renderer, the level-up picker, `knownSpellNames`, export, print and
+ *  the card meta lines. Changing the element shape to `{ text, prepared }`
+ *  would touch all of them, and a saved character whose list is plain strings
+ *  would read as "nothing is prepared" for every prepared caster - the exact
+ *  silent behaviour the migration is supposed to avoid. A second list is
+ *  additive: an existing character has no `preparedItems`, which reads as
+ *  nothing prepared, which is the intended migration.
+ *
+ *  `previous`/`next` are the pick's old and new selections, so a deselected
+ *  spell leaves. `alwaysPrepared` is the bundle-granted set, which is folded
+ *  in here rather than stored: a domain spell is prepared whether or not the
+ *  player chose it, and storing it would make it look like a pick they could
+ *  remove. It is filtered back out of `next` so the stored list only ever
+ *  holds genuine choices.
+ *
+ *  Preserves `previous` order for the spells that survive, so re-ordering is
+ *  not a side effect of opening the dialog. Pure. */
+export function preparedItemsWithAuto({ previous = [], next = [], alwaysPrepared = [] } = {}) {
+  const auto = new Set(alwaysPrepared || []);
+  const keep = new Set((next || []).filter((name) => name && !auto.has(name)));
+  const out = [];
+  for (const name of previous || []) {
+    if (name && keep.has(name) && !out.includes(name)) out.push(name);
+  }
+  for (const name of keep) {
+    if (!out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+/** Whether a prepared pick is currently blocked: a class that prepares out of
+ *  its own list has nothing to prepare from until that list has spells in it.
+ *  Returns null when it is not locked, so the caller can put the reason in
+ *  the bullet's own words rather than a generic string. Pure. */
+export function preparedLineLock({ preparedFrom = "classList", knownNames = [] } = {}) {
+  if (preparedFrom !== "known") return null;
+  if ((knownNames || []).length) return null;
+  return "Choose your spellbook spells first";
+}
+
+/** The inline spell-pick groups for a staged class at a level: a cantrips
+ *  line, a leveled-spells line, and (for classes that keep a prepared list)
+ *  a prepared line under it.
  *
  *  Built as ordinary keyed choice groups carrying a `spellPick` - the shape
  *  the Bard's Magical Secrets and the High Elf's cantrip already use - so
  *  inlineChoiceBullets, the shared dialog, the Spells Known write and the cap
  *  enforcement all come for free.
  *
- *  The counts come from `limitFor` (spellLimitFor), the app's single source
- *  of truth, which the level-up spell picker and the Review summary already
- *  read, so there is no second list of numbers to keep in step.
+ *  THE COUNTS ARE TOTALS, NOT PER LEVEL. `limitFor` (spellLimitFor) returns a
+ *  single `spells` number, and reading what it computes shows why: for a known
+ *  caster it is the "spells known" table, which in 5e is a total across spell
+ *  levels, and for a prepared caster it is `ability mod + level`, which is how
+ *  many spells are held prepared at once - also a total. This used to apply
+ *  that same total to every available spell level, so a level-5 Sorcerer was
+ *  offered 6 + 6 + 6 = 18 leveled spells against a limit of 6, and a level-5
+ *  Cleric 24 against 8. Invisible at level 1, where only one level exists,
+ *  which is why it shipped.
+ *
+ *  So the leveled line is ONE group spanning every available level, capped at
+ *  the total. `spellPick.maxLevel` is what makes the shared dialog list them
+ *  all - spellPickDialogOptions already loops from `level` to `maxLevel` - and
+ *  one `maxSelections` is what makes the dialog refuse the (n+1)th pick
+ *  without any new cap arithmetic. There is no way to exceed the total
+ *  because there is only ever one cap.
+ *
+ *  Always-prepared spells (a domain's, an oath's) hold part of the allowance
+ *  and are excluded from the options, so the pick starts from what is left.
+ *  Spells the class already holds from elsewhere - a racial cantrip, the
+ *  player's own hand-typed entries - also count toward it, so nobody is made
+ *  to pick a spell they already have.
+ *
+ *  minSelections is that shortfall for BOTH lines, by one rule: what this
+ *  group still owes. It deliberately does NOT credit the group's own
+ *  selections, because minSelections is compared against how many the group
+ *  HAS made - crediting them would let a half-finished pick read as
+ *  complete, which is the bug this phrasing exists to avoid.
  *
  *  Returns [] for a non-caster, and for a caster with nothing to pick at this
  *  level - a half-caster at level 1 has cantrips: 0 and no slot levels, and
  *  should show nothing rather than an empty picker.
  *
- *  `knownItems` is the sheet's Spells Known list and `choices` the picks
- *  store, both read to work out how much of the allowance this pick still
- *  owes. minSelections is that shortfall, so gating is the ordinary
- *  "picks made >= minSelections" every other group uses.
+ *  deps: { limitFor, availableLevelsFor, levelByNameFn, model }.
+ *  `model` is the per-class config (spellcastingModelFor); it decides whether
+ *  the prepared line appears, what the two lines are called, and whether the
+ *  known line has a quota.
  *
- *  deps: { limitFor, availableLevelsFor, levelByNameFn }. Pure. */
+ *  The prepared cap is `limit.spells` too, and that is not a shortcut: for
+ *  every class in this data that keeps a prepared list, `getSpellcastingInfo`
+ *  reports style "prepared", and spellLimitFor computes `spells` as
+ *  `prepared(level, ability mod)`. So it already IS the prepared count, and
+ *  because the caller passes the live ability scores in, it moves with them -
+ *  which is the whole of the "recompute when scores change" requirement.
+ *
+ *  Returns [] for a non-caster, and for a caster with nothing to pick at this
+ *  level - a half-caster at level 1 has cantrips: 0 and no slot levels, and
+ *  should show nothing rather than an empty picker.
+ *
+ * `preparedItems` is accepted but not consulted for the cap: an over-limit
+ * prepared list is a WARNING, never a reason to refuse or delete, and that
+ * check belongs where the limit can change under the player (the wizard's
+ * score step) rather than in the group builder.
+ *
+ *  Pure. */
 export function creationSpellPickGroups({
   className,
   level = 1,
@@ -704,53 +838,102 @@ export function creationSpellPickGroups({
   bundles = [],
   choices = {},
   knownItems = [],
+  preparedItems = [],
   limitFor = () => null,
   availableLevelsFor = () => [],
   levelByNameFn = () => null,
+  model = null,
 } = {}) {
   if (!className) return [];
   const limit = limitFor(className, level, abilityScores);
   if (!limit) return [];
-  const levels = availableLevelsFor(className, level) || [];
+  const levels = (availableLevelsFor(className, level) || []).filter((n) => Number(n) > 0);
+  const topLevel = levels.length ? Math.max(...levels) : 0;
   const auto = alwaysPreparedSpellNames(bundles, level);
   const autoAt = (levelNum) => [...auto].filter((name) => levelByNameFn(name) === levelNum).length;
-  const knownAt = (levelNum) => (knownItems || [])
-    .filter((item) => levelByNameFn(typeof item === "string" ? item : item?.text) === levelNum).length;
-  const wanted = new Map();
-  if (limit.cantrips > 0) wanted.set(0, limit.cantrips);
-  for (const levelNum of levels) {
-    if (levelNum === 0) continue;
-    if (limit.spells > 0) wanted.set(levelNum, limit.spells);
-  }
+  const textOf = (item) => (typeof item === "string" ? item : item?.text);
+  const knownNames = (knownItems || []).map(textOf).filter(Boolean);
+  const knownAt = (levelNum) => knownNames.filter((name) => levelByNameFn(name) === levelNum).length;
+
   const groups = [];
-  for (const [levelNum, cap] of [...wanted.entries()].sort((a, b) => a[0] - b[0])) {
-    // Always-prepared spells already hold part of the class's allowance, so
-    // the player only chooses the remainder - and is never offered a spell
-    // they did not get to choose.
-    const remaining = cap - autoAt(levelNum);
-    if (remaining <= 0) continue;
-    // Spells at this level the class already holds from somewhere else: a
-    // racial cantrip, or the player's own hand-typed entries. They count
-    // toward the allowance, so nobody is made to pick a spell they have.
-    // This pick's OWN selections are excluded - minSelections is compared
-    // against how many it has made, so crediting them here would let a
-    // half-finished pick read as complete.
-    const key = spellPickKey(className, levelNum);
+  /** Spell levels this pick spans, for the shortfall maths. Cantrips are 0
+   *  only; the leveled line spans every available level at once, which is
+   *  what makes `limit.spells` a cap on the SUM rather than on one level. */
+  const spans = (part) => (part === "cantrips" ? [0] : levels);
+
+  /** What this group still owes: its cap, less what always-prepared spells
+   *  and spells the class already holds elsewhere already hold. The group's
+   *  own picks are excluded (see above). */
+  const shortfallFor = (part, cap) => {
+    if (cap <= 0) return 0;
+    const spanLevels = spans(part);
+    const autoHeld = spanLevels.reduce((n, lvl) => n + autoAt(lvl), 0);
+    const key = spellPickKey(className, part);
     const own = (choices?.[key] || []).length;
-    const owedElsewhere = Math.max(0, knownAt(levelNum) - autoAt(levelNum) - own);
-    const allowance = Math.max(0, remaining - owedElsewhere);
+    const heldElsewhere = Math.max(
+      0,
+      knownNames.filter((name) => {
+        const lvl = levelByNameFn(name);
+        return spanLevels.includes(lvl) && !auto.has(name);
+      }).length - own,
+    );
+    return Math.max(0, cap - autoHeld - heldElsewhere);
+  };
+
+  const spellGroup = (part, label, cap, levelNum, maxLevel, exclude) => {
+    // Always-prepared spells inside THIS line's spell levels hold part of its
+    // allowance. Computed over the span, not just at level 0: the cantrips
+    // line happens to only span 0, but a leveled line spanning 1..N holds
+    // every auto spell at 1..N, and a domain's spells are leveled.
+    const spanLevels = spans(part);
+    const autoHeld = spanLevels.reduce((n, lvl) => n + autoAt(lvl), 0);
+    const remaining = cap - autoHeld;
+    if (remaining <= 0) return;
+    const allowance = shortfallFor(part, remaining);
     groups.push({
-      id: `creation-spells-${levelNum}`,
-      key,
-      label: levelNum === 0 ? "Cantrips" : `${ordinal(levelNum)}-level spells`,
+      id: `creation-${part}`,
+      key: spellPickKey(className, part),
+      label,
       source: className,
-      spellPick: { list: className, level: levelNum, exclude: [...auto] },
+      // `part` is carried on the pick, not only encoded in the key, so a
+      // caller holding a group can tell the cantrips line from the known line
+      // from the prepared one without re-parsing a key string.
+      spellPick: { part, list: className, level: levelNum, maxLevel, exclude },
       minSelections: allowance,
-      maxSelections: allowance,
+      maxSelections: remaining,
       minLevel: null,
       choiceKind: "build",
       category: "spells",
     });
+  };
+
+  if (limit.cantrips > 0) spellGroup("cantrips", "Cantrips", limit.cantrips, 0, 0, [...auto]);
+
+  // The known/spellbook line, and the prepared line under it. A class with no
+  // known list (the full-list preparers) has ONLY the prepared line - see
+  // spellcastingModelFor.
+  if (topLevel > 0) {
+    if (model?.hasKnownList !== false) {
+      // A spellbook has no quota, so it does not take `limit.spells` as a
+      // cap - that number is the Wizard's PREPARED count and borrowing it
+      // would cap the book at six while letting six more sit prepared.
+      const uncapped = model?.knownCap === "unlimited";
+      spellGroup(
+        "spells",
+        model?.knownLabel || "Spells",
+        uncapped ? UNLIMITED_SPELL_CAP : limit.spells,
+        1,
+        topLevel,
+        [...auto],
+      );
+      // And an uncapped line never blocks completeness - for a Wizard it is
+      // the PREPARED line that has a required number, and requiring a
+      // spellbook quota would invent a rule that does not exist.
+      if (uncapped) groups[groups.length - 1].minSelections = 0;
+    }
+    if (model?.hasPreparedList) {
+      spellGroup("prepared", model?.preparedLabel || "Prepared Spells", limit.spells, 1, topLevel, []);
+    }
   }
   return groups;
 }
@@ -1917,7 +2100,9 @@ export function richAbilityNodes(text) {
  *  wizard gating refreshes. Module-private — only reachable through
  *  live descriptors in a mechanics list. */
 export function renderLiveBulletItem(item) {
-  const li = el("li", { class: "mechanics-pick" });
+  const li = el("li", {
+    class: "mechanics-pick" + (item.indent ? " mechanics-pick--nested" : ""),
+  });
   const lead = item.lead || [];
   const slots = item.slots || [];
   // Choice-summary bullets open the shared dialog from their own summary
@@ -1940,10 +2125,25 @@ export function renderLiveBulletItem(item) {
       onclick: (e) => { e.preventDefault(); e.stopPropagation(); item.dialogOpener(); },
     }));
   } else {
-    lead.forEach(({ text, title }, i) => {
-      if (i > 0) li.append(document.createTextNode(", "));
-      li.append(el("span", { class: "inline-pick-known", text, title }));
-    });
+    // A LOCKED bullet still says what it is and what to do about it, in
+    // plain words. Three channels on purpose: the visible text is what a
+    // touch user gets (a `title` attribute does nothing there), the class is
+    // what carries the dimming, and aria-disabled is what a screen reader
+    // announces. A disabled-looking link with no explanation is the worst of
+    // the three.
+    if (item.locked) {
+      li.classList.add("mechanics-pick--locked");
+      li.setAttribute("aria-disabled", "true");
+      lead.forEach(({ text, title }, i) => {
+        if (i > 0) li.append(document.createTextNode(", "));
+        li.append(el("span", { class: "inline-pick-locked", text, title }));
+      });
+    } else {
+      lead.forEach(({ text, title }, i) => {
+        if (i > 0) li.append(document.createTextNode(", "));
+        li.append(el("span", { class: "inline-pick-known", text, title }));
+      });
+    }
   }
   if (item.collective && slots.length) {
     if (lead.length) li.append(document.createTextNode(", "));

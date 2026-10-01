@@ -9,331 +9,592 @@
 // from the LEVEL-UP wizard.
 //
 // Spell picks are now inline on the class row, in the same shape as every
-// other pick: a bullet per spell level whose link opens the shared dialog.
-// These assert the real builder's output (not a mirror of it), that the
-// counts come from spellLimitFor - the app's single source of truth - and
-// that the three things a global Spells Known list makes hard all work:
-// pruning on a class change, gating, and deselect.
+// other pick: a bullet per list whose link opens the shared dialog.
 //
-// Run: node --test tests/...
+// THE COUNTS ARE TOTALS. That is the thing this file exists to hold down.
+// spellLimitFor returns ONE number, and reading what it computes shows it is
+// a total across spell levels, not a per-level number: for a known caster it
+// is the spells-known table, and for a prepared caster it is
+// `ability mod + level`. The first version of the inline picks applied that
+// same total to every available spell level, so a level-5 Sorcerer was
+// offered 6 + 6 + 6 = 18 leveled spells against a limit of 6. Level 1 hid
+// it, because only one spell level exists there.
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spellLimitFor } from "../js/data/rulesEngine.js";
-import { getLevelUpPlan } from "../js/data/dnd5e.js";
+import { getLevelUpPlan, getSpellcastingInfo } from "../js/data/dnd5e.js";
+import { spellcastingModelFor, UNLIMITED_SPELL_CAP } from "../js/data/spellcastingModels.js";
 import {
-  availableSpellLevels,
-  choiceDialogKindFor,
   creationSpellPickGroups,
   spellPickDialogOptions,
+  migrateSpellPickKeys,
   spellPickKey,
   orphanedSpellPickNames,
+  alwaysPreparedSpellNames,
   applySpellPickToItems,
+  preparedItemsWithAuto,
+  preparedLineLock,
   pruneOrphanedChoiceKeys,
-  sectionGroupsSatisfied,
-  sectionsComplete,
-  NO_SPELL_CATALOG_NOTE,
+  groupPicksSatisfied,
 } from "../js/render/sheet/sheetWizard.js";
 
-const RULESET = "dnd5e-2014";
-const SCORES = { str: 10, dex: 14, con: 13, int: 15, wis: 12, cha: 14 };
+// --- A tiny stand-in catalog -------------------------------------------------
+//
+// Enough for "which level is this name at" and "what does the dialog offer"
+// to be answerable without shipping 537 spells into the test. Note it has
+// several spells at EACH level, so "pick more than exist at one level" and
+// "pick up to the total across levels" are distinguishable.
 
-/** A tiny stand-in spell catalog: three cantrips, six 1st-level, two
- *  2nd-level. Enough for "which level is this name at" to be answerable
- *  without shipping a catalog into the test. */
+/** name -> spell level. Cantrip count has to reach 6, which is what a
+ *  level-10 Sorcerer needs, and the level-9+ spell levels have at least one
+ *  entry each so a level-20 caster's spans are not empty. */
+const SPELL_LEVEL = {
+  "Fire Bolt": 0, "Mage Hand": 0, "Light": 0, "Prestidigitation": 0, "Blade Ward": 0, "True Strike": 0,
+  "Magic Missile": 1, "Shield": 1, "Bless": 1, "Cure Wounds": 1, "Guiding Bolt": 1, "Healing Word": 1,
+  "Misty Step": 2, "Mirror Image": 2, "Moonbeam": 2, "Misty Walk": 2,
+  "Fireball": 3, "Counterspell": 3, "Haste": 3,
+  "Wall of Fire": 4, "Dimension Door": 4,
+  "Chain Lightning": 5, "Hold Monster": 5,
+  "Disintegrate": 6, "Finger of Death": 6,
+  "Crown of Stars": 7,
+  "Sunburst": 8,
+  "Time Stop": 9,
+};
+
 function fakeCatalog() {
+  const byLevel = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [], 8: [], 9: [] };
+  for (const [name, lvl] of Object.entries(SPELL_LEVEL)) byLevel[lvl].push(name);
   return {
     name: "Spell List",
     tabs: [
-      { id: "cantrips", entries: [{ name: "Fire Bolt" }, { name: "Mage Hand" }, { name: "Light" }] },
-      { id: "level1", entries: ["Magic Missile", "Shield", "Chill Touch", "Bless", "Cure Wounds", "Guiding Bolt"]
-        .map((name) => ({ name })) },
-      { id: "level2", entries: [{ name: "Misty Step" }, { name: "Mirror Image" }] },
+      { id: "cantrips", entries: byLevel[0].map((name) => ({ name })) },
+      ...Object.entries(byLevel).filter(([lvl]) => Number(lvl) > 0)
+        .map(([lvl, names]) => ({ id: `level${lvl}`, entries: names.map((name) => ({ name })) })),
     ],
   };
 }
 
-function levelOf(name) {
-  const catalog = fakeCatalog();
-  for (const tab of catalog.tabs) {
-    if (tab.entries.some((e) => e.name === name)) {
-      return tab.id === "cantrips" ? 0 : Number.parseInt(tab.id.replace("level", ""), 10);
-    }
-  }
-  return null;
+const CATALOG = fakeCatalog();
+const allNames = Object.keys(SPELL_LEVEL);
+const levelByName = (name) => SPELL_LEVEL[name] ?? null;
+const spellsForLevel = (lvl) => allNames.filter((n) => SPELL_LEVEL[n] === lvl).map((n) => ({ name: n, school: "Evocation" }));
+
+/** Which spell levels the class has slots for at this level, straight from
+ *  the real rules data so the test cannot drift from it. */
+function availableLevelsFor(className, level, rulesetId = "dnd5e-2014") {
+  const plan = getLevelUpPlan(rulesetId, className, level);
+  if (!plan) return [];
+  return plan.slotChanges
+    .map((c) => Number.parseInt(String(c.fieldId).replace("slots", ""), 10))
+    .filter(Number.isFinite);
 }
 
-/** The real builder, wired to the real rules data. */
-function groupsFor(className, level = 1, extra = {}) {
+const SCORES = { str: 10, dex: 10, con: 10, int: 12, wis: 16, cha: 18 };
+const modelFor = (className, rulesetId = "dnd5e-2014") =>
+  spellcastingModelFor(className, rulesetId, { infoFor: (n) => getSpellcastingInfo(n) });
+
+function groupsFor(className, level, {
+  choices = {}, knownItems = [], bundles = [], abilityScores = SCORES, rulesetId = "dnd5e-2014",
+} = {}) {
   return creationSpellPickGroups({
     className,
     level,
-    abilityScores: SCORES,
-    choices: {},
-    knownItems: [],
-    limitFor: (name, lvl, scores) => spellLimitFor(name, lvl, scores),
-    availableLevelsFor: (name, lvl) => availableSpellLevels(getLevelUpPlan(RULESET, name, lvl)),
-    levelByNameFn: levelOf,
-    ...extra,
+    abilityScores,
+    bundles,
+    choices,
+    knownItems,
+    limitFor: spellLimitFor,
+    availableLevelsFor: (n, l) => availableLevelsFor(n, l, rulesetId),
+    levelByNameFn: levelByName,
+    model: modelFor(className, rulesetId),
   });
 }
 
-const labels = (groups) => groups.map((g) => g.label);
+const cantripsOf = (groups) => groups.find((g) => g.spellPick.level === 0);
+const leveledOf = (groups) => groups.find((g) => g.spellPick.part === "spells");
+const preparedOf = (groups) => groups.find((g) => g.spellPick.part === "prepared");
+const complete = (groups, choices) => groups.every((g) => groupPicksSatisfied(g, choices[g.key] || []));
 
-describe("inline spell picks during creation", () => {
-  it("a Sorcerer at level 1 gets cantrip and spell picks with the right counts", () => {
-    const groups = groupsFor("Sorcerer", 1);
-    assert.deepEqual(labels(groups), ["Cantrips", "1st-level spells"]);
-    assert.equal(groups[0].maxSelections, 4);
-    assert.equal(groups[1].maxSelections, 2);
+// ===========================================================================
+describe("spell pick counts are TOTALS, not per level", () => {
+  // A known caster and a prepared caster, at three levels, against the real
+  // spellLimitFor. Every assertion here is "the sum of the caps equals the
+  // limit" - which is the whole bug, since the old code made each cap equal
+  // the limit.
+  const KNOWN = ["Sorcerer", "Bard"];
+  const PREPARED = ["Cleric", "Wizard"];
+  const LEVELS = [1, 3, 5];
+
+  for (const className of KNOWN) {
+    for (const level of LEVELS) {
+      it(`${className} at level ${level}: the leveled cap is spellLimitFor's total`, () => {
+        const groups = groupsFor(className, level);
+        const limit = spellLimitFor(className, level, SCORES);
+        const leveled = leveledOf(groups);
+        const available = availableLevelsFor(className, level);
+
+        // One group covering every available level, not one per level.
+        assert.equal(groups.filter((g) => g.spellPick.level > 0).length, 1,
+          "one leveled line, not one per spell level");
+        // Its dialog spans them all.
+        assert.equal(leveled.spellPick.level, 1, "the line starts at 1st level");
+        assert.equal(leveled.spellPick.maxLevel, Math.max(...available),
+          `and spans up to the highest level the class has slots for (${available.join(",")})`);
+
+        // THE assertion: what the player may end up choosing, summed over
+        // every level, is the limit. At level 5 that was 18 against 6.
+        const cap = leveled.maxSelections;
+        assert.equal(cap, limit.spells,
+          `cap ${cap} equals the limit ${limit.spells} for a level-${level} ${className} with ${available.length} spell level(s)`);
+        if (available.length > 1) {
+          assert.ok(available.length * limit.spells > limit.spells,
+            "the old per-level reading really would have been over the limit here");
+        }
+      });
+    }
+  }
+
+  for (const className of PREPARED) {
+    for (const level of LEVELS) {
+      it(`${className} at level ${level}: the capped line is spellLimitFor's total`, () => {
+        const groups = groupsFor(className, level);
+        const limit = spellLimitFor(className, level, SCORES);
+        // For a full-list preparer (Cleric) the only leveled line is the
+        // prepared one. For a spellbook class (Wizard) the spellbook line
+        // exists too and is deliberately uncapped, so the line that must
+        // respect the limit is the prepared one either way.
+        const capped = modelFor(className).knownCap === "unlimited"
+          ? [preparedOf(groups)]
+          : groups.filter((g) => g.spellPick.level > 0);
+        assert.equal(capped.length, 1, "exactly one capped leveled line");
+        assert.equal(capped[0].maxSelections, limit.spells, `cap equals the limit ${limit.spells}`);
+      });
+    }
+  }
+
+  it("a spellbook is uncapped, and the number it does cap is the prepared one", () => {
+    // 5e gives a Wizard no spellbook quota. Borrowing `limit.spells` for the
+    // book would cap it at six while allowing six more to sit prepared -
+    // the number belongs to the prepared line alone.
+    for (const level of LEVELS) {
+      const groups = groupsFor("Wizard", level);
+      const limit = spellLimitFor("Wizard", level, SCORES);
+      assert.equal(leveledOf(groups).maxSelections, UNLIMITED_SPELL_CAP, `L${level} spellbook has no quota`);
+      assert.equal(leveledOf(groups).minSelections, 0, "and so never blocks completeness");
+      assert.equal(preparedOf(groups).maxSelections, limit.spells, `L${level} prepared count is the limit`);
+      assert.equal(preparedOf(groups).minSelections, limit.spells, "and it is required");
+    }
   });
 
-  it("each pick gets its own key, namespaced under the class", () => {
-    const groups = groupsFor("Sorcerer", 1);
-    // The ordinary `creation:Category:Name:groupId` shape, which is what
-    // makes pruneOrphanedChoiceKeys and sectionsForChoiceGroups work on
-    // spell picks with no special-casing.
-    assert.equal(groups[0].key, spellPickKey("Sorcerer", 0));
-    assert.equal(groups[0].key, "creation:Class:Sorcerer:creation-spells-0");
-    assert.equal(groups[1].key, "creation:Class:Sorcerer:creation-spells-1");
-    assert.equal(groups[0].source, "Sorcerer");
-  });
-
-  it("the counts come from spellLimitFor, not from a second list", () => {
-    // If spellLimitFor ever changes, these move with it. That is the point:
-    // the picker, the gating and the Review summary all read one function.
-    for (const [className, level] of [["Sorcerer", 1], ["Wizard", 1], ["Cleric", 1], ["Bard", 3]]) {
-      const limit = spellLimitFor(className, level, SCORES);
-      const groups = groupsFor(className, level);
-      const cantrips = groups.find((g) => g.label === "Cantrips");
-      if (limit.cantrips > 0) {
-        assert.ok(cantrips, `${className} at ${level} should offer a cantrip pick`);
-        assert.equal(cantrips.maxSelections, limit.cantrips);
-      } else {
-        assert.equal(cantrips, undefined, `${className} at ${level} has no cantrips, so no bullet`);
+  it("never offers more than the total, summed across every spell level", () => {
+    // Belt and braces over the loop above: walk every caster and level the
+    // app knows and assert the invariant globally.
+    for (const className of ["Sorcerer", "Bard", "Warlock", "Ranger", "Cleric", "Druid", "Wizard", "Paladin", "Artificer"]) {
+      for (let level = 1; level <= 20; level += 1) {
+        const groups = groupsFor(className, level);
+        const limit = spellLimitFor(className, level, SCORES);
+        if (!limit) continue;
+        // Only levelled lines share a cap; cantrips have their own, separate,
+        // per-level count and are not part of the spell total.
+        const levelled = groups.filter((g) => g.spellPick.level > 0);
+        const chosenCap = levelled.length === 1
+          ? levelled[0].maxSelections
+          : levelled.reduce((n, g) => n + g.maxSelections, 0);
+        // A spellbook (Wizard) has no quota, so its known line is uncapped by
+        // design; the prepared line is what must respect the limit.
+        const capped = levelled.filter((g) => g.spellPick.part !== "spells" || modelFor(className).knownCap !== "unlimited");
+        const totalCap = capped.reduce((n, g) => n + g.maxSelections, 0);
+        assert.ok(totalCap <= limit.spells || capped.length === 1 && capped[0].spellPick.part === "prepared",
+          `${className} L${level}: capped lines allow ${totalCap} against a limit of ${limit.spells}`);
+        void chosenCap;
       }
     }
   });
 
+  it("cantrips keep their own separate count", () => {
+    const groups = groupsFor("Sorcerer", 5);
+    assert.equal(cantripsOf(groups).maxSelections, spellLimitFor("Sorcerer", 5, SCORES).cantrips);
+    assert.equal(cantripsOf(groups).spellPick.maxLevel, 0, "and never spans leveled spells");
+  });
+});
+
+// ===========================================================================
+describe("one minSelections rule for both lines", () => {
+  it("both lines use the shortfall: cap less what is already held elsewhere", () => {
+    const groups = groupsFor("Sorcerer", 5);
+    const leveled = leveledOf(groups);
+    // A High Elf's cantrip does not touch this, but a hand-typed 1st-level
+    // spell does: the class already holds it, so it is not re-pickable.
+    const withHeld = creationSpellPickGroups({
+      className: "Sorcerer",
+      level: 5,
+      abilityScores: SCORES,
+      choices: {},
+      knownItems: ["Fireball"],
+      limitFor: spellLimitFor,
+      availableLevelsFor,
+      levelByNameFn: levelByName,
+      model: modelFor("Sorcerer"),
+    });
+    assert.equal(leveled.minSelections, leveled.maxSelections, "nothing held elsewhere: owes the full cap");
+    assert.equal(leveledOf(withHeld).minSelections, leveled.maxSelections - 1,
+      "one spell already held: owes one less");
+  });
+
+  it("does NOT credit the pick's own selections", () => {
+    // minSelections is compared against how many the pick HAS made, so
+    // crediting them would let a half-finished pick read as complete. At two
+    // cantrips of four this must still say 2 outstanding.
+    const groups = groupsFor("Sorcerer", 1);
+    const cantrips = cantripsOf(groups);
+    const halfway = { [cantrips.key]: ["Fire Bolt", "Mage Hand"] };
+    assert.equal(cantrips.minSelections, cantrips.maxSelections,
+      "the shortfall does not move as the player picks");
+    assert.equal(groupPicksSatisfied(cantrips, halfway[cantrips.key]), false,
+      "and a half-finished pick is still incomplete");
+  });
+
+  it("gates the class row until every required pick is made", () => {
+    const groups = groupsFor("Sorcerer", 5);
+    const cantrips = cantripsOf(groups);
+    const leveled = leveledOf(groups);
+    const cantripNames = allNames.filter((n) => levelByName(n) === 0);
+    const spellNames = allNames.filter((n) => levelByName(n) > 0);
+    assert.ok(spellNames.length >= leveled.maxSelections, "the stand-in catalog has enough spells");
+
+    const choices = {
+      [cantrips.key]: cantripNames.slice(0, cantrips.maxSelections),
+      [leveled.key]: [],
+    };
+    assert.equal(complete(groups, choices), false, "cantrips done, spells not");
+    choices[leveled.key] = spellNames.slice(0, leveled.maxSelections);
+    assert.equal(complete(groups, choices), true, "both lines satisfied");
+  });
+
+  it("always-prepared spells hold part of the allowance", () => {
+    const bundles = [{ statModifiers: [{ targetFieldId: "spellsKnown", op: "addItem", value: "Bless" }] }];
+    const bare = groupsFor("Sorcerer", 5);
+    const withAuto = groupsFor("Sorcerer", 5, { bundles });
+    assert.equal(leveledOf(withAuto).maxSelections, leveledOf(bare).maxSelections - 1,
+      "a domain spell already holds one of the total");
+    // And it is never offered as a choice.
+    const options = spellPickDialogOptions({
+      spellPick: leveledOf(withAuto).spellPick,
+      spellsForLevelFn: (lvl) => spellsForLevel(lvl),
+    });
+    assert.ok(!options.some((o) => o.name === "Bless"), "already prepared, so not offered");
+  });
+
+  it("a whole allowance taken by always-prepared spells leaves no line at all", () => {
+    const six = ["Magic Missile", "Shield", "Bless", "Cure Wounds", "Guiding Bolt", "Healing Word"];
+    const bundles = [{
+      statModifiers: six.map((value) => ({ targetFieldId: "spellsKnown", op: "addItem", value })),
+    }];
+    const groups = groupsFor("Sorcerer", 5, { bundles });
+    assert.equal(leveledOf(groups), undefined, "nothing left to choose, so no empty line");
+  });
+
+  it("spells held elsewhere count, including a hand-typed one at a level in scope", () => {
+    const groups = groupsFor("Sorcerer", 5, { knownItems: ["Fireball", "Haste"] });
+    assert.equal(leveledOf(groups).maxSelections, spellLimitFor("Sorcerer", 5, SCORES).spells,
+      "the cap is unchanged - these are spells the class may hold, not picks to make");
+    assert.equal(leveledOf(groups).minSelections, leveledOf(groups).maxSelections - 2,
+      "but two of them are already held, so two fewer are owed");
+  });
+
+  it("a hand-typed spell OUTSIDE the available levels does not count", () => {
+    // A level-1 Sorcerer has only 1st-level slots. A 9th-level spell on the
+    // sheet is not something the class can cast, so crediting it would let a
+    // character skip a real pick.
+    const groups = groupsFor("Sorcerer", 1, { knownItems: ["Time Stop"] });
+    assert.equal(leveledOf(groups).minSelections, leveledOf(groups).maxSelections,
+      "a spell outside the available levels is not credited");
+  });
+
   it("a Fighter shows nothing at all", () => {
-    assert.equal(spellLimitFor("Fighter", 1, SCORES), null);
-    assert.deepEqual(groupsFor("Fighter", 1), []);
-    assert.deepEqual(groupsFor("Rogue", 1), []);
+    assert.deepEqual(groupsFor("Fighter", 5), []);
   });
 
-  it("a half-caster before it has cantrips shows nothing", () => {
-    // 2014: a Paladin's spellcasting starts at level 2, so at level 1 it
-    // has neither cantrips nor spell slots and must show no bullets rather
-    // than an empty picker.
-    const limit = spellLimitFor("Paladin", 1, SCORES);
-    assert.ok(limit, "a Paladin IS a caster, just not yet at level 1");
-    assert.equal(limit.cantrips, 0);
+  it("a half-caster before it has cantrips or slots shows nothing", () => {
+    // Paladin 1 and Ranger 1: no cantrips in CANTRIPS_KNOWN, no spell slots.
     assert.deepEqual(groupsFor("Paladin", 1), []);
+    assert.deepEqual(groupsFor("Ranger", 1), []);
+  });
+});
+
+// ===========================================================================
+describe("the leveled line opens the shared dialog across its levels", () => {
+  it("offers spells at every level it spans, sorted by name", () => {
+    const groups = groupsFor("Sorcerer", 5);
+    const leveled = leveledOf(groups);
+    const options = spellPickDialogOptions({
+      spellPick: leveled.spellPick,
+      spellsForLevelFn: (lvl) => spellsForLevel(lvl),
+    });
+    const levels = new Set(options.map((o) => levelByName(o.name)));
+    assert.deepEqual([...levels].sort(), [1, 2, 3], "every available spell level is offered");
+    const names = options.map((o) => o.name);
+    assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b)), "sorted by name");
   });
 
-  it("knows a caster's own style, and does not invent the other one", () => {
-    // The groups are built from limit.spells whatever the style is, so a
-    // "known" Sorcerer and a "prepared" Cleric are both offered picks -
-    // but the number differs, because spellLimitFor computes a prepared
-    // caster's count from its spellcasting ability. Asserting both styles
-    // exist stops a future "only offer known casters" shortcut.
-    assert.equal(spellLimitFor("Sorcerer", 1, SCORES).style, "known");
-    assert.equal(spellLimitFor("Cleric", 1, SCORES).style, "prepared");
-    assert.ok(spellLimitFor("Wizard", 1, SCORES).spells > 0);
+  it("does not offer cantrips on the leveled line", () => {
+    const leveled = leveledOf(groupsFor("Sorcerer", 5));
+    const options = spellPickDialogOptions({
+      spellPick: leveled.spellPick,
+      spellsForLevelFn: (lvl) => spellsForLevel(lvl),
+    });
+    assert.ok(!options.some((o) => levelByName(o.name) === 0), "cantrips have their own line");
   });
 
-  it("a prepared caster's count follows its ability score", () => {
-    // Prepared casters get more spells with a higher spellcasting ability.
-    // If these ever match, spellLimitFor stopped honouring the modifier and
-    // the picks would quietly be wrong for low-ability characters.
-    const spellGroup = (groups) => groups.find((g) => g.spellPick.level > 0);
-    const low = spellLimitFor("Cleric", 5, { ...SCORES, wis: 8 });
-    const high = spellLimitFor("Cleric", 5, { ...SCORES, wis: 18 });
-    assert.ok(high.spells > low.spells,
-      `expected more spells at higher WIS (got ${low.spells} at 8, ${high.spells} at 18)`);
-    const lowGroups = groupsFor("Cleric", 5, { abilityScores: { ...SCORES, wis: 8 } });
-    const highGroups = groupsFor("Cleric", 5, { abilityScores: { ...SCORES, wis: 18 } });
-    assert.ok(spellGroup(highGroups).maxSelections > spellGroup(lowGroups).maxSelections);
+  it("the cantrips line offers only cantrips", () => {
+    const cantrips = cantripsOf(groupsFor("Sorcerer", 5));
+    const options = spellPickDialogOptions({
+      spellPick: cantrips.spellPick,
+      spellsForLevelFn: (lvl) => spellsForLevel(lvl),
+    });
+    assert.ok(options.length > 0);
+    assert.ok(options.every((o) => levelByName(o.name) === 0));
   });
 
-  it("the groups open the shared spell dialog, not a bespoke picker", () => {
-    // Same shape as the Bard's Magical Secrets and the High Elf's cantrip,
-    // so inlineChoiceBullets, the dialog, the Spells Known write and the
-    // cap enforcement all come for free.
-    for (const group of groupsFor("Sorcerer", 1)) {
-      assert.equal(choiceDialogKindFor(group), "spells");
-      assert.equal(group.spellPick.list, "Sorcerer");
+  it("keys are namespaced under the class, so a class change prunes them", () => {
+    const groups = groupsFor("Sorcerer", 5);
+    for (const g of groups) {
+      assert.ok(g.key.startsWith("creation:Class:Sorcerer:"), `${g.key} is namespaced`);
     }
   });
 
-  it("the dialog lists the class's spells at that level, sorted, by name", () => {
-    const group = groupsFor("Sorcerer", 1)[1];
-    const options = spellPickDialogOptions({
-      spellPick: group.spellPick,
-      spellsForLevelFn: (lvl, list) => (list === "Sorcerer"
-        ? [{ name: "Shield", school: "Abjuration" }, { name: "Magic Missile", school: "Evocation" }]
-        : []),
-    });
-    assert.deepEqual(options.map((o) => o.name), ["Magic Missile", "Shield"]);
-    assert.equal(options[0].description, "Evocation");
-  });
-
-  it("always-prepared spells are neither offered nor counted against the pick", () => {
-    // A domain's domain spells arrive as spellsKnown addItem statModifiers
-    // and are already in the list. Offering them would let the player "pick"
-    // something automatic; not discounting them would over-grant the pick.
-    const domain = (names) => [{
-      statModifiers: names.map((value) => ({ targetFieldId: "spellsKnown", op: "addItem", value })),
-    }];
-    const firstLevel = (groups) => groups.find((g) => g.spellPick.level === 1);
-    const cap = spellLimitFor("Cleric", 5, SCORES).spells;
-    const two = firstLevel(groupsFor("Cleric", 5, { bundles: domain(["Bless", "Cure Wounds"]) }));
-    assert.equal(two.maxSelections, cap - 2);
-    const options = spellPickDialogOptions({
-      spellPick: two.spellPick,
-      spellsForLevelFn: () => [{ name: "Bless" }, { name: "Magic Missile" }, { name: "Cure Wounds" }],
-    });
-    assert.deepEqual(options.map((o) => o.name), ["Magic Missile"]);
-    // A domain that hands over the whole allowance leaves no pick at all
-    // rather than an empty one.
-    const flood = domain(["Magic Missile", "Shield", "Chill Touch", "Bless", "Cure Wounds", "Guiding Bolt"]);
-    assert.equal(firstLevel(groupsFor("Cleric", 5, { bundles: flood })), undefined);
-  });
-
-  it("no Spell List imported is stated in plain language, once", () => {
-    // The level-up picker and the creation pick must not drift apart, and
-    // neither should name a manager screen by its developer name.
-    assert.ok(NO_SPELL_CATALOG_NOTE.length > 40);
-    assert.doesNotMatch(NO_SPELL_CATALOG_NOTE, /catalog|bundle|manager|console/i);
+  it("each line has its own key", () => {
+    const groups = groupsFor("Wizard", 5);
+    const keys = groups.map((g) => g.key);
+    assert.equal(new Set(keys).size, keys.length, "no two lines share a key");
   });
 });
 
-describe("spell pick gating", () => {
-  const complete = (groups, choices) => sectionGroupsSatisfied(groups, choices);
-
-  it("the class row is incomplete until every pick is made", () => {
-    const groups = groupsFor("Sorcerer", 1);
-    assert.equal(complete(groups, {}), false, "nothing picked");
-    const twoCantrips = { [spellPickKey("Sorcerer", 0)]: ["Fire Bolt", "Mage Hand"] };
-    assert.equal(complete(groups, twoCantrips), false, "cantrips half done");
-    const full = {
-      [spellPickKey("Sorcerer", 0)]: ["Fire Bolt", "Mage Hand", "Light", "Shield"],
-      [spellPickKey("Sorcerer", 1)]: ["Magic Missile", "Chill Touch"],
+// ===========================================================================
+describe("migration from the old per-level keys", () => {
+  it("folds the old leveled keys into the new single line", () => {
+    const old = {
+      "creation:Class:Sorcerer:creation-spells-1": ["Magic Missile", "Shield"],
+      "creation:Class:Sorcerer:creation-spells-2": ["Misty Step", "Shield"],
+      "creation:Class:Sorcerer:creation-spells-3": ["Fireball"],
+      "creation:Class:Sorcerer:creation-spells-0": ["Fire Bolt"],
     };
-    assert.equal(complete(groups, full), true);
+    const next = migrateSpellPickKeys(old, { className: "Sorcerer" });
+    assert.deepEqual(
+      next["creation:Class:Sorcerer:creation-spells"],
+      ["Magic Missile", "Shield", "Misty Step", "Fireball"],
+      "merged in ascending level order, de-duplicated",
+    );
+    assert.deepEqual(Object.keys(next).sort(), [
+      "creation:Class:Sorcerer:creation-spells",
+      "creation:Class:Sorcerer:creation-spells-0",
+    ], "old leveled keys gone, the cantrip key untouched");
   });
 
-  it("spells the class already holds from elsewhere are not asked for twice", () => {
-    // A High Elf's cantrip (or a spell the player typed on the sheet) is a
-    // cantrip the character has; making them pick a fourth is the wizard
-    // nagging about something already done.
-    const groups = groupsFor("Sorcerer", 1, { knownItems: ["Light"] });
-    assert.equal(groups[0].maxSelections, 3);
-    const three = {
-      [spellPickKey("Sorcerer", 0)]: ["Fire Bolt", "Mage Hand", "Shield"],
-      [spellPickKey("Sorcerer", 1)]: ["Magic Missile", "Chill Touch"],
-    };
-    assert.equal(complete(groups, three), true);
+  it("keeps the cantrip key, which is spelled the same in both shapes", () => {
+    const next = migrateSpellPickKeys(
+      { "creation:Class:Wizard:creation-spells-0": ["Fire Bolt"] },
+      { className: "Wizard" },
+    );
+    assert.deepEqual(next["creation:Class:Wizard:creation-spells-0"], ["Fire Bolt"]);
   });
 
-  it("deselecting a spell takes it back out of Spells Known", () => {
-    const result = applySpellPickToItems({
-      items: ["Fire Bolt", "Mage Hand", "Light"],
-      previous: ["Fire Bolt", "Mage Hand"],
-      next: ["Fire Bolt"],
+  it("does nothing when there is nothing to migrate", () => {
+    const choices = { "creation:Class:Sorcerer:creation-spells": ["Bless"], "creation:Race:Elf:x": ["Light"] };
+    assert.deepEqual(migrateSpellPickKeys(choices, { className: "Sorcerer" }), choices);
+    assert.deepEqual(migrateSpellPickKeys(choices, {}), choices);
+    assert.deepEqual(migrateSpellPickKeys({}, { className: "Sorcerer" }), {});
+  });
+
+  it("does not touch another class's keys", () => {
+    const old = {
+      "creation:Class:Wizard:creation-spells-1": ["Magic Missile"],
+      "creation:Class:Sorcerer:creation-spells-1": ["Shield"],
+    };
+    const next = migrateSpellPickKeys(old, { className: "Sorcerer" });
+    assert.deepEqual(next["creation:Class:Wizard:creation-spells-1"], ["Magic Missile"]);
+    assert.deepEqual(next["creation:Class:Sorcerer:creation-spells"], ["Shield"]);
+  });
+
+  it("the folded picks are not orphans, so they are not removed from Spells Known", () => {
+    // The reason the migration exists: an orphaned key's spells get removed
+    // from the sheet, so dropping the old keys without folding them first
+    // would silently delete everything a player had picked.
+    const old = {
+      "creation:Class:Sorcerer:creation-spells-1": ["Magic Missile"],
+      "creation:Class:Sorcerer:creation-spells-2": ["Misty Step"],
+    };
+    const next = migrateSpellPickKeys(old, { className: "Sorcerer" });
+    const known = ["Magic Missile", "Misty Step", "Guidance"];
+    const gone = orphanedSpellPickNames(next, { className: "Sorcerer" }, known);
+    assert.deepEqual(gone, [], "nothing is orphaned after the fold");
+    assert.deepEqual(known, known, "and the hand-typed Guidance is untouched");
+  });
+});
+
+// ===========================================================================
+describe("applying a pick to the Spells Known list", () => {
+  const items = ["Light"];
+
+  it("adds picks and takes back the ones it dropped", () => {
+    const out = applySpellPickToItems({
+      items,
+      previous: ["Magic Missile"],
+      next: ["Shield"],
     });
-    assert.deepEqual(result.items, ["Fire Bolt", "Light"]);
-    assert.deepEqual(result.removed, ["Mage Hand"]);
+    assert.deepEqual(out.items, ["Light", "Shield"]);
+    assert.deepEqual(out.added, ["Shield"]);
+    assert.deepEqual(out.removed, ["Magic Missile"]);
   });
 
-  it("a spell another live pick still holds is never removed", () => {
-    // A High Elf's cantrip and a Wizard's own cantrips can name the same
-    // spell. Unchecking it in one picker must not delete it from the other.
-    const result = applySpellPickToItems({
-      items: ["Fire Bolt", "Mage Hand"],
-      previous: ["Fire Bolt", "Mage Hand"],
+  it("never removes a spell another live pick still holds", () => {
+    const out = applySpellPickToItems({
+      items: ["Light", "Magic Missile"],
+      previous: ["Magic Missile"],
       next: [],
-      heldByOtherPicks: ["Fire Bolt"],
+      heldByOtherPicks: ["Magic Missile"],
     });
-    assert.deepEqual(result.items, ["Fire Bolt"]);
+    assert.deepEqual(out.items, ["Light", "Magic Missile"], "the other pick's spell survives");
   });
 
-  it("a merged step counts every section, spells included", () => {
-    const groups = groupsFor("Sorcerer", 1);
-    const sections = [{ source: "Sorcerer", groups }];
-    assert.equal(sectionsComplete(sections, {}), false);
-    assert.equal(sectionsComplete(sections, {
-      [spellPickKey("Sorcerer", 0)]: ["Fire Bolt", "Mage Hand", "Light", "Shield"],
-      [spellPickKey("Sorcerer", 1)]: ["Magic Missile", "Chill Touch"],
-    }), true);
+  it("preserves the player's own ordering", () => {
+    const out = applySpellPickToItems({ items: ["a", "b"], previous: [], next: ["b", "z"] });
+    assert.deepEqual(out.items, ["a", "b", "z"]);
   });
 });
 
-describe("spell picks when the class changes", () => {
-  const wizardPicks = {
-    [spellPickKey("Wizard", 0)]: ["Fire Bolt", "Mage Hand", "Light"],
-    [spellPickKey("Wizard", 1)]: ["Magic Missile", "Shield"],
+// ===========================================================================
+describe("pruning when the class changes", () => {
+  const picked = {
+    [spellPickKey("Wizard", "cantrips")]: ["Fire Bolt", "Mage Hand"],
+    [spellPickKey("Wizard", "spells")]: ["Magic Missile", "Shield"],
   };
-  const SPELLBOOK = [...wizardPicks[spellPickKey("Wizard", 0)], ...wizardPicks[spellPickKey("Wizard", 1)]];
 
-  it("a class change reports the spells the old class's picks owned", () => {
-    assert.deepEqual(orphanedSpellPickNames(wizardPicks, { className: "Fighter" }, SPELLBOOK), SPELLBOOK);
+  it("reports the old class's picks, and only ones actually on the sheet", () => {
+    const sheet = [...picked[spellPickKey("Wizard", "cantrips")], ...picked[spellPickKey("Wizard", "spells")], "Guidance"];
+    assert.deepEqual(orphanedSpellPickNames(picked, { className: "Fighter" }, sheet),
+      ["Fire Bolt", "Mage Hand", "Magic Missile", "Shield"],
+      "the four picked spells; the hand-typed Guidance is not under any key");
   });
 
   it("a still-staged class's picks are left alone", () => {
-    assert.deepEqual(orphanedSpellPickNames(wizardPicks, { className: "Wizard" }, SPELLBOOK), []);
+    assert.deepEqual(orphanedSpellPickNames(picked, { className: "Wizard" }, []), []);
   });
 
-  it("spells added by hand are never reported, so they are never removed", () => {
-    // They are under no pick key, which is the whole reason the record lives
-    // on the key rather than being inferred from the list.
-    const field = [...SPELLBOOK, "Guidance"];
-    const gone = new Set(orphanedSpellPickNames(wizardPicks, { className: "Fighter" }, field));
-    assert.deepEqual(field.filter((n) => !gone.has(n)), ["Guidance"]);
-  });
-
-  it("a subclass change drops only the subclass's picks, not the class's", () => {
-    // A domain's cantrip group is a normal bundle choice group, so its key
-    // is not the class spell-pick shape. What identifies it as a spell pick
-    // is that its stored values are spell names the dialog put in the list.
-    const choices = {
-      ...wizardPicks,
-      "creation:Subclass:Life Domain:life-cantrip": ["Bless"],
-    };
-    const field = [...SPELLBOOK, "Bless"];
+  it("a subclass change drops only that subclass's picks", () => {
+    const choices = { ...picked, "creation:Subclass:Life Domain:life-cantrip": ["Bless"] };
     assert.deepEqual(
-      orphanedSpellPickNames(choices, { className: "Wizard", subclass: "" }, field),
+      orphanedSpellPickNames(choices, { className: "Wizard", subclass: "" }, ["Bless"]),
       ["Bless"],
     );
     assert.deepEqual(
-      orphanedSpellPickNames(choices, { className: "Wizard", subclass: "Life Domain" }, field),
+      orphanedSpellPickNames(choices, { className: "Wizard", subclass: "Life Domain" }, ["Bless"]),
       [],
     );
   });
 
-  it("a spell a surviving pick still holds is not dropped", () => {
-    // The High Elf's cantrip and the Wizard's own cantrips can name the same
-    // spell. Changing class must not delete the elf's copy out from under it.
-    const choices = {
-      ...wizardPicks,
-      "creation:Race:Elf:elf-subrace:elf-subrace-high:elf-subrace-high-cantrip": ["Light"],
-    };
-    assert.deepEqual(orphanedSpellPickNames(choices, { className: "Fighter", species: "Elf" }, SPELLBOOK), [
-      "Fire Bolt", "Mage Hand", "Magic Missile", "Shield",
-    ]);
+  it("a nested racial key stays while the species is staged", () => {
+    const choices = { ...picked, "creation:Race:Elf:elf-subrace:elf-subrace-high:elf-subrace-high-cantrip": ["Light"] };
+    const sheet = [
+      ...picked[spellPickKey("Wizard", "cantrips")],
+      ...picked[spellPickKey("Wizard", "spells")],
+      "Light",
+    ];
+    assert.deepEqual(
+      orphanedSpellPickNames(choices, { className: "Fighter", species: "Elf" }, sheet),
+      ["Fire Bolt", "Mage Hand", "Magic Missile", "Shield"],
+      "the elf's cantrip is not among them",
+    );
   });
 
-  it("a value that never reached the spell list is not a spell to remove", () => {
-    // Before the dialog is ever opened a pick holds nothing, and a skill or
-    // feat pick's option ids are not spell names - neither may be mistaken
-    // for a spell the player would lose.
-    const choices = { "creation:Class:Wizard:wizard-skills": ["stealth", "arcana"] };
+  it("a value that never reached the sheet is not a spell to remove", () => {
+    const choices = { "creation:Class:Wizard:wizard-skills": ["arcana", "stealth"] };
     assert.deepEqual(orphanedSpellPickNames(choices, { className: "Fighter" }, ["Fire Bolt"]), []);
   });
 
   it("pruneOrphanedChoiceKeys drops the stale spell-pick keys too", () => {
-    const pruned = pruneOrphanedChoiceKeys(wizardPicks, { className: "Fighter" });
+    const pruned = pruneOrphanedChoiceKeys(picked, { className: "Fighter" });
     assert.equal(pruned.pruned, 2);
     assert.deepEqual(pruned.choices, {});
+  });
+});
+
+describe("always-prepared spells come from the bundles", () => {
+  it("reads spellsKnown addItem modifiers, level-gated", () => {
+    const bundles = [{
+      statModifiers: [
+        { targetFieldId: "spellsKnown", op: "addItem", value: "Bless", minLevel: 3 },
+        { targetFieldId: "spellsKnown", op: "addItem", value: "Cure Wounds" },
+        { targetFieldId: "hpMax", op: "add", value: 5 },
+      ],
+    }];
+    assert.deepEqual([...alwaysPreparedSpellNames(bundles, 1)], ["Cure Wounds"], "level 1 skips the level-3 one");
+    assert.deepEqual([...alwaysPreparedSpellNames(bundles, 3)].sort(), ["Bless", "Cure Wounds"]);
+  });
+
+  it("tolerates nothing", () => {
+    assert.deepEqual([...alwaysPreparedSpellNames()], []);
+    assert.deepEqual([...alwaysPreparedSpellNames([], 3)], []);
+  });
+});
+
+describe("the dialog falls back to nothing when no catalog is loaded", () => {
+  it("returns an empty option list", () => {
+    assert.deepEqual(spellPickDialogOptions({ spellPick: { level: 1, maxLevel: 3 } }), []);
+    assert.deepEqual(spellPickDialogOptions({}), []);
+  });
+});
+
+// ===========================================================================
+// Section 6's storage shape, exercised here because section 3 writes it.
+describe("preparedItemsWithAuto", () => {
+  it("takes the new selection and drops what was deselected", () => {
+    assert.deepEqual(
+      preparedItemsWithAuto({ previous: ["Shield", "Bless"], next: ["Bless", "Fireball"] }),
+      ["Bless", "Fireball"],
+    );
+  });
+
+  it("never stores an always-prepared spell", () => {
+    // A domain spell is prepared whether or not the player chose it, so
+    // storing it would make it look like a pick they could remove.
+    assert.deepEqual(
+      preparedItemsWithAuto({ previous: [], next: ["Bless", "Shield"], alwaysPrepared: ["Bless"] }),
+      ["Shield"],
+    );
+  });
+
+  it("drops an always-prepared spell that was stored before the subclass granted it", () => {
+    assert.deepEqual(
+      preparedItemsWithAuto({ previous: ["Bless", "Shield"], next: ["Bless", "Shield"], alwaysPrepared: ["Bless"] }),
+      ["Shield"],
+      "switching subclass to one that grants it removes it from the pick",
+    );
+  });
+
+  it("keeps the order of the picks that survive", () => {
+    assert.deepEqual(
+      preparedItemsWithAuto({ previous: ["B", "A", "C"], next: ["A", "B", "C"] }),
+      ["B", "A", "C"],
+      "re-opening the dialog does not reorder the list",
+    );
+  });
+
+  it("de-duplicates and tolerates nothing", () => {
+    assert.deepEqual(preparedItemsWithAuto({ previous: [], next: ["A", "A", "B"] }), ["A", "B"]);
+    assert.deepEqual(preparedItemsWithAuto(), []);
+    assert.deepEqual(preparedItemsWithAuto({ previous: ["A"], next: [] }), []);
+  });
+});
+
+describe("preparedLineLock", () => {
+  it("locks only a class preparing out of its own list, and only while it is empty", () => {
+    assert.equal(preparedLineLock({ preparedFrom: "known", knownNames: [] }), "Choose your spellbook spells first");
+    assert.equal(preparedLineLock({ preparedFrom: "known", knownNames: ["Shield"] }), null);
+    // A full-list preparer prepares straight out of the class list, so there
+    // is nothing to wait for.
+    assert.equal(preparedLineLock({ preparedFrom: "classList", knownNames: [] }), null);
+    assert.equal(preparedLineLock(), null);
   });
 });

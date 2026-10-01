@@ -1055,6 +1055,37 @@
   text-decoration: underline;
 }
 
+/* A live bullet nested under another one - the prepared line sits under the
+   spellbook line it prepares out of. Indented with a rule down the side so
+   the parent/child relationship is visible without relying on reading order
+   alone, which is what makes "choose your spellbook first" legible as a
+   dependency rather than as an unrelated line. */
+.mechanics-pick--nested {
+  margin-left: var(--space-4);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-border);
+}
+
+/* A locked live bullet: the prepared line with nothing to prepare from yet.
+   Dimmed AND said in words - `renderLiveBulletItem` puts the reason in the
+   text, because a title attribute does nothing on a touch device and
+   aria-disabled says nothing to a sighted user who cannot tell it from
+   disabled. */
+.mechanics-pick--locked {
+  opacity: 0.62;
+}
+
+.mechanics-pick--locked .inline-pick-locked {
+  color: var(--color-text-faint);
+  font-style: italic;
+}
+
+/* Not `cursor: not-allowed`: there is nothing to click, so a pointer cursor
+   would be a lie. The default text cursor is the honest one. */
+.mechanics-pick--locked .inline-pick-locked {
+  cursor: default;
+}
+
 /* A spell named in prose (a race trait, a feat, a class feature) links to
    that spell's entry. Uses the arcane token, which was reserved for
    exactly this and was still unused. Underlined rather than accent-

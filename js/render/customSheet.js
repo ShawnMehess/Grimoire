@@ -66,6 +66,7 @@ import { openCatalogLibraryManager } from "./catalogLibraryEditor.js";
 import { openCatalogBrowser } from "./catalogBrowser.js";
 import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets, listContentPacks, getContentPack, defaultContentPackIds, hitDieFor, multiclassSlotsFor, classNamesIn, subclassesAcrossRulesets, contentIdMatches } from "../data/dnd5e.js";
 import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor, classLevelsFor, meetsMulticlassPrereq, effectiveScoresFor, multiclassPrereqReason, includedRulesetIds, primaryRulesetId } from "../data/rulesEngine.js";
+import { spellcastingModelFor } from "../data/spellcastingModels.js";
 import { SUBCLASS_SUPPLEMENT } from "../data/subclassContent.js";
 import { stripSecondaryClassBundle, FIXED_RACE_ENTRIES, SUPERSEDED_RACE_NAMES, legacyRaceBundles, SUBCLASS_BUNDLE_MAP, normSubclassKey, LEGACY_ASI_COMBOS } from "../data/contentFixups.js";
 import { DEFAULT_CONTENT } from "../data/defaultContent.js";
@@ -250,6 +251,9 @@ import {
   revalidateStagedPicks,
   pruneOrphanedChoiceKeys,
   orphanedSpellPickNames,
+  migrateSpellPickKeys,
+  preparedItemsWithAuto,
+  preparedLineLock,
   applySpellPickToItems,
   alwaysPreparedSpellNames,
   creationSpellPickGroups,
@@ -5188,29 +5192,78 @@ const closeDialog = () => {
       if (kind === "flexibleAbilityBonus") {
         return liveAbilityAsiBullet([group], saveRules);
       }
-      // Spell picks (the High Elf's cantrip, a class's own cantrips and
-      // spell levels) have no bundle options - the list is the spell
-      // catalog, so options are built at open time from the named
-      // list/level, and each pick is written into the Spells Known list so
-      // it shows up in the spell book.
+      // Spell picks have no bundle options - the list is the spell catalog,
+      // so options are built at open time from the named list/levels, and
+      // each pick is written onto the sheet.
+      //
+      // THREE lines, and they write to three different places:
+      //
+      //   cantrips - the Spells Known list, like any other spell the
+      //               character holds.
+      //   spells   - the Spells Known list. For a Wizard this is the
+      //               SPELLBOOK; for a known caster it is "Spells Known".
+      //   prepared - NOT the Spells Known list. A prepared spell is a subset
+      //               the character holds ready; recording it as a spell they
+      //               know would put a Cleric's three prepared spells into the
+      //               spellbook as if they were the only three they could
+      //               ever cast.
       if (kind === "spells") {
-          const spellList = spellPickDialogOptions({
-            spellPick: group.spellPick,
-            spellsForLevelFn: (lvl, list) => spellsForLevel(lvl, list),
+          const isPreparedLine = group.spellPick.part === "prepared";
+          const model = spellcastingModelFor(state.className, state.rulesetId, {
+            infoFor: (name) => getSpellcastingInfo(name),
           });
+          const field = ensureSpellListField();
           const storedSpells = store[group.key] || [];
-          const summary = storedSpells.length ? storedSpells.join(", ") : "Choose a spell";
+
+          // The prepared line's OPTIONS depend on where this class prepares
+          // from. "known" (the Wizard) means out of the character's own
+          // spellbook, which is why it can be locked until that has spells;
+          // "classList" means straight out of the class list, and there is
+          // nothing to wait for.
+          const preparingFromKnown = isPreparedLine && model?.preparedFrom === "known";
+          const spellbook = (field?.items || []).map((item) => (typeof item === "string" ? item : item?.text)).filter(Boolean);
+          let spellList;
+          if (preparingFromKnown) {
+            spellList = spellbook.map((name) => ({ id: name, name, description: "In your spellbook" }));
+          } else {
+            spellList = spellPickDialogOptions({
+              spellPick: group.spellPick,
+              spellsForLevelFn: (lvl, list) => spellsForLevel(lvl, list),
+            });
+          }
+
+          // Locked: nothing to prepare from yet. Said in the bullet text as
+          // well as on the button, because a title attribute does nothing on
+          // a touch device and aria-disabled alone says nothing to a sighted
+          // user who cannot tell it from disabled.
+          const lockReason = isPreparedLine
+            ? preparedLineLock({ preparedFrom: model?.preparedFrom, knownNames: spellbook })
+            : null;
+          if (lockReason) {
+            return {
+              live: true,
+              topic: group.label || "Prepared Spells",
+              locked: true,
+              indent: true,
+              lead: [{ text: lockReason }],
+            };
+          }
+
+          const summary = storedSpells.length ? storedSpells.join(", ") : `Choose ${group.maxSelections}`;
           // No Spell List catalog imported means there is nothing to pick
           // from. Opening an empty dialog reads as a bug, so show the same
           // fallback note the level-up spell picker shows instead - and no
-          // link, because there is nothing behind it.
-          if (!spellList.length) {
+          // link, because there is nothing behind it. A Wizard preparing from
+          // its own spellbook needs no catalog at all, so that check does not
+          // apply to it.
+          if (!spellList.length && !preparingFromKnown) {
             return { live: true, topic: group.label || "Spells", lead: [{ text: NO_SPELL_CATALOG_NOTE }] };
           }
           return {
             live: true,
             topic: group.label || "Choose a spell",
             lead: [{ text: summary }],
+            indent: isPreparedLine,
             dialogOpener: () => openChoiceDialog({
               title: group.label || "Choose a spell",
               multi: group.maxSelections !== 1,
@@ -5218,22 +5271,44 @@ const closeDialog = () => {
               options: spellList,
               initialSelected: storedSpells,
               onAccept: (ids) => {
-                character.rules.choices = { ...(character.rules.choices || {}), [group.key]: ids };
-                const field = ensureSpellListField();
-                if (field) {
-                  // Deselecting a spell takes it back out of Spells Known:
-                  // the pick is what put it there, so it owns it. Anything
-                  // another live spell pick still holds is left alone.
-                  const heldElsewhere = spellPickNamesHeldByOthers(group.key);
-                  const next = applySpellPickToItems({
-                    items: field.items || [],
-                    previous: storedSpells,
-                    next: ids || [],
-                    heldByOtherPicks: heldElsewhere,
-                  });
-                  field.items = next.items;
+                character.rules.choices = { ...(character.rules?.choices || {}), [group.key]: ids };
+                const target = ensureSpellListField();
+                if (target) {
+                  if (isPreparedLine) {
+                    // Prepared spells are a SUBSET of what the character
+                    // holds, so they go in their own list rather than into
+                    // Spells Known. Always-prepared spells are folded in by
+                    // the reader, not stored, so a spell the class grants
+                    // automatically is prepared without being listed here.
+                    target.preparedItems = preparedItemsWithAuto({
+                      previous: target.preparedItems || [],
+                      next: ids || [],
+                      alwaysPrepared: alwaysPreparedSpellNames(spellBundles(), state.level),
+                    });
+                  } else {
+                    // Deselecting a spell takes it back out of Spells Known:
+                    // the pick is what put it there, so it owns it. Anything
+                    // another live spell pick still holds is left alone.
+                    const heldElsewhere = spellPickNamesHeldByOthers(group.key);
+                    const next = applySpellPickToItems({
+                      items: target.items || [],
+                      previous: storedSpells,
+                      next: ids || [],
+                      heldByOtherPicks: heldElsewhere,
+                    });
+                    target.items = next.items;
+                    // A spell that left the known list is not prepared any
+                    // more, whatever the prepared line still says.
+                    target.preparedItems = (target.preparedItems || [])
+                      .filter((name) => next.items.some((item) => (typeof item === "string" ? item : item?.text) === name));
+                  }
                 }
                 saveRules();
+                // The prepared list lives on the sheet FIELD, so the layout is
+                // what changed. Without this the toggle survives until reload
+                // and then vanishes - the same class of bug as the loading
+                // screen: the UI said one thing and the saved data another.
+                if (isPreparedLine) saveWithStatus("layout", character.layout);
                 renderPageGrid();
               },
             }),
@@ -5381,23 +5456,44 @@ const closeDialog = () => {
    *  here. The subclass bundle is still passed for always-prepared spells -
    *  a domain's domain spells and a circle's circle spells arrive as
    *  statModifiers on it. */
-  function inlineSpellPickGroups() {
-    const bundles = [
+  /** The staged class's and subclass's bundles. The subclass bundle is what
+   *  carries a domain's domain spells and a circle's circle spells, as
+   *  `spellsKnown` addItem modifiers - see alwaysPreparedSpellNames. */
+  function spellBundles() {
+    return [
       bundleFor("Class", state.className, includedRulesetIds(state)),
       bundleFor("Subclass", state.subclass, includedRulesetIds(state)),
     ].filter(Boolean);
+  }
+
+  function inlineSpellPickGroups() {
+    const bundles = spellBundles();
+    const model = spellcastingModelFor(state.className, state.rulesetId, {
+      infoFor: (name) => getSpellcastingInfo(name),
+    });
+    const spellField = ensureSpellListField();
+    const choices = migrateSpellPickKeys(character.rules?.choices || {}, { className: state.className });
+    if (choices !== character.rules?.choices) {
+      // Folded the old per-level spell keys into the single leveled line.
+      // Persisted, because until it is the old keys are orphans and the next
+      // class change would delete the spells they hold.
+      character.rules.choices = choices;
+      saveRules();
+    }
     return creationSpellPickGroups({
       className: state.className,
       level: state.level,
       abilityScores: character.rules?.abilityScores,
       bundles,
-      choices: character.rules?.choices || {},
-      knownItems: findStarterField("spellsKnown", "Spells Known")?.items || [],
+      choices,
+      knownItems: spellField?.items || [],
+      preparedItems: spellField?.preparedItems || [],
       limitFor: (name, lvl, scores) => spellLimitFor(name, lvl, scores),
       availableLevelsFor: (name, lvl) => sharedAvailableSpellLevels(
         getLevelUpPlan(state.rulesetId, name, lvl)
       ),
       levelByNameFn: (name) => spellLevelByName(name),
+      model,
     });
   }
 
