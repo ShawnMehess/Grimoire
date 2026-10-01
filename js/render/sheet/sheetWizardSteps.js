@@ -58,6 +58,14 @@ export function renderRulesetStepInto(container, state, deps) {
     container.append(el("p", { class: "leveling-tab__intro", text: "No rulesets found." }));
     return;
   }
+  // A plain lead-in before the rows. "Rules" as a step title tells a
+  // newcomer nothing, and an unlabelled radio list does not tell them what
+  // it is a choice OF. One sentence, only when there is a choice to make:
+  // with a single registered system it is auto-selected below, and a
+  // heading over a one-row list reads as if something were missing.
+  if (systems.length > 1) {
+    container.append(el("p", { class: "leveling-tab__intro", text: "Which game system are you playing?" }));
+  }
   // One game system (ruleset) per table; its content comes from the
   // books checked below. Auto-select the only system so a single-
   // system table never faces an empty picker. Persist-only here (no
@@ -109,7 +117,17 @@ export function renderRulesetStepInto(container, state, deps) {
     if (ids.length > 0) updateIdsFn(ids, { rerender: false });
   }
   const locked = packs.length === 1;
-  container.append(el("p", { class: "wizard__section-label", text: "Content books" }));
+  // "Content books" is jargon on the first page a new player sees, and it
+  // does not say what ticking one DOES. It does something structural: every
+  // later page is filtered to it, so unticking a book empties pickers
+  // downstream. That consequence is a confirm dialog away, so it is stated
+  // up front here too - a first-time player should not have to discover it
+  // by losing picks.
+  container.append(el("p", { class: "wizard__section-label", text: "Books to use" }));
+  container.append(el("p", {
+    class: "leveling-tab__intro",
+    text: "Tick the books you have. Every page after this one offers only what comes from the books ticked here — classes, species, backgrounds, feats, and spells.",
+  }));
   const list = el("div", { class: "choice-row-list ruleset-list" });
   packs.forEach((pack) => {
     const checked = ids.includes(pack.id);
@@ -302,6 +320,15 @@ export function renderRowListStepInto(container, state, deps) {
 export function renderPreferencesStepInto(container, state, deps) {
   const { hpOptions, currentMethod, updateFn, selectableRowsFn } = deps;
   container.append(el("p", { class: "wizard__preference-label", text: "Hit Points on Level Up" }));
+  // The heading names the setting but not its consequence. The three
+  // options differ only in HOW the number is arrived at, which is exactly
+  // the part a new player cannot guess from the labels ("Fixed Average" vs
+  // "Roll In-Browser" vs "Roll at the Table") and exactly the part that
+  // matters: it changes what happens every time they level up, not now.
+  container.append(el("p", {
+    class: "leveling-tab__intro",
+    text: "This only decides how the hit points you gain each level are worked out. It changes nothing about your character until you level up.",
+  }));
 
   const selected = hpOptions.find((opt) => opt.value === currentMethod);
   selectableRowsFn(container, hpOptions.map((opt) => opt.label), {

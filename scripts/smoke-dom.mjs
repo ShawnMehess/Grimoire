@@ -267,6 +267,31 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(boxes.length === 2, "two content-book rows");
   boxes[1].click();
   assert(JSON.stringify(ids[ids.length - 1]) === '["p1","p2"]', "book toggle adds in pack order");
+
+  // The first page a new player sees has to say what ticking a book DOES,
+  // since unticking one clears picks downstream. "Content books" named the
+  // section without saying any of that.
+  assert(html.includes("Books to use"), "book section is labelled in plain words");
+  assert(!html.includes("Content books"), "book section drops the jargon label");
+  assert(/only what comes from the books ticked here/.test(html), "book section explains what ticking does");
+  assert(html.includes("Which game system are you playing?"), "system list says what it is a choice of");
+}
+
+// --- Rules step: a single registered system needs no "pick one" heading -------
+{
+  const box = document.createElement("div");
+  steps.renderRulesetStepInto(box, {}, {
+    listRulesetsFn: () => [{ id: "a", name: "A", description: "" }],
+    listContentPacksFn: () => [{ id: "p1", name: "P1", description: "" }],
+    defaultContentPackIdsFn: () => ["p1"],
+    primaryId: "a",
+    includedIds: ["p1"],
+    updateIdsFn: () => {},
+    setPrimaryFn: () => {},
+  });
+  const html = JSON.stringify(box, (k, v) => (k === "parent" ? undefined : v));
+  assert(!html.includes("Which game system are you playing?"), "one system, no pick-one heading");
+  assert(html.includes("Only book"), "a lone book still says it is always on");
 }
 
 // --- Guide class step: rich rows --------------------------------------------
@@ -334,6 +359,12 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   const portraits = [...(list.children || [])].map((row) => row.children?.[0]);
   assert(portraits.every((p) => (p?.className || "").includes("choice-row__portrait--icon")),
     "HP method rows render an icon portrait, not a letter");
+
+  // The heading named the setting, not when it bites. The three labels
+  // differ only in HOW the number is arrived at, which is the part a new
+  // player cannot guess.
+  assert(box.textContent.includes("every time you level up") || box.textContent.includes("until you level up"),
+    "HP section says the setting only matters at level-up");
 }
 {
   const box = document.createElement("div");

@@ -5360,8 +5360,16 @@ const closeDialog = () => {
     const steps = [
       {
         id: "rules",
-        title: "Rules",
-        description: "Pick your sources and how hit points work on level-up.",
+        title: "Rules & Sources",
+        // Was "Rules" + "Pick your sources and how hit points work on
+        // level-up." Neither half said why this page exists or what it
+        // affects. It is the page that decides what every LATER page can
+        // offer, so it needs to say so before the player picks anything.
+        descriptionItems: [
+          "Two things to set up first: which books to build your character from, and how you want hit points worked out when you level up.",
+          "Tick the books you have and every page after this offers only what comes from them — classes, species, backgrounds, feats, and spells. You can add or remove books later; anything you have already picked that only existed in a removed book will be cleared, so we will ask you first.",
+          "Nothing to do here if you are just picking from the books already ticked.",
+        ],
         isComplete: () => {
           if (includedRulesetIds(state).length === 0 || !primaryRulesetId(state)) return false;
           return Boolean(character.rules.hpMethod);
