@@ -207,6 +207,49 @@
   content: "\26A0\FE0E ";
 }
 
+/* The race/class bonus note, rendered under the six scores. */
+.wizard__ability-footnote {
+  margin: var(--space-2) 0 0;
+}
+
+/* Phones: one ability per stacked block instead of a four-column row.
+   Two changes, both from using it:
+     - the modifier moves UNDER the score. Side by side, the score and
+       the modifier boxes were 5.5rem and 4.5rem of a 392px screen with
+       the description still trying to fit beside them, and the modifier
+       - the number that actually goes on your rolls - was the thing
+       that got squeezed.
+     - the labels move BESIDE their fields. .level-guide__field is a
+       column, so "STR" sat over its input; stacked with the modifier
+       below, an overtop label stacked a third line of text above each
+       box. Beside the field, each ability is two lines: "STR [15]" then
+       "MOD [+2]".
+   Full-width flex basis on each part does the stacking; the row-direction
+   flip is what puts the label next to its box. */
+@media (max-width: 600px) {
+  .wizard__ability-row {
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+  .wizard__ability-row .level-guide__field,
+  .wizard__ability-modifier {
+    flex: 1 1 100%;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  /* The score and modifier boxes stop fighting for a fifth of the
+     screen, so they can be a readable width. */
+  .wizard__ability-row .level-guide__field .input-group__control {
+    flex: 1 1 auto;
+  }
+  .wizard__ability-row-description,
+  .wizard__ability-bonus,
+  .wizard__ability-need {
+    flex: 1 1 100%;
+  }
+}
+
 /* Preferences step — a plain label above a row-list of clickable
    options (same choice-row-list styling the Race/Class/Background
    pickers use), rather than a dropdown. */

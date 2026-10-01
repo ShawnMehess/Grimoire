@@ -111,6 +111,36 @@ export const TOOL_PROFICIENCY_GROUPS = [
   { label: "Vehicles", options: TOOL_PROFICIENCIES.filter((t) => TOOL_VEHICLES.has(t)) },
 ];
 
+/** Which tool categories a pick is actually allowed to offer.
+ *
+ *  The sheet's flat picker used to offer the whole TOOL_PROFICIENCIES list
+ *  for every tool slot, so a background that reads "proficiency in one
+ *  artisan's tool of your choice" also let you pick a lute, a gaming set
+ *  or a wagon. The grouping headings were there, but a heading is not a
+ *  rule: the rules only let you choose within the kind named.
+ *
+ *  So the pick's own text decides. A label that names a kind gets only
+ *  that kind; a label that does not ("one tool of your choice", "two tool
+ *  proficiencies") keeps every category, because "tool proficiency"
+ *  without a qualifier really is any of them.
+ *
+ *  Order matters: "musical instrument" is checked before the generic
+ *  "tool" wording, and the vehicle/kits wording before artisan's, because
+ *  a label like "one kits or specialty tool" must not be read as artisan's.
+ */
+export function toolGroupsForLabel(label) {
+  const text = String(label || "").toLowerCase();
+  const byLabel = (want) => TOOL_PROFICIENCY_GROUPS.filter((g) => g.label === want);
+  if (/\binstrument/.test(text)) return byLabel("Musical Instruments");
+  if (/gaming set|dice|card/.test(text)) return byLabel("Gaming Sets");
+  if (/kits?|specialty|disguise|forgery|herbalism|poison|thieves'? tools|navigator/.test(text)) {
+    return byLabel("Kits & Specialty Tools");
+  }
+  if (/vehicle|cart|wagon|carriage|sled|boat|ship/.test(text)) return byLabel("Vehicles");
+  if (/artisan|artificer/.test(text)) return byLabel("Artisan's Tools");
+  return TOOL_PROFICIENCY_GROUPS;
+}
+
 // Starter choices for the Race/Class/Background/Subclass dropdowns
 // below. These come straight from DEFAULT_CONTENT (compiled from
 // Shawn's own classes/races/backgrounds JSON — see RESCUE-NOTES.md

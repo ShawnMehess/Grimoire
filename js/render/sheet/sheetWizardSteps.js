@@ -385,7 +385,17 @@ export function reviewLinesFor({ characterName, rulesetName, species, className,
   return noteLines;
 }
 
-export function renderReviewStepInto(container, state, deps) {  const { characterName, rulesetName, spellLimit, resources, abilityScores, abilityMethod, hpMethod, choiceLines, spellsPicked, equipmentLine, featNames, syncFn } = deps;
+/** The summary box - character name, ruleset, and every pick - WITHOUT
+ *  the Finish button.
+ *
+ *  Split from renderReviewStepInto so the box can be placed at the top of
+ *  the step while the button stays at the bottom. The name is what you
+ *  look for on a review screen, and it was buried under three full picker
+ *  tables. The whole box moves, not just the name line: the review lines
+ *  are one bordered panel and detaching the name from them would leave a
+ *  heading floating above a separate panel. */
+export function reviewSummaryBoxInto(container, state, deps) {
+  const { characterName, rulesetName, spellLimit, resources, abilityScores, abilityMethod, hpMethod, choiceLines, spellsPicked, equipmentLine, featNames } = deps;
   const rows = el("div", { class: "wizard__review-rows" });
   const noteLines = reviewLinesFor({
     characterName,
@@ -411,7 +421,12 @@ export function renderReviewStepInto(container, state, deps) {  const { characte
     rows.append(...noteLines.map((line) => el("p", { class: "wizard__review-row", text: line })));
   }
   container.append(rows);
+  return rows;
+}
 
+/** The Finish Setup button on its own, for a step that puts the summary
+ *  box somewhere other than the bottom. */
+export function reviewFinishButtonInto(container, { syncFn }) {
   const buttonRow = el("div", { class: "wizard__review-button-row" });
   const sync = el("button", {
     type: "button", class: "btn btn--primary wizard__finish-btn", text: "Finish Setup",
@@ -419,6 +434,12 @@ export function renderReviewStepInto(container, state, deps) {  const { characte
   });
   buttonRow.append(sync);
   container.append(buttonRow);
+  return buttonRow;
+}
+
+export function renderReviewStepInto(container, state, deps) {
+  reviewSummaryBoxInto(container, state, deps);
+  reviewFinishButtonInto(container, deps);
 }
 
 // --- Abilities step -------------------------------------------------------------------
@@ -507,6 +528,11 @@ export function renderAbilitiesStepInto(container, deps) {
     abilityIds, descriptions, scores, method, budget, min, max,
     costFn, affordableFn, rollFn, modifierFn, formatFn, saveFn,
     onMethodChange,
+    // Optional text rendered UNDER the six scores. The race/class bonus
+    // note reads as a footnote to the scores it modifies; when it led the
+    // step it was a paragraph about modifiers before the modifiers were on
+    // screen.
+    footnote = null,
     // Optional staged bonuses ({ [id]: { bonus, sources } }, see
     // abilityScoreBonusesFrom): shown per row as "+2 from Elf → 17
     // total" so granted bonuses never surprise. Absent means no
@@ -544,6 +570,16 @@ export function renderAbilitiesStepInto(container, deps) {
 
   const scoresWrap = el("div", { class: "wizard__ability-scores" });
   container.append(scoresWrap);
+
+  // A note that belongs BELOW the scores, not above them. The step blurb
+  // used to carry this as its last bullet, which put "bonuses from your
+  // race apply on top of these scores" ABOVE the very scores it describes -
+  // explaining the modifier and the race bonus before the player had seen
+  // either. Appended after the scores wrapper, so it also survives the
+  // re-render that renderScores() does on every change.
+  if (footnote) {
+    container.append(el("p", { class: "leveling-tab__intro wizard__ability-footnote", text: footnote }));
+  }
 
   function renderScores() {
     scoresWrap.innerHTML = "";

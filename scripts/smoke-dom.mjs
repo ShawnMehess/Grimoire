@@ -931,13 +931,112 @@ function openTestDialog(host, overrides = {}) {
     "and the walkthrough is still shown");
 }
 
+// --- Abilities step: the race/class bonus note belongs UNDER the scores ---
+// It led the step as a bullet in descriptionItems, above the very scores it
+// describes, so the player read about modifiers and racial bonuses before
+// either was on screen. It is a footnote now.
+{
+  const steps = await import("../js/render/sheet/sheetWizardSteps.js");
+  const box = document.createElement("div");
+  const scores = { str: 15, dex: 14, con: 13, int: 12, wis: 10, cha: 8 };
+  steps.renderAbilitiesStepInto(box, {
+    abilityIds: ["str", "dex", "con", "int", "wis", "cha"],
+    descriptions: { str: "Physical power.", dex: "Agility.", con: "Sturdyness.", int: "Reasoning.", wis: "Attention.", cha: "Presence." },
+    scores,
+    method: "manual",
+    min: 1, max: 20,
+    costFn: () => 1,
+    affordableFn: () => 20,
+    rollFn: () => 12,
+    modifierFn: (s) => Math.floor((Number(s) - 10) / 2),
+    formatFn: (m) => (m >= 0 ? `+${m}` : `${m}`),
+    saveFn: () => {},
+    onMethodChange: () => {},
+    bonuses: { str: { bonus: 2, sources: ["Elf"] } },
+    footnote: "Bonuses from your race and other picks apply on top of these scores.",
+  });
+  const kids = (box.children || []).map((k) => String(k.className || ""));
+  const scoreIdx = kids.findIndex((c) => c.includes("wizard__ability-scores"));
+  const footIdx = kids.findIndex((c) => c.includes("wizard__ability-footnote"));
+  assert(scoreIdx >= 0, "abilities step renders the scores");
+  assert(footIdx > scoreIdx, "the race/class bonus note comes after the scores, not before");
+  assert(box.textContent.includes("Bonuses from your race"), "and the note is still there at all");
+  // Per-row bonus text still works, and still sits under its own score.
+  assert(box.textContent.includes("Elf"), "the per-row bonus still names its source");
+  assert(box.querySelector(".wizard__ability-bonus"), "the per-row bonus node renders");
+}
+
+// --- Review step: the summary box leads, the Finish button trails ---
+// The name box was appended after the three picker tables, so the name you
+// came to check was the last thing on the page. The whole box moves, not
+// just the name line.
+{
+  const steps = await import("../js/render/sheet/sheetWizardSteps.js");
+  const box = document.createElement("div");
+  steps.reviewSummaryBoxInto(box, { species: "Elf", className: "Wizard", subclass: "Evoker", background: "Sage", level: 1 }, {
+    characterName: "Alborax",
+    rulesetName: "SRD",
+    spellLimit: null,
+    resources: [],
+    abilityScores: { str: 8, dex: 14, con: 12, int: 15, wis: 13, cha: 10 },
+    abilityMethod: "manual",
+    hpMethod: null,
+    choiceLines: [],
+    spellsPicked: [],
+    equipmentLine: null,
+    featNames: ["Alert"],
+  });
+  // Stand in for the picker tables the step renders after the summary,
+  // in the order customSheet.js renders them.
+  for (const label of ["Race", "Class", "Background"]) {
+    const d = document.createElement("div");
+    d.setAttribute("class", "wizard__section-label");
+    d.textContent = label;
+    box.append(d);
+  }
+  steps.reviewFinishButtonInto(box, { syncFn: () => {} });
+  const kids = (box.children || []).map((k) => String(k.className || ""));
+  assert(kids[0].includes("wizard__review-rows"), "the summary box is the first thing on the review step");
+  assert(kids[kids.length - 1].includes("wizard__review-button-row"), "Finish Setup stays at the bottom");
+  const first = (box.children || [])[0];
+  assert(first.textContent.includes("Alborax"), "the name is inside that first box");
+  // The name must not have been split out of the box it belongs to.
+  assert(first.querySelectorAll(".wizard__review-row").length >= 2,
+    "the whole panel moved together, not just the name line");
+}
+
+// --- Review step shows only what was chosen ---
+// customSheet.js narrows each review picker's option list to the selected
+// name before handing it to the same row renderer, so the row keeps its
+// real markup but the page stops listing every ancestry you did not pick.
+// These pin the mechanism that narrowing depends on: a one-element name
+// list produces one row, and it is still a full, expandable row.
+{
+  const opts = (names) => ({
+    selectedName: names[names.length - 1],
+    getInfo: (n) => ({ description: `${n} flavor` }),
+    getMechanicsList: (n) => [{ title: "Traits", items: [`${n}: Speed 30 feet`] }],
+    onSelect: () => {},
+    collapsible: true,
+  });
+  const all = wizard.renderPickerTableInto(document.createElement("div"), ["Elf", "Human", "Dwarf"], opts(["Elf", "Human", "Dwarf"]));
+  assert(rowsOf(all).length === 3, "given every name, the table lists every row");
+
+  const one = wizard.renderPickerTableInto(document.createElement("div"), ["Elf"], opts(["Elf"]));
+  const oneRows = rowsOf(one);
+  assert(oneRows.length === 1, "given one name, the table lists one row");
+  assert(one.textContent.includes("Elf"), "and it is the chosen one");
+  assert(oneRows[0].className.includes("choice-row--selected"), "and it renders as selected");
+  assert(detailsOf(oneRows[0]), "and it still expands, so it reads as it did where it was picked");
+  assert(one.textContent.includes("Speed 30 feet"), "and still carries its mechanics");
+}
+
 if (failures) {
   console.error(`smoke-dom: ${failures} failure(s)`);
   process.exit(1);
 } else {
   console.log("smoke-dom: all checks passed");
 }
-
 // Choices embedded on a subrace OPTION, rendered.
 //
 // The High Elf's extra language and cantrip hang off the subrace option

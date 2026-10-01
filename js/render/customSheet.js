@@ -56,7 +56,7 @@
 //     compresses/resizes them yet. Offline keeps data URLs (with the
 //     old oversize warning, since the cap still applies there).
 
-import { createStarterLayout, createBlock, createField, findNode, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS, ARMOR_PROFICIENCIES, WEAPON_PROFICIENCIES, TOOL_PROFICIENCIES, TOOL_DESCRIPTIONS, VEHICLE_PROFICIENCIES } from "../data/blockModel.js";
+import { createStarterLayout, createBlock, createField, findNode, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS, ARMOR_PROFICIENCIES, WEAPON_PROFICIENCIES, TOOL_PROFICIENCIES, toolGroupsForLabel, TOOL_DESCRIPTIONS, VEHICLE_PROFICIENCIES } from "../data/blockModel.js";
 import { calculatePrintScale, getTabsToPrint, buildPrintCss, cloneForPrint } from "./print-helpers.js";
 import { contentHeight } from "./gridEngine.js";
 import { computeAllFormulas, evaluateFormulaNode, formatComputedValue } from "../data/formula.js";
@@ -315,7 +315,8 @@ import {
   renderInnateAbilitiesStepInto,
   renderAbilitiesStepInto,
   reviewLinesFor,
-  renderReviewStepInto,
+  reviewSummaryBoxInto,
+  reviewFinishButtonInto,
   initPendingLevelState,
   syncPendingChoices,
   slotsSummary,
@@ -4737,7 +4738,22 @@ const closeDialog = () => {
       const overlay = el("div", { class: "modal-overlay" });
       const box = el("div", { class: "modal-box tool-picker-dialog", onclick: (e) => e.stopPropagation() });
       const heading = el("h3", { text: "Choose Tool Proficiencies" });
-      const groups = TOOL_PROFICIENCY_GROUPS;
+      // Which tools to offer. The group's OWN options are authoritative
+      // when it has any — an Entertainer group carries its ten musical
+      // instruments, and a Folk Hero its seventeen artisan's tools, so
+      // there is no reason to re-derive that from prose. Groups that ship
+      // no options (a "choose 2 tool proficiencies" with no enumerated
+      // list) fall back to the label, which decides whether the wording
+      // means one kind of tool or any of them.
+      //
+      // Before this, the dialog listed the whole TOOL_PROFICIENCIES
+      // vocabulary for every slot, so a background reading "one artisan's
+      // tool of your choice" also offered a lute.
+      const groups = toolGroups.flatMap((g) => {
+        const named = (g.options || []).map((o) => o.name).filter(Boolean);
+        if (named.length) return [{ label: g.label, options: named }];
+        return toolGroupsForLabel(g.label);
+      });
       const checked = new Set(store[toolGroups[0].key] || []);
       groups.forEach((g) => {
         const optgroup = el("div", { class: "tool-picker-group" },
@@ -4997,14 +5013,37 @@ const closeDialog = () => {
           }),
         };
       }
-      const opts = groupOptionsOf(group).filter((o) => o.name);
+      let opts = groupOptionsOf(group).filter((o) => o.name);
+
+      // Expertise upgrades a proficiency you ALREADY have. The rules are
+      // explicit: "choose a skill in which you have proficiency", and a
+      // skill you lack proficiency in has no proficiency bonus to double.
+      // The group shipped every one of the 22 skills as an option, so the
+      // picker offered expertise in, say, Athletics to a character who had
+      // never been trained in it - a free proficiency bonus.
+      //
+      // So the option list is narrowed to the skills this character is
+      // actually proficient in, matched by label -> skill id -> the
+      // "<id>Prof" field the owned set carries. Thieves' Tools is kept
+      // because it is not a SKILLS entry and the Rogue's version grants
+      // its own proficiency note.
+      let emptyReason = null;
+      if (kind === "expertise") {
+        const proficient = new Set(SKILLS.filter((s) => owned.has(`${s.id}Prof`)).map((s) => s.label));
+        const narrowed = opts.filter((o) => proficient.has(o.name) || !SKILLS.some((s) => s.label === o.name));
+        if (narrowed.length !== opts.length) opts = narrowed;
+        emptyReason = opts.length
+          ? null
+          : "Expertise needs a skill you are proficient in. Pick your skill proficiencies first.";
+      }
+
       const lockedIds = [...new Set([...(group.lockedOptionIds || []), ...opts.filter((o) => optionIsOwned(o, owned)).map((o) => o.id)])];
       const stored = store[group.key] || [];
       const pickedNames = stored.map((id) => opts.find((o) => o.id === id)?.name).filter(Boolean);
       return {
         live: true,
         topic: group.label || "Choose",
-        lead: [{ text: pickedNames.length ? pickedNames.join(", ") : `Choose ${group.maxSelections}` }],
+        lead: [{ text: emptyReason || (pickedNames.length ? pickedNames.join(", ") : `Choose ${group.maxSelections}`) }],
         dialogOpener: () => openChoiceDialog({
           title: group.label || "Choose an option",
           multi: group.maxSelections !== 1,
@@ -5483,7 +5522,6 @@ const closeDialog = () => {
           "Each ability has a score (raw talent) and a modifier beside it — the modifier is the number you actually add to attack rolls, saves, and checks at the table.",
           "Modifiers come from scores automatically (10–11 is +0, 12–13 is +1, 8–9 is −1, and so on) — you never set them by hand.",
           "Point Buy spends 27 points across all six (fair, no luck). Random Roll rolls dice for each. Manual Entry types in rolls from the table.",
-          "Bonuses from your race and other picks apply on top of these scores and show under each one (e.g. +2 from Elf → 17 total) — set the base here, the sheet adds the rest.",
         ],
         render(container) {
           const stagedBundles = creationFixedBundles(state);
@@ -5501,6 +5539,10 @@ const closeDialog = () => {
             rollFn: () => rollAbilityScore(),
             modifierFn: (score) => sharedAbilityModifier(score),
             formatFn: (mod) => sharedFormatModifier(mod),
+            // Under the scores, not above them: it explains what the race
+            // and class add to the numbers just typed, so it reads as a
+            // footnote to them rather than as an introduction to them.
+            footnote: "Bonuses from your race and other picks apply on top of these scores and show under each one (e.g. +2 from Elf → 17 total) — set the base here, the sheet adds the rest.",
             saveFn: () => saveRules(),
             onMethodChange: (method) => {
               character.rules.abilityScoreMethod = method;
@@ -5564,9 +5606,43 @@ const closeDialog = () => {
         description: "Check your three picks below — selections stay editable via dropdowns — then Finish Setup.",
         isComplete: () => Boolean(state.species && state.className && state.background),
         render(container) {
+          // Only what was chosen. This step used to re-render the full
+          // pickers - all 15 ancestries, all 13 classes, all 9
+          // backgrounds - on a page whose job is to show the finished
+          // character. You had to scroll past every ancestry you did NOT
+          // pick to find your own. The selected row keeps its real markup,
+          // so it still expands, still shows its mechanics, and still
+          // reads exactly as it did on the step where you picked it.
+          const onlyChosen = (listFn, chosen) => (rulesetId, category) => {
+            const names = listFn(rulesetId, category) || [];
+            return chosen && names.includes(chosen) ? [chosen] : names;
+          };
+
+          // Declared before the first use below. The summary box renders at
+          // the TOP of the step, and a const arrow function called above its
+          // own declaration is a ReferenceError, not a hoisted value.
+          const spellsField = findStarterField("spellsKnown", "Spells Known");
+          const reviewDeps = () => ({
+            characterName: character.name,
+            rulesetName: includedRulesetIds(state).map((id) => getRuleset(id)?.name || id).join(" + ") || null,
+            spellLimit: resolved.derived.spellLimit,
+            resources: resolved.derived.resources,
+            abilityScores: character.rules.abilityScores,
+            abilityMethod: character.rules.abilityScoreMethod,
+            hpMethod: null,
+            choiceLines: [],
+            spellsPicked: [...(spellsField?.items || [])],
+            equipmentLine: null,
+            featNames: (character.rules.feats || []).map((f) => f.name).filter(Boolean),
+            syncFn: () => syncRulesToSheet(resolved),
+          });
+
+          reviewSummaryBoxInto(container, state, reviewDeps());
+
           const raceWrap = sectionInto(container, "Race");
+          const raceOptionsFn = (rulesetId, category) => rulesetOptionNames(rulesetId, "Race", wizardFieldOptionNames("race", "Race"));
           renderRowListStepInto(raceWrap, { ...state, background: state.species }, {
-            optionNamesFn: (rulesetId, category) => rulesetOptionNames(rulesetId, "Race", wizardFieldOptionNames("race", "Race")),
+            optionNamesFn: onlyChosen(raceOptionsFn, state.species),
             fallbackNames: [],
             keywords: ["race", "species"],
             category: "Race",
@@ -5583,8 +5659,9 @@ const closeDialog = () => {
             mechanicsListFn: (category, name) => profileSectionsFor("Race", name, saveRules),
           });
           const classWrap = sectionInto(container, "Class");
+          const classOptionsFn = (rulesetId, category) => rulesetOptionNames(rulesetId, category, wizardFieldOptionNames("class", "Class"));
           renderClassStepInto(classWrap, state, {
-            optionNamesFn: (rulesetId, category) => rulesetOptionNames(rulesetId, category, wizardFieldOptionNames("class", "Class")),
+            optionNamesFn: onlyChosen(classOptionsFn, state.className),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
@@ -5600,8 +5677,9 @@ const closeDialog = () => {
             inlineChoicesFn: (details, groups) => appendInlineChoiceBullets(details, groups, saveRules),
           });
           const bgWrap = sectionInto(container, "Background");
+          const bgOptionsFn = (rulesetId, category) => rulesetOptionNames(rulesetId, category, wizardFieldOptionNames("background", "Background"));
           renderRowListStepInto(bgWrap, state, {
-            optionNamesFn: (rulesetId, category) => rulesetOptionNames(rulesetId, category, wizardFieldOptionNames("background", "Background")),
+            optionNamesFn: onlyChosen(bgOptionsFn, state.background),
             fallbackNames: [],
             keywords: ["background"],
             category: "Background",
@@ -5617,21 +5695,9 @@ const closeDialog = () => {
             summarizeFn: (m) => statModifierSummary(m),
             mechanicsListFn: (category, name) => profileSectionsFor(category, name, saveRules),
           });
-          const spellsField = findStarterField("spellsKnown", "Spells Known");
-          renderReviewStepInto(container, state, {
-            characterName: character.name,
-            rulesetName: includedRulesetIds(state).map((id) => getRuleset(id)?.name || id).join(" + ") || null,
-            spellLimit: resolved.derived.spellLimit,
-            resources: resolved.derived.resources,
-            abilityScores: character.rules.abilityScores,
-            abilityMethod: character.rules.abilityScoreMethod,
-            hpMethod: null,
-            choiceLines: [],
-            spellsPicked: [...(spellsField?.items || [])],
-            equipmentLine: null,
-            featNames: (character.rules.feats || []).map((f) => f.name).filter(Boolean),
-            syncFn: () => syncRulesToSheet(resolved),
-          });
+          // The summary box went up top, before the picks; the button stays
+          // at the bottom, where "Finish Setup" belongs after reading them.
+          reviewFinishButtonInto(container, reviewDeps());
         },
       },
     ];
