@@ -278,6 +278,8 @@ import {
   catalogEntryInfoIn,
   bundleForIn,
   spellCountByLevel,
+
+  ordinal,
   limitNoteText,
   canLearnMore,
   capMessage,
@@ -4466,6 +4468,26 @@ const closeDialog = () => {
     // choiceDialogKindFor/inlineChoiceBullets), same as proficiencies.
     // See creationChoiceGroupsFor and categorizeChoiceGroup above.
     const creationGroups = creationChoiceGroupsFor(state);
+    // Inline spell picks, in the same shape as every other pick (see
+    // creationSpellPickGroups). Appended here so the class row's existing
+    // "groups with a dialog kind render inline" filter picks them up with
+    // no change to the row renderer: a Cantrips bullet and one per level,
+    // each a link into the shared spell dialog.
+    //
+    // Reads the CLASS-level plan only. Subclass-granted spell picks already
+    // exist as real choice groups on the subclass bundle (Arcane Domain's
+    // cantrips, the Bard's Magical Secrets, Circle of the Land's cantrip),
+    // so they arrive through creationChoiceGroupsFor and are not duplicated
+    // here.
+    const creationSpellGroups = creationSpellPickGroups(
+      state.className,
+      state.subclass,
+      state.level,
+      character.rules?.abilityScores,
+      [bundleFor("Class", state.className, includedRulesetIds(state)),
+        bundleFor("Subclass", state.subclass, includedRulesetIds(state))].filter(Boolean)
+    );
+    const creationGroupsWithSpells = [...creationGroups, ...creationSpellGroups];
     // Per-step sections: a pick's own groups (subrace groups render
     // nested under their race, never standalone).
     const pickGroupsFor = (...sources) => creationGroups.filter((g) =>
@@ -5150,6 +5172,98 @@ if (kind === "spells") {
     ].filter(Boolean));
   }
 
+  /** Spells the staged bundles grant automatically - a domain's
+   *  domain spells, an oath's oath spells, a circle's circle spells.
+   *
+   *  They arrive as `spellsKnown` statModifiers with op "addItem" and are
+   *  already in the Spells Known list without the player doing anything.
+   *  Two consequences for the pick below: they must not be OFFERED (they
+   *  are not a choice), and they already count toward what the class may
+   *  know, so the pick has to start from whatever is left. Deriving this
+   *  from the bundles rather than a hand-written list means a new domain
+   *  or oath is covered the day it is added.
+   *
+   *  Pure given the bundles. */
+  function alwaysPreparedSpellNames(bundles, level) {
+    const names = new Set();
+    for (const bundle of bundles || []) {
+      for (const mod of bundle?.statModifiers || []) {
+        if (mod.targetFieldId !== "spellsKnown") continue;
+        if (mod.op !== "addItem") continue;
+        if (mod.minLevel && level < mod.minLevel) continue;
+        if (mod.value) names.add(mod.value);
+      }
+    }
+    return names;
+  }
+
+  /** The inline spell-pick groups for the class (and subclass) currently
+   *  staged: one group per spell level the class may pick at this level,
+   *  cantrips included, each rendered as a "Cantrips - Choose N" bullet
+   *  whose link opens the shared spell dialog.
+   *
+   *  Built as ordinary choice groups with a `spellPick`, which is the
+   *  same shape the Bard's Magical Secrets and the High Elf's cantrip use,
+   *  so inlineChoiceBullets, the shared dialog, the Spells Known write and
+   *  the cap enforcement all come for free rather than being rebuilt.
+   *
+   *  Returns [] for a non-caster, and for a caster with nothing to pick at
+   *  this level - a half-caster at level 1 has cantrips: 0 and no slot
+   *  levels, and should show nothing rather than an empty picker. */
+  function creationSpellPickGroups(className, subclassName, level, abilityScores, bundles) {
+    const limit = spellLimitFor(className, level, abilityScores);
+    if (!limit) return [];
+    const plan = getLevelUpPlan(state.rulesetId, className, level);
+    const levels = sharedAvailableSpellLevels(plan) || [0];
+    const auto = alwaysPreparedSpellNames(bundles, level);
+    const field = findStarterField("spellsKnown", "Spells Known");
+    const known = new Set(field?.items || []);
+    const counts = sharedSpellCountByLevel(known, (n) => spellLevelByName(n));
+
+    const groups = [];
+    const wanted = new Map();
+    // Cantrips: every caster has one, and the cap is limit.cantrips minus
+    // whatever is already auto-granted at that level.
+    wanted.set(0, Math.max(0, limit.cantrips - countAuto(0)));
+    // Leveled spells: the cap is per available level, from limit.spells.
+    // A "prepared" caster's number depends on its spellcasting ability, so
+    // it comes from spellLimitFor already rather than being recomputed.
+    for (const lvl of levels) {
+      if (lvl === 0) continue;
+      const perLevel = Math.max(0, limit.spells - countAuto(lvl));
+      if (perLevel > 0) wanted.set(lvl, perLevel);
+    }
+
+    function countAuto(levelNum) {
+      let n = 0;
+      for (const name of auto) if (spellLevelByName(name) === levelNum) n += 1;
+      return n;
+    }
+
+    for (const [lvl, count] of [...wanted.entries()].sort((a, b) => a[0] - b[0])) {
+      if (count <= 0) continue;
+      groups.push({
+        id: `creation-spells-${className}-${lvl}`,
+        label: lvl === 0 ? "Cantrips" : `${ordinal(lvl)}-level spells`,
+        // The picker offers the class list, less the always-prepared
+        // spells. Excluding them matters: they are already in the list, so
+        // offering them would let the player "pick" something automatic.
+        spellPick: { list: className, level: lvl, exclude: [...auto] },
+        minSelections: Math.min(count, count - pickedAt(lvl)),
+        maxSelections: count,
+        minLevel: null,
+        choiceKind: "build",
+        category: "spells",
+      });
+    }
+    return groups;
+
+    function pickedAt(levelNum) {
+      if (levelNum === 0) return counts.cantrips - countAuto(0);
+      return 0;
+    }
+  }
+
   /** Fills cantrips + leveled spells to the class cap, first-available
    *  per spell level — the Express spell fill. Respects caps exactly
    *  like the picker (same limit helpers), never exceeding them. */
@@ -5474,7 +5588,7 @@ if (kind === "spells") {
             // Collapsed by default, same as the Race table — only the
             // selected class (and its nested subclass row) expands.
             selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
-            creationGroups,
+            creationGroups: creationGroupsWithSpells,
             categorizeChoiceGroup: sharedCategorizeChoiceGroup,
             saveRules,
             sectionIntoFn: sectionInto,
