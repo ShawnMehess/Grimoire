@@ -262,6 +262,7 @@ import {
   preparedCounter,
   togglePreparedSpell,
   spellIsRitual,
+  spellListDisplayRows,
   preparedOnlyFor,
   setPreparedOnlyFor,
   applySpellPickToItems,
@@ -7819,32 +7820,15 @@ const closeDialog = () => {
       const level = spellLevelByName(text);
       return level === null ? null : spellsForLevel(level, levelClass).find((s) => s.name === text) || { name: text, level };
     };
-    /** The rows to draw: held/spellbook entries first, in their own order,
-     *  then prepared spells that are not among them.
-     *
-     *  A full-list preparer does not keep their prepared spells in `items` -
-     *  section 2 established that `items` holds what the player added, and
-     *  `preparedItems` holds what they chose to prepare, so that neither
-     *  number lies about the other. But this listing is the player's view of
-     *  their own spell list, and a prepared spell they cannot see is a
-     *  prepared spell they cannot unprepare without going back to the level
-     *  screen. So the listing is the union of the two, and each row records
-     *  which array it came from so editing and reordering still hit the
-     *  right one.
-     *
-     *  itemsIndex is null for a prepared-only row: there is no entry in
-     *  `items` to edit, drag or delete. */
+    /** Which rows to draw. The shape rules - order, dedupe, and which array
+     *  each row came from - live in spellListDisplayRows; this only supplies
+     *  this field's data. */
     function rows() {
-      const held = (field.items || []).map((text, index) => ({ text, itemsIndex: index }));
-      if (!hasPreparedList) return held;
-      const seen = new Set(held.map((r) => r.text));
-      const preparedOnly = (field.preparedItems || [])
-        .filter((name) => !seen.has(name))
-        .map((name) => {
-          seen.add(name);
-          return { text: name, itemsIndex: null };
-        });
-      return [...held, ...preparedOnly];
+      return spellListDisplayRows({
+        items: field.items || [],
+        preparedItems: field.preparedItems || [],
+        hasPreparedList,
+      });
     }
 
     const viewOf = (name) => {

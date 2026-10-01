@@ -2167,6 +2167,39 @@ export function spellIsRitual(spell) {
   return Array.isArray(spell?.tags) && spell.tags.some((t) => /^\s*ritual\s*$/i.test(String(t)));
 }
 
+/** The rows the spell listing draws: `items` in their own order, then any
+ *  prepared spell that is not already among them.
+ *
+ *  A full-list preparer keeps their prepared spells in `preparedItems` and
+ *  NOT in `items` - that is the shape applySpellPickWrite settled on, so
+ *  neither list lies about the other. But this listing is the player's view
+ *  of their own spell list, and a prepared spell they cannot see is one they
+ *  cannot unprepare without going back to level-up. So the listing is the
+ *  union, and each row records which array it came from.
+ *
+ *  `itemsIndex` is null for a prepared-only row: there is no entry in
+ *  `items` behind it, so there is nothing to edit, reorder or delete. The
+ *  caller makes such rows read-only and makes their remove button unprepare
+ *  instead - deleting a spell the character never claimed to hold would be
+ *  wrong, and so would silently rewriting `items` to make it true.
+ *
+ *  `hasPreparedList` false returns items untouched, so a known-only caster's
+ *  listing is exactly the list they have and nothing else.
+ *
+ *  Pure. */
+export function spellListDisplayRows({ items = [], preparedItems = [], hasPreparedList = false } = {}) {
+  const held = (items || []).map((text, index) => ({ text, itemsIndex: index }));
+  if (!hasPreparedList) return held;
+  const seen = new Set(held.map((r) => r.text));
+  const preparedOnly = (preparedItems || [])
+    .filter((name) => name && !seen.has(name))
+    .map((name) => {
+      seen.add(name);
+      return { text: name, itemsIndex: null };
+    });
+  return [...held, ...preparedOnly];
+}
+
 /** The prepared counter for the top of the spell listing: "Prepared: 3 / 8".
  *
  *  Returns null when the class has no prepared list at all, which is the

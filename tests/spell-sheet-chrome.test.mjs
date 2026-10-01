@@ -17,9 +17,9 @@ import {
   spellRowView,
   spellIsRitual,
 } from "../js/render/sheet/sheetWizard.js";
-import { migratePreparedSpellLists, hydrateCharacter } from "../js/state/bundleMaps.js";
+import { migratePreparedSpellLists, hydrateCharacter, stripBundlesFromPatch } from "../js/state/bundleMaps.js";
 import { SPELL_CATALOG } from "../js/data/contentCatalogs.js";
-import { spellsForLevelIn } from "../js/render/sheet/sheetWizard.js";
+import { spellsForLevelIn, spellListDisplayRows } from "../js/render/sheet/sheetWizard.js";
 
 // --- The counter ----------------------------------------------------------
 
@@ -295,6 +295,36 @@ describe("migratePreparedSpellLists", () => {
       "and items is untouched - the two lists stay separate");
   });
 
+  it("shows a full-list preparer's own preparations, even though they are not in items", () => {
+    // The listing is the union of the two arrays, and this is the case that
+    // needs it: a Cleric's prepared spells are legitimately absent from
+    // `items`, so a listing built from `items` alone renders a player with no
+    // way to see or unprepare anything they prepared.
+    const rows = spellListDisplayRows({
+      items: ["Cure Wounds"],
+      preparedItems: ["Bless", "Cure Wounds", "Spiritual Weapon"],
+      hasPreparedList: true,
+    });
+    assert.deepEqual(rows.map((r) => r.text),
+      ["Cure Wounds", "Bless", "Spiritual Weapon"],
+      "held spells in their own order first, then the prepared-only ones");
+    assert.deepEqual(rows.map((r) => r.itemsIndex), [0, null, null],
+      "and only the held spell has an entry in items to edit, drag or delete");
+    assert.equal(new Set(rows.map((r) => r.text)).size, rows.length,
+      "no spell appears twice just because it is both held and prepared");
+  });
+
+  it("lists items alone for a known-only caster, since they prepare nothing", () => {
+    const rows = spellListDisplayRows({
+      items: ["Fire Bolt", "Fireball"],
+      preparedItems: ["Fireball"],
+      hasPreparedList: false,
+    });
+    assert.deepEqual(rows.map((r) => r.text), ["Fire Bolt", "Fireball"]);
+    assert.deepEqual(rows.map((r) => r.itemsIndex), [0, 1],
+      "and every row is a real list entry");
+  });
+
   it("still de-duplicates and drops junk for a full-list preparer", () => {
     const c = characterWithSpells(["Cure Wounds"], { preparedItems: ["Bless", "Bless", "", 7, null] });
     c.rules = { className: "Cleric", level: 5 };
@@ -407,6 +437,47 @@ describe("migratePreparedSpellLists", () => {
     c.rulesetId = "dnd5e-2014";
     hydrateCharacter(c);
     assert.deepEqual(c.sheetTabs[0].layout[0].children[0].preparedItems, ["Bless"]);
+  });
+
+  it("survives a save/load round trip with a full-list preparer", () => {
+    // The shape that does NOT have prepared names in items, carried through
+    // the exact calls the app makes: stripBundlesFromPatch on the way out,
+    // hydrateCharacter on the way back. Worth pinning separately from the
+    // migration tests because these are whole-field transforms - if one of
+    // them ever rebuilt the field from a known set of keys instead of
+    // cloning it, preparedItems would be dropped silently and only a
+    // multiclass preparer would ever notice.
+    const c = characterWithSpells(["Cure Wounds"], { preparedItems: ["Bless", "Spiritual Weapon"] });
+    c.rules = { className: "Cleric", level: 5 };
+    c.rulesetId = "dnd5e-2014";
+
+    const patched = stripBundlesFromPatch({ layout: c.sheetTabs[0].layout, sheetTabs: c.sheetTabs });
+    const field = patched.sheetTabs[0].layout[0].children[0];
+    assert.deepEqual(field.preparedItems, ["Bless", "Spiritual Weapon"],
+      "saving keeps preparations that are not in items");
+
+    const back = hydrateCharacter(JSON.parse(JSON.stringify(patched)));
+    assert.deepEqual(back.sheetTabs[0].layout[0].children[0].preparedItems,
+      ["Bless", "Spiritual Weapon"], "and loading gives them back");
+    assert.deepEqual(back.sheetTabs[0].layout[0].children[0].items, ["Cure Wounds"],
+      "with items still separate");
+  });
+
+  it("survives the duplicate path, which clones the whole character", () => {
+    // duplicateCharacter() in main.js drops id/createdAt/updatedAt and
+    // JSON-clones the rest, so preparedItems rides along - asserted here
+    // because the alternative (a rebuild from known keys) is the plausible
+    // future edit that would break it.
+    const c = characterWithSpells(["Bless"], { preparedItems: ["Bless", "Cure Wounds"] });
+    c.rules = { className: "Cleric", level: 5 };
+    c.rulesetId = "dnd5e-2014";
+    const { id, createdAt, updatedAt, ...rest } = c;
+    const clone = JSON.parse(JSON.stringify(rest));
+    assert.deepEqual(clone.sheetTabs[0].layout[0].children[0].preparedItems,
+      ["Bless", "Cure Wounds"]);
+    assert.notEqual(clone.sheetTabs[0].layout[0].children[0], field_of(c),
+      "and it is a deep copy, not a shared reference");
+    function field_of(x) { return x.sheetTabs[0].layout[0].children[0]; }
   });
 
   it("hydrateCharacter still handles no character at all", () => {

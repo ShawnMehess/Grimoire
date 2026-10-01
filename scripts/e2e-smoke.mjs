@@ -1138,6 +1138,70 @@ async function runViewportTests(viewport) {
   check(afterClassChangeUi.spells.length === 3,
     `but the spells themselves are untouched (${afterClassChangeUi.spells.join(", ")})`);
 
+  // Undo and redo on a prepared toggle. The toggle writes through
+  // commitMutation, so it is undoable in principle - but the undo stack
+  // snapshots the whole character, and "in principle" is exactly the kind of
+  // claim that goes stale the moment preparedItems stops being part of the
+  // snapshot. Also the one gesture here with no confirmation: a mis-tap that
+  // cannot be taken back is the cost of the speed in the first place.
+  await setUpWizard({
+    rules: { className: "Cleric", level: 5, abilityScores: { str: 10, dex: 10, con: 10, int: 10, wis: 16, cha: 10 } },
+    spells: ["Bless", "Cure Wounds", "Guiding Bolt"],
+  });
+  const undoBtn = 'button.btn:text-is("Undo")';
+  const redoBtn = 'button.btn:text-is("Redo")';
+  const history = async () => page.evaluate(() => {
+    const buttons = [...document.querySelectorAll("button.btn")];
+    const find = (t) => buttons.find((b) => b.textContent.trim() === t);
+    return {
+      counter: document.querySelector(".spell-list-chrome__count")?.textContent || "",
+      prepared: [...document.querySelectorAll('.spell-row__prepared-toggle[aria-pressed="true"]')]
+        .map((b) => b.getAttribute("aria-label")),
+      undoDisabled: find("Undo")?.disabled,
+      redoDisabled: find("Redo")?.disabled,
+    };
+  });
+  check((await history()).undoDisabled === true, "Undo starts disabled on an untouched sheet");
+  await clickOnSheet('.spell-row__prepared-toggle[aria-label="Mark Bless prepared"]');
+  await page.waitForTimeout(700);
+  const afterPrepare = await history();
+  check(afterPrepare.counter === "Prepared: 1 / 8", `one spell prepared (${afterPrepare.counter})`);
+  check(afterPrepare.undoDisabled === false, "and Undo becomes available for it");
+
+  await page.click(undoBtn);
+  await page.waitForTimeout(800);
+  const afterUndo = await history();
+  check(afterUndo.counter === "Prepared: 0 / 8",
+    `Undo takes the preparation back (got "${afterUndo.counter}")`);
+  check(afterUndo.prepared.length === 0, "and the row's toggle goes with it");
+  check(afterUndo.redoDisabled === false, "and Redo becomes available");
+
+  await page.click(redoBtn);
+  await page.waitForTimeout(800);
+  const afterRedo = await history();
+  check(afterRedo.counter === "Prepared: 1 / 8",
+    `Redo puts it back (got "${afterRedo.counter}")`);
+  check(afterRedo.prepared.length === 1 && afterRedo.prepared[0] === "Unprepare Bless",
+    `with the row still ticked (${afterRedo.prepared.join("/") || "none"})`);
+
+  const afterRedoSaved = await page.evaluate(() => {
+    const stored = JSON.parse(localStorage.getItem("grimoire.local.characters.v1") || "{}");
+    const id = Object.keys(stored)[0];
+    const f = stored[id].sheetTabs[0].layout.flatMap((b) => b.children || []).find((x) => x.id === "spellsKnown");
+    return f?.preparedItems || [];
+  });
+  check(afterRedoSaved.length === 1 && afterRedoSaved[0] === "Bless",
+    `and Redo saved it, not just the screen (${JSON.stringify(afterRedoSaved)})`);
+
+  // Undo across a REOPEN. The stack is in memory, so this must not claim to
+  // work - but it must not throw or leave the counter lying either.
+  await reopenSheet();
+  const afterReopen = await history();
+  check(afterReopen.counter === "Prepared: 1 / 8",
+    `a reopened sheet still shows the prepared spell (${afterReopen.counter})`);
+  check(afterReopen.undoDisabled === true,
+    "and its undo stack is empty, as an in-memory stack should be after a load");
+
   check(await page.$(".page-grid"), "a finished character opens its sheet");
   check(await page.$(".sheet-intro"), "a first-time finished character gets the orientation panel");
   const introCoversViews = await page.evaluate(() => {
