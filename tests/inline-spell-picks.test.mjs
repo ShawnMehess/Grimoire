@@ -35,6 +35,7 @@ import {
   applySpellPickToItems,
   preparedItemsWithAuto,
   preparedLineLock,
+  applySpellPickWrite,
   pruneOrphanedChoiceKeys,
   groupPicksSatisfied,
 } from "../js/render/sheet/sheetWizard.js";
@@ -596,5 +597,179 @@ describe("preparedLineLock", () => {
     // is nothing to wait for.
     assert.equal(preparedLineLock({ preparedFrom: "classList", knownNames: [] }), null);
     assert.equal(preparedLineLock(), null);
+  });
+});
+
+// The routing decision. This is what makes a prepared caster different from a
+// known one, and it was inside the wizard's render closure where no test could
+// reach it.
+describe("applySpellPickWrite", () => {
+  it("a prepared pick does NOT land in Spells Known", () => {
+    // The bug the brief names: a Cleric's picks went into the known list, so
+    // the sheet recorded three spells as everything the character could ever
+    // cast and kept the rest of the class list nowhere.
+    const out = applySpellPickWrite({
+      part: "prepared",
+      items: [],
+      next: ["Bless", "Cure Wounds", "Spiritual Weapon"],
+    });
+    assert.deepEqual(out.items, [], "Spells Known stays empty");
+    assert.deepEqual(out.preparedItems, ["Bless", "Cure Wounds", "Spiritual Weapon"]);
+  });
+
+  it("a prepared pick leaves Spells Known untouched even when it has content", () => {
+    const out = applySpellPickWrite({
+      part: "prepared",
+      items: ["Fire Bolt", "Light"],
+      next: ["Bless"],
+    });
+    assert.deepEqual(out.items, ["Fire Bolt", "Light"], "hand-added cantrips stay");
+    assert.deepEqual(out.preparedItems, ["Bless"]);
+  });
+
+  it("never copies the class list in - only what was chosen", () => {
+    const out = applySpellPickWrite({ part: "prepared", items: [], next: ["Bless"] });
+    assert.equal(out.items.length, 0);
+    assert.equal(out.preparedItems.length, 1);
+  });
+
+  it("a cantrip pick goes to Spells Known and is not prepared", () => {
+    const out = applySpellPickWrite({ part: "cantrips", items: [], next: ["Fire Bolt"] });
+    assert.deepEqual(out.items, ["Fire Bolt"]);
+    assert.deepEqual(out.preparedItems, []);
+  });
+
+  it("a known/spellbook pick goes to Spells Known", () => {
+    const out = applySpellPickWrite({ part: "spells", items: [], next: ["Magic Missile"] });
+    assert.deepEqual(out.items, ["Magic Missile"]);
+    assert.deepEqual(out.preparedItems, []);
+  });
+
+  it("removing a spellbook entry also un-prepares it", () => {
+    // A Wizard's prepared subset is drawn from its spellbook, so an entry
+    // deleted underneath it has to drop out or the sheet claims a prepared
+    // spell the character does not have.
+    const out = applySpellPickWrite({
+      part: "spells",
+      items: ["Magic Missile", "Shield"],
+      preparedItems: ["Magic Missile", "Shield"],
+      previous: ["Magic Missile", "Shield"],
+      next: ["Magic Missile"],
+    });
+    assert.deepEqual(out.items, ["Magic Missile"]);
+    assert.deepEqual(out.preparedItems, ["Magic Missile"], "Shield is no longer held, so not prepared");
+  });
+
+  it("keeps a prepared spell another pick still holds on the sheet", () => {
+    const out = applySpellPickWrite({
+      part: "spells",
+      items: ["Magic Missile"],
+      preparedItems: ["Magic Missile"],
+      previous: ["Magic Missile"],
+      next: [],
+      heldByOtherPicks: ["Magic Missile"],
+    });
+    assert.deepEqual(out.items, ["Magic Missile"], "still listed");
+    assert.deepEqual(out.preparedItems, ["Magic Missile"], "so still prepared");
+  });
+
+  it("never stores an always-prepared spell in the prepared list", () => {
+    const out = applySpellPickWrite({
+      part: "prepared",
+      items: [],
+      next: ["Bless", "Cure Wounds"],
+      alwaysPrepared: ["Bless"],
+    });
+    assert.deepEqual(out.preparedItems, ["Cure Wounds"],
+      "a domain spell is prepared without being a pick the player can remove");
+  });
+
+  it("mutates neither input", () => {
+    const items = ["Light"];
+    const preparedItems = ["Bless"];
+    applySpellPickWrite({ part: "spells", items, preparedItems, previous: ["Light"], next: ["Shield"] });
+    assert.deepEqual(items, ["Light"]);
+    assert.deepEqual(preparedItems, ["Bless"]);
+  });
+
+  it("defaults are safe with nothing at all", () => {
+    assert.deepEqual(applySpellPickWrite(), { items: [], preparedItems: [] });
+  });
+});
+
+// ===========================================================================
+// Which lines each class gets. The brief's "Config:" list, asserted at the
+// level the groups are built rather than at the model alone, because a
+// correct model that produces the wrong number of lines is still wrong.
+describe("the lines each class gets", () => {
+  const lineParts = (groups) => groups.map((g) => g.spellPick.part);
+
+  it("a Sorcerer: a cantrips line and a known line, no prepared line", () => {
+    const groups = groupsFor("Sorcerer", 5);
+    assert.deepEqual(lineParts(groups), ["cantrips", "spells"]);
+    assert.equal(leveledOf(groups).label, "Spells Known");
+    assert.equal(preparedOf(groups), undefined);
+  });
+
+  it("a Cleric: a cantrips line and a prepared line only", () => {
+    const groups = groupsFor("Cleric", 5);
+    assert.deepEqual(lineParts(groups), ["cantrips", "prepared"]);
+    assert.equal(leveledOf(groups), undefined, "no personal list, so no known line");
+    assert.equal(preparedOf(groups).label, "Prepared Spells");
+  });
+
+  it("a Cleric's prepared line is NOT locked", () => {
+    // preparedFrom "classList": there is no line above it to wait for.
+    const model5 = modelFor("Cleric");
+    assert.equal(model5.preparedFrom, "classList");
+    assert.equal(
+      preparedLineLock({ preparedFrom: model5.preparedFrom, knownNames: [] }),
+      null,
+      "never locked, even with an empty spellbook",
+    );
+    // And it is required, so the class row really does gate on it.
+    assert.equal(preparedOf(groupsFor("Cleric", 5)).minSelections,
+      spellLimitFor("Cleric", 5, SCORES).spells);
+  });
+
+  it("a Wizard: a cantrips line, a spellbook line and a prepared line", () => {
+    const groups = groupsFor("Wizard", 5);
+    assert.deepEqual(lineParts(groups), ["cantrips", "spells", "prepared"]);
+    assert.equal(leveledOf(groups).label, "Spellbook");
+    assert.equal(preparedOf(groups).label, "Prepared Spells");
+    assert.equal(modelFor("Wizard").preparedFrom, "known");
+  });
+
+  it("a Wizard's prepared line is locked until the spellbook has spells", () => {
+    const { preparedFrom } = modelFor("Wizard");
+    assert.equal(preparedLineLock({ preparedFrom, knownNames: [] }), "Choose your spellbook spells first");
+    assert.equal(preparedLineLock({ preparedFrom, knownNames: ["Shield"] }), null,
+      "and unlocks as soon as it has any");
+  });
+
+  it("a Fighter shows nothing", () => {
+    assert.deepEqual(groupsFor("Fighter", 5), []);
+  });
+
+  it("a prepared pick does not require a spellbook to exist", () => {
+    // The Wizard's prepared group still gates completeness once unlocked,
+    // and the spellbook group never does.
+    const groups = groupsFor("Wizard", 5);
+    assert.equal(leveledOf(groups).minSelections, 0, "the spellbook is free-form");
+    assert.ok(preparedOf(groups).minSelections > 0, "the prepared count is required");
+  });
+
+  it("every line's spell levels are within the class's available levels", () => {
+    for (const className of ["Sorcerer", "Bard", "Cleric", "Wizard", "Paladin", "Ranger", "Druid", "Artificer"]) {
+      for (let level = 1; level <= 12; level += 1) {
+        const available = availableLevelsFor(className, level);
+        for (const g of groupsFor(className, level)) {
+          if (g.spellPick.level === 0) continue;
+          const top = Math.max(...available);
+          assert.equal(g.spellPick.maxLevel, top,
+            `${className} L${level} ${g.spellPick.part} spans up to ${top}`);
+        }
+      }
+    }
   });
 });

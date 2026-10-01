@@ -767,6 +767,50 @@ export function preparedLineLock({ preparedFrom = "classList", knownNames = [] }
   return "Choose your spellbook spells first";
 }
 
+/** Where one accepted spell pick lands on the sheet.
+ *
+ *  This is the single decision that separates a known caster from a prepared
+ *  one, so it is one pure function rather than logic inside the wizard's
+ *  render closure, where nothing could reach it from a test.
+ *
+ *  - `part: "prepared"` writes to `preparedItems` ONLY. Never to `items`.
+ *    This is the fix for a full-list preparer: a Cleric's three prepared
+ *    spells used to land in Spells Known, which recorded them as the only
+ *    spells the character could ever cast and left the class list nowhere.
+ *    It also means the whole class list is never copied in - only what the
+ *    player actually prepares or adds by hand.
+ *  - `part: "cantrips"` / `"spells"` write to `items`, the Spells Known list.
+ *    Deselecting takes the spell back out, except where another live pick
+ *    still holds it.
+ *  - Either way, a spell that leaves `items` is no longer prepared. The
+ *    Wizard's prepared subset is drawn from its spellbook, so a spellbook
+ *    entry deleted underneath it has to drop out of `preparedItems` too or
+ *    the sheet claims a prepared spell the character does not have.
+ *
+ *  Returns `{ items, preparedItems }`. Neither input is mutated. Pure. */
+export function applySpellPickWrite({
+  part = "spells",
+  items = [],
+  preparedItems = [],
+  previous = [],
+  next = [],
+  heldByOtherPicks = [],
+  alwaysPrepared = [],
+} = {}) {
+  if (part === "prepared") {
+    return {
+      items,
+      preparedItems: preparedItemsWithAuto({ previous, next, alwaysPrepared }),
+    };
+  }
+  const after = applySpellPickToItems({ items, previous, next, heldByOtherPicks });
+  const stillListed = new Set(after.items.map((item) => (typeof item === "string" ? item : item?.text)));
+  return {
+    items: after.items,
+    preparedItems: (preparedItems || []).filter((name) => stillListed.has(name)),
+  };
+}
+
 /** The inline spell-pick groups for a staged class at a level: a cantrips
  *  line, a leveled-spells line, and (for classes that keep a prepared list)
  *  a prepared line under it.

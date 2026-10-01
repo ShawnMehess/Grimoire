@@ -254,6 +254,7 @@ import {
   migrateSpellPickKeys,
   preparedItemsWithAuto,
   preparedLineLock,
+  applySpellPickWrite,
   applySpellPickToItems,
   alwaysPreparedSpellNames,
   creationSpellPickGroups,
@@ -5274,38 +5275,24 @@ const closeDialog = () => {
                 character.rules.choices = { ...(character.rules?.choices || {}), [group.key]: ids };
                 const target = ensureSpellListField();
                 if (target) {
-                  if (isPreparedLine) {
-                    // Prepared spells are a SUBSET of what the character
-                    // holds, so they go in their own list rather than into
-                    // Spells Known. Always-prepared spells are folded in by
-                    // the reader, not stored, so a spell the class grants
-                    // automatically is prepared without being listed here.
-                    target.preparedItems = preparedItemsWithAuto({
-                      previous: target.preparedItems || [],
-                      next: ids || [],
-                      alwaysPrepared: alwaysPreparedSpellNames(spellBundles(), state.level),
-                    });
-                  } else {
-                    // Deselecting a spell takes it back out of Spells Known:
-                    // the pick is what put it there, so it owns it. Anything
-                    // another live spell pick still holds is left alone.
-                    const heldElsewhere = spellPickNamesHeldByOthers(group.key);
-                    const next = applySpellPickToItems({
-                      items: target.items || [],
-                      previous: storedSpells,
-                      next: ids || [],
-                      heldByOtherPicks: heldElsewhere,
-                    });
-                    target.items = next.items;
-                    // A spell that left the known list is not prepared any
-                    // more, whatever the prepared line still says.
-                    target.preparedItems = (target.preparedItems || [])
-                      .filter((name) => next.items.some((item) => (typeof item === "string" ? item : item?.text) === name));
-                  }
+                  // The routing decision - prepared spells go to their own
+                  // list, never into Spells Known - is applySpellPickWrite,
+                  // so it can be tested outside this closure.
+                  const written = applySpellPickWrite({
+                    part: group.spellPick.part,
+                    items: target.items || [],
+                    preparedItems: target.preparedItems || [],
+                    previous: storedSpells,
+                    next: ids || [],
+                    heldByOtherPicks: spellPickNamesHeldByOthers(group.key),
+                    alwaysPrepared: alwaysPreparedSpellNames(spellBundles(), state.level),
+                  });
+                  target.items = written.items;
+                  target.preparedItems = written.preparedItems;
                 }
                 saveRules();
                 // The prepared list lives on the sheet FIELD, so the layout is
-                // what changed. Without this the toggle survives until reload
+                // what changed. Without this the pick survives until reload
                 // and then vanishes - the same class of bug as the loading
                 // screen: the UI said one thing and the saved data another.
                 if (isPreparedLine) saveWithStatus("layout", character.layout);
