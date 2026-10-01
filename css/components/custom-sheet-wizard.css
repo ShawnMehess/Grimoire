@@ -304,6 +304,52 @@
   text-align: center;
 }
 
+/* Review step — "Still to decide" panel. A prompt-coloured panel, not an
+   error: these pages are not wrong, they are simply not filled in yet, and
+   the wizard blocks forward progress on them. Sits directly under the
+   summary box so it is read before the picks rather than scrolled past. */
+.wizard__outstanding {
+  grid-column: 1 / -1;
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-accent, var(--color-border-strong));
+  border-radius: var(--radius-md);
+  background: var(--color-bg-inset);
+}
+
+.wizard__outstanding-title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--color-text);
+}
+
+.wizard__outstanding-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wizard__outstanding-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.wizard__outstanding-reason {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.wizard__outstanding-go {
+  flex: none;
+}
+
 /* Selectable row-list — shared by Race/Class/Subclass/Background
    pickers (and anything else that wants a browsable, clickable list
    of named options with a portrait and description). */

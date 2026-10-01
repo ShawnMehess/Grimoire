@@ -424,6 +424,62 @@ export function reviewSummaryBoxInto(container, state, deps) {
   return rows;
 }
 
+/** The "Still to decide" panel for a review-style step: one row per
+ *  unfinished page, each naming what is outstanding and linking straight
+ *  to the page that needs it.
+ *
+ *  This exists because the wizard's forward gating is a lock, not an
+ *  explanation. Dots past the first unfinished page go disabled with a
+ *  tooltip saying "Finish the current page first", and a player who
+ *  arrived here another way — resumed mid-wizard, jumped back from the
+ *  end, or landed on review via the post-creation flow — had no way to
+ *  find out WHICH page was holding them or how far off it was. They had
+ *  to click Back repeatedly and hunt.
+ *
+ *  Each row is a real button that navigates, not a label. Returns null
+ *  and appends nothing when everything is decided, so the finished flow
+ *  stays uncluttered — the panel appearing and disappearing is itself the
+ *  "you're done" signal.
+ *
+ *   reviewOutstandingInto(container, outstanding, onGoToStep)
+ *
+ *  `outstanding` is the shape outstandingSteps() returns. `onGoToStep` is
+ *  called with the step's id. */
+export function reviewOutstandingInto(container, outstanding = [], onGoToStep) {
+  const rows = (outstanding || []).filter((row) => row && row.stepId);
+  if (rows.length === 0) return null;
+
+  const panel = el("div", { class: "wizard__outstanding", role: "group" });
+  panel.append(el("p", {
+    class: "wizard__outstanding-title",
+    text: rows.length === 1
+      ? "Still to decide — one page still needs you:"
+      : `Still to decide — ${rows.length} pages still need you:`,
+  }));
+  const list = el("ul", { class: "wizard__outstanding-list" });
+  for (const row of rows) {
+    const li = el("li", { class: "wizard__outstanding-item" });
+    const button = el("button", {
+      type: "button",
+      class: "btn wizard__outstanding-go",
+      text: row.title || row.stepId,
+      onclick: () => { if (typeof onGoToStep === "function") onGoToStep(row.stepId); },
+    });
+    const reasons = (row.reasons || []).filter(Boolean);
+    li.append(reasons.length === 1
+      ? el("span", { class: "wizard__outstanding-reason", text: reasons[0] })
+      : el("span", {
+        class: "wizard__outstanding-reason",
+        text: `${reasons.join(" · ")}`,
+      }));
+    li.append(button);
+    list.append(li);
+  }
+  panel.append(list);
+  container.append(panel);
+  return panel;
+}
+
 /** The Finish Setup button on its own, for a step that puts the summary
  *  box somewhere other than the bottom. */
 export function reviewFinishButtonInto(container, { syncFn }) {

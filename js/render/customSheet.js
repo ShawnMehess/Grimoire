@@ -255,6 +255,8 @@ import {
   creationSpellPickGroups,
   spellPickDialogOptions,
   NO_SPELL_CATALOG_NOTE,
+  spellPickShortfallPhrase,
+  outstandingSteps,
   reconcileDropdownChoices,
   ownedSkillIdsFromBundles,
   optionIsOwned,
@@ -324,6 +326,7 @@ import {
   renderAbilitiesStepInto,
   reviewLinesFor,
   reviewSummaryBoxInto,
+  reviewOutstandingInto,
   reviewFinishButtonInto,
   initPendingLevelState,
   syncPendingChoices,
@@ -5363,6 +5366,12 @@ const closeDialog = () => {
           if (includedRulesetIds(state).length === 0 || !primaryRulesetId(state)) return false;
           return Boolean(character.rules.hpMethod);
         },
+        missingReasons() {
+          const out = [];
+          if (includedRulesetIds(state).length === 0) out.push("No source book ticked.");
+          if (!character.rules.hpMethod) out.push("No hit-point rule chosen.");
+          return out;
+        },
         render(container) {
           const sourcesWrap = sectionInto(container, "Sources");
           renderRulesetStepInto(sourcesWrap, state, {
@@ -5445,6 +5454,18 @@ const closeDialog = () => {
           if (sub && !groupPicksSatisfied(sub, state.choices?.[sub.key])) return false;
           if (!choicesComplete(raceChoiceGroups)) return false;
           return !lineageFeatOffered() || Boolean(lineageFeatPick());
+        },
+        missingReasons() {
+          const out = [];
+          if (!((character.name || "").trim())) out.push("No name yet.");
+          if (!state.species) out.push("No species picked yet.");
+          else {
+            const sub = subraceGroupFor(state.species);
+            if (sub && !groupPicksSatisfied(sub, state.choices?.[sub.key])) out.push("Subrace pick outstanding.");
+            if (!choicesComplete(raceChoiceGroups)) out.push("Choices still to make.");
+            if (lineageFeatOffered() && !lineageFeatPick()) out.push("Ancestry feat not taken yet.");
+          }
+          return out;
         },
         render(container) {
           renderIdentityStepInto(container, state, {
@@ -5553,12 +5574,40 @@ const closeDialog = () => {
       {
         id: "class",
         title: "Class",
-        description: "Pick what your character does best — class sets hit points, attacks, and features. If a subclass is available at your level, pick it under your class, then make that class's choices in its row. Spells have their own page.",
+        // Used to end "... Spells have their own page." That was true when
+        // the Spells tab existed; spells moved back into this row in 0d0de51,
+        // so the sentence described a page that is no longer there and read
+        // as a dead end to anyone who had followed it once. Spells are now
+        // part of the class row like every other choice the class makes.
+        descriptionItems: [
+          "Pick what your character does best — the class sets hit points, attacks, and features.",
+          "If a subclass is available at your level, pick it under your class, then make that class's choices in its row.",
+          "Cantrips and spells are picks here too, when your class has them: they open the same spell list as everything else, and they land on your sheet's Spells Known.",
+          "Only classes from the source books you ticked on the Rules page are offered.",
+        ],
         isComplete: () => {
           if (!state.className) return false;
           const subs = liveSubclassData(state.className);
           if (subs.subclasses.length && state.level >= subs.subclassLevel && !state.subclass) return false;
           return choicesComplete(classChoiceGroups);
+        },
+        missingReasons() {
+          const out = [];
+          if (!state.className) return ["No class picked yet."];
+          const subs = liveSubclassData(state.className);
+          if (subs.subclasses.length && state.level >= subs.subclassLevel && !state.subclass) {
+            out.push("No subclass picked yet.");
+          }
+          // Spells get their own line with a real count. Every other
+          // outstanding pick on this row (proficiencies, skills, features)
+          // shares one blunt "choices" phrase, which was true when this row
+          // had no numbers in it and stopped being true the moment spell
+          // counts appeared — the shortfall is the one thing a player
+          // standing here most needs to know.
+          const spells = spellPickShortfallPhrase(inlineSpellPickGroups(), state.choices || {});
+          if (spells) out.push(spells);
+          if (!choicesComplete(classChoiceGroups)) out.push("Choices still to make.");
+          return out;
         },
         render(container) {
           const classFallback = wizardFieldOptionNames("class", "Class");
@@ -5602,6 +5651,10 @@ const closeDialog = () => {
         isComplete: () => {
           if (!state.background) return false;
           return choicesComplete(backgroundChoiceGroups);
+        },
+        missingReasons() {
+          if (!state.background) return ["No background picked yet."];
+          return choicesComplete(backgroundChoiceGroups) ? [] : ["Choices still to make."];
         },
         render(container) {
           renderRowListStepInto(container, state, {
@@ -5772,7 +5825,17 @@ const closeDialog = () => {
       {
         id: "review",
         title: "Review",
-        description: "Check your three picks below — selections stay editable via dropdowns — then Finish Setup.",
+        // "Check your three picks below" counted the three TOP-LEVEL picks
+        // (race, class, background) and then said "three" to someone staring
+        // at a page of sub-picks — proficiencies, skills, languages, a feat,
+        // cantrips, spells — of which there can be thirty. The count was
+        // never about what the page holds; it described the three
+        // headliners and let the rest pass as included.
+        descriptionItems: [
+          "Check everything you picked, then Finish Setup. Nothing here is final — every choice stays editable from the dropdowns below, and you can walk back through the pages with the dots or Back.",
+          "If anything is still outstanding, the list under this heading names it and links to the page that needs it.",
+          "What You Get Automatically at the bottom is the roll-up of every race, class, subclass, and background grant at your current level — read-only, nothing to fill in.",
+        ],
         isComplete: () => Boolean(state.species && state.className && state.background),
         render(container) {
           // Only what was chosen. This step used to re-render the full
@@ -5807,6 +5870,23 @@ const closeDialog = () => {
           });
 
           reviewSummaryBoxInto(container, state, reviewDeps());
+
+          // Above the picks, so it is the first thing read: the wizard's
+          // forward gating is a lock, not an explanation, and someone who
+          // reached review with pages still unfinished had no other way to
+          // find out which ones. `untilStepId` keeps review from listing
+          // itself. Navigation reuses the wizard's own resume-by-id path
+          // (the same one line 5338 uses) rather than a second mechanism
+          // that could disagree about where a step is.
+          reviewOutstandingInto(
+            container,
+            outstandingSteps(steps, { untilStepId: "review" }),
+            (stepId) => {
+              creationWizardState.stepId = stepId;
+              persistWizardProgressSoon();
+              renderPageGrid();
+            },
+          );
 
           const raceWrap = sectionInto(container, "Race");
           const raceOptionsFn = (rulesetId, category) => rulesetOptionNames(rulesetId, "Race", wizardFieldOptionNames("race", "Race"));

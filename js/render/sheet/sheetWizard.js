@@ -1175,6 +1175,74 @@ export function stepIsComplete(step) {
   }
 }
 
+/** What a single step says is still outstanding, in the user's words.
+ *  A step supplies this as `missingReasons()` (a string or array); the
+ *  detail is what turns "Class is incomplete" into "2 cantrips and 1
+ *  1st-level spell still to choose", which is the difference between a
+ *  list you can act on and a wall. A step with nothing to add still gets
+ *  a row — an unnamed outstanding page is worse than a blunt one. Pure,
+ *  and never throws: a broken checker must not trap the Review page. */
+function stepMissingReasons(step) {
+  try {
+    const own = typeof step?.missingReasons === "function" ? step.missingReasons() : null;
+    if (Array.isArray(own)) return own.map((r) => String(r || "").trim()).filter(Boolean);
+    if (own) {
+      const one = String(own).trim();
+      return one ? [one] : [];
+    }
+  } catch {
+    /* fall through to the default */
+  }
+  const fallback = typeof step?.missingLabel === "string" ? step.missingLabel.trim() : "";
+  return fallback ? [fallback] : [];
+}
+
+/** Every applicable step that still needs decisions, as
+ *  `{ stepId, title, reasons }` in step order — the "Still to decide" list
+ *  on the Review page.
+ *
+ *  Three deliberate filters:
+ *
+ *  - Only APPLICABLE steps. A page that does not apply (no ASI at level 1,
+ *    no feat to take) has been skipped, not left unfinished, and the
+ *    wizard's dots already say so in those words.
+ *  - Stops at `untilStepId`, so a page never lists itself or anything
+ *    after it. Review is the last creation page, so nothing after it
+ *    belongs to setup anyway; the same helper serves the level-up wizard.
+ *  - A step whose own `isComplete` throws is treated as COMPLETE, the same
+ *    way `stepIsComplete` treats it — one broken page must not fill the
+ *    Review screen with noise.
+ *
+ *  Pure. */
+export function outstandingSteps(steps, { untilStepId = null } = {}) {
+  const out = [];
+  for (const step of applicableStepsOf(steps || [])) {
+    if (untilStepId && step.id === untilStepId) break;
+    if (stepIsComplete(step)) continue;
+    out.push({ stepId: step.id, title: step.title || "", reasons: stepMissingReasons(step) });
+  }
+  return out;
+}
+
+/** Human phrase for a spell pick group's shortfall: "2 cantrips and 1
+ *  1st-level spell still to choose". Returns "" when every group is
+ *  satisfied, so the caller can drop the phrase entirely rather than
+ *  render an empty one. Deliberately compares against `minSelections`
+ *  (the shortfall, after spells already held elsewhere are credited) and
+ *  NOT against how many this pick has made — crediting the pick's own
+ *  selections is exactly the bug this phrasing exists to avoid: at two
+ *  cantrips of four it would read as done. Pure. */
+export function spellPickShortfallPhrase(groups = [], picks = {}) {
+  const parts = [];
+  for (const group of groups || []) {
+    const short = Math.max(0, (group?.minSelections ?? 0) - ((picks || {})[group.key] || []).length);
+    if (!short) continue;
+    const n = (word, plural) => `${short} ${word}${short === 1 ? "" : plural}`;
+    parts.push(group.level === 0 ? n("cantrip", "s") : n(`${ordinal(group.level)}-level spell`, "s"));
+  }
+  return parts.length ? `${parts.join(" and ")} still to choose` : "";
+}
+
 /** First applicable-step index whose page still needs decisions, or
  *  -1 when everything is decided. Dots past it stay clickable only
  *  backward — forward jumps past undecided pages are blocked, same as
