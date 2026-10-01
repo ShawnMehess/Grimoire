@@ -936,66 +936,12 @@ export function creationSpellPickGroups({
   const limit = limitFor(className, level, abilityScores);
   if (!limit) return [];
   const levels = (availableLevelsFor(className, level) || []).filter((n) => Number(n) > 0);
+  const lines = spellPickLineFactory({
+    className, level, bundles, choices, knownItems, preparedItems, availableLevels: levels, levelByNameFn,
+  });
   const topLevel = levels.length ? Math.max(...levels) : 0;
-  const auto = alwaysPreparedSpellNames(bundles, level);
-  const autoAt = (levelNum) => [...auto].filter((name) => levelByNameFn(name) === levelNum).length;
-  const textOf = (item) => (typeof item === "string" ? item : item?.text);
-  const knownNames = (knownItems || []).map(textOf).filter(Boolean);
-  const knownAt = (levelNum) => knownNames.filter((name) => levelByNameFn(name) === levelNum).length;
 
-  const groups = [];
-  /** Spell levels this pick spans, for the shortfall maths. Cantrips are 0
-   *  only; the leveled line spans every available level at once, which is
-   *  what makes `limit.spells` a cap on the SUM rather than on one level. */
-  const spans = (part) => (part === "cantrips" ? [0] : levels);
-
-  /** What this group still owes: its cap, less what always-prepared spells
-   *  and spells the class already holds elsewhere already hold. The group's
-   *  own picks are excluded (see above). */
-  const shortfallFor = (part, cap) => {
-    if (cap <= 0) return 0;
-    const spanLevels = spans(part);
-    const autoHeld = spanLevels.reduce((n, lvl) => n + autoAt(lvl), 0);
-    const key = spellPickKey(className, part);
-    const own = (choices?.[key] || []).length;
-    const heldElsewhere = Math.max(
-      0,
-      knownNames.filter((name) => {
-        const lvl = levelByNameFn(name);
-        return spanLevels.includes(lvl) && !auto.has(name);
-      }).length - own,
-    );
-    return Math.max(0, cap - autoHeld - heldElsewhere);
-  };
-
-  const spellGroup = (part, label, cap, levelNum, maxLevel, exclude) => {
-    // Always-prepared spells inside THIS line's spell levels hold part of its
-    // allowance. Computed over the span, not just at level 0: the cantrips
-    // line happens to only span 0, but a leveled line spanning 1..N holds
-    // every auto spell at 1..N, and a domain's spells are leveled.
-    const spanLevels = spans(part);
-    const autoHeld = spanLevels.reduce((n, lvl) => n + autoAt(lvl), 0);
-    const remaining = cap - autoHeld;
-    if (remaining <= 0) return;
-    const allowance = shortfallFor(part, remaining);
-    groups.push({
-      id: `creation-${part}`,
-      key: spellPickKey(className, part),
-      label,
-      source: className,
-      // `part` is carried on the pick, not only encoded in the key, so a
-      // caller holding a group can tell the cantrips line from the known line
-      // from the prepared one without re-parsing a key string.
-      spellPick: { part, list: className, level: levelNum, maxLevel, exclude },
-      minSelections: allowance,
-      maxSelections: remaining,
-      minLevel: null,
-      choiceKind: "build",
-      category: "spells",
-    });
-  };
-
-  if (limit.cantrips > 0) spellGroup("cantrips", "Cantrips", limit.cantrips, 0, 0, [...auto]);
+  if (limit.cantrips > 0) lines.add("cantrips", "Cantrips", limit.cantrips, 0, 0);
 
   // The known/spellbook line, and the prepared line under it. A class with no
   // known list (the full-list preparers) has ONLY the prepared line - see
@@ -1006,25 +952,203 @@ export function creationSpellPickGroups({
       // cap - that number is the Wizard's PREPARED count and borrowing it
       // would cap the book at six while letting six more sit prepared.
       const uncapped = model?.knownCap === "unlimited";
-      spellGroup(
-        "spells",
-        model?.knownLabel || "Spells",
-        uncapped ? UNLIMITED_SPELL_CAP : limit.spells,
-        1,
-        topLevel,
-        [...auto],
-      );
+      lines.add("spells", model?.knownLabel || "Spells", uncapped ? UNLIMITED_SPELL_CAP : limit.spells, 1, topLevel);
       // And an uncapped line never blocks completeness - for a Wizard it is
       // the PREPARED line that has a required number, and requiring a
       // spellbook quota would invent a rule that does not exist.
-      if (uncapped) groups[groups.length - 1].minSelections = 0;
+      if (uncapped) lines.groups[lines.groups.length - 1].minSelections = 0;
     }
     if (model?.hasPreparedList) {
-      spellGroup("prepared", model?.preparedLabel || "Prepared Spells", limit.spells, 1, topLevel, []);
+      lines.add("prepared", model?.preparedLabel || "Prepared Spells", limit.spells, 1, topLevel);
     }
   }
-  return groups;
+  return lines.groups;
 }
+
+/** The machinery every spell-pick line shares, as one closure.
+ *
+ *  Both the creation wizard and the level-up wizard ask the same structural
+ *  question - how many of this list does this class still owe, given what is
+ *  always prepared and what it already holds - and differ only in WHICH
+ *  number they start from. Creation starts from the character's total; a
+ *  level-up starts from the DIFFERENCE between this level and the last one.
+ *  Keeping the arithmetic in one place is what stops those two from drifting
+ *  into disagreeing about the same character. */
+function spellPickLineFactory({
+  className, level = 1, bundles = [], choices = {}, knownItems = [], preparedItems = [],
+  availableLevels = [], levelByNameFn = () => null, keyFor = spellPickKey,
+}) {
+  const textOf = (item) => (typeof item === "string" ? item : item?.text);
+  const knownNames = (knownItems || []).map(textOf).filter(Boolean);
+  const preparedNames = (preparedItems || []).filter(Boolean);
+  const auto = alwaysPreparedSpellNames(bundles, level);
+  const groups = [];
+  const levels = [...availableLevels].sort((a, b) => a - b);
+
+  const autoAt = (levelNum) => [...auto].filter((name) => levelByNameFn(name) === levelNum).length;
+  const spans = (part) => (part === "cantrips" ? [0] : levels);
+  const autoHeldFor = (part) => spans(part).reduce((n, lvl) => n + autoAt(lvl), 0);
+
+  /** What this group still owes: its cap, less what always-prepared spells
+   *  and spells the class already holds elsewhere already hold. The group's
+   *  own picks are excluded (see creationSpellPickGroups' note). */
+  const shortfallFor = (part, cap) => {
+    if (cap <= 0) return 0;
+    const spanLevels = spans(part);
+    const key = keyFor(className, part);
+    const own = (choices?.[key] || []).length;
+    const pool = part === "prepared" ? preparedNames : knownNames;
+    const heldElsewhere = Math.max(
+      0,
+      pool.filter((name) => {
+        if (auto.has(name)) return false;
+        // A prepared line's pool is not spell-level-indexed the way the
+        // known list is, so every held name counts toward it.
+        if (part === "prepared") return true;
+        return spanLevels.includes(levelByNameFn(name));
+      }).length - own,
+    );
+    return Math.max(0, cap - autoHeldFor(part) - heldElsewhere);
+  };
+
+  /** Build one line, or nothing when its allowance is already used up. */
+  function add(part, label, cap, levelNum, maxLevel) {
+    // Always-prepared spells inside THIS line's spell levels hold part of its
+    // allowance. Computed over the span, not just at level 0: the cantrips
+    // line happens to only span 0, but a leveled line spanning 1..N holds
+    // every auto spell at 1..N, and a domain's spells are leveled.
+    const remaining = cap - autoHeldFor(part);
+    if (remaining <= 0) return;
+    groups.push({
+      id: `creation-${part}`,
+      key: keyFor(className, part),
+      label,
+      source: className,
+      // `part` is carried on the pick, not only encoded in the key, so a
+      // caller holding a group can tell the cantrips line from the known line
+      // from the prepared one without re-parsing a key string.
+      spellPick: { part, list: className, level: levelNum, maxLevel, exclude: [...auto] },
+      minSelections: shortfallFor(part, remaining),
+      maxSelections: remaining,
+      minLevel: null,
+      choiceKind: "build",
+      category: "spells",
+    });
+  }
+
+  return { add, groups, auto, availableLevels: levels, alwaysPrepared: auto };
+}
+
+/** How many NEW spells a class gains by taking this level - the difference
+ *  between the spells-known table at this level and at the one below.
+ *
+ *  Read off `limitFor` rather than a second table, so it moves with the same
+ *  data the totals come from. It is not always one: the table gives a Ranger
+ *  +2, +1, +0, +1, +0 across levels 2-6, and a Paladin alternates its
+ *  prepared count. So the caller has to handle zero as well as more than one.
+ *
+ *  A prepared caster returns 0 here on purpose. It does not gain "new" spells,
+ *  it gains a bigger prepared allowance and re-prepares from scratch; asking
+ *  for its delta would ask a Cleric to pick the one spell its new level
+ *  "granted", which is not what levelling a prepared caster does.
+ *
+ *  `cantripDelta` likewise comes from the cantrip table, which steps at 4, 10
+ *  and 14 rather than every level.
+ *
+ *  Pure. */
+export function levelUpSpellGain({ className, level, previousLevel, abilityScores = {}, limitFor = () => null, model = null }) {
+  const now = limitFor(className, level, abilityScores);
+  if (!now) return null;
+  const before = limitFor(className, previousLevel, abilityScores);
+  if (!before) return { spellGain: 0, cantripGain: 0, limit: now, previousLimit: null };
+  return {
+    // 0 for a prepared caster, by the note above.
+    spellGain: model?.hasPreparedList ? 0 : Math.max(0, now.spells - before.spells),
+    cantripGain: Math.max(0, now.cantrips - before.cantrips),
+    limit: now,
+    previousLimit: before,
+  };
+}
+
+/** The spell-pick groups for a level being TAKEN, as opposed to a character
+ *  being created.
+ *
+ *  Same line shape, same keys, same dialog, same cap arithmetic - built by the
+ *  same spellPickLineFactory as the creation groups, which is the point: the
+ *  two wizards must not drift into disagreeing about the same character.
+ *
+ *  What differs is the NUMBER each line starts from:
+ *
+ *  - A known caster is asked only for what this level ADDS. The cap is the
+ *    delta of the spells-known table, not its total - a Sorcerer at level 5
+ *    knows 6 spells and gains 1, so asking for 6 again would demand six more.
+ *  - A cantrip line only appears when the cantrip table actually steps at
+ *    this level. A level that grants no new cantrip shows no cantrip line
+ *    rather than one with a cap of zero.
+ *  - A prepared caster is asked to RE-PREPARE to the new limit. Its prepared
+ *    line's cap is the whole new allowance, and the shortfall is measured
+ *    against what is already prepared, so a Cleric who is one short knows it.
+ *  - A spellbook (Wizard) gets both, as at creation: the book is free-form,
+ *    and the prepared subset is drawn from it.
+ *
+ *  Deliberately absent: SWAPPING a known spell. Nothing in this repo's rules
+ *  data says a class may exchange one, and inventing a swap flow would be
+ *  inventing a rule.
+ *
+ *  deps as creationSpellPickGroups, plus `previousLevel`. Pure. */
+export function levelUpSpellPickGroups({
+  className,
+  level = 2,
+  previousLevel = null,
+  abilityScores = {},
+  bundles = [],
+  choices = {},
+  knownItems = [],
+  preparedItems = [],
+  limitFor = () => null,
+  availableLevelsFor = () => [],
+  levelByNameFn = () => null,
+  model = null,
+} = {}) {
+  if (!className) return [];
+  const before = previousLevel == null ? Math.max(1, level - 1) : previousLevel;
+  const gain = levelUpSpellGain({ className, level, previousLevel: before, abilityScores, limitFor, model });
+  if (!gain) return [];
+  const available = (availableLevelsFor(className, level) || []).filter((n) => Number(n) > 0);
+  const topLevel = available.length ? Math.max(...available) : 0;
+  if (!topLevel) return [];
+  const lines = spellPickLineFactory({
+    className,
+    level,
+    bundles,
+    choices,
+    knownItems,
+    preparedItems,
+    availableLevels: available,
+    levelByNameFn,
+    // Level-up picks live in the pending state, not under the creation key
+    // they share with a character being built - the same character can pass
+    // through both, and pruning one must not touch the other.
+    keyFor: (name, part) => `levelup:${name}:${part}`,
+  });
+
+  if (gain.cantripGain > 0) {
+    lines.add("cantrips", "New cantrips", gain.cantripGain, 0, 0);
+  }
+  if (model?.hasKnownList !== false) {
+    const uncapped = model?.knownCap === "unlimited";
+    // For a spellbook the book is still free-form: this level does not cap
+    // what you copy into it.
+    lines.add("spells", uncapped ? (model?.knownLabel || "Spellbook") : "New spells",
+      uncapped ? UNLIMITED_SPELL_CAP : gain.spellGain, 1, topLevel);
+    if (uncapped) lines.groups[lines.groups.length - 1].minSelections = 0;
+  }
+  if (model?.hasPreparedList) {
+    lines.add("prepared", model?.preparedLabel || "Prepared Spells", gain.limit.spells, 1, topLevel);
+  }
+  return lines.groups;
+}
+
 
 /** Which of `items` the shared spell dialog would offer for a spell pick -
  *  the class list at the pick's level (through `maxLevel`), minus the
@@ -1887,6 +2011,92 @@ export function filterSortSpells(spells, { tag = "all", sort = "name" } = {}) {
     filtered.sort((a, b) => a.name.localeCompare(b.name));
   }
   return filtered;
+}
+
+/** Spell names on the BARD's own list at these spell levels - the spells
+ *  the Bard already has through being a Bard, which Magical Secrets must not
+ *  offer again. Derived from the catalog's class field rather than a
+ *  hand-kept list. Pure. */
+export function firmBardSpellNames(levels, spellsForLevelFn = () => []) {
+  const set = new Set();
+  for (const lvl of levels || []) {
+    for (const spell of spellsForLevelFn(lvl, "Bard") || []) {
+      if (spell?.name && (spell.classList || []).some((c) => String(c).toLowerCase() === "bard")) {
+        set.add(spell.name);
+      }
+    }
+  }
+  return set;
+}
+
+/** The Magical Secrets picker for the LEVEL-UP wizard: an any-class
+ *  multi-picker over the Bard's available spell levels, capped at the
+ *  still-unpicked unlock total, writing straight to Spells Known.
+ *
+ *  It lives here, next to renderSpellPickerInto, because that is where it
+ *  belongs: it is a thin configuration of the shared picker, and during
+ *  CREATION it does not exist at all - Magical Secrets is a real choice group
+ *  on the Bard's class bundle, so a character being built picks it on the
+ *  class row like every other choice. Only levelling up hands out new
+ *  Secrets, and that is where the picker is needed.
+ *
+ *  Renders nothing when no Secrets are unlocked, so non-Bards never see it.
+ *  Says so in plain words rather than opening an empty dialog when no Spell
+ *  List catalog is imported.
+ *
+ *  deps: the shared spell picker's, plus { magicSecretsUnlockedFn,
+ *  secretsPickedCountFn, secretsCompleteForFn, bardPlanFn,
+ *  availableLevelsFn, fieldItemsFn, levelByNameFn, spellsForLevelFn, ensureFieldFn,
+ *  appendUniqueFn, saveFn, gridFn, multiRowsFn, noteFn }. */
+export function renderMagicalSecretsInto(container, { className, level, subclassName = "" }, deps) {
+  const {
+    magicSecretsUnlockedFn = () => 0,
+    secretsPickedCountFn = () => 0,
+    bardPlanFn = () => null,
+    availableLevelsFn = () => [],
+    fieldItemsFn = () => [],
+    levelByNameFn = () => null,
+    spellsForLevelFn = () => [],
+    ensureFieldFn = () => null,
+    appendUniqueFn = () => {},
+    saveFn = () => {},
+    gridFn = () => {},
+    multiRowsFn = () => {},
+    noteFn = () => {},
+    spellcastingInfoFn = () => null,
+    planFn = () => null,
+    limitsFn = () => null,
+  } = deps;
+  const unlocked = magicSecretsUnlockedFn(className, subclassName, level);
+  if (!unlocked) return;
+  const bardLevel = Math.max(1, level);
+  const levels = availableLevelsFn(bardPlanFn("Bard", bardLevel));
+  const bardNames = firmBardSpellNames(levels, spellsForLevelFn);
+  const picked = secretsPickedCountFn(fieldItemsFn(), [...bardNames]);
+  const remaining = Math.max(0, unlocked - picked);
+  container.append(el("p", {
+    class: "wizard__section-label",
+    text: `Magical Secrets — stolen spells (${Math.min(picked, unlocked)}/${unlocked})`,
+  }));
+  if (!spellsForLevelFn(0, null).length && !levels.some((lvl) => lvl > 0 && spellsForLevelFn(lvl, null).length)) {
+    noteFn(container, "No Spell List catalog imported yet — track Magical Secrets directly on the sheet's Spells Known list.");
+    return;
+  }
+  renderSpellPickerInto(container, { rulesetId: null, className: "Bard", level: bardLevel }, {
+    spellcastingInfoFn,
+    ensureFieldFn,
+    planFn,
+    // Secrets are leveled spells from any list — no cantrips, and only the
+    // still-unpicked unlock total (recomputed every render).
+    limitFn: () => ({ cantrips: 0, spells: remaining, style: "known" }),
+    levelByNameFn,
+    spellsForLevelFn: (lvl) => spellsForLevelFn(lvl, null).filter((s) => !bardNames.has(s.name)),
+    appendUniqueFn,
+    saveFn,
+    gridFn,
+    multiRowsFn,
+  });
+  void limitsFn;
 }
 
 export function renderSpellPickerInto(container, { rulesetId, className, level }, deps) {

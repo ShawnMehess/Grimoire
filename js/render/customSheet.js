@@ -256,6 +256,8 @@ import {
   preparedLineLock,
   applySpellPickWrite,
   preparedCountOver,
+  levelUpSpellPickGroups,
+  renderMagicalSecretsInto,
   applySpellPickToItems,
   alwaysPreparedSpellNames,
   creationSpellPickGroups,
@@ -3845,28 +3847,10 @@ const closeDialog = () => {
       .filter((section) => section.features.length);
   }
 
-  /** Spell picks complete for the given class/level: every available
-   *  spell level is at its cantrips/spells cap. Non-casters (or a
-   *  missing limit) are trivially complete.
-   *
-   *  Still used by the LEVEL-UP wizard's Spells step, which is a different
-   *  flow from creation: there the player is topping up an existing character
-   *  rather than filling a blank sheet, and the step asks "have you taken the
-   *  spells this level gives you" rather than gating a from-scratch pick.
-   *  The creation wizard no longer needs it - the inline class-row picks gate
-   *  through groupPicksSatisfied like every other choice group. */
-  function spellPicksComplete(className, level) {
-    if (!getRulesetClass(character.rules?.rulesetId, className)?.caster) return true;
-    const limit = spellLimitFor(className, level, character.rules?.abilityScores);
-    if (!limit) return true;
-    const field = findStarterField("spellsKnown", "Spells Known");
-    const known = new Set(field?.items || []);
-    const counts = sharedSpellCountByLevel(known, (n) => spellLevelByName(n));
-    const plan = getLevelUpPlan(character.rules?.rulesetId, className, level);
-    return sharedAvailableSpellLevels(plan).every(
-      (lvl) => !sharedCanLearnMore(lvl, limit, counts.cantrips, counts.spells)
-    );
-  }
+  // spellPicksComplete used to live here. It has no caller left: the
+  // creation wizard gates through the inline class-row picks, and the
+  // level-up wizard moved to the same shared lines, so both read
+  // groupPicksSatisfied rather than this. Removed with them.
 
   // Same checkbox/radio-group rendering as the Leveling wizard's
   // "Choices" step (see the contentGroups step further down) — both
@@ -3977,25 +3961,16 @@ const closeDialog = () => {
     return spellLevelByNameIn(spellListCatalog(), name);
   }
 
-  function renderSpellPicker(container, { rulesetId, className, level }) {
-    renderSpellPickerInto(container, { rulesetId, className, level }, {
-      spellcastingInfoFn: (name) => getSpellcastingInfo(name),
-      ensureFieldFn: () => ensureSpellListField(),
-      planFn: (id, name, lvl) => getLevelUpPlan(id, name, lvl),
-      limitFn: (name, lvl) => spellLimitFor(name, lvl, character.rules?.abilityScores),
-      levelByNameFn: (name) => spellLevelByName(name),
-      spellsForLevelFn: (lvl, name) => spellsForLevel(lvl, name),
-      appendUniqueFn: (field, name) => appendUniqueTextListItem(field, name),
-      saveFn: () => saveWithStatus("layout", character.layout),
-      gridFn: () => renderPageGrid(),
-      multiRowsFn: (c, names, opts) => renderPickerRows(c, names, { ...opts, mode: "multi" }),
-    });
-  }
+  // renderSpellPicker used to live here: the shared picker, wired to this
+  // sheet's spell list. Removed when the LEVEL-UP wizard's Spells step moved
+  // to the same inline lines the creation wizard uses - so nothing called it.
 
   /** Names firmly on the Bard list (explicitly Bard-tagged, not merely
    *  unlisted-everywhere entries) across `levels` — shared by the
    *  Magical Secrets picker and its completeness count so both agree
-   *  on what counts as a Secret. */
+   *  on what counts as a Secret. The picker itself takes the exported
+   *  `firmBardSpellNames` from sheetWizard.js; this is the sheet-bound
+   *  spelling of the same thing, for the Express fill below. */
   function firmBardSpellNames(levels) {
     const set = new Set();
     (levels || []).forEach((lvl) => spellsForLevel(lvl, "Bard").forEach((s) => {
@@ -6773,31 +6748,148 @@ const closeDialog = () => {
     }
 
     if (slots) {
+      const levelRulesetId = character.rules?.rulesetId || character.rulesetId;
+      const levelModel = spellcastingModelFor(levelClass, levelRulesetId, {
+        infoFor: (name) => getSpellcastingInfo(name),
+      });
+      /** The level-up spell lines: what THIS level adds, built by the same
+       *  machinery as creation's so the two cannot disagree. */
+      const levelUpGroups = () => {
+        const field = ensureSpellListField();
+        return levelUpSpellPickGroups({
+          className: levelClass,
+          level: newClassLevel,
+          previousLevel: newClassLevel - 1,
+          abilityScores: character.rules?.abilityScores,
+          bundles: [
+            bundleFor("Class", levelClass, includedRulesetIds(character.rules)),
+            bundleFor("Subclass", pending.subclass || selectedSubclass || "", includedRulesetIds(character.rules)),
+          ].filter(Boolean),
+          choices: pending.levelUpChoices || {},
+          knownItems: field?.items || [],
+          preparedItems: field?.preparedItems || [],
+          limitFor: (name, lvl, scores) => spellLimitFor(name, lvl, scores),
+          availableLevelsFor: (name, lvl) => sharedAvailableSpellLevels(getLevelUpPlan(levelRulesetId, name, lvl)),
+          levelByNameFn: (name) => spellLevelByName(name),
+          model: levelModel,
+        });
+      };
+      /** The pending level-up picks live apart from the creation picks so
+       *  that pruning one - on a class change, say - cannot take the other's
+       *  spells off the sheet. */
+      const pendingSpellChoices = pending.levelUpChoices || {};
+      const setPendingSpellChoices = (next) => {
+        pending.levelUpChoices = next;
+        refreshWizardNav();
+      };
       steps.push({
         id: "spells",
         title: "Spells",
-        description: "Your spellcasting improves at this level. Check off any new spells you've picked up — this writes straight to the Spells Known list on the main sheet.",
-        // Multiclass levels enforce the level's own class caps against
-        // that class's spells only, so the other class's spells in the
-        // shared Spells Known list can neither satisfy nor block them.
+        description: "Your spellcasting improves at this level. Pick what this level ADDS — everything else you already have is untouched.",
+        // Multiclass levels enforce this class's own caps against this
+        // class's spells only, so another class's spells in the shared
+        // Spells Known list can neither satisfy nor block them.
         isComplete: () => {
           if (!secretsSatisfiedFor(levelClass, newClassLevel, pending.subclass || selectedSubclass || "")) return false;
-          if (multiclassEntries().length || takingNewClass) {
-            return spellPicksCompleteForClass({
-              knownItems: findStarterField("spellsKnown", "Spells Known")?.items || [],
-              className: levelClass,
-              limit: spellLimitFor(levelClass, newClassLevel, character.rules?.abilityScores),
-              availableLevels: sharedAvailableSpellLevels(getLevelUpPlan(character.rules?.rulesetId || character.rulesetId, levelClass, newClassLevel)),
-              spellsForLevelFn: (lvl, name) => spellsForLevel(lvl, name),
-              levelByNameFn: (n) => spellLevelByName(n),
-            });
-          }
-          return spellPicksComplete(levelClass, newClassLevel);
+          return levelUpGroups().every((g) => groupPicksSatisfied(g, pendingSpellChoices[g.key] || []));
         },
         render(container) {
           noteInto(container, `This ruleset sets your spell slots to ${slots} at this level.`, "level-guide__summary");
-          renderSpellPicker(container, { rulesetId: character.rules?.rulesetId || character.rulesetId, className: levelClass, level: newClassLevel });
-          renderSecretsSectionInto(container, levelClass, newClassLevel, pending.subclass || selectedSubclass || "");
+          const field = ensureSpellListField();
+          const bundles = [
+            bundleFor("Class", levelClass, includedRulesetIds(character.rules)),
+            bundleFor("Subclass", pending.subclass || selectedSubclass || "", includedRulesetIds(character.rules)),
+          ].filter(Boolean);
+          const alwaysPrepared = alwaysPreparedSpellNames(bundles, newClassLevel);
+          const groups = levelUpGroups();
+          if (!groups.length) {
+            noteInto(container, "Nothing new to pick at this level.");
+          }
+          const list = el("ul", { class: "mechanics-list level-up-spell-lines" });
+          for (const group of groups) {
+            const isPrepared = group.spellPick.part === "prepared";
+            const model = levelModel;
+            const spellbook = (field?.items || []).map((it) => (typeof it === "string" ? it : it?.text)).filter(Boolean);
+            const preparingFromKnown = isPrepared && model?.preparedFrom === "known";
+            const lockReason = isPrepared
+              ? preparedLineLock({ preparedFrom: model?.preparedFrom, knownNames: spellbook })
+              : null;
+            const options = preparingFromKnown
+              ? spellbook.map((name) => ({ id: name, name, description: "In your spellbook" }))
+              : spellPickDialogOptions({
+                spellPick: group.spellPick,
+                spellsForLevelFn: (lvl, list) => spellsForLevel(lvl, list),
+              });
+            const picked = pendingSpellChoices[group.key] || [];
+            const overBy = isPrepared
+              ? preparedCountOver({
+                prepared: (field?.preparedItems || []).concat([...alwaysPrepared]),
+                limit: group.maxSelections,
+                preparedFrom: model?.preparedFrom,
+                cantripsCountAsPrepared: model?.countsCantrips,
+                knownItems: field?.items || [],
+                levelByNameFn: (n) => spellLevelByName(n),
+              })
+              : 0;
+            list.append(renderLiveBulletItem({
+              live: true,
+              topic: group.label,
+              indent: isPrepared,
+              locked: Boolean(lockReason),
+              warning: overBy > 0
+                ? `You have ${overBy} more prepared than you can cast at this level — that's fine while you are still setting ability scores.`
+                : null,
+              lead: [{ text: lockReason || (picked.length ? picked.join(", ") : `Choose ${group.maxSelections}`) }],
+              dialogOpener: lockReason || !options.length ? undefined : () => openChoiceDialog({
+                title: group.label,
+                multi: group.maxSelections !== 1,
+                maxSelections: group.maxSelections ?? 1,
+                options,
+                initialSelected: picked,
+                onAccept: (ids) => {
+                  const target = ensureSpellListField();
+                  if (target) {
+                    const written = applySpellPickWrite({
+                      part: group.spellPick.part,
+                      items: target.items || [],
+                      preparedItems: target.preparedItems || [],
+                      previous: picked,
+                      next: ids || [],
+                      heldByOtherPicks: [],
+                      alwaysPrepared,
+                    });
+                    target.items = written.items;
+                    target.preparedItems = written.preparedItems;
+                  }
+                  setPendingSpellChoices({ ...pendingSpellChoices, [group.key]: ids || [] });
+                  saveWithStatus("layout", character.layout);
+                  renderPageGrid();
+                },
+              }),
+            }));
+          }
+          container.append(list);
+          renderMagicalSecretsInto(container, {
+            className: levelClass,
+            level: newClassLevel,
+            subclassName: pending.subclass || selectedSubclass || "",
+          }, {
+            magicSecretsUnlockedFn: magicalSecretsUnlocked,
+            secretsPickedCountFn: secretsPickedCount,
+            bardPlanFn: (name, lvl) => getLevelUpPlan(levelRulesetId, name, lvl),
+            availableLevelsFn: sharedAvailableSpellLevels,
+            fieldItemsFn: () => ensureSpellListField()?.items || [],
+            levelByNameFn: (n) => spellLevelByName(n),
+            spellsForLevelFn: (lvl, list) => spellsForLevel(lvl, list),
+            ensureFieldFn: () => ensureSpellListField(),
+            appendUniqueFn: (f, name) => appendUniqueTextListItem(f, name),
+            saveFn: () => saveWithStatus("layout", character.layout),
+            gridFn: () => renderPageGrid(),
+            multiRowsFn: (c, names, opts) => renderPickerRows(c, names, { ...opts, mode: "multi" }),
+            noteFn: noteInto,
+            spellcastingInfoFn: (name) => getSpellcastingInfo(name),
+            planFn: (id, name, lvl) => getLevelUpPlan(id || levelRulesetId, name, lvl),
+          });
         },
       });
     }

@@ -37,6 +37,8 @@ import {
   preparedLineLock,
   applySpellPickWrite,
   preparedCountOver,
+  levelUpSpellGain,
+  levelUpSpellPickGroups,
   pruneOrphanedChoiceKeys,
   groupPicksSatisfied,
 } from "../js/render/sheet/sheetWizard.js";
@@ -881,5 +883,189 @@ describe("preparedCountOver", () => {
   it("has no limit to exceed", () => {
     assert.equal(preparedCountOver({ prepared: ["A"], limit: 0 }), 0);
     assert.equal(preparedCountOver(), 0);
+  });
+});
+
+// ===========================================================================
+// Section 4: the level-up wizard asks for what the level ADDS, not for the
+// total again.
+describe("levelUpSpellGain", () => {
+  const gain = (className, level, abilityScores = SCORES, rulesetId = "dnd5e-2014") =>
+    levelUpSpellGain({
+      className, level, previousLevel: level - 1, abilityScores,
+      limitFor: spellLimitFor,
+      model: modelFor(className, rulesetId),
+    });
+
+  it("is the DIFFERENCE between this level and the last, not the total", () => {
+    // A Sorcerer at level 5 knows 6 spells and gains 1. Asking for 6 again
+    // would demand six more spells on top of the six they already have.
+    for (const className of ["Sorcerer", "Bard", "Warlock"]) {
+      for (const level of [2, 3, 5, 8]) {
+        const g = gain(className, level);
+        const total = spellLimitFor(className, level, SCORES).spells;
+        assert.equal(g.spellGain, 1, `${className} L${level}`);
+        assert.ok(g.spellGain < total, `the gain (${g.spellGain}) is below the total (${total})`);
+      }
+    }
+  });
+
+  it("is not always one, and can be zero", () => {
+    // The table gives a Ranger +2, +1, +0, +1, +0 across levels 2-6. A
+    // builder that assumed "+1 per level" would be wrong on three of those.
+    assert.equal(gain("Ranger", 2).spellGain, 2);
+    assert.equal(gain("Ranger", 4).spellGain, 0);
+    assert.equal(gain("Ranger", 6).spellGain, 0);
+  });
+
+  it("is zero for a prepared caster, which gains an allowance not new spells", () => {
+    // A Cleric levelling does not "gain a spell"; it gains a bigger prepared
+    // allowance and re-prepares. Asking for the delta would ask for the one
+    // spell its new level granted, which is not what levelling a prepared
+    // caster does.
+    for (const className of ["Cleric", "Wizard", "Druid", "Paladin"]) {
+      assert.equal(gain(className, 5).spellGain, 0, `${className}`);
+      assert.ok(gain(className, 5).limit.spells > 0, "but its prepared count is real");
+    }
+  });
+
+  it("reports a cantrip gain only at a level the cantrip table steps", () => {
+    // Cantrips step at 4, 10 and 14 - not every level.
+    assert.equal(gain("Sorcerer", 3).cantripGain, 0, "level 3 gains none");
+    assert.equal(gain("Sorcerer", 4).cantripGain, 1, "level 4 gains one");
+    assert.equal(gain("Sorcerer", 5).cantripGain, 0, "level 5 gains none");
+  });
+
+  it("carries both limits so a drop can be detected", () => {
+    const g = gain("Cleric", 5);
+    assert.equal(g.limit.spells, 8);
+    assert.equal(g.previousLimit.spells, 7);
+  });
+
+  it("says nothing for a non-caster", () => {
+    assert.equal(gain("Fighter", 5), null);
+  });
+
+  it("a level below 1 clamps to level 1, so it grants nothing", () => {
+    // Level 0 is not a real level. getSpellcastingInfo clamps it to 1, so
+    // `before` is level 1's own numbers and the delta is 0. Pinned because
+    // the alternative reading - "no previous level exists" - would be a
+    // NaN cap on the line rather than a quiet zero.
+    const g = levelUpSpellGain({
+      className: "Sorcerer", level: 1, previousLevel: 0, abilityScores: SCORES,
+      limitFor: spellLimitFor, model: modelFor("Sorcerer"),
+    });
+    assert.equal(g.spellGain, 0, "no phantom spells at level 1");
+    assert.ok(Number.isFinite(g.limit.spells), "and the cap is still a number");
+  });
+});
+
+describe("levelUpSpellPickGroups", () => {
+  const groupsFor = (className, level, { previousLevel = level - 1, choices = {}, knownItems = [], preparedItems = [], abilityScores = SCORES, rulesetId = "dnd5e-2014" } = {}) =>
+    levelUpSpellPickGroups({
+      className,
+      level,
+      previousLevel,
+      abilityScores,
+      choices,
+      knownItems,
+      preparedItems,
+      limitFor: spellLimitFor,
+      availableLevelsFor: (n, l) => availableLevelsFor(n, l, rulesetId),
+      levelByNameFn: levelByName,
+      model: modelFor(className, rulesetId),
+    });
+  const leveledOf = (groups) => groups.find((g) => g.spellPick.part === "spells");
+  const preparedOf = (groups) => groups.find((g) => g.spellPick.part === "prepared");
+
+  it("a known caster is asked for one new spell, not its whole spellbook", () => {
+    const groups = groupsFor("Sorcerer", 5);
+    assert.equal(leveledOf(groups).maxSelections, 1, "one new spell at level 5");
+    assert.equal(leveledOf(groups).label, "New spells");
+    assert.equal(groups.find((g) => g.spellPick.level === 0), undefined,
+      "and no cantrip line, because the cantrip table did not step at 5");
+  });
+
+  it("does show a cantrip line at a level the cantrip table steps", () => {
+    const groups = groupsFor("Sorcerer", 4);
+    const cantrips = groups.find((g) => g.spellPick.level === 0);
+    assert.ok(cantrips, "level 4 grants a cantrip");
+    assert.equal(cantrips.maxSelections, 1);
+    assert.equal(cantrips.label, "New cantrips");
+  });
+
+  it("shows no cantrip line at all rather than one with a cap of zero", () => {
+    const groups = groupsFor("Sorcerer", 3);
+    assert.deepEqual(groups.map((g) => g.spellPick.part), ["spells"]);
+  });
+
+  it("a prepared caster is asked to re-prepare to the NEW limit", () => {
+    const groups = groupsFor("Cleric", 5);
+    assert.deepEqual(groups.map((g) => g.spellPick.part), ["prepared"]);
+    assert.equal(preparedOf(groups).maxSelections, spellLimitFor("Cleric", 5, SCORES).spells);
+    assert.equal(leveledOf(groups), undefined, "and no 'new spells' line, because it has none");
+  });
+
+  it("the prepared shortfall is measured against what is ALREADY prepared", () => {
+    const none = preparedOf(groupsFor("Cleric", 5, { preparedItems: [] })).minSelections;
+    const eight = preparedOf(groupsFor("Cleric", 5, { preparedItems: ["A", "B", "C", "D", "E", "F", "G", "H"] })).minSelections;
+    const cap = spellLimitFor("Cleric", 5, SCORES).spells;
+    assert.equal(none, cap, "none prepared: owes the whole allowance");
+    assert.equal(eight, 0, "eight already prepared against a cap of eight: owes none");
+    assert.equal(preparedOf(groupsFor("Cleric", 5, { preparedItems: ["A"] })).minSelections, cap - 1,
+      "one prepared: owes one less");
+  });
+
+  it("a spellbook gets both lines, still uncapped for the book", () => {
+    const groups = groupsFor("Wizard", 5);
+    assert.deepEqual(groups.map((g) => g.spellPick.part), ["spells", "prepared"]);
+    assert.equal(leveledOf(groups).maxSelections, UNLIMITED_SPELL_CAP, "the book is free-form");
+    assert.equal(leveledOf(groups).minSelections, 0, "and does not block");
+    assert.equal(preparedOf(groups).maxSelections, spellLimitFor("Wizard", 5, SCORES).spells);
+  });
+
+  it("shows nothing at a level with no spell slots", () => {
+    assert.deepEqual(groupsFor("Paladin", 1, { previousLevel: 1 }), []);
+    assert.deepEqual(groupsFor("Fighter", 5), []);
+  });
+
+  it("keeps level-up picks under their OWN keys, not the creation ones", () => {
+    // The same character passes through both wizards. Sharing a key would
+    // mean pruning one - on a class change - silently took the other's
+    // spells off the sheet.
+    const groups = groupsFor("Sorcerer", 5);
+    for (const g of groups) {
+      assert.ok(g.key.startsWith("levelup:"), `${g.key} is namespaced away from creation`);
+    }
+    assert.notEqual(groups[0].key, spellPickKey("Sorcerer", "spells"));
+  });
+
+  it("uses the same line shape as creation, so one renderer serves both", () => {
+    const created = creationSpellPickGroups({
+      className: "Wizard", level: 5, abilityScores: SCORES, choices: {},
+      limitFor: spellLimitFor, availableLevelsFor, levelByNameFn: levelByName,
+      model: modelFor("Wizard"),
+    });
+    const leveled = groupsFor("Wizard", 5);
+    for (const key of ["label", "source", "choiceKind", "category"]) {
+      assert.ok(created.every((g) => key in g), `creation groups carry ${key}`);
+      assert.ok(leveled.every((g) => key in g), `level-up groups carry ${key}`);
+    }
+    // Same parts and same order once the cantrip line is set aside: level 5
+    // adds no cantrip, so the level-up step has one fewer line and that is
+    // the point rather than an inconsistency.
+    const leveledOnly = (gs) => gs.filter((g) => g.spellPick.level > 0).map((g) => g.spellPick.part);
+    assert.deepEqual(leveledOnly(created), leveledOnly(leveled),
+      "the same leveled parts, in the same order");
+    assert.equal(created.find((g) => g.spellPick.level === 0) !== undefined, true,
+      "creation always shows the cantrips line");
+    assert.equal(groupsFor("Sorcerer", 4).some((g) => g.spellPick.level === 0), true,
+      "and level-up shows it at a level that grants one");
+  });
+
+  it("spans every available spell level, like creation", () => {
+    const leveled = leveledOf(groupsFor("Sorcerer", 5));
+    const available = availableLevelsFor("Sorcerer", 5);
+    assert.equal(leveled.spellPick.maxLevel, Math.max(...available));
   });
 });

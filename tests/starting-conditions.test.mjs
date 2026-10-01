@@ -49,11 +49,14 @@ describe("the wizard has no Spells or Gear tab", () => {
   });
 
   it("has no function left that only the deleted step called", () => {
-    // renderSecretsSectionInto was creation-only. spellPicksComplete and
-    // secretsSatisfiedFor survive because the LEVEL-UP wizard's Spells step
-    // still uses them - deleting those would break leveling.
+    // renderSpellPicker and renderSecretsSectionInto were creation-only.
+    // spellPicksComplete is ALSO gone now - the level-up Spells step moved to
+    // the shared inline lines in the section-4 commit, so nothing needs it.
+    // secretsSatisfiedFor survives: the level-up wizard still uses it to gate
+    // Magical Secrets.
     assert.doesNotMatch(src, /function renderSecretsSectionInto/);
-    assert.match(src, /function spellPicksComplete\(/, "still used by level-up");
+    assert.doesNotMatch(src, /function renderSpellPicker\(/);
+    assert.doesNotMatch(src, /function spellPicksComplete\(/);
     assert.match(src, /function secretsSatisfiedFor\(/, "still used by level-up");
   });
 
@@ -76,18 +79,29 @@ describe("the wizard has no Spells or Gear tab", () => {
     assert.match(levelUp, /id: "spells"/);
   });
 
-  it("still calls every renderer the parked block referenced", () => {
+  it("still calls every renderer the parked GEAR block referenced", () => {
     // The parking is UI-only. If any of these has no remaining caller, the
     // block really is dead and the comment above it is now lying.
     for (const fn of [
       "renderStartingEquipmentStepInto",
       "renderEquipmentProficienciesStepInto",
       "renderInnateAbilitiesStepInto",
-      "renderSpellPicker",
     ]) {
       const calls = src.split(`\n`).filter((l) => l.includes(`${fn}(`) && !l.trim().startsWith("//"));
       assert.ok(calls.length > 0, `${fn} has no live caller left`);
     }
+  });
+
+  it("keeps the shared spell picker alive, for Magical Secrets", () => {
+    // The Spells step's own picker is gone, but renderSpellPickerInto is not:
+    // renderMagicalSecretsInto is built on it, and Magical Secrets is only
+    // handed out at LEVEL UP. Losing it would mean a Bard levelling into
+    // their 10th-level unlock had no way to take it.
+    assert.match(src, /renderSpellPickerInto/);
+    const wizard = fs.readFileSync(new URL("../js/render/sheet/sheetWizard.js", import.meta.url), "utf8");
+    assert.match(wizard, /export function renderSpellPickerInto/);
+    assert.match(wizard, /export function renderMagicalSecretsInto/);
+    assert.match(wizard, /renderSpellPickerInto\(container/, "and Magical Secrets really does call it");
   });
 });
 
