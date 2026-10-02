@@ -1646,6 +1646,126 @@ for (const viewport of viewportSizes) {
   await runViewportTests(viewport);
 }
 
+
+// check() is scoped inside runViewportTests; this block is module level,
+// so it uses its own reporter writing to the same failures array.
+// check() is scoped inside runViewportTests; this block is module level, so
+// it gets its own reporter writing to the same failures array.
+const phoneCheck = (cond, msg) => {
+  if (!cond) failures.push("[phone] " + msg);
+  console.log((cond ? "ok" : "FAIL") + " [phone]: " + msg);
+};
+
+
+// --- Phone portrait: Your Characters -------------------------------------
+//
+// Two complaints: the cards were three across when four fit, and the level /
+// race / class lines were not displayed at all on a phone - the media query
+// set .character-card__meta-lines to display:none, so a phone showed a
+// portrait and a name and nothing else.
+{
+  const phone = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  phone.on("pageerror", (e) => problems.push(`PAGEERROR [phone]: ${e.message}`));
+  await phone.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+  await phone.waitForTimeout(1500);
+  // Assert the CSS viewport the media queries actually see. Playwright's
+  // isMobile option changes device emulation and the resolved viewport, which
+  // makes the layout width something other than the viewport passed in - so
+  // a "phone" page can quietly fail every max-width query and still look
+  // like it was tested. Read it back rather than assuming.
+  const vpWidth = await phone.evaluate(() => window.innerWidth);
+  phoneCheck(vpWidth <= 600,
+    `the page really is a phone-width viewport (innerWidth=${vpWidth})`);
+  const gridRule = await phone.evaluate(() => {
+    const grid = document.querySelector(".character-card-grid");
+    if (!grid) return null;
+    const cs = getComputedStyle(grid);
+    return { cols: cs.gridTemplateColumns, gap: cs.gap };
+  });
+  phoneCheck(!!gridRule && String(gridRule.cols).split(" ").length >= 4,
+    `the phone grid lays out four tracks (${JSON.stringify(gridRule)})`);
+
+  // This page has its OWN localStorage - it is a separate context from the
+  // viewport pages - so the characters have to be seeded here rather than
+  // copied from a character the earlier walk created. Minimal shape is enough:
+  // the card only reads rules and the sheet layout.
+  await phone.evaluate(() => {
+    const layout = [{ name: "Identity", x: 0, y: 0, w: 4, h: 2, children: [] }];
+    const names = ["Aramil", "Brix", "Cerys", "Doran", "Elsi", "Fen"];
+    const map = {};
+    names.forEach((name, i) => {
+      map[name] = {
+        id: name,
+        name,
+        rules: {
+          level: (i % 5) + 1,
+          species: i % 2 ? "Dwarf" : "Elf",
+          className: i % 3 === 0 ? "Wizard" : "Cleric",
+          abilityScores: { str: 10, dex: 10, con: 10, int: 10, wis: 12, cha: 10 },
+        },
+        layout: JSON.parse(JSON.stringify(layout)),
+        sheetTabs: [{ id: `${name}-tab`, name: "Sheet 1", layout: JSON.parse(JSON.stringify(layout)) }],
+        setupComplete: true,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+    });
+    localStorage.setItem("grimoire.local.characters.v1", JSON.stringify(map));
+  });
+  await phone.reload({ waitUntil: "networkidle" });
+  await phone.waitForTimeout(1800);
+
+  const grid = await phone.evaluate(() => {
+    const cards = [...document.querySelectorAll(".character-card")];
+    const row = [];
+    // Group by vertical position into visual rows.
+    const byTop = new Map();
+    for (const c of cards) {
+      const t = Math.round(c.getBoundingClientRect().top);
+      for (const [key, arr] of byTop) {
+        if (Math.abs(key - t) < 12) { arr.push(c); break; }
+      }
+      if (![...byTop.keys()].some((k) => Math.abs(k - t) < 12)) byTop.set(t, [c]);
+    }
+    for (const arr of byTop.values()) row.push(arr.length);
+    const meta = document.querySelector(".character-card__meta-lines");
+    const metaStyle = meta ? getComputedStyle(meta) : null;
+    const visibleLines = [...document.querySelectorAll(".character-card__meta-line")]
+      .filter((n) => n.textContent.trim())
+      .map((n) => ({ text: n.textContent.trim(), shown: n.getBoundingClientRect().height > 0 }));
+    return {
+      cards: cards.length,
+      firstRow: row[0] || 0,
+      cardW: Math.round(cards[0]?.getBoundingClientRect().width || 0),
+      cardH: Math.round(cards[0]?.getBoundingClientRect().height || 0),
+      metaDisplay: metaStyle?.display || "none",
+      metaHeight: Math.round(meta?.getBoundingClientRect().height || 0),
+      visibleLines: visibleLines.slice(0, 8),
+      anyLineClipped: visibleLines.some((l) => l.shown === false),
+    };
+  });
+  phoneCheck(grid.cards >= 4, `the vault has several characters to lay out (got ${grid.cards})`);
+  phoneCheck(grid.firstRow >= 4,
+    `four cards fit across a phone (got ${grid.firstRow} in the first row, card ${grid.cardW}x${grid.cardH})`);
+  // "Half as wide and half as tall so four fit where one did" is the stated
+  // goal; the width that actually achieves it is a quarter of the old
+  // single-column width, so the check is on the density and on the card being
+  // small, not on a literal halving that cannot also give four across.
+  phoneCheck(grid.cardW <= 95 && grid.cardH <= 170,
+    `and each card is small enough that to be true (${grid.cardW}x${grid.cardH}, was 342x413 one-across)`);
+  phoneCheck(grid.metaDisplay !== "none",
+    `the level/race/class lines are DISPLAYED on a phone (got display:${grid.metaDisplay})`);
+  const texts = grid.visibleLines.map((l) => l.text);
+  phoneCheck(texts.some((t) => /level/i.test(t)),
+    `including the level (${JSON.stringify(texts.slice(0, 4))})`);
+  phoneCheck(texts.some((t) => /cleric|dwarf|elf|human/i.test(t)),
+    `and the class or race (${JSON.stringify(texts.slice(0, 4))})`);
+  phoneCheck(!grid.anyLineClipped,
+    `with no line silently clipped away (${JSON.stringify(grid.visibleLines.filter((l) => !l.shown))})`);
+  await phone.screenshot({ path: path.join(shotDir, "vault-phone.png") });
+  await phone.close();
+}
+
 const vaultPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 vaultPage.on("pageerror", (e) => problems.push(`PAGEERROR [vault]: ${e.message}`));
 vaultPage.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [vault]: ${m.text()}`); });

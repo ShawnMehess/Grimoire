@@ -37,10 +37,13 @@
     grid-template-columns: minmax(0, 1fr) auto;
     row-gap: var(--space-1);
   }
-  /* Character list cards go single-file. */
-  .character-card-grid {
-    grid-template-columns: 1fr;
-  }
+  /* Character list cards: deliberately NOT restated here.
+     This used to force a single column in the same max-width query, which
+     silently overrode the phone layout in card.css (later in the cascade) -
+     so on a phone the vault showed one card per row at full width, and the
+     four-across rule never applied. The phone card rules live in card.css,
+     where the density decision is made; restating them here is how the two
+     drifted apart in the first place. */
 }
 
 /* --- Tablets (iPad, iPad mini, landscape phones): two-up cards,

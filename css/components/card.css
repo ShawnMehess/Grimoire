@@ -129,31 +129,78 @@
   cursor: default;
 }
 
-/* --- Phones: smaller profile cards -----------------------------------------
+/* --- Phones: small profile cards -----------------------------------------
    The default 170px track fits two per row on a phone, so a vault of any
    size scrolls for a long time and each portrait is a postage stamp.
-   Tightening the track and the portrait ratio to 4/5 gets three across on
-   a 390px screen while leaving the name legible. */
+
+   The 108px phone track fit three across. This halves it, which fits four on
+   a 390px screen - four cards in the space one used to take, which is the
+   point: on a phone the count of characters is the thing you are scanning
+   for, not any one of them.
+
+   The portrait goes back to square rather than 4/5. It was made taller on
+   phones when the card was wide; now that the card is half as wide, a square
+   portrait is what keeps the whole card half as tall instead of taller than
+   wide.
+
+   The meta lines (Level / Race / Class) were display:none here, so a phone
+   showed a portrait and a name and nothing else - you had to open a
+   character to find out what it was. They are shown, compressed to two lines
+   with the rest elided, because on a card this size the level and the class
+   are the two facts that tell you whether you opened the right one. */
 @media (max-width: 600px) {
+  /* 80px, not 85: the vault's own padding leaves ~341px on a 390px screen,
+     and four tracks need 4*80 + 3*gap to fit inside that. At 85 it lays out
+     three and the fourth wraps, which is the density this rule exists to
+     reach. */
   .character-card-grid {
-    grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
-    gap: var(--space-2);
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: var(--space-1);
   }
 
   .character-card__portrait {
-    aspect-ratio: 4 / 5;
+    aspect-ratio: 1 / 1;
   }
 
   .character-card__info {
-    padding: var(--space-2);
+    padding: var(--space-1);
   }
 
   .character-card__name {
     font-size: var(--text-xs);
+    margin-bottom: 0;
   }
 
+  /* Two lines reserved rather than five: subrace and subclass are the rows
+     that get elided first, and reserving their space would leave a gap where
+     text should be on a card 85px wide. */
   .character-card__meta-lines {
-    display: none;
+    min-height: calc(2 * 1.25em);
+    justify-content: flex-start;
+    overflow: hidden;
+  }
+
+  .character-card__meta-line {
+    font-size: var(--text-xs);
+    line-height: 1.25;
+  }
+
+  /* The action buttons sit on the portrait, so a wider card does not give
+     them more room to be missed - they get out of the way of the name. */
+  .character-card__delete,
+  .character-card__duplicate {
+    width: 20px;
+    height: 20px;
+    font-size: 10px;
+  }
+}
+
+/* Very narrow phones (a 320px-class screen) drop to three across rather
+   than two: 85px tracks plus gaps would only fit two, and two is the
+   density this whole rule exists to escape. */
+@media (max-width: 340px) {
+  .character-card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
   }
 }
 
