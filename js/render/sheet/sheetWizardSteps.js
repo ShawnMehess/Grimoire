@@ -13,8 +13,13 @@ import { el } from "./sheetHelpers.js";
 // glossary); re-exported here so existing importers keep working.
 export { ABILITY_DESCRIPTIONS };
 
+// Each option's description has to stand alone, because the page-level
+// paragraph that used to explain "this only matters when you level up" is
+// gone. That sentence was doing real work for the first option especially:
+// "Fixed Average" reads like a one-time total, and nothing else on the page
+// says it is applied again at every level.
 export const HP_METHOD_OPTIONS = [
-  { value: "average", label: "Fixed Average", icon: "∑", description: "Always take the fixed average for your hit die (e.g. 5 for a d8), plus your Constitution modifier. Consistent and predictable, no rolling involved." },
+  { value: "average", label: "Fixed Average", icon: "∑", description: "Always take the fixed average for your hit die (e.g. 5 for a d8), plus your Constitution modifier. Used every time you level up. Consistent and predictable, no rolling involved." },
   { value: "roll", label: "Roll In-Browser", icon: "⚄", description: "Roll your hit die right here each time you level up, plus your Constitution modifier. ..." },
   { value: "manual", label: "Roll at the Table", icon: "✎", description: "Roll however you prefer at the table (or elsewhere) and just type the result in when you level up." },
 ];
@@ -58,14 +63,11 @@ export function renderRulesetStepInto(container, state, deps) {
     container.append(el("p", { class: "leveling-tab__intro", text: "No rulesets found." }));
     return;
   }
-  // A plain lead-in before the rows. "Rules" as a step title tells a
-  // newcomer nothing, and an unlabelled radio list does not tell them what
-  // it is a choice OF. One sentence, only when there is a choice to make:
-  // with a single registered system it is auto-selected below, and a
-  // heading over a one-row list reads as if something were missing.
-  if (systems.length > 1) {
-    container.append(el("p", { class: "leveling-tab__intro", text: "Which game system are you playing?" }));
-  }
+  // No lead-in sentence here any more. It used to read "Which game system
+  // are you playing?", on the grounds that a bare radio list does not say
+  // what it is a choice OF - but the rows are labelled with the system names,
+  // so the sentence only restated the heading. Empty states and warnings
+  // still render (see below): those say something the rows cannot.
   // One game system (ruleset) per table; its content comes from the
   // books checked below. Auto-select the only system so a single-
   // system table never faces an empty picker. Persist-only here (no
@@ -117,17 +119,15 @@ export function renderRulesetStepInto(container, state, deps) {
     if (ids.length > 0) updateIdsFn(ids, { rerender: false });
   }
   const locked = packs.length === 1;
-  // "Content books" is jargon on the first page a new player sees, and it
-  // does not say what ticking one DOES. It does something structural: every
-  // later page is filtered to it, so unticking a book empties pickers
-  // downstream. That consequence is a confirm dialog away, so it is stated
-  // up front here too - a first-time player should not have to discover it
-  // by losing picks.
+  // The section label stays: "Content books" is jargon, and "Books to use"
+  // is at least plain. The lead-in sentence under it used to spell out that
+  // unticking a book empties pickers on every later page - true, and worth
+  // saying, but it was a paragraph on the first page a new player sees,
+  // describing a page whose controls are checkboxes with the book names on
+  // them. The consequence is a confirm dialog away either way, which is
+  // where a player meets it in context rather than before they know what a
+  // book is for.
   container.append(el("p", { class: "wizard__section-label", text: "Books to use" }));
-  container.append(el("p", {
-    class: "leveling-tab__intro",
-    text: "Tick the books you have. Every page after this one offers only what comes from the books ticked here — classes, species, backgrounds, feats, and spells.",
-  }));
   const list = el("div", { class: "choice-row-list ruleset-list" });
   packs.forEach((pack) => {
     const checked = ids.includes(pack.id);
@@ -320,15 +320,11 @@ export function renderRowListStepInto(container, state, deps) {
 export function renderPreferencesStepInto(container, state, deps) {
   const { hpOptions, currentMethod, updateFn, selectableRowsFn } = deps;
   container.append(el("p", { class: "wizard__preference-label", text: "Hit Points on Level Up" }));
-  // The heading names the setting but not its consequence. The three
-  // options differ only in HOW the number is arrived at, which is exactly
-  // the part a new player cannot guess from the labels ("Fixed Average" vs
-  // "Roll In-Browser" vs "Roll at the Table") and exactly the part that
-  // matters: it changes what happens every time they level up, not now.
-  container.append(el("p", {
-    class: "leveling-tab__intro",
-    text: "This only decides how the hit points you gain each level are worked out. It changes nothing about your character until you level up.",
-  }));
+  // No lead-in paragraph. It used to explain that the setting only changes
+  // how the number is worked out and affects nothing until level-up - but
+  // each of the three options carries that as its own description, below the
+  // label, so the paragraph said the same thing twice in two places, and the
+  // second mention was the one furthest from the choice.
 
   const selected = hpOptions.find((opt) => opt.value === currentMethod);
   selectableRowsFn(container, hpOptions.map((opt) => opt.label), {
@@ -695,7 +691,13 @@ export function renderAbilitiesStepInto(container, deps) {
     // waiting, and rows render exactly as before.
     featNeeds = null,
   } = deps;
-  container.append(el("p", { class: "leveling-tab__intro", text: "Set your six ability scores. Switching methods below resets the scores to fit it." }));
+  // The "Set your six ability scores" lead-in is gone: six labelled rows
+  // with the standard array / point buy / roll methods under them says the
+  // same. The half of it that was NOT redundant - switching methods RESETS
+  // the scores - was destructive enough to lose work silently, so it moved
+  // onto the method controls themselves (see renderAbilityScoresInto's method
+  // row) where it is read at the moment it applies rather than once at the
+  // top of a long page.
   const bonusTextFn = bonuses
     ? (id, base) => abilityBonusNoteText(base, bonuses[id]?.bonus || 0, bonuses[id]?.sources || [])
     : null;
@@ -717,6 +719,16 @@ export function renderAbilitiesStepInto(container, deps) {
   methodSelect.value = method || "manual";
   methodGroup.append(methodSelect);
   container.append(methodGroup);
+
+  // "Switching methods resets your scores" lives here, beside the control
+  // that does it, rather than in the step's lead-in paragraph (removed). It
+  // is a consequence that destroys typed work, so it has to be visible before
+  // the switch, not recalled afterwards - and a player reads the label on the
+  // dropdown they are about to touch, not a sentence several rows above it.
+  container.append(el("p", {
+    class: "leveling-tab__intro wizard__ability-note wizard__method-warning",
+    text: "Changing this method resets the six scores above.",
+  }));
 
   const scoresWrap = el("div", { class: "wizard__ability-scores" });
   container.append(scoresWrap);
@@ -972,7 +984,12 @@ export function renderGuideLevelClassStepInto(container, pending, deps) {
     });
     if (canMulticlass && untaken.length) {
       container.append(el("p", { class: "wizard__section-label", text: "Start a new class…" }));
-      container.append(el("p", { class: "leveling-tab__intro", text: "Multiclassing needs 13+ in the right abilities (checked below) and can't start before level 2." }));
+      // The "Multiclassing needs 13+..." paragraph is gone. It said the
+      // requirement is "checked below", and it is: every row carries its own
+      // "Requires <reason> - Raise abilities first." note from eligibilityFn
+      // below, and an ineligible one cannot be selected at all. So the
+      // sentence restated a per-row fact, one screen earlier, for rows that
+      // already said it.
       selectableRowsFn(container, untaken, {
         selectedName: pending.className === "__new" ? (pending.newClassName || "") : "",
         getInfo: (name) => {

@@ -6345,7 +6345,6 @@ const closeDialog = () => {
 
     const wizard = renderStepWizard(steps, creationWizardState, {
       title: "Character Setup",
-      intro: "Step through these once to get your character started — you can always come back and change an earlier answer.",
       // Answers persist through their own saves; only the page
       // position needs persisting here so reopening resumes it.
       onNavigate: () => persistWizardProgressSoon(),
@@ -7198,7 +7197,6 @@ const closeDialog = () => {
       title: singleClass
         ? `${primaryName || "Character"} Level ${level}`
         : `${levelClass || "Class"} ${newClassLevel} · character level ${level}`,
-      intro: "Step through whatever applies at this level — anything that doesn't apply is skipped automatically.",
       onNavigate: () => persistWizardProgressSoon(),
     });
     if (guide) {

@@ -475,6 +475,55 @@ function applyPhase1Categories(bundle) {
   return bundle;
 }
 
+/** The compiled sources spell ability scores as abbreviations - "8 +
+ *  CON_mod" on every class's Hit Points at 1st Level. Two of them are
+ *  hand-written in this file and already read "your Constitution
+ *  modifier", so the same fact reaches the player in two different
+ *  registers depending on their class, which is worse than either.
+ *
+ *  Applied as a fixup rather than an edit to defaultContent.js because that
+ *  file is auto-generated: see its own header and RESCUE-NOTES.md. Editing it
+ *  would be undone by the next regeneration, silently.
+ *
+ *  Runs before the per-class replacement text, so a replacement that already
+ *  spells the name out is left alone - the guard is "does this mention the
+ *  abbreviation at all", not "does this mention Constitution". */
+// Each abbreviation to its own ability name - mapping them all to
+// "your Constitution modifier" would be wrong for the four that are not CON.
+const ABILITY_ABBREVIATIONS = {
+  CON_mod: "your Constitution modifier",
+  STR_mod: "your Strength modifier",
+  DEX_mod: "your Dexterity modifier",
+  INT_mod: "your Intelligence modifier",
+  WIS_mod: "your Wisdom modifier",
+  CHA_mod: "your Charisma modifier",
+};
+const ABILITY_ABBREVIATION_TEXT = /\b(?:CON|STR|DEX|INT|WIS|CHA)_mod\b/g;
+
+function humanizeAbilityAbbreviations(bundle) {
+  const walk = (value) => {
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const [key, item] of Object.entries(value)) {
+      if (key === "description" || key === "reference") {
+        if (typeof item === "string" && ABILITY_ABBREVIATION_TEXT.test(item)) {
+          value[key] = item.replace(ABILITY_ABBREVIATION_TEXT, (m) => ABILITY_ABBREVIATIONS[m]);
+        }
+        // A global regex keeps lastIndex between calls; reset so the next
+        // string is not skipped.
+        ABILITY_ABBREVIATION_TEXT.lastIndex = 0;
+      } else {
+        walk(item);
+      }
+    }
+  };
+  walk(bundle);
+  return bundle;
+}
+
 // Per-entry application report, consumed by scripts/verify-content.mjs:
 // every table row must land as replaced/added, never silently missing.
 export const PHASE1_CLASS_REPORT = {};
@@ -672,6 +721,7 @@ function acolytePhase1Groups(bundle) {
 
 function phase1ClassPatch(name, bundle) {
   applyPhase1Categories(bundle);
+  humanizeAbilityAbbreviations(bundle);
   applyClassReplacements(name, bundle);
   applyPhase1Drops(name, bundle);
   markTashaOptionals(bundle);

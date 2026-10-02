@@ -294,13 +294,21 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   boxes[1].click();
   assert(JSON.stringify(ids[ids.length - 1]) === '["p1","p2"]', "book toggle adds in pack order");
 
-  // The first page a new player sees has to say what ticking a book DOES,
-  // since unticking one clears picks downstream. "Content books" named the
-  // section without saying any of that.
+  // The label stays in plain words - "Content books" named the section
+  // without saying what it was.
   assert(html.includes("Books to use"), "book section is labelled in plain words");
   assert(!html.includes("Content books"), "book section drops the jargon label");
-  assert(/only what comes from the books ticked here/.test(html), "book section explains what ticking does");
-  assert(html.includes("Which game system are you playing?"), "system list says what it is a choice of");
+
+  // The explanatory PARAGRAPHS are gone, deliberately. Each one restated what
+  // the rows beneath already said: the rows are named after the systems, the
+  // rows are checkboxes labelled with the book names, and each HP option
+  // carries its own description. Asserting their absence is the point - a
+  // future edit that helpfully re-adds a lead-in paragraph fails here rather
+  // than quietly reintroducing the page furniture the request asked to drop.
+  assert(!/only what comes from the books ticked here/.test(html),
+    "book section has no lead-in paragraph restating the checkboxes");
+  assert(!html.includes("Which game system are you playing?"),
+    "system list has no lead-in question over its own named rows");
 }
 
 // --- Rules step: a single registered system needs no "pick one" heading -------
@@ -554,11 +562,14 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(portraits.every((p) => (p?.className || "").includes("choice-row__portrait--icon")),
     "HP method rows render an icon portrait, not a letter");
 
-  // The heading named the setting, not when it bites. The three labels
-  // differ only in HOW the number is arrived at, which is the part a new
-  // player cannot guess.
-  assert(box.textContent.includes("every time you level up") || box.textContent.includes("until you level up"),
-    "HP section says the setting only matters at level-up");
+  // No page-level paragraph here any more - it said the same thing twice
+  // (once above the label, once in each option's own description). The
+  // options still have to carry the "when does this bite" half on their own,
+  // since nothing above them says it now.
+  assert(!box.textContent.includes("until you level up") && !box.textContent.includes("every time you level up"),
+    "HP section has no lead-in paragraph above its label");
+  assert(steps.HP_METHOD_OPTIONS.every((o) => /level up/i.test(o.description || "")),
+    "each HP option says for itself that it matters at level up");
 }
 {
   const box = document.createElement("div");
