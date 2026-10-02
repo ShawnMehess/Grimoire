@@ -5,6 +5,7 @@
 // step navigation, and spell-catalog lookups live here testably.
 
 import { briefDescription, capitalizeFirst, splitAbilityTokens, abilityTooltip, humanizeGameText, categorizeChoiceGroup } from "./sheetMechanics.js";
+import { spellGist, spellHasMoreThanGist } from "../../data/spellGists.js";
 import { el } from "./sheetHelpers.js";
 import { spellLinkNodes } from "./spellLinks.js";
 import { contentIdMatches } from "../../data/dnd5e.js";
@@ -1164,7 +1165,27 @@ export function spellPickDialogOptions({ spellPick = {}, spellsForLevelFn = () =
     for (const spell of spellsForLevelFn(lvl, spellPick.list) || []) {
       const name = typeof spell === "string" ? spell : spell?.name;
       if (!name || excluded.has(name)) continue;
-      out.push({ id: name, name, description: spell?.school || "" });
+      // This dialog IS the spell picker - the standalone Spells step is
+      // gone - so each option carries the same furniture a picker row does:
+      // the basic facts, a gist that says what it deals, and the full text
+      // behind a disclosure. It used to carry only the school name as its
+      // description, which is why the picker read as a bare list of names.
+      if (typeof spell === "string") {
+        out.push({ id: name, name, description: "" });
+        continue;
+      }
+      const meta = spell.mechanics?.meta || spell.school || "";
+      const gist = spell.gist || "";
+      const fullText = spell.mechanics?.effect || spell.description || "";
+      out.push({
+        id: name,
+        name,
+        description: spell.school || "",
+        meta,
+        gist,
+        fullText,
+        hasMoreThanGist: Boolean(spell.hasMoreThanGist ?? (gist && fullText.length > gist.length + 12)),
+      });
     }
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
@@ -1415,6 +1436,12 @@ export function spellsForLevelIn(catalog, levelNum, className) {
         tags: Array.isArray(e.fieldValues?.tags) ? [...e.fieldValues.tags] : [],
         school: (e.fieldValues?.school || "").trim(),
         mechanics: spellMechanicsLine(e),
+        // The brief "what it does and what it deals" line, and whether the
+        // full text is worth a disclosure. Derived from the same effect text
+        // the full description shows - see spellGists.js for why these are
+        // derived rather than written by hand for 537 spells.
+        gist: spellGist(e),
+        hasMoreThanGist: spellHasMoreThanGist(e),
       };
     })
     .filter((e) => e.name);
@@ -1467,6 +1494,58 @@ export function spellMechanicsLine(entry) {
   const rawEffect = String(fv.effect || "").trim();
   const effect = rawEffect.length > 800 ? briefDescription(rawEffect, 800) : rawEffect;
   return { meta: bits.join(" · "), effect };
+}
+
+/** The joined meta string back as discrete facts, each with a `kind` so the
+ *  row can style a level or a casting time differently from a class list.
+ *
+ *  Derived from the string rather than rebuilt from the catalog entry, so it
+ *  can never disagree with the line it replaces - both come out of the same
+ *  `bits` array in spellMechanicsLine.
+ *
+ *  Kinds: level, school, casting, range, duration, classes, and `fact` for
+ *  anything unrecognised - a field added to spellMechanicsLine shows up
+ *  rather than vanishing. The trailing comma-joined run is the class list;
+ *  it is read last regardless of where it sits, because that is where
+ *  spellMechanicsLine puts it.
+ *
+ *  Pure. */
+export function spellMetaFacts(meta) {
+  const text = String(meta || "").trim();
+  if (!text) return [];
+  const parts = text.split(/\s*\u00b7\s*/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length <= 1) return [{ kind: "fact", text }];
+
+  const out = [];
+  const first = parts[0];
+  // "Cantrip" alone is a level; "Level 1 · Evocation" is a level and a
+  // school. Either way the first token is the level when it looks like one.
+  if (/^cantrip$/i.test(first) || /^level\s*\d+$/i.test(first)) {
+    out.push({ kind: "level", text: first });
+    const second = parts[1];
+    // A second token containing a comma is the class list, already reached -
+    // do not label a list of classes a school.
+    if (second && !second.includes(",")) {
+      out.push({ kind: "school", text: second });
+      parts.splice(0, 2);
+    } else {
+      parts.splice(0, 1);
+    }
+  }
+
+  const rest = parts.filter(Boolean);
+  const classList = rest.find((p) => p.includes(","));
+  if (classList) rest.splice(rest.indexOf(classList), 1);
+
+  const classify = (p) => {
+    if (/\baction\b|\breaction\b/i.test(p)) return "casting";
+    if (/\bft\b|\bmi\b|\bcontact\b|^self\b|\binfinite\b|unlimited|\bspecial\b/i.test(p)) return "range";
+    if (/\bminute|\bhour|\bday|concentration|until dispelled|instantaneous|permanent|\bround\b/i.test(p)) return "duration";
+    return "fact";
+  };
+  for (const p of rest) out.push({ kind: classify(p), text: p });
+  if (classList) out.push({ kind: "classes", text: classList });
+  return out.length ? out : [{ kind: "fact", text }];
 }
 
 /** Review-tab lines for choice groups with picks. Groups whose label
@@ -3188,11 +3267,41 @@ function renderMultiPickerRows(container, names, { selectedSet, onToggle, getInf
         ...richAbilityNodes(humanizeGameText(info?.description || "No description available yet."))));
     }
     if (info?.mechanics?.meta) {
-      body.append(el("div", { class: "choice-row__mechanics-meta", text: info.mechanics.meta }));
+      // The basic facts get their OWN row, split into discrete facts rather
+      // than one joined string. They are the things a player filters and scans
+      // by - school, casting time, level, range, duration - and a single
+      // "Level 1 · Evocation · 1 action · 120 ft · Instantaneous" run cannot
+      // be read as anything but a wall. One element per fact also lets CSS
+      // style a level or a casting time differently from a class list.
+      body.append(el("div", { class: "choice-row__mechanics-meta" },
+        ...spellMetaFacts(info.mechanics.meta).map((fact) => el("span", {
+          class: "choice-row__fact choice-row__fact--" + fact.kind,
+          text: fact.text,
+        }))));
     }
-    if (info?.mechanics?.effect) {
-      // Briefed (= humanized) at model time; tooltips wrap from here.
-      body.append(el("div", { class: "choice-row__mechanics-effect" }, ...richAbilityNodes(info.mechanics.effect)));
+    if (info?.gist) {
+      // The brief gist: what the spell does AND what it deals, so a player
+      // can compare spells without expanding anything. Sits below the facts
+      // with a blank line above it, so the two read as separate registers.
+      body.append(el("div", { class: "choice-row__mechanics-gist" },
+        ...richAbilityNodes(info.gist)));
+    }
+    if (info?.mechanics?.effect && info.hasMoreThanGist) {
+      // Disclosure for the full text. A <details> so it works with no script,
+      // is keyboard accessible for free, and keeps its open state across its
+      // own content updates. Rendered ONLY when the full text is actually
+      // longer than the gist - a control that reveals nothing is worse than
+      // no control.
+      const details = el("details", { class: "choice-row__more" },
+        el("summary", { class: "choice-row__more-toggle", text: "Full description" }),
+        el("div", { class: "choice-row__mechanics-effect" },
+          ...richAbilityNodes(info.mechanics.effect)));
+      body.append(details);
+    } else if (info?.mechanics?.effect) {
+      // No gist, or the gist IS the whole text: show the effect outright
+      // rather than burying it behind a toggle.
+      body.append(el("div", { class: "choice-row__mechanics-effect" },
+        ...richAbilityNodes(info.mechanics.effect)));
     }
     if (Array.isArray(info?.tags) && info.tags.length) {
       body.append(el("div", { class: "choice-row__tags" },
@@ -3323,10 +3432,37 @@ export function openChoiceDialog({
         },
       });
       if (!multi) input.name = `choice-dialog-${title}`;
-      return el("label", { class: "choice-dialog-option" },
+      // Spell-shaped options carry their own furniture, because this dialog is
+      // the LIVE spell picker: the standalone Spells step is gone, so a
+      // spell's checkbox row in here is what the player actually reads.
+      // Same shape as the picker rows - facts on their own row, a gist, and a
+      // disclosure for the full text - so the two do not drift.
+      const spellish = opt.meta || opt.gist;
+      if (!spellish) {
+        return el("label", { class: "choice-dialog-option" },
+          input,
+          el("span", { text: opt.name, style: "flex: 1;" }),
+          opt.description ? el("span", { class: "choice-dialog-desc", text: opt.description }) : null);
+      }
+      const facts = el("div", { class: "choice-row__mechanics-meta" },
+        ...spellMetaFacts(opt.meta || "").map((fact) => el("span", {
+          class: "choice-row__fact choice-row__fact--" + fact.kind,
+          text: fact.text,
+        })));
+      const gist = el("div", { class: "choice-row__mechanics-gist" },
+        ...richAbilityNodes(opt.gist || ""));
+      const summaryBits = [facts, gist];
+      if (opt.hasMoreThanGist && opt.fullText) {
+        summaryBits.push(el("details", { class: "choice-row__more" },
+          el("summary", { class: "choice-row__more-toggle", text: "Full description" }),
+          el("div", { class: "choice-row__mechanics-effect" },
+            ...richAbilityNodes(opt.fullText))));
+      }
+      return el("label", { class: "choice-dialog-option choice-dialog-option--stacked" },
         input,
-        el("span", { text: opt.name, style: "flex: 1;" }),
-        opt.description ? el("span", { class: "choice-dialog-desc", text: opt.description }) : null);
+        el("span", { class: "choice-dialog-option__body" },
+          el("span", { class: "choice-dialog-option__name", text: opt.name }),
+          ...summaryBits));
     };
 
     for (const group of order) {

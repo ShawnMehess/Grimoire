@@ -41,7 +41,10 @@ import {
   levelUpSpellPickGroups,
   pruneOrphanedChoiceKeys,
   groupPicksSatisfied,
+  spellMetaFacts,
 } from "../js/render/sheet/sheetWizard.js";
+import { spellGist, spellFullText, spellHasMoreThanGist, spellPlainText, spellEffectBody, SPELL_GIST_OVERRIDES } from "../js/data/spellGists.js";
+import { SPELL_CATALOG } from "../js/data/contentCatalogs.js";
 
 // --- A tiny stand-in catalog -------------------------------------------------
 //
@@ -1067,5 +1070,153 @@ describe("levelUpSpellPickGroups", () => {
     const leveled = leveledOf(groupsFor("Sorcerer", 5));
     const available = availableLevelsFor("Sorcerer", 5);
     assert.equal(leveled.spellPick.maxLevel, Math.max(...available));
+  });
+});
+
+
+describe("spell gists", () => {
+  // There are 537 spells, so the gists are DERIVED from the shipped effect
+  // text rather than written by hand - a hand-written summary that says 1d8
+  // where the spell says 1d10 is worse than no summary, because it looks
+  // authoritative. These tests are the safety net for that decision: they
+  // assert the derived gist never contradicts its source, across every spell
+  // in the catalog rather than a chosen few.
+
+  const ALL = SPELL_CATALOG.tabs.flatMap((t) => t.entries);
+  const words = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean);
+
+  it("every spell in the catalog produces a gist", () => {
+    const empty = ALL.filter((e) => !spellGist(e)).map((e) => e.name);
+    assert.deepEqual(empty, [], "no spell ends up with nothing to read");
+  });
+
+  it("no gist contradicts its source: every word appears, in order", () => {
+    // The invariant that makes derivation safe. It catches a reworded line,
+    // a reordered sentence, or a number typed from memory - all the ways a
+    // summary can quietly become wrong.
+    const offenders = [];
+    for (const e of ALL) {
+      const body = words(spellEffectBody(e));
+      let i = 0;
+      for (const w of words(spellGist(e).replace(/[.…]+$/, ""))) {
+        const at = body.indexOf(w, i);
+        if (at < 0) { offenders.push(`${e.name}: "${w}"`); break; }
+        i = at + 1;
+      }
+    }
+    assert.deepEqual(offenders, [], "every gist is verbatim, in order, from the shipped effect");
+  });
+
+  it("leaves no catalog markup or invisible characters for the player", () => {
+    const marked = ALL.filter((e) => /\[\[|[\u2060\u200b\ufeff\u00ad]/.test(spellGist(e)));
+    assert.deepEqual(marked.map((e) => e.name), [],
+      "roll tokens are unwrapped and format characters stripped");
+    const markedFull = ALL.filter((e) => /\[\[|[\u2060\u200b\ufeff\u00ad]/.test(spellFullText(e)));
+    assert.deepEqual(markedFull.map((e) => e.name), [], "and the full text is clean too");
+  });
+
+  it("drops the scaling and spell-list tails from the gist but keeps them in the full text", () => {
+    const leaked = ALL.filter((e) => /At Higher Levels|Spell Lists?/i.test(spellGist(e)));
+    assert.deepEqual(leaked.map((e) => e.name), [],
+      "a gist is about what the spell does, not how it scales");
+    const kept = ALL.filter((e) => /At Higher Levels/i.test(spellFullText(e)));
+    assert.ok(kept.length > 100, `the full text still shows scaling where it exists (${kept.length})`);
+  });
+
+  it("stays a paragraph, not a wall", () => {
+    const tooLong = ALL.filter((e) => spellGist(e).length > 340).map((e) => `${e.name}:${spellGist(e).length}`);
+    assert.deepEqual(tooLong, [], "no gist runs away");
+    const tooShort = ALL.filter((e) => spellGist(e).length < 25).map((e) => e.name);
+    assert.deepEqual(tooShort, [], "and none is so short it says nothing");
+  });
+
+  it("states the numbers where the spell has them early", () => {
+    // The whole point of the gist: "dealing 1d10 fire damage", not "shoots out
+    // a small ball of fire". Checked on spells whose damage is in the first
+    // sentences, which is where the derivation can reach it.
+    const fireBolt = ALL.find((e) => e.name === "Fire Bolt");
+    assert.match(spellGist(fireBolt), /1d10 fire damage/,
+      `Fire Bolt's gist names its damage, not just its flavour (${spellGist(fireBolt)})`);
+    const cure = ALL.find((e) => e.name === "Cure Wounds");
+    assert.match(spellGist(cure), /1d8/, "and Cure Wounds names its roll");
+  });
+
+  it("says something useful for a spell split into labelled modes", () => {
+    // "You either create or destroy water." on its own is useless; the gist
+    // has to reach into the first labelled mode to say what happens.
+    const g = spellGist(ALL.find((e) => e.name === "Create or Destroy Water"));
+    assert.ok(g.length > 80, `the gist goes past the one-line lead (${g.length} chars)`);
+    assert.match(g, /10 gallons/, "and includes what the first mode does");
+  });
+
+  it("only offers an expander when the full text really is longer", () => {
+    const worthIt = ALL.filter((e) => spellHasMoreThanGist(e)).length;
+    assert.ok(worthIt > ALL.length * 0.9,
+      `most spells have more behind the disclosure (${worthIt}/${ALL.length})`);
+    // Nothing may claim to have more when the full text is empty.
+    const empty = ALL.filter((e) => !spellFullText(e));
+    assert.deepEqual(empty.filter((e) => spellHasMoreThanGist(e)).map((e) => e.name), [],
+      "and never for a spell with no full text at all");
+  });
+
+  it("honours an override, and the override map only names real spells", () => {
+    const names = new Set(ALL.map((e) => e.name));
+    const stray = Object.keys(SPELL_GIST_OVERRIDES).filter((n) => !names.has(n));
+    assert.deepEqual(stray, [], "an override for a spell that does not exist would be dead weight");
+    assert.equal(typeof SPELL_GIST_OVERRIDES, "object");
+  });
+
+  it("strips a roll token down to the bare expression", () => {
+    // The catalog writes rolls as template tags so the app can turn them into
+    // buttons; a gist is prose and must show "1d10", not "[[/r 1d10]]".
+    assert.equal(spellPlainText("takes [[/r 1d10]] damage"), "takes 1d10 damage");
+    assert.equal(spellPlainText("[[/r 2d6 + 5]] to the target"), "2d6 + 5 to the target");
+    // An author's annotation goes with the token, not into the player's text.
+    assert.doesNotMatch(spellPlainText("[[/r 1d6 # Mirror Image Check]]"), /Mirror|#/);
+  });
+
+  it("copes with nothing at all", () => {
+    assert.equal(spellGist(null), "");
+    assert.equal(spellGist({}), "");
+    assert.equal(spellFullText({}), "");
+    assert.equal(spellHasMoreThanGist({}), false);
+    assert.deepEqual(spellMetaFacts(""), []);
+  });
+});
+
+describe("spell meta facts", () => {
+  // The basic info gets its own row, split into pieces. Joined into one
+  // string it reads as a wall and cannot be scanned for a level or a casting
+  // time.
+  it("splits level, school, casting, range, duration and class list", () => {
+    const facts = spellMetaFacts("Cantrip \u00b7 Evocation \u00b7 1 action \u00b7 120 ft \u00b7 Instantaneous");
+    assert.deepEqual(facts.map((f) => f.kind),
+      ["level", "school", "casting", "range", "duration"]);
+    assert.deepEqual(facts.map((f) => f.text),
+      ["Cantrip", "Evocation", "1 action", "120 ft", "Instantaneous"]);
+  });
+
+  it("handles an explicit level and a concentration duration", () => {
+    const facts = spellMetaFacts("Level 3 \u00b7 Conjuration \u00b7 1 action \u00b7 Self (60 ft) \u00b7 10 minutes (concentration) \u00b7 Cleric, Druid");
+    assert.deepEqual(facts.map((f) => f.kind),
+      ["level", "school", "casting", "range", "duration", "classes"]);
+    assert.equal(facts[5].text, "Cleric, Druid", "the class list is last and is not read as a school");
+  });
+
+  it("never labels a comma-joined class list a school", () => {
+    const facts = spellMetaFacts("Level 1 \u00b7 Evocation, Abjuration \u00b7 1 action");
+    assert.ok(!facts.some((f) => f.kind === "school"), "a list with a comma is not a school");
+  });
+
+  it("keeps an unrecognised fact rather than dropping it", () => {
+    // A field added to spellMechanicsLine later must show up, not vanish.
+    const facts = spellMetaFacts("Level 2 \u00b7 Necromancy \u00b7 1 reaction \u00b7 Some New Thing");
+    assert.ok(facts.some((f) => f.text === "Some New Thing"),
+      `nothing is silently dropped (${JSON.stringify(facts)})`);
+  });
+
+  it("degrades to a single fact rather than returning nothing", () => {
+    assert.deepEqual(spellMetaFacts("Ritual"), [{ kind: "fact", text: "Ritual" }]);
+    assert.deepEqual(spellMetaFacts(""), []);
   });
 });

@@ -1764,6 +1764,175 @@ const phoneCheck = (cond, msg) => {
     `with no line silently clipped away (${JSON.stringify(grid.visibleLines.filter((l) => !l.shown))})`);
   await phone.screenshot({ path: path.join(shotDir, "vault-phone.png") });
   await phone.close();
+// --- Spell picker row shape -------------------------------------------------
+//
+// A box on the left, then the name, then the basic facts on their OWN row, a
+// blank line, then a gist that says what the spell does AND what it deals,
+// with the full text behind a disclosure.
+//
+// The target is the CHOICE DIALOG opened from a class row's spell line: the
+// standalone Spells step was removed, so that dialog is the spell picker. An
+// earlier version of this check looked for a .spell-picker-list and found
+// nothing at all, which is how the row turned out to carry only a school name
+// as its description.
+{
+  const sp = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  sp.on("pageerror", (e) => problems.push(`PAGEERROR [spells]: ${e.message}`));
+  await sp.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+  await sp.waitForTimeout(1200);
+  await sp.click("button:has-text('+ New Character')");
+  await sp.waitForTimeout(1800);
+  // Advance to Identity first (it lists species), pick Elf + High Elf, then
+  // advance to Class and pick Wizard. Each stage waits for its own marker so a
+  // slow re-render cannot race the click.
+  const advanceTo = async (marker) => {
+    for (let hop = 0; hop < 12; hop++) {
+      const there = await sp.evaluate((sel) => !!document.querySelector(sel), marker);
+      if (there) return true;
+      const moved = await sp.evaluate(() => {
+        const next = document.querySelector(".wizard button.wizard__next:not([disabled])");
+        if (next) { next.click(); return "next"; }
+        const dot = [...document.querySelectorAll(".wizard__dot:not([disabled])")]
+          .find((d) => !d.classList.contains("active"));
+        if (dot) { dot.click(); return "dot"; }
+        return null;
+      });
+      if (!moved) return false;
+      await sp.waitForTimeout(500);
+    }
+    return false;
+  };
+  await advanceTo('.choice-row[data-row-name="Elf"]');
+  await sp.evaluate(() => {
+    document.querySelector('.choice-row[data-row-name="Elf"]')?.click();
+  });
+  await sp.waitForTimeout(600);
+  await sp.evaluate(() => {
+    document.querySelector('.choice-row[data-row-name="High Elf"]')?.click();
+  });
+  await sp.waitForTimeout(700);
+  const reachedClass = await advanceTo('.choice-row[data-row-name="Wizard"]');
+  phoneCheck(reachedClass, "the walk reached the Class page");
+  await sp.evaluate(() => {
+    document.querySelector('.choice-row[data-row-name="Wizard"]')?.click();
+  });
+  await sp.waitForTimeout(900);
+
+  // The row is already selected AND expanded by the single click above, and
+  // nothing below may click it again: a second click on an open, selected row
+  // COLLAPSES it and de-selects it (onSelect(null), see toggleRow in
+  // sheetWizard.js). An earlier version of this check clicked again "to be
+  // sure", which silently tore down the row it was about to measure and then
+  // reported the picker as missing — the bullets really were gone, because the
+  // check had just removed them.
+  //
+  // Aim at a SPELL line, not just any pick line. The Wizard row's bullets are
+  // "Wizard Skill Proficiencies", "Cantrips", "Spellbook", "Prepared
+  // Spells" — so the first .inline-pick-link is the SKILL picker, which is
+  // correctly a plain name-and-description list with no facts, no gist and no
+  // disclosure. An earlier version clicked links[0] and then reported the
+  // spell furniture as missing, having measured the wrong dialog.
+  //
+  // CANTRIPS is the target, not Spellbook: Fire Bolt is a cantrip, and the
+  // point of the last check below is that the gist names the damage rather
+  // than only the flavour. Against Spellbook that spell is simply absent, so
+  // the check would sit behind a condition that never held and never run.
+  // Cantrips carries the same row shape; Spellbook gets its own coverage.
+  const openSpellLine = async (topic) => {
+    const picked = await sp.evaluate((want) => {
+      const row = document.querySelector('.choice-row[data-row-name="Wizard"]');
+      const bullets = [...(row?.querySelectorAll(".mechanics-pick") || [])];
+      const bullet = bullets.find((n) =>
+        new RegExp(`^${want}$`, "i").test(n.querySelector("strong")?.textContent?.trim() || ""));
+      const link = bullet?.querySelector(".inline-pick-link");
+      if (link) { link.click(); return true; }
+      return false;
+    }, topic);
+    if (!picked) return null;
+    await sp.waitForTimeout(900);
+    return sp.evaluate(() => {
+      const box = document.querySelector(".choice-dialog");
+      return {
+        open: !!box,
+        total: box ? box.querySelectorAll(".choice-dialog-option").length : 0,
+      };
+    });
+  };
+  const opened = await openSpellLine("Cantrips");
+  phoneCheck(!!opened?.open && opened.total > 0,
+    `the Wizard's spell line opens a picker (${JSON.stringify(opened)})`);
+  await sp.keyboard.press("Escape");
+  await sp.waitForTimeout(500);
+  const leveled = await openSpellLine("Spellbook");
+  phoneCheck(!!leveled?.open && leveled.total > 0,
+    `and so does the leveled list (${JSON.stringify(leveled)})`);
+  await sp.keyboard.press("Escape");
+  await sp.waitForTimeout(500);
+  // Re-open Cantrips for the row-shape measurements below.
+  await openSpellLine("Cantrips");
+  await sp.waitForTimeout(900);
+
+  const shape = await sp.evaluate(() => {
+    const box = document.querySelector(".choice-dialog");
+    if (!box) return { none: true };
+    const opts = [...box.querySelectorAll(".choice-dialog-option")];
+    // Fire Bolt specifically, and NOT a fallback to opts[0]. A fallback plus a
+    // guard on the name meant the damage assertion below could be skipped
+    // without anything failing - a check that cannot fail is not a check.
+    const fire = opts.find((o) => /fire bolt/i.test(o.textContent || ""));
+    if (!fire) return { none: true, total: opts.length };
+    const q = (s) => fire.querySelector(s);
+    const facts = [...fire.querySelectorAll(".choice-row__fact")];
+    const gist = q(".choice-row__mechanics-gist");
+    const metaBox = q(".choice-row__mechanics-meta");
+    const details = q(".choice-row__more");
+    const gr = gist?.getBoundingClientRect();
+    const mr = metaBox?.getBoundingClientRect();
+    const cr = fire.getBoundingClientRect();
+    const cr2 = q(".choice-dialog-option__body")?.getBoundingClientRect();
+    return {
+      none: false,
+      total: opts.length,
+      name: (q(".choice-dialog-option__name")?.textContent || "").trim(),
+      // Box first on the left, text block to its right.
+      boxOnLeft: (fire.children[0]?.tagName || "") === "INPUT"
+        && cr2 && cr2.left > cr.left,
+      inputIsFirst: (fire.children[0]?.tagName || "") === "INPUT",
+      factKinds: facts.map((f) => f.className.replace("choice-row__fact choice-row__fact--", "")),
+      factTexts: facts.map((f) => f.textContent),
+      hasGist: !!gist,
+      gistText: (gist?.textContent || "").replace(/\s+/g, " ").trim(),
+      hasExpander: !!q(".choice-row__more-toggle"),
+      expanderText: (q(".choice-row__more-toggle")?.textContent || "").trim(),
+      startsCollapsed: details ? !details.hasAttribute("open") : null,
+      gapPx: gr && mr ? Math.round(gr.top - mr.bottom) : null,
+      noMarkup: !/\[\[/.test(gist?.textContent || ""),
+    };
+  });
+  phoneCheck(shape.none !== true, `the picker lists spells (${shape.total ?? 0} options)`);
+  if (!shape.none) {
+    phoneCheck(shape.inputIsFirst && shape.boxOnLeft,
+      "each option has its box on the left, then the text beside it");
+    phoneCheck(!!shape.name, `then the spell name ("${shape.name}")`);
+    phoneCheck(shape.factKinds.includes("level") && shape.factKinds.includes("school"),
+      `then the basic facts on their own row, as discrete pieces (${shape.factKinds.join(", ")})`);
+    phoneCheck(shape.factKinds.includes("casting") && shape.factKinds.includes("range"),
+      `including casting time and range (${JSON.stringify(shape.factTexts)})`);
+    phoneCheck(shape.hasGist, "then the gist");
+    phoneCheck(shape.gapPx !== null && shape.gapPx >= 4,
+      `separated from the facts by a blank line (${shape.gapPx}px)`);
+    phoneCheck(shape.hasExpander && shape.startsCollapsed === true,
+      `with the full description behind a collapsed disclosure ("${shape.expanderText}")`);
+    phoneCheck(shape.noMarkup, "and the gist carries no catalog markup");
+    // The point of a gist next to a full description you have to expand: it
+    // says what the spell deals, not only what it feels like.
+    phoneCheck(/fire damage/i.test(shape.gistText),
+      `and the gist names the damage, not just the flavour ("${shape.gistText}")`);
+  }
+  await sp.screenshot({ path: path.join(shotDir, "spell-picker-rows.png") });
+  await sp.close();
+}
+
 
 // --- Edge arrow + swipe between steps ---------------------------------------
 //

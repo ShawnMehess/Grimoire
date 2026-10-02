@@ -957,10 +957,73 @@
   color: var(--color-accent-hover);
   margin-top: 2px;
 }
+/* The facts are discrete elements rather than one joined string, so each can
+   be read on its own: a level or a casting time is a label, a class list is a
+   tail. They wrap rather than ellipsising - a range cut off mid-number is
+   worse than a second line. */
+.choice-row__fact {
+  display: inline-block;
+  margin: 2px 6px 0 0;
+  padding: 0 5px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-inset);
+  white-space: nowrap;
+}
+.choice-row__fact--level {
+  font-weight: 600;
+  color: var(--color-text);
+}
+.choice-row__fact--school {
+  font-style: italic;
+}
+/* The class list is a tail, not a fact about the spell itself: it says who
+   can cast it, which the picker already filtered on. Muted, no border. */
+.choice-row__fact--classes {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}
+
+/* The gist: what the spell does and what it deals. A blank line above it, so
+   the facts and the summary read as two separate registers rather than one
+   paragraph. */
+.choice-row__mechanics-gist {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  line-height: 1.45;
+}
+
 .choice-row__mechanics-effect {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
   margin-top: 2px;
+}
+
+/* Disclosure for the full description. Native <details>, so the open state
+   and the keyboard behaviour are the browser's rather than ours. */
+.choice-row__more {
+  margin-top: var(--space-1);
+}
+.choice-row__more-toggle {
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--color-accent-text);
+  padding: 2px 0;
+  width: fit-content;
+}
+.choice-row__more-toggle:hover {
+  text-decoration: underline;
+}
+.choice-row__more-toggle:focus-visible {
+  outline: 2px solid var(--color-accent, var(--color-border-strong));
+  outline-offset: 2px;
+}
+.choice-row__more[open] .choice-row__mechanics-effect {
+  margin-top: var(--space-1);
 }
 
 /* Spell picker lists flow across the width in responsive columns
@@ -1310,6 +1373,25 @@
 }
 .choice-dialog-option:hover {
   background: var(--color-bg-hover);
+}
+
+/* A spell option in the choice dialog: checkbox on the left, then the name
+   and the whole stacked block. The default row is a single flex line with the
+   description beside the name; a spell needs its facts on their own row and
+   room for a gist, so it switches to a column and lets the label wrap. */
+.choice-dialog-option--stacked {
+  align-items: flex-start;
+}
+.choice-dialog-option__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+.choice-dialog-option__name {
+  font-weight: 600;
+  color: var(--color-text);
 }
 
 /* A heading inside the choice dialog - the Widespread/Rare split on the

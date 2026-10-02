@@ -104,6 +104,8 @@ js/
     choiceCategories.js which page a choice group belongs to
     pluralText.js       resolves "1 feat(s)" style lazy plurals
     spellIndex.js       finds spell names in prose
+    spellGists.js       the one-paragraph spell summary shown in pickers,
+                        derived from each spell's shipped effect text
     featBundles.js      GENERATED - 83 feats
     subclassContent.js  GENERATED - 117 subclasses
     contentCatalogs.js  GENERATED - 537 spells + weapons, armour, gear
@@ -154,7 +156,7 @@ Six gates. The first five are fast and need no browser; the last drives
 real Chrome.
 
 ```
-node --test tests/*.mjs          # 480 unit tests
+node --test tests/*.mjs          # 782 unit tests
 node scripts/check-imports.mjs   # import graph, syntax, CSS brace balance
 node scripts/smoke-imports.mjs   # module graph + pure-logic assertions
 node scripts/smoke-dom.mjs       # renderers against a stub DOM
@@ -308,6 +310,33 @@ How it behaves:
   features, feats, descriptions, and the feature list on the sheet.
 - **Magical Secrets** (Bard 10/14/18, College of Lore 6) is a real
   any-class spell picker, capped at the unlocked total.
+- **A spell row says what the spell does.** Each option in a spell picker
+  reads as: checkbox, name, the basic facts on their **own** row as discrete
+  pieces rather than one joined string ("Level 1 · Abjuration · 1 reaction ·
+  Self · 1 round(s) · Artificer, Druid, Ranger, Sorcerer, Wizard" would be an
+  unreadable wall, so it is a level, a school, a casting time, a range, a
+  duration, and then a muted tail naming who can cast it), then a blank line,
+  then a one-paragraph **gist**, then the full text behind a collapsed
+  "Full description" disclosure. The gist names what the spell *deals*, not
+  only its flavour — Fire Bolt reads "…the target takes 1d10 fire damage",
+  not "shoots out a small ball of fire". A row whose gist already is the
+  whole text shows no disclosure, because a control that reveals nothing is
+  worse than no control.
+
+  The gists are **derived** from each spell's shipped effect text rather than
+  written by hand (`js/data/spellGists.js`): there are 537 spells, and a
+  hand-written summary that says 1d8 where the spell says 1d10 is worse than
+  no summary, because it looks authoritative. Derivation takes the effect's
+  first paragraph, drops the "At Higher Levels" and "Spell Lists" tails, keeps
+  whole sentences only, and goes at most one sentence past its budget to
+  reach the numbers. So **no gist can contradict its own spell** — every
+  word of it appears, in order, in the source text, which the unit tests
+  assert across all 537 rather than a chosen few. Roll markup
+  (`[[/r 1d10]]`) is unwrapped to plain text, because a gist is prose and a
+  player would read a template tag as though it were rules. A hand-written
+  `SPELL_GIST_OVERRIDES` map exists for the cases derivation gets wrong and
+  wins when present; it is empty by design, since an override is a claim
+  about the rules that someone has to stand behind.
 
 ### Feats
 
