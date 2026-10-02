@@ -50,6 +50,33 @@ export const LANGUAGES = [
   "Abyssal", "Celestial", "Deep Speech", "Draconic", "Infernal", "Primordial", "Sylvan", "Undercommon",
 ];
 
+// The language list split into the two groups a player actually thinks in:
+// the ones a character can plausibly have grown up speaking, and the ones
+// that need a reason.
+//
+// This is presentation only - it partitions the list above and adds no names,
+// so a group can never offer a language that is not in LANGUAGES. Derived
+// from the names rather than typed out again, so adding a language to
+// LANGUAGES puts it in a section automatically instead of silently
+// disappearing from the picker.
+//
+// The split point is the first "exotic" in the existing order (Abyssal),
+// which is where the handbook's own grouping falls: the seven standard
+// languages, then the rest.
+const FIRST_RARE_LANGUAGE = "Abyssal";
+
+/** `[{ label, languages }]`, in display order, covering every language in
+ *  LANGUAGES exactly once. Pure. */
+export function languageSections() {
+  const rareAt = LANGUAGES.indexOf(FIRST_RARE_LANGUAGE);
+  const widespread = rareAt === -1 ? [...LANGUAGES] : LANGUAGES.slice(0, rareAt);
+  const rare = rareAt === -1 ? [] : LANGUAGES.slice(rareAt);
+  const sections = [];
+  if (widespread.length) sections.push({ label: "Widespread", languages: widespread });
+  if (rare.length) sections.push({ label: "Rare", languages: rare });
+  return sections;
+}
+
 // Factory for a brand-new character document. This is the shape that
 // gets written to Firestore, so keep it flat where reasonable —
 // nested objects only where the data is genuinely grouped (abilities,

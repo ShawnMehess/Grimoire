@@ -1250,6 +1250,27 @@
 .choice-dialog-option:hover {
   background: var(--color-bg-hover);
 }
+
+/* A heading inside the choice dialog - the Widespread/Rare split on the
+   language list. Bold, and NOT a <label>: nothing about it is pickable, and
+   wrapping it in a label would invite a click to select whatever it wrapped.
+   Sticky within the scrolling list so the band you are reading stays named
+   as you scroll past a dozen rows. */
+.choice-dialog-section-label {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  font-weight: 700;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+.choice-dialog-section-label:first-child {
+  margin-top: 0;
+}
 .choice-dialog-option input[type="checkbox"],
 .choice-dialog-option input[type="radio"] {
   accent-color: var(--color-accent);

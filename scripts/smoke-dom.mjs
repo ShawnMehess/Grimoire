@@ -1444,6 +1444,137 @@ if (failures) {
     "a Tab that merely passes over the control is not a keyboard pick");
 }
 
+// A slot may split its options into non-selectable headed groups. The native
+// <optgroup> is the only heading a <select> can hold, and it is exactly the
+// behaviour wanted for the language list: the label is shown, it cannot be
+// picked.
+{
+  const { renderLiveBulletItem } = wizard;
+  const li = renderLiveBulletItem({
+    live: true,
+    topic: "Languages",
+    lead: [],
+    slots: [{
+      key: "lang#0",
+      value: "",
+      placeholder: "Choose…",
+      optgroups: [
+        { label: "Widespread", options: [{ value: "Dwarvish", label: "Dwarvish" }, { value: "Elvish", label: "Elvish" }] },
+        { label: "Rare", options: [{ value: "Draconic", label: "Draconic" }] },
+      ],
+      options: [
+        { value: "Dwarvish", label: "Dwarvish" },
+        { value: "Elvish", label: "Elvish" },
+        { value: "Draconic", label: "Draconic" },
+      ],
+    }],
+  });
+  const select = [...li.children].find((n) => n.tag === "select");
+  const kids = select.children;
+  const groups = kids.filter((n) => n.tag === "optgroup");
+  assert(groups.length === 2, `the options sit in two headed groups (got ${groups.length})`);
+  assert(groups.map((g) => g.label).join("|") === "Widespread|Rare",
+    `labelled in order (got ${JSON.stringify(groups.map((g) => g.label))})`);
+  // Nothing duplicated: a value that is grouped must not ALSO appear as a
+  // bare option, or the picker would list it twice. The placeholder has an
+  // empty value and is excluded, since it is deliberately ungrouped.
+  const values = kids.flatMap((n) => (n.tag === "optgroup"
+    ? n.children.map((o) => o.value)
+    : [n.value])).filter((v) => v !== "");
+  assert(values.join(",") === "Dwarvish,Elvish,Draconic",
+    `and no option is listed twice (got ${JSON.stringify(values)})`);
+  assert(kids[0].tag === "option" && kids[0].value === "", "the placeholder stays first and ungrouped");
+
+  // An option in no optgroup must still be offered, or a caller that lists
+  // only some groups would silently hide the rest.
+  const partial = renderLiveBulletItem({
+    live: true, topic: "x", lead: [],
+    slots: [{
+      key: "p#0", value: "", placeholder: "Choose…",
+      optgroups: [{ label: "Widespread", options: [{ value: "Dwarvish", label: "Dwarvish" }] }],
+      options: [{ value: "Dwarvish", label: "Dwarvish" }, { value: "Undercommon", label: "Undercommon" }],
+    }],
+  });
+  const pSel = [...partial.children].find((n) => n.tag === "select");
+  const tail = pSel.children.filter((n) => n.tag === "option").map((n) => n.value);
+  assert(tail.includes("Undercommon"),
+    `an ungrouped option is still offered (${JSON.stringify(tail)})`);
+  assert(!tail.includes("Dwarvish"), "while a grouped one is not repeated outside its group");
+}
+
+// The choice dialog's own headed sections, for pickers whose options fall
+// into obvious bands (the language list's Widespread/Rare split). The
+// headings must be inert: a <label> would invite a click to pick whatever it
+// wrapped, and an option-shaped heading would be pickable.
+{
+  const { openChoiceDialog } = wizard;
+  let accepted = null;
+  openChoiceDialog({
+    title: "Languages",
+    multi: true,
+    maxSelections: 2,
+    options: [
+      { id: "l-dw", name: "Dwarvish" },
+      { id: "l-el", name: "Elvish" },
+      { id: "l-ab", name: "Abyssal" },
+      { id: "l-dr", name: "Draconic" },
+    ],
+    sections: [
+      { label: "Widespread", optionIds: ["l-dw", "l-el"] },
+      { label: "Rare", optionIds: ["l-ab", "l-dr"] },
+    ],
+    initialSelected: ["l-dw"],
+    onAccept: (ids) => { accepted = ids; },
+  });
+  const box = document.body.querySelector(".choice-dialog");
+  assert(box, "the dialog rendered");
+  const kids = box.querySelector(".choice-dialog-list").children;
+  const labels = kids.filter((n) => (n.className || "").includes("choice-dialog-section-label"));
+  assert(labels.map((n) => n.textContent).join("|") === "Widespread|Rare",
+    `the headings render in order (${JSON.stringify(labels.map((n) => n.textContent))})`);
+  assert(labels.every((n) => n.tag === "div"),
+    "as plain divs, so a click on one cannot select anything");
+  assert(!labels.some((n) => (n.children || []).some((c) => c.tag === "input")),
+    "and none of them holds a checkbox");
+  const opts = kids.filter((n) => (n.className || "").includes("choice-dialog-option"));
+  assert(opts.length === 4, `every option is still offered (${opts.length})`);
+  assert(opts.every((n) => (n.children || []).some((c) => c.tag === "input")),
+    `and each still has its picker (${JSON.stringify(opts[0]?.children?.map((c) => c.tag))})`);
+
+  // An option named by no section must still be offered - a caller that
+  // lists some sections cannot silently hide the rest.
+  //
+  // openChoiceDialog is a singleton: opening a second one REPLACES the first,
+  // so each dialog's list is read before the next is opened rather than
+  // collected afterwards.
+  const listOf = () => {
+    const box = document.body.querySelector(".choice-dialog");
+    return box ? box.querySelector(".choice-dialog-list").children : [];
+  };
+  const opened = [];
+  openChoiceDialog({
+    title: "Mixed", multi: true, maxSelections: 3,
+    options: [{ id: "a", name: "Alpha" }, { id: "b", name: "Beta" }, { id: "c", name: "Gamma" }],
+    sections: [{ label: "Grouped", optionIds: ["a"] }],
+    onAccept: (ids) => { accepted = ids; },
+  });
+  opened.push(...listOf());
+  const mixedOpts = opened.filter((n) => (n.className || "").includes("choice-dialog-option"));
+  assert(mixedOpts.length === 3,
+    `an option in no section is still listed (${mixedOpts.length} of 3)`);
+
+  // No sections at all must render exactly as before - this is an opt-in, so
+  // every existing picker is unaffected.
+  openChoiceDialog({
+    title: "Plain", multi: false, maxSelections: 1,
+    options: [{ id: "x", name: "X" }, { id: "y", name: "Y" }],
+    onAccept: (ids) => { accepted = ids; },
+  });
+  assert(listOf().every((n) => !(n.className || "").includes("choice-dialog-section-label")),
+    "a picker with no sections renders no headings");
+  void accepted;
+}
+
 function groupOptionsFor(group) {
   return [...(group.options || []), ...(group.categories || []).flatMap((c) => c.options || [])];
 }

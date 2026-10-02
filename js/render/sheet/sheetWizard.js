@@ -2757,9 +2757,28 @@ export function renderLiveBulletItem(item) {
       onpointerdown: (e) => { keyboardDriven.set(slot.key, false); e.stopPropagation(); },
     });
     select.append(el("option", { value: "", text: slot.placeholder || "Choose…" }));
-    (slot.options || []).forEach((o) => {
+    // Optional [{ label, options }] rendered as <optgroup>. The native
+    // dropdown's own grouping: the label is shown but cannot be picked, which
+    // is exactly the Widespread/Rare split the language list wants - and it
+    // costs nothing to draw, unlike a heading inside a <select>, which is
+    // not allowed to hold elements.
+    //
+    // Options named by no optgroup still get listed, afterwards, so a caller
+    // that lists some cannot hide the rest.
+    const grouped = (slot.optgroups || []).flatMap((g) => g.options || []).map((o) => o.value);
+    for (const group of slot.optgroups || []) {
+      const opts = group.options || [];
+      if (!opts.length) continue;
+      const og = document.createElement("optgroup");
+      og.label = group.label || "";
+      for (const o of opts) {
+        og.append(el("option", { value: o.value, text: o.label, disabled: o.disabled || false, title: o.title || null }));
+      }
+      select.append(og);
+    }
+    for (const o of (slot.options || []).filter((o) => !grouped.includes(o.value))) {
       select.append(el("option", { value: o.value, text: o.label, disabled: o.disabled || false, title: o.title || null }));
-    });
+    }
     select.value = slot.value ?? "";
     li.append(select);
   });
@@ -3128,6 +3147,13 @@ export function openChoiceDialog({
   options = [],
   lockedIds = [],
   initialSelected = [],
+  // Optional [{ label, optionIds }] - non-selectable headings that break the
+  // list into named groups, for pickers whose options fall into obvious
+  // bands (the language list's Widespread/Rare split). The headings are NOT
+  // options and cannot be picked; they exist so a 15-item list does not
+  // read as one undifferentiated wall. Any option not named by a section is
+  // listed after them, so omitting one cannot hide a choice.
+  sections = null,
   onAccept,
   host = null,
   wide = false,
@@ -3156,7 +3182,17 @@ export function openChoiceDialog({
   };
   const renderList = () => {
     listWrap.innerHTML = "";
-    usable.forEach((opt) => {
+    // Options named by no section still have to be offered - a picker that
+    // silently drops choices because the caller forgot to list them would be
+    // far worse than an unheaded list.
+    const named = new Set((sections || []).flatMap((s) => s.optionIds || []));
+    const loose = usable.filter((o) => !named.has(o.id));
+    const order = [
+      ...(sections || []).map((s) => ({ label: s.label, options: usable.filter((o) => (s.optionIds || []).includes(o.id)) })),
+      ...(loose.length ? [{ label: null, options: loose }] : []),
+    ].filter((group) => group.options.length);
+
+    const optionRow = (opt) => {
       const isSelected = selected.has(opt.id);
       const isLocked = locked.has(opt.id);
       const input = el("input", {
@@ -3179,12 +3215,18 @@ export function openChoiceDialog({
         },
       });
       if (!multi) input.name = `choice-dialog-${title}`;
-      const label = el("label", { class: "choice-dialog-option" },
+      return el("label", { class: "choice-dialog-option" },
         input,
         el("span", { text: opt.name, style: "flex: 1;" }),
         opt.description ? el("span", { class: "choice-dialog-desc", text: opt.description }) : null);
-      listWrap.append(label);
-    });
+    };
+
+    for (const group of order) {
+      // A heading is a div, not a label: nothing about it is pickable, and a
+      // <label> would invite a click to select whatever it wrapped.
+      if (group.label) listWrap.append(el("div", { class: "choice-dialog-section-label", text: group.label }));
+      for (const opt of group.options) listWrap.append(optionRow(opt));
+    }
     if (!listWrap.children.length) {
       listWrap.append(el("p", { class: "leveling-tab__intro", text: "No options available." }));
     }

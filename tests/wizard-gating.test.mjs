@@ -65,6 +65,7 @@ import {
 } from "../js/render/sheet/sheetWizardSteps.js";
 import { nestedChoiceGroupsFor } from "../js/render/sheet/sheetWizard.js";
 import { FIXED_CLASS_ENTRIES } from "../js/data/contentFixups.js";
+import { LANGUAGES, languageSections } from "../js/data/schema.js";
 import { categorizeChoiceGroup } from "../js/render/sheet/sheetMechanics.js";
 import { normalizeChoiceGroup } from "../js/render/sheet/sheetLeveling.js";
 import { FIXED_RACE_ENTRIES } from "../js/data/contentFixups.js";
@@ -632,5 +633,49 @@ describe("trailing 'choose one' in a pick label", () => {
     assert.ok(group, "the Monk tool group is still there");
     assert.match(group.label, /choose one/i);
     assert.equal(trimTrailingChooseInstruction(group.label), "Monk Tool Proficiencies");
+  });
+});
+
+
+describe("language sections (Widespread / Rare)", () => {
+  // The language dropdown and picker want the list split into the two bands a
+  // player actually thinks in. The headings must not be selectable.
+  //
+  // The failure this guards is quiet and severe: if a language ended up in
+  // NEITHER section it would simply not appear in the picker, and there is no
+  // error - just a language that cannot be chosen. So the partition is
+  // asserted, not just the presence of two headings.
+
+  it("splits the list at the first rare language, which is Abyssal", () => {
+    const sections = languageSections();
+    const widespread = sections.find((s) => s.label === "Widespread");
+    const rare = sections.find((s) => s.label === "Rare");
+    assert.ok(widespread && rare, "both sections exist");
+    assert.equal(widespread.languages[widespread.languages.length - 1], "Orc",
+      "Widespread runs through Orc");
+    assert.equal(rare.languages[0], "Abyssal", "Rare starts at Abyssal");
+  });
+
+  it("covers every language EXACTLY once", () => {
+    const flat = languageSections().flatMap((s) => s.languages);
+    assert.equal(flat.length, LANGUAGES.length, "nothing lost and nothing duplicated by count");
+    assert.equal(new Set(flat).size, flat.length, "no language appears in two sections");
+    for (const name of LANGUAGES) {
+      assert.ok(flat.includes(name), `${name} is offered`);
+    }
+  });
+
+  it("keeps Common out of Rare", () => {
+    // Common is never a pick (every language group filters it), so filing it
+    // under Rare would be actively misleading if that filter ever slips.
+    const rare = languageSections().find((s) => s.label === "Rare");
+    assert.ok(!rare.languages.includes("Common"));
+    assert.ok(languageSections().find((s) => s.label === "Widespread").languages.includes("Common"));
+  });
+
+  it("is a pure partition - it does not mutate the source list", () => {
+    const before = [...LANGUAGES];
+    languageSections();
+    assert.deepEqual(LANGUAGES, before);
   });
 });

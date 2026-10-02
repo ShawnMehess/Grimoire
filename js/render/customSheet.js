@@ -79,7 +79,7 @@ import { flavorFor } from "../data/pickerFlavor.js";
 import { portraitArtFor } from "../data/portraitArt.js";
 import { SHEET_THEMES, applySheetTheme, normalizeThemeId, normalizeThemeMode } from "../data/themes.js";
 import { CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT, BG_EQUIPMENT_LINKS, goldOptionIdFor, slugId, resolveStartingEquipmentPick, linkedEquipmentNames, bgDisplayItems } from "../data/startingEquipment.js";
-import { ABILITIES, SKILLS } from "../data/schema.js";
+import { ABILITIES, SKILLS, languageSections } from "../data/schema.js";
 import { EXPRESS_CLASS_DEFAULTS } from "../data/expressDefaults.js";
 import {
   PAGE_COLS,
@@ -4892,21 +4892,39 @@ const closeDialog = () => {
         return m.values.map((value, i) => {
           const own = (value || "").toLowerCase();
           const siblings = new Set(allValues.filter((n) => n !== own));
+          const toOption = (o) => {
+            const lower = o.name.toLowerCase();
+            const locked = lockedNames.has(lower);
+            const taken = !locked && siblings.has(lower);
+            return {
+              value: o.name,
+              label: o.name,
+              disabled: locked || taken,
+              title: locked ? "Already known — pick something else" : taken ? "Picked in the other dropdown" : null,
+            };
+          };
+          // Widespread vs Rare, as <optgroup>s. The native picker shows the
+          // label and refuses to let it be picked, which is the behaviour
+          // asked for; and a <select> cannot hold arbitrary elements, so this
+          // is the one place a heading can exist at all.
+          //
+          // Grouped by name against the offered list, never rebuilt from a
+          // second copy of the vocabulary: a language the group offers but
+          // the split does not know about falls through to the ungrouped
+          // tail rather than vanishing from the dropdown.
+          const byName = new Map(offered.map((o) => [o.name, toOption(o)]));
+          const optgroups = languageSections()
+            .map((s) => ({
+              label: s.label,
+              options: s.languages.map((n) => byName.get(n)).filter(Boolean),
+            }))
+            .filter((g) => g.options.length);
           return {
             key: `${m.groupKey}#${i}`,
             value: value || "",
             placeholder: "Choose…",
-            options: offered.map((o) => {
-              const lower = o.name.toLowerCase();
-              const locked = lockedNames.has(lower);
-              const taken = !locked && siblings.has(lower);
-              return {
-                value: o.name,
-                label: o.name,
-                disabled: locked || taken,
-                title: locked ? "Already known — pick something else" : taken ? "Picked in the other dropdown" : null,
-              };
-            }),
+            optgroups,
+            options: offered.map(toOption),
           };
         });
       }),
@@ -5365,6 +5383,18 @@ const closeDialog = () => {
       const lockedIds = [...new Set([...(group.lockedOptionIds || []), ...opts.filter((o) => optionIsOwned(o, owned)).map((o) => o.id)])];
       const stored = store[group.key] || [];
       const pickedNames = stored.map((id) => opts.find((o) => o.id === id)?.name).filter(Boolean);
+      // Languages get the Widespread/Rare split, so the dialog reads as two
+      // named bands rather than one fifteen-item wall. Grouped against the
+      // options actually OFFERED here (which may be a subset, e.g. expertise
+      // narrowing skills), so a heading can never name a row that is absent.
+      const langSections = kind === "languages"
+        ? languageSections()
+          .map((s) => ({
+            label: s.label,
+            optionIds: opts.filter((o) => s.languages.includes(o.name)).map((o) => o.id),
+          }))
+          .filter((s) => s.optionIds.length)
+        : null;
       return {
         live: true,
         topic: group.label || "Choose",
@@ -5374,10 +5404,11 @@ const closeDialog = () => {
           multi: group.maxSelections !== 1,
           maxSelections: group.maxSelections,
           options: opts.map((o) => ({ id: o.id, name: o.name, description: describeChoiceOption(kind, o) })),
+          sections: langSections,
           lockedIds,
           initialSelected: stored,
           onAccept: (ids) => {
-            character.rules.choices = { ...(character.rules.choices || {}), [group.key]: ids };
+            character.rules.choices = { ...(character.rules?.choices || {}), [group.key]: ids };
             saveRules();
             renderPageGrid();
           },

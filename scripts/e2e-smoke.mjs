@@ -698,6 +698,53 @@ async function runViewportTests(viewport) {
   check(controlStillWorks.hasLink || controlStillWorks.hasSelect,
     `and the pick controls inside the details are still present (${JSON.stringify(controlStillWorks)})`);
 
+  // Languages: the picker splits into Widespread / Rare, and the headings
+  // cannot be picked. Languages appear as a native <optgroup> inside the
+  // inline dropdown (checked here, against the High Elf's extra-language
+  // slot) and as headings inside the choice dialog wherever a language group
+  // opens one instead - that second shape is covered directly by smoke-dom,
+  // because no row on this step happens to route a language group through it.
+  await page.click(rowFor("Elf"));
+  await page.waitForTimeout(1200);
+  await page.click(rowFor("High Elf"));
+  await page.waitForTimeout(1200);
+
+  const dropdownSplit = await page.evaluate(() => {
+    for (const sel of document.querySelectorAll("select")) {
+      const groups = [...sel.querySelectorAll("optgroup")];
+      if (groups.length) {
+        return {
+          // Per-group, so "Widespread runs Dwarvish..Orc" can actually fail
+          // - flattened values cannot distinguish the two bands.
+          groups: groups.map((g) => ({
+            label: g.label,
+            values: [...g.querySelectorAll("option")].map((o) => o.value),
+          })),
+          bare: [...sel.querySelectorAll(":scope > option")].map((o) => o.value),
+        };
+      }
+    }
+    return null;
+  });
+  check(!!dropdownSplit, "a language dropdown carrying headings is rendered");
+  if (dropdownSplit) {
+    check(dropdownSplit.groups.map((g) => g.label).join("|") === "Widespread|Rare",
+      `the language list is split into Widespread then Rare (${JSON.stringify(dropdownSplit.groups.map((g) => g.label))})`);
+    const widespread = dropdownSplit.groups.find((g) => g.label === "Widespread")?.values || [];
+    const rare = dropdownSplit.groups.find((g) => g.label === "Rare")?.values || [];
+    check(widespread.includes("Dwarvish") && widespread.includes("Orc"),
+      `Widespread runs Dwarvish..Orc (${widespread.join(", ")})`);
+    check(rare.includes("Abyssal") && rare.includes("Undercommon") && !rare.includes("Common"),
+      `Rare holds the rest, and not Common (${rare.join(", ")})`);
+    // The headings are OPTGROUPs, so the native picker shows them and cannot
+    // let one be chosen - asserted as "not offered as a pickable value".
+    check(!dropdownSplit.bare.includes("Widespread") && !dropdownSplit.bare.includes("Rare"),
+      `and the headings are not themselves pickable values (bare: ${JSON.stringify(dropdownSplit.bare)})`);
+    const all = [...widespread, ...rare];
+    check(new Set(all).size === all.length && all.length > 0,
+      `with no language offered twice (${all.length} entries)`);
+  }
+
   // Custom Lineage regression: the "Feat — Gain 1 feat(s) of your
   // choice." mention is a link opening the feats picker (same shared
   // table as proficiencies), and the Racial feat control sits on Identity.
