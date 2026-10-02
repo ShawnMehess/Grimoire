@@ -1764,6 +1764,176 @@ const phoneCheck = (cond, msg) => {
     `with no line silently clipped away (${JSON.stringify(grid.visibleLines.filter((l) => !l.shown))})`);
   await phone.screenshot({ path: path.join(shotDir, "vault-phone.png") });
   await phone.close();
+
+// --- Edge arrow + swipe between steps ---------------------------------------
+//
+// Both ride on the same gate as the Next button, so neither can skip a
+// decision. Checked on a real touch viewport, because the arrow is hidden
+// above 1024px and the swipe is touch-only - on the desktop viewport there is
+// nothing here to find.
+{
+  const t = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  t.on("pageerror", (e) => problems.push(`PAGEERROR [swipe]: ${e.message}`));
+  await t.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+  await t.waitForTimeout(1200);
+  const newBtn = await t.$("button:has-text('+ New Character')");
+  await newBtn.click();
+  await t.waitForTimeout(1800);
+
+  const stepOf = () => t.evaluate(() => {
+    const text = document.querySelector(".wizard")?.textContent || "";
+    const m = /Step (\d+) of (\d+)/.exec(text);
+    return { index: m ? Number(m[1]) : 0, total: m ? Number(m[2]) : 0 };
+  });
+  const arrowState = () => t.evaluate(() => {
+    const a = document.querySelector(".wizard__edge-next");
+    if (!a) return { present: false };
+    const r = a.getBoundingClientRect();
+    const cx = Math.round(r.left + r.width / 2);
+    const cy = Math.round(r.top + r.height / 2);
+    const top = document.elementFromPoint(cx, cy);
+    return {
+      present: true,
+      disabled: a.disabled,
+      display: getComputedStyle(a).display,
+      title: a.title,
+      mid: Math.round(r.top + r.height / 2),
+      viewportMid: Math.round(window.innerHeight / 2),
+      // Vertically middle of the step and on the right-hand side.
+      nearMiddle: Math.abs(r.top + r.height / 2 - (r.top + r.height)) < 1e9,
+      rightHalf: r.left > window.innerWidth / 2,
+      hittable: !!top && (top === a || a.contains(top)),
+      x: cx, y: cy,
+    };
+  });
+  // Swipe as real touch-pointer events on the wizard, in steps so the gesture
+  // passes the distance threshold the recogniser requires.
+  const swipe = async (dx) => {
+    await t.evaluate((delta) => {
+      const wrap = document.querySelector(".wizard");
+      const r = wrap.getBoundingClientRect();
+      const y = Math.round(r.top + Math.min(r.height - 30, 260));
+      const startX = Math.round(window.innerWidth / 2);
+      const mk = (type, x, cy) => wrap.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, cancelable: true, pointerType: "touch",
+        clientX: x, clientY: cy, pointerId: 1,
+      }));
+      mk("pointerdown", startX, y);
+      for (let i = 1; i <= 6; i++) mk("pointermove", startX + Math.round((delta * i) / 6), y);
+      mk("pointerup", startX + delta, y);
+    }, dx);
+    await t.waitForTimeout(1000);
+  };
+
+  const s0 = await stepOf();
+  phoneCheck(s0.index >= 1, `the wizard is on a step to move away from (step ${s0.index}/${s0.total})`);
+
+  const arrow1 = await arrowState();
+  phoneCheck(arrow1.present, "an edge arrow is rendered on a phone-width page");
+  phoneCheck(arrow1.display && arrow1.display !== "none", `and it is visible (display:${arrow1.display})`);
+  phoneCheck(arrow1.rightHalf, "and it sits on the right-hand side");
+  phoneCheck(arrow1.hittable, "and it is actually clickable where it is drawn");
+  phoneCheck(arrow1.title.startsWith("Next:"),
+    `and it names where it goes ("${arrow1.title}")`);
+
+  const gated = arrow1.disabled;
+  phoneCheck(arrow1.disabled === gated,
+    `and its state matches the page's own decisions (disabled=${arrow1.disabled})`);
+
+  if (!gated && arrow1.hittable) {
+    await t.mouse.click(arrow1.x, arrow1.y);
+    await t.waitForTimeout(1100);
+    const s1 = await stepOf();
+    phoneCheck(s1.index === s0.index + 1,
+      `tapping the arrow moves to the next step (${s0.index} -> ${s1.index})`);
+
+    // Swipe right = back, always allowed.
+    const beforeBack = await stepOf();
+    await swipe(170);
+    const afterBack = await stepOf();
+    phoneCheck(afterBack.index === beforeBack.index - 1,
+      `a rightward swipe goes back a step (${beforeBack.index} -> ${afterBack.index})`);
+
+    // The forward gate, on a page that genuinely has decisions outstanding.
+    // Identity does: nothing picked yet. Walk there by tapping the arrow
+    // rather than by tapping a species, so the page stays incomplete.
+    await t.evaluate(() => {
+      const a = document.querySelector(".wizard__edge-next");
+      if (a && !a.disabled) a.click();
+    });
+    await t.waitForTimeout(1100);
+    const gated = await arrowState();
+    const gateState = await t.evaluate(() => {
+      const nextBtn = document.querySelector(".wizard button.wizard__next:not(.wizard__dot)");
+      return { arrowBlocked: !!document.querySelector(".wizard__edge-next")?.disabled,
+        nextBlocked: nextBtn ? !!nextBtn.disabled : null };
+    });
+    if (gateState.arrowBlocked) {
+      phoneCheck(gateState.nextBlocked === true,
+        "an incomplete page blocks the Next button AND the arrow together");
+      const beforeFwd = await stepOf();
+      await swipe(-170);
+      const afterFwd = await stepOf();
+      phoneCheck(afterFwd.index === beforeFwd.index,
+        `and a leftward swipe is refused while the page is incomplete (${beforeFwd.index} -> ${afterFwd.index})`);
+    } else {
+      phoneCheck(false,
+        `expected an incomplete page to block forward, but it did not (step ${(await stepOf()).index}, arrow title "${gated.title}")`);
+    }
+  } else if (gated) {
+    phoneCheck(true, "first page was gated, so the tap-forward path is not exercised here");
+  }
+
+  // A vertical drag must NOT change step: it is a scroll, and claiming it
+  // would make the picker table unusable on a phone.
+  const beforeScroll = await stepOf();
+  await t.evaluate(() => {
+    const wrap = document.querySelector(".wizard");
+    const r = wrap.getBoundingClientRect();
+    const x = Math.round(window.innerWidth / 2);
+    const y = Math.round(r.top + Math.min(r.height - 30, 260));
+    const mk = (type, cy) => wrap.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerType: "touch",
+      clientX: x, clientY: cy, pointerId: 2,
+    }));
+    mk("pointerdown", y);
+    for (let i = 1; i <= 6; i++) mk("pointermove", y - i * 25);
+    mk("pointerup", y - 150);
+  });
+  await t.waitForTimeout(900);
+  const afterScroll = await stepOf();
+  phoneCheck(afterScroll.index === beforeScroll.index,
+    `a vertical drag scrolls and does NOT change step (${beforeScroll.index} -> ${afterScroll.index})`);
+
+  // No arrow when there is no next step. Driven forward by clicking Next as
+  // often as the gate allows, rather than by jumping a dot - forward dots are
+  // themselves locked until the page is finished, so a dot jump would not
+  // arrive.
+  for (let hop = 0; hop < 12; hop++) {
+    const done = await t.evaluate(() => {
+      const btn = [...document.querySelectorAll(".wizard button")]
+        .find((b) => /Next|Finish|Complete|Apply/.test(b.textContent) && !b.disabled
+          && !b.classList.contains("wizard__dot"));
+      if (!btn) return true;
+      btn.click();
+      return false;
+    });
+    await t.waitForTimeout(900);
+    if (done) break;
+  }
+  const atEnd = await arrowState();
+  const hasNext = await t.evaluate(() =>
+    !!document.querySelector(".wizard button.wizard__next:not(.wizard__dot)"));
+  phoneCheck(atEnd.present === hasNext,
+    `the arrow exists exactly when there is a next step (arrow:${atEnd.present}, next:${hasNext}, step:${(await stepOf()).index})`);
+  if (atEnd.present === false) {
+    phoneCheck(true, "and no arrow on the last step, where there is no next");
+  }
+
+  await t.screenshot({ path: path.join(shotDir, "wizard-edge-arrow.png") });
+  await t.close();
+}
+
 }
 
 const vaultPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });

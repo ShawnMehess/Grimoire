@@ -1819,6 +1819,47 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
   const bottomNav = buildNav();
   wrap.append(bottomNav);
 
+  // A single edge arrow, on the vertical middle of the step, that appears
+  // once the page's own decisions are made and takes you forward.
+  //
+  // It exists because on a phone the Next button is at the BOTTOM of the
+  // page: with the picker table expanded, that is a long scroll down and then
+  // a scroll back up to see what you changed. An affordance that is already
+  // on screen and says "you may continue" removes the search for it.
+  //
+  // Gated on exactly the same `stepIsComplete(currentStep)` as Next - one
+  // predicate, so the arrow can never disagree with the button. Absent
+  // entirely when there is no next step, and absent (not disabled) when the
+  // page still needs decisions: an arrow you cannot press is worse than no
+  // arrow, because it invites tapping and then nothing happening.
+  const nextStep = applicableSteps[stepState.index + 1];
+  if (nextStep) {
+    const arrow = document.createElement("button");
+    arrow.type = "button";
+    arrow.className = "wizard__edge-next";
+    arrow.textContent = "→";
+    const blockedTitle = "Make your selections on this page to continue.";
+    const setArrow = (blocked) => {
+      if (blocked) {
+        arrow.classList.add("wizard__edge-next--blocked");
+        arrow.disabled = true;
+        arrow.title = blockedTitle;
+      } else {
+        arrow.classList.remove("wizard__edge-next--blocked");
+        arrow.disabled = false;
+        arrow.title = `Next: ${nextStep.title || ""}`.trim();
+      }
+    };
+    setArrow(!stepIsComplete(currentStep));
+    arrow.addEventListener("click", () => { goTo(stepState.index + 1); });
+    wrap.append(arrow);
+    // Kept beside the Next buttons so refreshWizardNav can drive them
+    // together; a stale arrow would contradict the button next to it.
+    wrap.refreshEdgeNext = () => setArrow(!stepIsComplete(
+      applicableStepsOf(steps)[clampStepIndex(applicableStepsOf(steps).length, stepState.index)] || currentStep,
+    ));
+  }
+
   // One set of Back/Next is enough: while the bottom nav is fully on
   // screen (short pages, wide windows), the top duplicate hides
   // itself; scrolling down brings it back. No cleanup needed — the
@@ -1858,6 +1899,9 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
       dot.disabled = pastGate;
       dot.title = pastGate ? lockedTitle : "";
     });
+    // The edge arrow reads the same predicate, so it cannot disagree with
+    // the Next buttons it duplicates.
+    if (typeof wrap.refreshEdgeNext === "function") wrap.refreshEdgeNext();
   };
   // Picks auto-seeded while the body renders (locked defaults) can
   // satisfy the page after the navs above were already built.
@@ -1871,6 +1915,70 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
   };
   wrap.addEventListener("change", refreshOnEdit);
   wrap.addEventListener("input", refreshOnEdit);
+
+  // --- Swipe between steps -------------------------------------------------
+  //
+  // A horizontal drag moves to the previous or next step, subject to exactly
+  // the same rules the buttons and dots obey: always back, forward only when
+  // the current page is finished. So a swipe can never skip a decision.
+  //
+  // Vertical scrolling must still work, which is the whole difficulty: on a
+  // phone the picker table IS a vertical list, and a gesture recogniser that
+  // claims every touch would make the page unscrollable. So:
+  //
+  //  - horizontal intent only - the drag must be more horizontal than
+  //    vertical before anything is claimed, and it is abandoned outright if
+  //    the vertical movement grows past the horizontal;
+  //  - pointer events with capture, so a drag that leaves the element still
+  //    tracks to the end;
+  //  - a distance threshold, so a tap or a nudge is not a page change;
+  //  - one navigation per gesture, released on pointerup.
+  //
+  // Touch only. A mouse drag on a desktop page is a text selection or a
+  // drag-and-drop elsewhere in the sheet, and hijacking it would break both.
+  if (typeof wrap.addEventListener === "function") {
+    const SWIPE_MIN = 60;
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+    let decided = false;
+
+    wrap.addEventListener("pointerdown", (e) => {
+      if (e.pointerType && e.pointerType !== "touch") return;
+      // A control owns its own gestures: swiping starting on a slider or a
+      // scrolling list is the list's business, not ours.
+      if (e.target?.closest?.("select, input, textarea, .choice-row-list, .spell-picker-list")) return;
+      startX = e.clientX;
+      startY = e.clientY;
+      tracking = true;
+      decided = false;
+    });
+
+    wrap.addEventListener("pointermove", (e) => {
+      if (!tracking || decided) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      // Vertical intent wins outright and cancels the gesture for good, so a
+      // diagonal scroll never becomes a page change halfway through.
+      if (Math.abs(dy) > Math.abs(dx)) { tracking = false; return; }
+      if (Math.abs(dx) < SWIPE_MIN) return;
+      decided = true;
+      if (dx < 0) {
+        // Swipe left = forward.
+        if (stepState.index < applicableSteps.length - 1 && stepIsComplete(currentStep)) {
+          goTo(stepState.index + 1);
+        }
+      } else if (stepState.index > 0) {
+        // Swipe right = back, always allowed.
+        goTo(stepState.index - 1);
+      }
+    });
+
+    const endSwipe = () => { tracking = false; };
+    wrap.addEventListener("pointerup", endSwipe);
+    wrap.addEventListener("pointercancel", endSwipe);
+    wrap.addEventListener("pointerleave", endSwipe);
+  }
   return wrap;
 }
 

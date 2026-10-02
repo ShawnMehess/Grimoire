@@ -599,6 +599,67 @@
   display: none;
 }
 
+/* Edge "you may continue" arrow: vertically centred on the right of the
+   SCREEN, present only once the page's own decisions are made.
+
+   position:fixed, not absolute against the wizard. The wizard element is as
+   tall as its content - several thousand pixels with the picker table open -
+   so `top: 50%` against it lands far below the fold, which is exactly where
+   an affordance cannot be. Fixed against the viewport is what "vertical
+   middle of the screen" means, and it is what keeps the arrow on screen while
+   the player scrolls the page they are still deciding on.
+
+   pointer-events only on the button itself, so the strip beside it does not
+   eat clicks on the page.
+
+   Hidden on wide screens, where the Next button is already visible without
+   scrolling and a floating arrow would just be a second thing to read. */
+.wizard__edge-next {
+  position: fixed;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  z-index: 40;
+  width: 34px;
+  height: 34px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--color-accent-text);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+}
+.wizard__edge-next:hover {
+  border-color: var(--color-accent, var(--color-border-strong));
+}
+/* Blocked state: dimmed and not pressable, and the cursor says so rather
+   than inviting a tap that does nothing. It is still rendered rather than
+   removed, so the page does not jump when the last decision is made. */
+.wizard__edge-next--blocked {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.wizard__edge-next:focus-visible {
+  outline: 2px solid var(--color-accent, var(--color-border-strong));
+  outline-offset: 2px;
+}
+
+@media (max-width: 1024px) {
+  .wizard__edge-next {
+    display: inline-flex;
+  }
+  /* Room for the arrow so it never sits on top of a picker row's text. */
+  .wizard__body {
+    padding-right: var(--space-5);
+  }
+}
+
 .level-guide__field {
   display: flex;
   flex-direction: column;
