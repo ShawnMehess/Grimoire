@@ -53,6 +53,7 @@ import {
   filterSortSpells,
   reviewChoiceLinesFor,
   slotLabelFor,
+  trimTrailingChooseInstruction,
 } from "../js/render/sheet/sheetWizard.js";
 import {
   clampScoreToRange,
@@ -63,6 +64,7 @@ import {
   HP_METHOD_OPTIONS,
 } from "../js/render/sheet/sheetWizardSteps.js";
 import { nestedChoiceGroupsFor } from "../js/render/sheet/sheetWizard.js";
+import { FIXED_CLASS_ENTRIES } from "../js/data/contentFixups.js";
 import { categorizeChoiceGroup } from "../js/render/sheet/sheetMechanics.js";
 import { normalizeChoiceGroup } from "../js/render/sheet/sheetLeveling.js";
 import { FIXED_RACE_ENTRIES } from "../js/data/contentFixups.js";
@@ -575,5 +577,60 @@ describe("subrace options with their own choice groups", () => {
     assert.ok(cantrip, "High Elf's cantrip picker is there");
     assert.notEqual(categorizeChoiceGroup(cantrip), "languages",
       "otherwise Common would be force-locked onto a cantrip list");
+  });
+});
+
+
+describe("trailing 'choose one' in a pick label", () => {
+  // The Monk's tool group shipped as "Monk Tool Proficiencies: choose one",
+  // and the bullet renders label + link - so it read
+  //   **Monk Tool Proficiencies: choose one** — Choose 1
+  // which says the same instruction twice, three words apart. The label is
+  // compiled data, so this is stripped at render time rather than by editing
+  // one string.
+
+  it("removes a trailing instruction and leaves the topic", () => {
+    assert.equal(trimTrailingChooseInstruction("Monk Tool Proficiencies: choose one"),
+      "Monk Tool Proficiencies");
+    assert.equal(trimTrailingChooseInstruction("Artisan Tools - choose one"),
+      "Artisan Tools");
+    assert.equal(trimTrailingChooseInstruction("Weapons (choose two)"), "Weapons");
+    assert.equal(trimTrailingChooseInstruction("Languages: pick 2"), "Languages");
+  });
+
+  it("leaves a label with no trailing instruction alone", () => {
+    for (const label of [
+      "Monk Skill Proficiencies",
+      "Martial Arts",
+      // A mention partway through is content, not an instruction to strip.
+      "Common - a language everyone in the region speaks",
+      "Choose an option",
+    ]) {
+      assert.equal(trimTrailingChooseInstruction(label), label, label);
+    }
+  });
+
+  it("never strips a label down to nothing", () => {
+    // "Choose one" on its own is the whole label. Returning "" would render
+    // a bullet with no topic at all, which is worse than the repetition.
+    assert.equal(trimTrailingChooseInstruction("Choose one"), "Choose one");
+    assert.equal(trimTrailingChooseInstruction("choose"), "choose");
+  });
+
+  it("copes with nothing at all", () => {
+    assert.equal(trimTrailingChooseInstruction(""), "");
+    assert.equal(trimTrailingChooseInstruction(null), "");
+    assert.equal(trimTrailingChooseInstruction(undefined), "");
+  });
+
+  it("handles the label the shipped Monk data actually has", () => {
+    // Asserted against the real bundle so the test cannot quietly stop
+    // covering the case: if a data edit renames the group, this says so
+    // rather than passing on a string nothing renders.
+    const monk = FIXED_CLASS_ENTRIES.find((r) => r.name === "Monk");
+    const group = monk.bundle.choiceGroups.find((g) => g.id === "monk-toolProf-0");
+    assert.ok(group, "the Monk tool group is still there");
+    assert.match(group.label, /choose one/i);
+    assert.equal(trimTrailingChooseInstruction(group.label), "Monk Tool Proficiencies");
   });
 });

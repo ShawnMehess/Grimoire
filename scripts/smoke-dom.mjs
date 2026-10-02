@@ -1336,6 +1336,55 @@ if (failures) {
   assert(!language.options.some((o) => o.name === "Common"), "Common is free, never a pick");
 }
 
+// A bullet's label and the link after it must not say the same thing
+// twice: the Monk's tool group shipped as "Monk Tool Proficiencies: choose
+// one" and rendered as "... choose one — Choose 1".
+{
+  const { renderLiveBulletItem, trimTrailingChooseInstruction } = wizard;
+
+  const bullet = renderLiveBulletItem({
+    live: true,
+    topic: "Monk Tool Proficiencies: choose one",
+    lead: [{ text: "Choose 1" }],
+    dialogOpener: () => {},
+  });
+  const box = document.createElement("div");
+  box.append(bullet);
+  const text = box.textContent.replace(/\s+/g, " ").trim();
+
+  assert(!/choose one/i.test(text),
+    `a label's trailing instruction is stripped next to a link, not repeated (got "${text}")`);
+  assert(/Monk Tool Proficiencies/.test(text), "and the topic itself survives");
+  assert(/Choose 1/.test(text), "with the link's own summary still there");
+
+  // Without a link the label is the whole line, so the instruction has to
+  // stay: stripping it would leave a topic with nothing after it.
+  const noLink = document.createElement("div");
+  noLink.append(renderLiveBulletItem({
+    live: true,
+    topic: "Monk Tool Proficiencies: choose one",
+    lead: [{ text: "Smith's tools" }],
+  }));
+  assert(/choose one/i.test(noLink.textContent),
+    "a locked bullet with no link keeps the instruction, since it is all the text there is");
+}
+
+// The prepared-spells line is a peer of the cantrip and spellbook lines, not
+// a sub-choice of them, so it must not be indented.
+{
+  const { renderLiveBulletItem } = wizard;
+  const prepared = document.createElement("div");
+  prepared.append(renderLiveBulletItem({
+    live: true,
+    topic: "Prepared Spells",
+    indent: false,
+    lead: [{ text: "Bless" }],
+    dialogOpener: () => {},
+  }));
+  assert(!prepared.querySelector(".mechanics-pick--nested"),
+    "the prepared-spells line renders level with its neighbours");
+}
+
 function groupOptionsFor(group) {
   return [...(group.options || []), ...(group.categories || []).flatMap((c) => c.options || [])];
 }

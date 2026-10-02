@@ -5214,7 +5214,11 @@ const closeDialog = () => {
               live: true,
               topic: group.label || "Prepared Spells",
               locked: true,
-              indent: true,
+              // Not indented either - see the note on the unlocked branch
+              // below. A locked prepared line at a different indent from an
+              // unlocked one would move sideways as the player filled in
+              // their known list, which is the opposite of a stable layout.
+              indent: false,
               lead: [{ text: lockReason }],
             };
           }
@@ -5254,7 +5258,13 @@ const closeDialog = () => {
             topic: group.label || "Choose a spell",
             lead: [{ text: summary }],
             warning,
-            indent: isPreparedLine,
+            // Level with the cantrip and spellbook lines, not under them: the
+            // prepared list is chosen from the class list, not from the
+            // spells above it, and the indent implied otherwise. What does
+            // depend on the known list - a Wizard preparing from their
+            // spellbook - is said in words instead, since that IS a real
+            // dependency.
+            indent: false,
             dialogOpener: () => openChoiceDialog({
               title: group.label || "Choose a spell",
               multi: group.maxSelections !== 1,
@@ -6846,7 +6856,12 @@ const closeDialog = () => {
             list.append(renderLiveBulletItem({
               live: true,
               topic: group.label,
-              indent: isPrepared,
+              // The prepared line sits level with its neighbours. It is a
+              // peer of the cantrip line and the spellbook line, not a
+              // sub-choice of one of them - indenting it implied the
+              // prepared spells were chosen from the spells above rather
+              // than from the class list the label already names.
+              indent: false,
               locked: Boolean(lockReason),
               warning: overBy > 0
                 ? `You have ${overBy} more prepared than you can cast at this level — that's fine while you are still setting ability scores.`

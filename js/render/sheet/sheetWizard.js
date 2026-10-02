@@ -2620,6 +2620,39 @@ export function richAbilityNodes(text) {
  *  (collapse + de-select) the pick itself. `change` still bubbles so
  *  wizard gating refreshes. Module-private — only reachable through
  *  live descriptors in a mechanics list. */
+/** A choice-group label whose tail is an instruction the link beside it
+ *  already carries: "Monk Tool Proficiencies: choose one" renders as
+ *
+ *    **Monk Tool Proficiencies: choose one** — Choose 1
+ *
+ *  which says "choose one" twice, in two registers, three words apart. Only
+ *  the Monk's tool group shipped with this shape, but the label is compiled
+ *  data, so the next one will too - better to strip it at render time than to
+ *  edit one string and call it done.
+ *
+ *  Returns the label with the trailing instruction removed, or the label
+ *  unchanged when there is nothing to strip. Pure, so it is testable without
+ *  a DOM.
+ *
+ *  Deliberately narrow: it only strips a TRAILING clause, never a mention
+ *  partway through. "Common - a language everyone speaks" keeps its second
+ *  half; "Monk Tool Proficiencies: choose one" loses its third. */
+export function trimTrailingChooseInstruction(label) {
+  const text = String(label ?? "");
+  const trimmed = text.replace(
+    // Two shapes, because the data uses both: a clause after a colon or
+    // dash, and the instruction parenthesised at the end. The leading
+    // separator is inside the match on purpose so "Weapons (choose two)"
+    // loses the space before the bracket too.
+    /\s*[:\-—]\s*\b(?:choose|select|pick)\b(?:\s+(?:one|two|three|four|an?|\d+|up to \w+))?\s*(?:\([^)]*\))?\s*$/i,
+    "",
+  ).replace(
+    /\s*\(\s*(?:choose|select|pick)\b(?:\s+(?:one|two|three|four|an?|\d+|up to \w+))?\s*\)\s*$/i,
+    "",
+  );
+  return trimmed.trim() || text;
+}
+
 export function renderLiveBulletItem(item) {
   const li = el("li", {
     class: "mechanics-pick" + (item.indent ? " mechanics-pick--nested" : ""),
@@ -2631,7 +2664,13 @@ export function renderLiveBulletItem(item) {
   // language/tool dropdown bullets keep their slot-level ? instead.
   const slotOpener = slots.some((s) => s.dialogOpener) ? () => slots.forEach((s) => s.dialogOpener?.()) : null;
   if (item.topic) {
-    const topicEl = el("strong", { text: item.topic });
+    // Only when there is a link after it. Without one the label is the whole
+    // line and "choose one" is the only instruction the player gets, so
+    // stripping it would leave a topic with nothing after it at all.
+    const topicText = typeof item.dialogOpener === "function"
+      ? trimTrailingChooseInstruction(item.topic)
+      : item.topic;
+    const topicEl = el("strong", { text: topicText });
     if (!item.dialogOpener && slotOpener) {
       const helpBtn = el("sup", { class: "inline-pick-help", title: "Open picker dialog" },
         el("a", { href: "#", onclick: (e) => { e.preventDefault(); e.stopPropagation(); slotOpener(); } }, "?"));
