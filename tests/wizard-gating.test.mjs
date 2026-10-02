@@ -62,6 +62,10 @@ import {
   resolvePrimaryRuleset,
   HP_METHOD_OPTIONS,
 } from "../js/render/sheet/sheetWizardSteps.js";
+import { nestedChoiceGroupsFor } from "../js/render/sheet/sheetWizard.js";
+import { categorizeChoiceGroup } from "../js/render/sheet/sheetMechanics.js";
+import { normalizeChoiceGroup } from "../js/render/sheet/sheetLeveling.js";
+import { FIXED_RACE_ENTRIES } from "../js/data/contentFixups.js";
 
 describe("choice-group satisfaction", () => {
   it("counts non-locked picks against the minimum", () => {
@@ -520,3 +524,56 @@ describe("HP method preference rows", () => {
   });
 });
 
+describe("subrace options with their own choice groups", () => {
+  // Regression: picking High Elf threw
+  //   TypeError: categorizeFn is not a function
+  // from lockCommonInLanguageGroups. The shared two-argument helper was called
+  // with one, so it called the categorize function on nothing.
+  //
+  // Nothing else hit it because High Elf is the only subrace in the shipped
+  // data that carries nested choice groups. Every other subrace produced an
+  // empty list, the code returned before reaching the bad call, and the bug
+  // sat behind a length check that almost never ran.
+  const elf = () => FIXED_RACE_ENTRIES.find((r) => r.name === "Elf");
+  const subraceGroup = () => normalizeChoiceGroup(
+    elf().bundle.choiceGroups.find((g) => g.id === "elf-subrace"), 0, "Class:Race:Elf");
+  const highElf = () => subraceGroup().options.find((o) => o.id === "elf-subrace-high");
+  const nestedFor = () => nestedChoiceGroupsFor(highElf(), {
+    parentKey: subraceGroup().key,
+    pickedIds: ["elf-subrace-high"],
+  });
+
+  it("the shipped High Elf really does carry nested groups", () => {
+    // Asserted first so the tests below cannot quietly stop testing
+    // anything: if a future data edit flattens this shape, they would still
+    // pass on an empty list.
+    assert.ok(highElf().choiceGroups?.length,
+      "High Elf nests choice groups, which is what reached the bad call");
+  });
+
+  it("nestedChoiceGroupsFor returns them once the subrace is picked", () => {
+    assert.deepEqual(
+      nestedChoiceGroupsFor(highElf(), { parentKey: subraceGroup().key, pickedIds: [] }),
+      [], "nothing before the pick");
+    const nested = nestedFor();
+    assert.equal(nested.length, highElf().choiceGroups.length);
+    assert.ok(nested.every((g) => g.key.startsWith(subraceGroup().key + ":elf-subrace-high:")),
+      "each nested group is keyed under its parent, so a pick has somewhere to live");
+  });
+
+  it("locks Common in the nested language group without throwing", () => {
+    const nested = nestedFor();
+    // The call customSheet.js makes. Not throwing IS the fix; the assertion
+    // that would have caught the bug is assert.doesNotThrow itself, since the
+    // old one-arg call threw on the first group.
+    assert.doesNotThrow(() => lockCommonInLanguageGroups(nested, categorizeChoiceGroup));
+    assert.equal(nested.length, 2, "and it leaves the list alone");
+  });
+
+  it("does not treat the nested cantrip group as a language group", () => {
+    const cantrip = nestedFor().find((g) => g.category === "spells");
+    assert.ok(cantrip, "High Elf's cantrip picker is there");
+    assert.notEqual(categorizeChoiceGroup(cantrip), "languages",
+      "otherwise Common would be force-locked onto a cantrip list");
+  });
+});

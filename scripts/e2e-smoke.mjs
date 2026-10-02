@@ -532,6 +532,61 @@ async function runViewportTests(viewport) {
     await page.waitForTimeout(300);
     check(!(await page.$(".choice-dialog-overlay")), "shared choice dialog closes on Escape");
   }
+  // High Elf regression: picking it threw
+  //   TypeError: categorizeFn is not a function
+  // and the whole creator died mid-click. High Elf is the only subrace in the
+  // shipped data carrying its own nested choice groups (the extra language
+  // and the cantrip), and the subrace row's rules renderer locks Common
+  // across them. Every other subrace produced an empty group list and
+  // returned before that line, which is why this survived until a user
+  // happened to be an Elf.
+  //
+  // Driven through a real click, because the bug was a wrong function called
+  // at a call site - only the browser reaches it.
+  const elf = await page.$(`.choice-row[data-row-name="Elf"]`);
+  check(!!elf, "Identity step lists Elf");
+  if (elf) {
+    await elf.click();
+    await page.waitForTimeout(1400);
+    const highElf = await page.$('.choice-row[data-row-name="High Elf"]');
+    check(!!highElf, "and the Elven Subrace row offers High Elf");
+    if (highElf) {
+      const before = problems.length;
+      await highElf.click();
+      await page.waitForTimeout(1500);
+      check(problems.length === before,
+        `picking High Elf throws nothing (${problems.slice(before).join("; ") || "clean"})`);
+      // Still interactive afterwards: the crash killed the render, so a
+      // surviving page is not enough on its own.
+      check(await page.$(".page-grid"), "and the creator is still rendered after it");
+      const highState = await page.evaluate(() => {
+        const row = document.querySelector('.choice-row--selected[data-row-name="High Elf"]')
+          || document.querySelector('.choice-row[data-row-name="High Elf"]');
+        return {
+          selected: row?.classList.contains("choice-row--selected") || false,
+          // The nested groups render inside High Elf's OWN row, as a
+          // bullet list rather than as more choice rows. Assert on the row's
+          // own words, which is what the player reads: the trait descriptions
+          // already promise an extra language and a cantrip.
+          nestedRows: [...(row?.querySelectorAll(".choice-row") || [])]
+            .map((n) => n.dataset.rowName),
+          text: (row?.textContent || "").replace(/\s+/g, " ").slice(0, 300),
+        };
+      });
+      check(highState.selected, "the High Elf row reads as chosen");
+      check(/Extra Language/i.test(highState.text) && /Cantrip/i.test(highState.text),
+        `and it offers the extra language and the cantrip it promises (${highState.text})`);
+      // The pick controls themselves, if they render as links: the cantrip
+      // group's option is a spell-pick placeholder, so a real link is the
+      // sign the group is wired rather than only described.
+      const pickLinks = await page.evaluate(() => [...document.querySelectorAll(".inline-pick-link")]
+        .map((n) => n.textContent.trim()));
+      check(pickLinks.length >= 1,
+        `with a pick control the player can actually use (${JSON.stringify(pickLinks)})`);
+      await page.screenshot({ path: path.join(shotDir, `high-elf-${viewport.name}.png`) });
+    }
+  }
+
   // Custom Lineage regression: the "Feat — Gain 1 feat(s) of your
   // choice." mention is a link opening the feats picker (same shared
   // table as proficiencies), and the Racial feat control sits on Identity.

@@ -3771,7 +3771,13 @@ const closeDialog = () => {
 
   /** Common is known by default and can't be changed — applied
    *  everywhere language groups surface, creation and post-setup
-   *  alike (shared pure helper, tested in smoke-imports). */
+   *  alike (shared pure helper, tested in smoke-imports).
+   *
+   *  ALWAYS call this one-argument local wrapper, never lockCommonGroups
+   *  directly: the shared helper requires a categorizeFn and calling it
+   *  without one throws `categorizeFn is not a function` on the first group.
+   *  The import is aliased specifically so the local name wins here; that is
+   *  what makes the mistake easy to make by eye, so it is worth saying. */
   function lockCommonInLanguageGroups(groups) {
     return lockCommonGroups(groups, categorizeChoiceGroup);
   }
@@ -5863,7 +5869,7 @@ const closeDialog = () => {
               });
               if (!nested.length) return sections;
               return withLiveBullets(sections, inlineChoiceBullets(
-                lockCommonGroups(nested),
+                lockCommonInLanguageGroups(nested),
                 saveRules
               ).map((bullet) => ({ section: SHARED_MECHANICS_TITLES.innate, bullet })));
             },
