@@ -274,8 +274,7 @@ async function renderCharacterList() {
     // distinguishes "you're offline" from "this browser is blocking
     // storage" - which have completely different fixes.
     const why = explainLoadFailure(err, { action: "load your characters" });
-    const box = el("div", { class: "vault-error", role: "alert" });
-    box.append(
+    appRoot.append(el("div", { class: "vault-error", role: "alert" },
       el("h3", { text: why.title }),
       el("p", { class: "vault-error__message", text: why.message }),
       why.advice.length ? el("ul", { class: "vault-error__advice" }, ...why.advice.map((line) => el("li", { text: line }))) : null,
@@ -286,8 +285,7 @@ async function renderCharacterList() {
           text: "Work offline instead",
           title: "Same app, this browser's own storage. Nothing syncs.",
         }) : null),
-    );
-    appRoot.append(box);
+    ));
     return;
   }
   // Remember the whole documents, not just the card summaries - see
@@ -485,25 +483,19 @@ function renderOpenFailure(root, err, retry) {
   const why = explainLoadFailure(err);
   console.error("Failed to open character:", err);
   root.innerHTML = "";
-  const box = el("div", { class: "vault-error", role: "alert" });
-  box.append(el("h3", { text: why.title }), el("p", { class: "vault-error__message", text: why.message }));
-  if (why.advice.length) {
-    const list = el("ul", { class: "vault-error__advice" });
-    for (const line of why.advice) list.append(el("li", { text: line }));
-    box.append(list);
-  }
-  if (why.detail) box.append(el("p", { class: "vault-error__detail", text: why.detail }));
-  const row = el("div", { class: "vault-error__actions" },
-    el("button", { type: "button", class: "btn btn--primary", text: "Try again", onclick: retry }));
-  if (why.blocked) {
-    row.append(el("a", {
-      class: "btn", href: `${window.location.pathname}?offline=1`,
-      text: "Work offline instead",
-      title: "Same app, this browser's own storage. Nothing syncs.",
-    }));
-  }
-  box.append(row);
-  root.append(box);
+  root.append(el("div", { class: "vault-error", role: "alert" },
+    el("h3", { text: why.title }),
+    el("p", { class: "vault-error__message", text: why.message }),
+    why.advice.length ? el("ul", { class: "vault-error__advice" }, ...why.advice.map((line) => el("li", { text: line }))) : null,
+    why.detail ? el("p", { class: "vault-error__detail", text: why.detail }) : null,
+    el("div", { class: "vault-error__actions" },
+      el("button", { type: "button", class: "btn btn--primary", text: "Try again", onclick: retry }),
+      why.blocked ? el("a", {
+        class: "btn", href: `${window.location.pathname}?offline=1`,
+        text: "Work offline instead",
+        title: "Same app, this browser's own storage. Nothing syncs.",
+      }) : null),
+  ));
 }
 
 async function openCharacter(characterId) {
