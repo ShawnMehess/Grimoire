@@ -2978,12 +2978,33 @@ function renderSinglePickerRows(container, names, {
       hasDetails = true;
     }
     if (hasDetails) {
-      // Clicks inside an expanded row's details must not reach the row
-      // itself: they belong to the pick the player is reading or making
-      // (and the nested controls stop their own events). Without this,
-      // clicking anywhere in an expanded but unselected row's choices
-      // collapses it out from under the cursor.
-      details.addEventListener("click", (e) => e.stopPropagation());
+      // Clicks on a CONTROL inside an expanded row must not reach the row
+      // itself: they belong to the pick the player is reading or making, and
+      // without this, using a dropdown collapses the row out from under the
+      // cursor.
+      //
+      // Clicks on anything else - the mechanics text, a trait name, the
+      // padding - must reach it. This used to stop every click, which made
+      // the expanded half of a row dead to selection: with Expand All open,
+      // only the portrait-and-flavour line above would take a click, and
+      // everything below it - which is most of what the player is reading -
+      // did nothing.
+      //
+      // The walk is hand-rolled and stops AT this details element rather than
+      // using closest(): the row itself carries role="button", so closest()
+      // walks past the real controls, reaches the row, matches it, and stops
+      // every click again - which is precisely the bug this replaces.
+      const INTERACTIVE = new Set(["SELECT", "INPUT", "BUTTON", "A", "LABEL", "TEXTAREA", "OPTION"]);
+      details.addEventListener("click", (e) => {
+        for (let n = e.target; n && n !== details; n = n.parentElement) {
+          if (INTERACTIVE.has(n.tagName)) { e.stopPropagation(); return; }
+          if (n.classList?.contains("inline-pick-link")) { e.stopPropagation(); return; }
+          if (n.getAttribute?.("contenteditable") === "true" || n.getAttribute?.("role") === "button") {
+            e.stopPropagation();
+            return;
+          }
+        }
+      });
       if (collapsible) {
         // The selected row reads as expanded even on a fresh render
         // (e.g. resuming a saved-in-progress wizard) so picking

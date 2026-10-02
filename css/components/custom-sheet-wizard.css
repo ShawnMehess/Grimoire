@@ -459,6 +459,16 @@
   will-change: opacity, transform;
   transition: opacity 180ms ease-out, transform 180ms ease-out;
 }
+
+/* The expanded half of a row selects the row like any other part of it.
+ * Clicks on real controls inside are excluded in JS (they belong to the
+ * pick, not the row), so this is about the text and the padding between
+ * traits - which is most of what an expanded row shows. */
+.choice-row__details .choice-row__mechanics-list > li,
+.choice-row__details .choice-row__mechanics,
+.choice-row__details .choice-row__mechanics-title {
+  cursor: pointer;
+}
 .choice-row__details[hidden] {
   display: none;
 }

@@ -123,6 +123,18 @@ for (let step = 0; step < 22; step++) {
   const inWizard = await page.$(".wizard");
   if (!inWizard) break; // left the wizard (finished or sheet opened)
   // 1) Sweep every choice row on this step.
+  //
+  // Remember which row was selected BEFORE the sweep. The sweep is
+  // destructive: a row click toggles, so sweeping a page that already holds
+  // a pick - the Review page repeats the race and class rows - ends with
+  // whichever row happened to be swept last, and clicking the one that was
+  // already selected DESELECTS it. On Review that cleared the class outright,
+  // which then blocked Apply with "pick which class gains this level".
+  //
+  // This was hidden while row clicks were inert below the portrait strip:
+  // the sweep's centre-click landed in the details and did nothing, so the
+  // pre-sweep selection survived by accident.
+  const selectedBefore = await page.$$eval(".choice-row--selected", (els) => els.map((e) => e.dataset.rowName)).catch(() => []);
   const names = await page.$$eval(".choice-row[data-row-name]", (els) => els.map((e) => e.dataset.rowName)).catch(() => []);
   console.log(`[wizard:${label}] sweeping ${names.length} rows`);
   for (const name of names) {
@@ -232,12 +244,31 @@ for (let step = 0; step < 22; step++) {
   };
   await act(`wizard:${label}`, "fill inputs + first options", fillStep);
   await page.waitForTimeout(800);
-  // Re-select the first row (a canonical, completable pick) and re-fill,
-  // so the page is in a finishable state regardless of sweep order.
-  if (names.length) {
-    await sweep(`wizard:${label}`, `reselect row ${names[0]}`, () => click(`.choice-row[data-row-name="${names[0]}"]`, 3000));
+  // Restore EXACTLY what was selected before the sweep - every row, not the
+  // first match. The sweep's toggle had already deselected them one by one,
+  // so re-picking a single row left the others cleared: on Review that is a
+  // race AND a class AND a background, and restoring only the race left the
+  // class empty, which then blocked Apply. Re-picking only rows that are
+  // currently unselected keeps this idempotent - nothing already correct is
+  // clicked, so nothing gets toggled back off.
+  if (selectedBefore.length) {
+    for (const name of selectedBefore) {
+      const needed = await page.evaluate((n) => {
+        const row = document.querySelector(`.choice-row[data-row-name="${CSS.escape(n)}"]`);
+        return !!row && !row.classList.contains("choice-row--selected");
+      }, name).catch(() => false);
+      if (!needed) continue;
+      await sweep(`wizard:${label}`, `restore row ${name}`, () => click(`.choice-row[data-row-name="${name}"]`, 3000));
+      await page.waitForTimeout(500);
+      await act(`wizard:${label}`, `refill after restoring ${name}`, fillStep);
+      await page.waitForTimeout(500);
+    }
+  } else if (names.length) {
+    // Nothing was selected (the normal case on a fresh page): take the first
+    // row so the step has something canonical to work from.
+    await sweep(`wizard:${label}`, `select first row ${names[0]}`, () => click(`.choice-row[data-row-name="${names[0]}"]`, 3000));
     await page.waitForTimeout(600);
-    await act(`wizard:${label}`, "refill after reselect", fillStep);
+    await act(`wizard:${label}`, "refill after select", fillStep);
     await page.waitForTimeout(800);
   }
   // 2b) Complete through ? dialogs: some steps can only finish inside

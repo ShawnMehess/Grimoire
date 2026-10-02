@@ -587,6 +587,117 @@ async function runViewportTests(viewport) {
     }
   }
 
+  // A nested row lives INSIDE its parent's expanded details - the Elven
+  // Subrace list is rendered inside the Elf row. Its whole body was therefore
+  // inside a subtree that stopped every click, so a subrace could only be
+  // chosen by hitting the exact strip of its portrait and flavour text, and
+  // nothing in its mechanics was clickable at all.
+  const rowFor = (name) => `.choice-row[data-row-name="${name}"]`;
+  const clickTraitLine = async (name, index = 0) => {
+    const hit = await page.evaluate(([sel, i]) => {
+      const row = document.querySelector(sel);
+      const li = row?.querySelectorAll(".choice-row__mechanics-list > li")[i];
+      if (!li) return { ok: false };
+      // Scroll first: this page is taller than the viewport, so a coordinate
+      // read before scrolling lands on whatever is painted at that point.
+      li.scrollIntoView({ block: "center" });
+      const r = li.getBoundingClientRect();
+      const x = Math.round(r.left + r.width / 2);
+      const y = Math.round(r.top + r.height / 2);
+      const top = document.elementFromPoint(x, y);
+      return {
+        ok: true, x, y,
+        reached: !!(top && (top === li || li.contains(top))),
+        topTag: top ? `${top.tagName}.${String(top.className).slice(0, 30)}` : "none",
+        text: li.textContent.replace(/\s+/g, " ").trim().slice(0, 44),
+        insideDetails: !!li.closest(".choice-row__details"),
+      };
+    }, [rowFor(name), index]);
+    if (!hit.ok) return hit;
+    await page.mouse.click(hit.x, hit.y);
+    await page.waitForTimeout(900);
+    return hit;
+  };
+
+  // Pick a species with a subrace list so there IS a nested row. Dwarf,
+  // because Elf was already selected above and clicking it again would
+  // toggle it off rather than re-expand it.
+  await page.click(rowFor("Dwarf"));
+  await page.waitForTimeout(1000);
+  const subraceRow = await page.evaluate(() => {
+    const row = document.querySelector('.choice-row[data-row-name="Hill Dwarf"]');
+    if (!row) return null;
+    // The shape that matters: the subrace's trait list lives inside the
+    // subrace's OWN .choice-row__details - the subtree that used to swallow
+    // every click, which is why only the portrait/flavour strip above it
+    // would take one.
+    const traits = row.querySelector(".choice-row__mechanics-list");
+    return {
+      nested: row.classList.contains("choice-row--nested"),
+      traitsInsideOwnDetails: !!traits?.closest(".choice-row__details"),
+      traits: row.querySelectorAll(".choice-row__mechanics-list > li").length,
+    };
+  });
+  check(subraceRow?.traitsInsideOwnDetails === true,
+    `a subrace's trait list sits inside the details subtree that used to eat clicks (got ${JSON.stringify(subraceRow)})`);
+  check(subraceRow?.traits > 0,
+    `and it has trait lines of its own to click (${subraceRow?.traits})`);
+
+  // A row's lower half must select it once it is expanded.
+  //
+  // This is what the picker table's own "Expand All" sets up: it opens every
+  // row's details, and the details element used to stop every click that
+  // reached it, so after expanding, only the portrait-and-flavour strip above
+  // would take a click and the mechanics below it - which is most of what the
+  // row shows - did nothing.
+  //
+  // There are two "Expand All" buttons on this page (this one, and the one
+  // for the "Your choices" sections), so it is found as the one whose list it
+  // controls rather than by text.
+  const pickerExpandAll = await page.evaluateHandle(() => {
+    const list = document.querySelector(".choice-row-list");
+    const scope = list?.parentElement;
+    return [...(scope?.querySelectorAll("button.btn") || [])]
+      .find((b) => b.textContent.trim() === "Expand All") || null;
+  });
+  check(!!pickerExpandAll, "the picker table has its own Expand All");
+  if (pickerExpandAll.asElement()) {
+    await pickerExpandAll.asElement().click();
+    await page.waitForTimeout(900);
+  }
+  const expandedNow = await page.evaluate(() => {
+    const row = document.querySelector('.choice-row[data-row-name="Hill Dwarf"]');
+    const d = row?.querySelector(".choice-row__details");
+    return { hidden: d?.hidden, traits: row?.querySelectorAll(".choice-row__mechanics-list > li").length || 0 };
+  });
+  check(expandedNow.hidden === false && expandedNow.traits > 0,
+    `after Expand All the subrace's traits are visible and clickable (${JSON.stringify(expandedNow)})`);
+
+  // Hill Dwarf is not selected at this point (Elf and High Elf are), so
+  // clicking its trait line is an observable change with no intervening
+  // click to disturb the expansion state.
+  const highHit = await clickTraitLine("Hill Dwarf", 0);
+  check(highHit.ok, `a Hill Dwarf trait line is there to click ("${highHit.text || ""}")`);
+  check(highHit.reached,
+    `and the click lands on it rather than something painted over it (topmost was ${highHit.topTag})`);
+  const highPicked = await page.evaluate(() =>
+    document.querySelector('.choice-row[data-row-name="Hill Dwarf"]')?.getAttribute("aria-pressed"));
+  check(highPicked === "true",
+    `clicking a trait line selects the row (aria-pressed=${highPicked})`);
+
+  // And the controls inside those lines must still work - that is what the
+  // original stopPropagation was for, so a regression here would be as bad as
+  // the bug being fixed.
+  const controlStillWorks = await page.evaluate(() => {
+    const row = document.querySelector('.choice-row[data-row-name="Hill Dwarf"]');
+    return {
+      hasLink: !!row?.querySelector("a"),
+      hasSelect: !!row?.querySelector("select"),
+    };
+  });
+  check(controlStillWorks.hasLink || controlStillWorks.hasSelect,
+    `and the pick controls inside the details are still present (${JSON.stringify(controlStillWorks)})`);
+
   // Custom Lineage regression: the "Feat — Gain 1 feat(s) of your
   // choice." mention is a link opening the feats picker (same shared
   // table as proficiencies), and the Racial feat control sits on Identity.
