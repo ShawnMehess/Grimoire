@@ -1044,6 +1044,19 @@
   min-width: 0;
 }
 
+/* The amount in an ASI slot, e.g. the "+2" in "+2 [Strength]". Bold so it
+   reads as the label of the dropdown that follows rather than as loose text,
+   and separated from the select by a hair so the number is not mistaken for
+   part of the chosen ability's name. */
+.inline-pick-slot-prefix {
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+.inline-pick-slot-prefix + .inline-pick-select {
+  margin-left: 0.25em;
+}
+
 /* Inline choice summary ("Choose 2", "Arcana, Stealth") — the link
    that opens the shared choice dialog. */
 .inline-pick-link {

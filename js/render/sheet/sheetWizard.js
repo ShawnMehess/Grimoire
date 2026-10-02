@@ -2715,15 +2715,46 @@ export function renderLiveBulletItem(item) {
   // made can be over by the time the player reaches this one.
   if (item.warning) {
     li.append(document.createTextNode(" "), el("span", { class: "mechanics-pick__warning", text: item.warning }));
-  }  slots.forEach((slot, i) => {
+  }  // Whether the CURRENT interaction with a slot came from the keyboard. The
+  // pick handler re-renders the page, so focus has to be put back on the
+  // replacement control - but doing that after a tap reopens the native
+  // picker, which is the close-then-immediately-reopen behaviour. Recorded
+  // per slot and per gesture: a keyboard user tabbing through and a finger
+  // tapping the same control must not be treated the same way.
+  const keyboardDriven = new Map();
+
+  slots.forEach((slot, i) => {
+    // A per-slot prefix, so "+2 to" / "+1 to" can live in the text rather
+    // than in the dropdown's placeholder. A placeholder is what the control
+    // shows while EMPTY - the moment an ability is chosen it is replaced by
+    // that ability's name, taking the "+2" with it and leaving a line that
+    // reads "Strength (10, +0), Dexterity (11, +1)" with no statement of
+    // which is which. The number is part of the choice, not a hint about how
+    // to make it, so it belongs in the sentence.
     if (i > 0 || (lead.length && !item.collective)) li.append(document.createTextNode(", "));
+    if (slot.prefix) {
+      li.append(el("span", { class: "inline-pick-slot-prefix", text: slot.prefix }));
+    }
     const select = el("select", {
       class: "input-group__control inline-pick-select",
       "data-inline-slot": slot.key,
       "aria-label": `${item.topic || "Pick"} ${i + 1}`,
-      onchange: () => { if (typeof item.onPick === "function") item.onPick(slot.key, select.value); },
-      onclick: (e) => e.stopPropagation(),
-      onkeydown: (e) => e.stopPropagation(),
+      onchange: () => {
+        if (typeof item.onPick === "function") {
+          item.onPick(slot.key, select.value, { keyboard: keyboardDriven.get(slot.key) === true });
+        }
+      },
+      onclick: (e) => { keyboardDriven.set(slot.key, false); e.stopPropagation(); },
+      onkeydown: (e) => {
+        // Arrow keys, Enter, Space. A bare modifier press does not count:
+        // Tabbing past a control should not mark the next gesture as typed.
+        if (["ArrowDown", "ArrowUp", "Enter", " ", "Home", "End", "PageUp", "PageDown"]
+          .includes(e.key)) {
+          keyboardDriven.set(slot.key, true);
+        }
+        e.stopPropagation();
+      },
+      onpointerdown: (e) => { keyboardDriven.set(slot.key, false); e.stopPropagation(); },
     });
     select.append(el("option", { value: "", text: slot.placeholder || "Choose…" }));
     (slot.options || []).forEach((o) => {

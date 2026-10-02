@@ -1385,6 +1385,65 @@ if (failures) {
     "the prepared-spells line renders level with its neighbours");
 }
 
+// A tap must not put focus back on the dropdown. The pick re-renders the
+// page, and focusing the replacement <select> reopens the native picker on a
+// touch device - so the dropdown closed and immediately reopened. Because the
+// value was already set, choosing the SAME option again fires no change event
+// at all, which is why it then stayed closed until a different option was
+// picked. A keyboard still gets its focus restored.
+{
+  const { renderLiveBulletItem } = wizard;
+  const build = () => {
+    const calls = [];
+    const li = renderLiveBulletItem({
+      live: true,
+      topic: "Ability Score Increase",
+      lead: [],
+      slots: [{
+        key: "asi#0",
+        value: "",
+        placeholder: "Choose…",
+        options: [{ value: "str", label: "Strength" }, { value: "con", label: "Constitution" }],
+      }],
+      onPick: (slotKey, value, info) => calls.push({ slotKey, value, info }),
+    });
+    const box = document.createElement("div");
+    box.append(li);
+    // This stub DOM has no dispatchEvent; the renderer wires handlers as
+    // properties on the node, so call them the way a browser would.
+    const select = li.children.find((n) => n.tag === "select");
+    assert(select, "the bullet rendered a select to operate");
+    return { box, select, calls };
+  };
+
+  // el() wires on* handlers through addEventListener, so they live in
+  // `listeners`. Fire them the way a browser would, in order.
+  const fire = (s, type, key) => {
+    (s.listeners[type] || []).forEach((f) => f({
+      target: s, key, preventDefault() {}, stopPropagation() {},
+    }));
+  };
+  const tap = (s) => { fire(s, "pointerdown"); s.value = "str"; fire(s, "change"); };
+  const typeInto = (s, key) => { fire(s, "keydown", key); s.value = "str"; fire(s, "change"); };
+
+  const tapped = build();
+  tap(tapped.select);
+  assert(tapped.calls.length === 1, "a tap still records the pick");
+  assert(tapped.calls[0].info.keyboard === false,
+    "and reports it as NOT keyboard, so nothing refocuses the replacement select");
+
+  const typed = build();
+  typeInto(typed.select, "ArrowDown");
+  assert(typed.calls.length === 1, "a keyboard pick records too");
+  assert(typed.calls[0].info.keyboard === true,
+    "and reports keyboard: true, so focus is restored after the re-render");
+
+  const tabbed = build();
+  typeInto(tabbed.select, "Tab");
+  assert(tabbed.calls[0].info.keyboard === false,
+    "a Tab that merely passes over the control is not a keyboard pick");
+}
+
 function groupOptionsFor(group) {
   return [...(group.options || []), ...(group.categories || []).flatMap((c) => c.options || [])];
 }

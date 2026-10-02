@@ -691,15 +691,20 @@ async function runViewportTests(viewport) {
       const sels = [...li.querySelectorAll("select")];
       return {
         found: true,
-        placeholders: sels.map((s) => s.options[0]?.textContent),
+        prefixes: sels.map((s) => s.previousElementSibling?.classList.contains("inline-pick-slot-prefix")
+          ? s.previousElementSibling.textContent : null),
         optionLabels: sels.map((s) => [...s.options].slice(1).map((o) => o.textContent)),
         hasDialogLink: !!li.querySelector(".inline-pick-link"),
       };
     });
     const asi = await asiState();
     check(asi.found, "lineage has an Ability Score Increase row");
-    check(asi.placeholders?.length === 2 && /^\+2/.test(asi.placeholders[0]) && /^\+1/.test(asi.placeholders[1]),
-      `ASI renders as +2 and +1 dropdowns (got ${JSON.stringify(asi.placeholders)})`);
+    // The amounts are now in the sentence in front of each dropdown, not in
+    // the placeholder. A placeholder is replaced by the chosen value, so
+    // putting "+2" there meant the number disappeared the instant the player
+    // chose an ability and the line stopped saying which was the +2.
+    check(asi.prefixes?.join("").includes("+2") && asi.prefixes?.join("").includes("+1"),
+      `the +2 and +1 are stated before their dropdowns (got ${JSON.stringify(asi.prefixes)})`);
     const six = ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"];
     check(six.every((a) => asi.optionLabels?.[0]?.includes(a)) && six.every((a) => asi.optionLabels?.[1]?.includes(a)),
       "both ASI dropdowns list all six abilities");
@@ -718,10 +723,80 @@ async function runViewportTests(viewport) {
           plus2: sels[0]?.value,
           plus1: sels[1]?.value,
           strDisabledInSecond: [...(sels[1]?.options || [])].find((o) => o.value === "str")?.disabled,
+          // The whole point of the fix: after choosing, does the line still
+          // say which is the +2?
+          prefixesStillThere: [...li.querySelectorAll(".inline-pick-slot-prefix")].map((n) => n.textContent),
         };
       });
       check(picked.plus2 === "str" && picked.plus1 === "con", `both ASI dropdowns keep their pick (got ${picked.plus2}/${picked.plus1})`);
       check(picked.strDisabledInSecond === true, "the +1 dropdown greys out the score already used by +2");
+      check(picked.prefixesStillThere.length === 2
+        && /\+2/.test(picked.prefixesStillThere[0]) && /\+1/.test(picked.prefixesStillThere[1]),
+        `the amounts survive the choice (got ${JSON.stringify(picked.prefixesStillThere)})`);
+      // A <select> reports every option in textContent, so this reads the
+      // visible sentence only: prefixes plus each control's current value.
+      const readLine = await page.evaluate(() => {
+        const row = document.querySelector(".choice-row--selected");
+        const li = [...row.querySelectorAll(".mechanics-pick")]
+          .find((b) => /Ability Score/i.test(b.querySelector("strong")?.textContent || ""));
+        const parts = [];
+        for (const node of li.childNodes) {
+          if (node.nodeType === 3) { parts.push(node.textContent); continue; }
+          if (node.tagName === "SELECT") {
+            parts.push(node.selectedOptions[0]?.textContent || "");
+            continue;
+          }
+          if (node.classList?.contains("inline-pick-slot-prefix")) parts.push(node.textContent);
+        }
+        return parts.join("").replace(/\s+/g, " ").trim();
+      });
+      // The leading "— " is the separator renderLiveBulletItem puts after the
+      // bold topic, so the sentence under test starts after it.
+      check(readLine === "— +2 to Strength, +1 to Constitution",
+        `so the line reads as "+2 to Strength, +1 to Constitution" (got "${readLine}")`);
+
+      // The close-then-reopen bug. A pick re-renders the page, and the old
+      // <select> is destroyed; focusing its replacement reopened the native
+      // picker on touch. So a tap on a dropdown closed the list and opened it
+      // straight back up - and since the value was already set, choosing the
+      // SAME option again fired no change event at all, which is why the
+      // second tap stayed closed and only a different choice reopened it.
+      //
+      // Measurable in a headless browser as focus: if the replacement control
+      // is focused, a real touch device will open its picker.
+      const focusAfterPick = async (slot) => page.evaluate((key) => {
+        const row = document.querySelector(".choice-row--selected");
+        const li = [...row.querySelectorAll(".mechanics-pick")]
+          .find((b) => /Ability Score/i.test(b.querySelector("strong")?.textContent || ""));
+        const sels = [...li.querySelectorAll("select")];
+        const target = sels[Number(key)];
+        return {
+          // Still in the document at all - the re-render replaced it, and a
+          // stale reference would make this read as focused when it is not.
+          connected: document.contains(target),
+          isActive: document.activeElement === target,
+        };
+      }, slot);
+
+      const focusAfterFirst = await focusAfterPick(0);
+      check(focusAfterFirst.connected, "the re-render left a live dropdown behind");
+      check(focusAfterFirst.isActive === false,
+        "and it is NOT focused after a tap, so a touch device leaves the picker closed");
+
+      // Choosing a different value must not change that. This is the "if I
+      // make a different choice, then the dropdown will again reopen" half.
+      await page.selectOption(asiSlots.split(", ")[0], "dex");
+      await page.waitForTimeout(900);
+      const focusAfterSecond = await focusAfterPick(0);
+      check(focusAfterSecond.isActive === false,
+        `nor after choosing a different option (focused: ${focusAfterSecond.isActive})`);
+      const retyped = await page.evaluate(() => {
+        const row = document.querySelector(".choice-row--selected");
+        const li = [...row.querySelectorAll(".mechanics-pick")]
+          .find((b) => /Ability Score/i.test(b.querySelector("strong")?.textContent || ""));
+        return [...li.querySelectorAll("select")].map((s) => s.value).join("/");
+      });
+      check(retyped === "dex/con", `and the changed pick took (got "${retyped}")`);
       await page.screenshot({ path: path.join(shotDir, `lineage-asi-${viewport.name}.png`) });
     }
 

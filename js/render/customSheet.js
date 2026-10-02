@@ -4781,7 +4781,26 @@ const closeDialog = () => {
 
   /** Refocuses an inline slot select after the page rebuild a pick
    *  triggers, so keyboard flow survives. Cosmetic-only: never throws. */
-  function refocusInlineSlot(slotKey) {
+  /** Put keyboard focus back on an inline dropdown after the re-render that
+   *  a pick triggers, so a keyboard user is not dropped at the top of the
+   *  page after every choice.
+   *
+   *  Deliberately NOT done for a tap. Focus was the reason the dropdown used
+   *  to close and immediately reopen: `change` re-rendered the page, the old
+   *  <select> was destroyed, and focusing its replacement reopened the native
+   *  picker on a touch device. So the player picked an option, saw the list
+   *  close, and saw it open again - and because the value was already set,
+   *  a second pick of the SAME option fires no `change` at all, which is why
+   *  it then stayed closed and only reopened on a different choice.
+   *
+   *  Focus survives a tap by itself: a touch never had it to begin with, so
+   *  there is nothing to restore. Restoring it for a keyboard is the whole
+   *  job here, and only for a keyboard.
+   *
+   *  `keyboard` comes from the bullet, which is the only place that knows how
+   *  the control was operated - see renderLiveBulletItem's `keyboardDriven`. */
+  function refocusInlineSlot(slotKey, { keyboard = false } = {}) {
+    if (!keyboard) return;
     try {
       const node = pageGrid.querySelector(`[data-inline-slot="${String(slotKey).replace(/"/g, "")}"]`);
       if (node) node.focus({ preventScroll: true });
@@ -4809,7 +4828,15 @@ const closeDialog = () => {
     const slotFor = (index, weight) => ({
       key: `${group.key}#${index}`,
       value: index === 0 ? current.plus2 : current.plus1,
-      placeholder: `+${weight} to…`,
+      placeholder: "Choose…",
+      // The amount sits in the sentence, not the placeholder. A placeholder
+      // is what shows while the control is EMPTY, so "+2 to…" was replaced
+      // by "Strength" the moment the player chose, and the line was left
+      // reading "+2 to… " with a dropdown whose label said nothing about
+      // which of the two slots was the +2. The number is part of what is
+      // being chosen - it is the difference between the two dropdowns - so it
+      // has to survive the choice.
+      prefix: `+${weight} to `,
       options: ASI_ABILITY_CHOICES.map((a) => {
         const taken = index === 0 ? current.plus1 : current.plus2;
         return {
@@ -4825,7 +4852,7 @@ const closeDialog = () => {
       topic: group.label || "Ability Score Increase",
       lead: [],
       slots: [slotFor(0, 2), slotFor(1, 1)],
-      onPick: (slotKey, value) => {
+      onPick: (slotKey, value, info) => {
         const index = slotKey.endsWith("#0") ? 0 : 1;
         const next = { plus2: current.plus2, plus1: current.plus1 };
         if (index === 0) next.plus2 = value || "";
@@ -4837,7 +4864,7 @@ const closeDialog = () => {
         };
         saveRules();
         renderPageGrid();
-        refocusInlineSlot(slotKey);
+        refocusInlineSlot(slotKey, info);
       },
     };
   }
@@ -4883,13 +4910,13 @@ const closeDialog = () => {
           };
         });
       }),
-      onPick: (slotKey, name) => {
+      onPick: (slotKey, name, info) => {
         const hash = slotKey.lastIndexOf("#");
         const patch = assignLanguageSlot(langGroups, slotKey.slice(0, hash), Number(slotKey.slice(hash + 1)), name || null, character.rules.choices || {});
         character.rules.choices = { ...(character.rules.choices || {}), ...patch };
         saveRules();
         renderPageGrid();
-        refocusInlineSlot(slotKey);
+        refocusInlineSlot(slotKey, info);
       },
     };
   }
@@ -4994,40 +5021,50 @@ const closeDialog = () => {
           };
         });
       }),
-      onPick: (slotKey, name) => {
+      onPick: (slotKey, name, info) => {
         const hash = slotKey.lastIndexOf("#");
         const patch = assignLanguageSlot(toolGroups, slotKey.slice(0, hash), Number(slotKey.slice(hash + 1)), name || null, character.rules.choices || {});
         character.rules.choices = { ...(character.rules.choices || {}), ...patch };
         saveRules();
         renderPageGrid();
-        refocusInlineSlot(slotKey);
+        refocusInlineSlot(slotKey, info);
       },
     };
   }
 
-  /** Live Ability Scores bullet model ("+1 to each of [▾], [▾]"): one
-   *  dropdown per +1/+2 slot group. Duplicates stack across slots
-   *  because each slot is its own group. */
+  /** Live Ability Scores bullet model: one dropdown per +1/+2 slot group.
+   *  Duplicates stack across slots because each slot is its own group.
+   *
+   *  The "+2" / "+1" lives in the sentence in front of each dropdown, not in
+   *  the dropdown's placeholder - a placeholder is replaced by the chosen
+   *  value, so the number used to vanish the moment the player picked, and
+   *  the line became "Strength (14, +2), Dexterity (12, +1)" with nothing
+   *  saying which was the +2. Two or more +1s still read as one
+   *  "+1 to each of" rather than repeating the number per slot. */
   function liveAsiBullet(asiGroups, saveRules) {
     if (!asiGroups.length) return null;
     const models = asiSlotsFor(asiGroups, character.rules.choices || {});
     const allPlusOne = models.every((m) => m.value === 1);
+    const collective = models.length > 1 && allPlusOne ? "+1 to each of" : null;
     return {
       live: true,
       topic: null,
-      collective: models.length > 1 && allPlusOne ? "+1 to each of" : `+${models[0]?.value ?? 1} to`,
+      collective,
       slots: models.map((m) => ({
         key: m.groupKey,
         value: m.pickedAbility || "",
         placeholder: "Choose…",
+        // With no shared "+1 to each of" to carry it, each slot names its
+        // own amount. A single +2 slot reads "+2 [select]" the same way.
+        prefix: collective ? null : `+${m.value} `,
         options: m.options.map((o) => ({ value: o.ability, label: o.label, title: sharedAbilityTooltip(o.ability) ?? null })),
       })),
-      onPick: (slotKey, abilityId) => {
+      onPick: (slotKey, abilityId, info) => {
         const patch = assignAsiSlot(asiGroups, slotKey, abilityId || null);
         character.rules.choices = { ...(character.rules.choices || {}), ...patch };
         saveRules();
         renderPageGrid();
-        refocusInlineSlot(slotKey);
+        refocusInlineSlot(slotKey, info);
       },
     };
   }
@@ -5054,12 +5091,12 @@ const closeDialog = () => {
             title: o.featureGrants?.[0]?.description ? sharedBriefDescription(o.featureGrants[0].description, 120) : null,
           })),
         }],
-        onPick: (slotKey, optionId) => {
+        onPick: (slotKey, optionId, info) => {
           const patch = assignFeatureSlot(featGroups, slotKey, optionId || null);
           character.rules.choices = { ...(character.rules.choices || {}), ...patch };
           saveRules();
           renderPageGrid();
-          refocusInlineSlot(slotKey);
+          refocusInlineSlot(slotKey, info);
         },
       };
     });
