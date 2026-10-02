@@ -890,7 +890,15 @@ function dwarfBaseEntry(entry) {
                 { name: "Senses", description: "Darkvision 120 ft.", minLevel: null },
                 { name: "Resistances", description: "Poison", minLevel: null },
                 { name: "Duergar Resilience", description: "Advantage on saving throw against illusion or charm or paralyzed.", minLevel: null },
-                { name: "Duergar Magic", description: "Cast Enlarge Reduce starting at level 3 once per long rest.; Cast Invisibility starting at level 5 once per long rest.", minLevel: null },
+                // "Enlarge/Reduce" is the spell's actual name, and the link
+                // the picker draws on it only resolves against the catalog's
+                // spelling - so the slash has to be here, not "Enlarge Reduce",
+                // or the mention reads as an ordinary phrase and links
+                // nothing. Each clause also carries its own level gate in the
+                // prose ("starting at level 3"), which the mechanics renderer
+                // reads to hide the clause below that level - see
+                // levelGatedText in sheetMechanics.js.
+                { name: "Duergar Magic", description: "Cast Enlarge/Reduce starting at level 3 once per long rest.; Cast Invisibility starting at level 5 once per long rest.", minLevel: null },
                 { name: "Sunlight Sensitivity", description: "Disadvantage on attack roll, perception sight in direct sunlight.", minLevel: null },
               ],
               resourceGrants: [],

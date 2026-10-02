@@ -36,6 +36,7 @@ import {
   capitalizeFirst,
   statModifierSummary,
   mechanicsBulletsFor,
+  levelGatedText,
   ABILITY_GLOSSARY,
   abilityTooltip,
   humanizeGameText,
@@ -50,7 +51,7 @@ import {
   levelClassOptionsFor,
 } from "../js/render/sheet/sheetWizardSteps.js";
 import { grantedSpellsLine } from "../js/render/sheet/sheetMechanics.js";
-import { FIXED_RACE_ENTRIES } from "../js/data/contentFixups.js";
+import { FIXED_RACE_ENTRIES, FIXED_CLASS_ENTRIES } from "../js/data/contentFixups.js";
 
 // The tiefling is the probe for the spell-grant line: it splits its
 // legacy across three levels, so it shows whether the filter works.
@@ -254,6 +255,58 @@ describe("mechanics previews", () => {
     assert.equal(grantedSpellsLine(bundle, 5), "Spells: Fireball");
   });
 
+  it("never contradicts a subrace on its own parent row", () => {
+    // A parent race owns a `subrace` picker, so its subraces supply the real
+    // traits and the base has none. The standard-default slots (30 ft, no
+    // darkvision, no resistances) are a sensible floor for a finished race
+    // and a lie for a container: Genasi printed all three while every one of
+    // its subraces has darkvision 60 ft, three of them have a resistance, and
+    // Air Genasi is 35 ft. The parent stated as fact three things each of its
+    // own children contradicts.
+    const deps = { abilityIds: [], abilities: [], skills: [] };
+    const parents = FIXED_RACE_ENTRIES.filter((e) =>
+      (e.bundle.choiceGroups || []).some((g) => g.subrace === true));
+    assert.ok(parents.length >= 5, `there are parent races to check (${parents.map((p) => p.name).join(", ")})`);
+
+    for (const parent of parents) {
+      const items = mechanicsBulletsFor(parent.bundle, 1, deps)
+        .flatMap((s) => s.items.map((i) => ({ title: s.title, text: i })));
+      const traitLines = items.filter((i) => i.title === "Racial Traits").map((i) => i.text);
+      assert.ok(!traitLines.some((t) => /^Speed:/.test(t)),
+        `${parent.name} does not claim a speed its subraces don't share`);
+      assert.ok(!traitLines.some((t) => /^Darkvision:/.test(t)),
+        `${parent.name} does not claim darkvision its subraces don't share`);
+      assert.ok(!traitLines.some((t) => /^Resistances:/.test(t)),
+        `${parent.name} does not claim resistances its subraces don't share`);
+      assert.ok(traitLines.some((t) => /come from your subrace/i.test(t)),
+        `${parent.name} says where its traits come from instead (${JSON.stringify(traitLines)})`);
+    }
+  });
+
+  it("keeps the standard defaults for a race that is not a parent", () => {
+    // The defaults are only wrong for a container. An ordinary race really
+    // does have a speed and may really have neither darkvision nor
+    // resistances, so removing the slots outright would lose information.
+    const deps = { abilityIds: [], abilities: [], skills: [] };
+    const aarakocra = FIXED_RACE_ENTRIES.find((e) => e.name === "Aarakocra");
+    const traits = mechanicsBulletsFor(aarakocra.bundle, 1, deps)
+      .find((s) => s.title === "Racial Traits").items;
+    assert.ok(traits.includes("Speed: 30 feet"), `a plain race still reads its speed (${JSON.stringify(traits)})`);
+    assert.ok(traits.includes("Darkvision: none"));
+    assert.ok(!traits.some((t) => /come from your subrace/i.test(t)),
+      "and is not told its traits come from a subrace it does not have");
+  });
+
+  it("keeps a parent's own real grants", () => {
+    // The Genasi flexible ASI is shared by all four elemental heritages, so
+    // it belongs on the base and must survive the defaults being dropped.
+    const genasi = FIXED_RACE_ENTRIES.find((e) => e.name === "Genasi");
+    assert.ok((genasi.bundle.choiceGroups || []).some((g) => g.id === "genasi-flexible-asi"),
+      "the shared ASI picker is still on the base");
+    assert.ok(genasi.bundle.choiceGroups.some((g) => g.subrace === true),
+      "and the base is still recognised as a parent");
+  });
+
   it("splits ability tokens for tooltips", () => {    assert.deepEqual(splitAbilityTokens("No abilities here."), [{ text: "No abilities here." }]);
     assert.deepEqual(splitAbilityTokens("+2 DEX"), [{ text: "+2 " }, { abbr: "DEX", id: "dex", name: "Dexterity" }]);
     assert.deepEqual(splitAbilityTokens("Wizards cast with Intelligence."),
@@ -262,6 +315,146 @@ describe("mechanics previews", () => {
     assert.ok(abilityTooltip("str").startsWith("Strength — "));
     assert.equal(abilityTooltip("nope"), null);
     assert.equal(ABILITY_GLOSSARY.cha.abbr, "CHA");
+  });
+});
+
+// The Duergar's Duergar Magic is the exact shape this exists for: one
+// feature grant, two unlocks at two different levels, described in prose
+// rather than in `minLevel` (which is one gate per grant, so it can only
+// hide the whole thing). The Duergar Magic grant is read from the real
+// fixup layer rather than pasted in, so a rename of the spell in the data
+// fails here too.
+const DUERGAR_TEXT = (() => {
+  const dwarf = FIXED_RACE_ENTRIES.find((e) => e.name === "Dwarf");
+  const group = (dwarf.bundle.choiceGroups || []).find((g) => g.subrace === true);
+  const duergar = (group?.options || []).find((o) => /duergar/i.test(o.id || ""));
+  const grant = (duergar?.featureGrants || []).find((g) => g.name === "Duergar Magic");
+  return grant?.description || null;
+})();
+
+describe("level-gated text", () => {
+  it("returns untouched text byte-for-byte when nothing is gated", () => {
+    // The whole corpus is this case. Rebuilding a description that had no
+    // gate would re-join its punctuation differently from how it shipped,
+    // so the function exits before doing anything at all.
+    for (const text of [
+      "Advantage on saving throw against poison damage.",
+      "You know the following spells: Blindness/Deafness, Blur, and Disguise Self.",
+      "Cast the Hellish Rebuke spell as a 2nd-level spell once with this trait.",
+      "You can see in dim light within 60 feet of you as if it were bright light.",
+    ]) {
+      assert.equal(levelGatedText(text, 1), text);
+    }
+    assert.equal(levelGatedText("", 1), null);
+    assert.equal(levelGatedText(null, 1), null);
+  });
+
+  it("reads the three phrasings the shipped data uses", () => {
+    const one = levelGatedText("Starting at level 3, you gain the Fog.", 1);
+    assert.equal(one, null);
+    assert.equal(levelGatedText("Starting at 3rd level, you gain the Fog.", 3), "Starting at 3rd level, you gain the Fog.");
+    assert.equal(levelGatedText("When you reach 3rd level, you gain the Fog.", 2), null);
+    assert.equal(levelGatedText("Once you reach 5th level, you gain the Fog.", 5), "Once you reach 5th level, you gain the Fog.");
+    assert.equal(levelGatedText("You gain it at level 9.", 8), null);
+    assert.equal(levelGatedText("You gain it at level 9.", 9), "You gain it at level 9.");
+  });
+
+  it("never mistakes a spell's level or a distance for the character's", () => {
+    // Both are the failure that would delete the sentence explaining what
+    // the trait does, so they are pinned rather than left to a regex
+    // change.
+    assert.ok(levelGatedText("Cast it as a 2nd-level spell once per long rest.", 1));
+    assert.ok(levelGatedText("You can see in dim light within 30 feet of you.", 1));
+    assert.ok(levelGatedText("Reduce the damage by 1d6, to a minimum of 1.", 1));
+    assert.ok(levelGatedText("The shop sells it for 10 gp.", 1));
+  });
+
+  it("takes the FIRST gate in a sentence, not the largest", () => {
+    // "at 3rd level and again at 10th level" describes something you HAVE
+    // at 3. Taking the largest would hide a real benefit for seven levels.
+    const text = "When you reach 3rd level and again at 10th level, you gain proficiency in Survival.";
+    assert.equal(levelGatedText(text, 3), text);
+    assert.equal(levelGatedText(text, 2), null);
+  });
+
+  it("keeps the punctuation of the segments that survive", () => {
+    // The separators belong to the SURVIVORS, not to the ones dropped, so
+    // the sentence that is left still reads as a sentence.
+    const text = "Dancing Lights cantrip; Faerie Fire once per long rest at 3rd level; Darkness once per long rest at 5th. Charisma is your spellcasting ability.";
+    assert.equal(levelGatedText(text, 1), "Dancing Lights cantrip. Charisma is your spellcasting ability.");
+    assert.equal(levelGatedText(text, 3), "Dancing Lights cantrip; Faerie Fire once per long rest at 3rd level. Charisma is your spellcasting ability.");
+    assert.equal(levelGatedText(text, 20), text);
+  });
+
+  it("does not open a sentence with the punctuation of a dropped one", () => {
+    const text = "When you reach 3rd level, you gain proficiency in Survival. This is an optional class feature.";
+    assert.equal(levelGatedText(text, 1), "This is an optional class feature.");
+  });
+
+  it("hides the Duergar's higher unlocks from a character below them", () => {
+    assert.ok(DUERGAR_TEXT, "the shipped Duergar still carries the Duergar Magic grant");
+    assert.match(DUERGAR_TEXT, /starting at level 3/);
+    assert.equal(levelGatedText(DUERGAR_TEXT, 1), null);
+    assert.equal(levelGatedText(DUERGAR_TEXT, 2), null);
+    assert.match(levelGatedText(DUERGAR_TEXT, 3), /^Cast Enlarge\/Reduce/);
+    assert.ok(!/Invisibility/.test(levelGatedText(DUERGAR_TEXT, 3)),
+      "and the level 5 clause is still hidden at 3");
+    assert.equal(levelGatedText(DUERGAR_TEXT, 4), levelGatedText(DUERGAR_TEXT, 3), "level 4 is still the level 3 text - Invisibility is a level 5 unlock");
+    assert.match(levelGatedText(DUERGAR_TEXT, 5), /Invisibility/);
+    assert.equal(levelGatedText(DUERGAR_TEXT, 20), DUERGAR_TEXT);
+  });
+
+  it("pops the grant in and out of the picker bullets as the level changes", () => {
+    // The whole point: no reload. The bullet list is recomputed from the
+    // level the wizard currently holds, so the same bundle yields different
+    // bullets at different levels rather than one fixed answer.
+    const deps = { abilityIds: [], abilities: [], skills: [] };
+    const dwarf = FIXED_RACE_ENTRIES.find((e) => e.name === "Dwarf");
+    const group = (dwarf.bundle.choiceGroups || []).find((g) => g.subrace === true);
+    const duergar = (group?.options || []).find((o) => /duergar/i.test(o.id || ""));
+    const itemsAt = (level) => mechanicsBulletsFor(duergar, level, deps).flatMap((s) => s.items);
+    const magicAt = (level) => itemsAt(level).filter((i) => /^Duergar Magic/.test(i));
+
+    assert.deepEqual(magicAt(1), [], "a level 1 Duergar is told about no Duergar Magic at all");
+    assert.equal(magicAt(3).length, 1);
+    assert.match(magicAt(3)[0], /Enlarge\/Reduce/);
+    assert.ok(!/Invisibility/.test(magicAt(3)[0]));
+    assert.equal(magicAt(5).length, 1);
+    assert.match(magicAt(5)[0], /Invisibility/);
+    // Everything else about the subrace is untouched by the gating.
+    assert.ok(itemsAt(1).some((i) => /Duergar Resilience/.test(i)));
+    assert.ok(itemsAt(1).some((i) => /Darkvision/.test(i) && /120/.test(i)));
+  });
+
+  it("never leaves a shipped description unreadable at any level", () => {
+    // A sweep, not an example: every gate the fixup layer actually carries
+    // is re-checked at 1, 3, 5 and 20, and the survivors must still join
+    // into well-formed text (no leading separator, no doubled punctuation).
+    const sources = [];
+    const walk = (where, bundle) => {
+      if (!bundle) return;
+      for (const g of bundle.featureGrants || []) if (g.description) sources.push([`${where}/${g.name}`, g.description]);
+      for (const grp of bundle.choiceGroups || []) {
+        for (const o of grp.options || []) {
+          walk(`${where}/${o.name}`, o);
+        }
+      }
+    };
+    for (const entry of FIXED_RACE_ENTRIES) walk(`race:${entry.name}`, entry.bundle);
+    for (const entry of FIXED_CLASS_ENTRIES) walk(`class:${entry.name}`, entry.bundle);
+
+    let gated = 0;
+    for (const [where, text] of sources) {
+      for (const level of [1, 3, 5, 20]) {
+        const out = levelGatedText(text, level);
+        if (out === null) continue;
+        assert.ok(!/^[,;:.]\s/.test(out), `${where} at ${level} opens with a stray separator: ${JSON.stringify(out)}`);
+        assert.ok(!/\(\s|\s\)/.test(out), `${where} at ${level} has a broken bracket: ${JSON.stringify(out)}`);
+        assert.ok(!/;;/.test(out) && !/\.\./.test(out), `${where} at ${level} doubled punctuation: ${JSON.stringify(out)}`);
+      }
+      if (levelGatedText(text, 1) !== text) gated += 1;
+    }
+    assert.ok(gated >= 6, `the shipped races really do carry level gates (${gated})`);
   });
 });
 

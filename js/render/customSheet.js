@@ -225,6 +225,7 @@ import {
   creationChoiceGroupsForState,
   creationFixedBundlesFor,
   groupOptionsOf,
+  racePickSatisfied as sharedRacePickSatisfied,
   nestedChoiceGroupsFor,
   slotLabelFor,
   isAsiSlotGroup,
@@ -394,7 +395,7 @@ import {
 } from "./sheet/aspectPresets.js";
 import { confirmDialog, alertDialog, promptDialog, chooseDialog } from "../ui/dialogs.js";
 import { A11Y_OPTIONS, a11yEnabled, applyA11yMode } from "../ui/accessibility.js";
-import { applySimpleViewOrder, shouldShowIntro, INTRO_LINES } from "./sheet/simpleView.js";
+import { applySimpleViewOrder, narrowScreenNeedsStackedView, shouldShowIntro, INTRO_LINES } from "./sheet/simpleView.js";
 import { featRowModels, renderFeatListInto } from "./sheet/featList.js";
 import {
   allGrantsIn,
@@ -852,26 +853,95 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // of thing anyone expects to have remembered. Read once here; every later
   // read goes through simpleView so there is one source of truth.
   let simpleView = character.simpleView === true;
+  // The PREFERENCE, kept separate from the effective state below: on a
+  // screen too narrow for the grid the stacked display is forced, but that
+  // must not overwrite what the player chose on a screen that fits.
+  let simpleViewPreferred = simpleView;
+  // Why stacking is being forced, or null when it isn't. Drives the
+  // disabled state and the wording of the toggle.
+  let forcedStacked = false;
+
+  /** How wide the positioned grid actually is right now, and how much room
+   *  it has. Measured rather than guessed, so this follows the column
+   *  count, the cell floor, the sidebar and the window. */
+  function gridFitNow() {
+    const wrap = scrollWrapper || root;
+    const availableWidth = wrap.clientWidth || root.clientWidth || 0;
+    // The grid's own DECLARED width, which the renderer stamps from the
+    // cell math (see gridCanvasSize). The declaration, not the rendered
+    // box: in the stacked layout the rendered box is 100% of the wrapper,
+    // so measuring IT would say "it fits" the instant the sheet stacked -
+    // and the next resize would un-stack it, which puts the grid back to
+    // overflowing. Reading the declaration is the same number in both
+    // modes, so the decision cannot oscillate. Falls back to the measured
+    // box for the tabs that clear the width (leveling, rules), which are
+    // fluid by design and never need stacking.
+    const declared = parseFloat(pageGrid?.style?.width || "");
+    const gridWidth = Number.isFinite(declared) && declared > 0
+      ? declared
+      : Math.max(pageGrid?.scrollWidth || 0, pageGrid?.clientWidth || 0);
+    return { gridWidth, availableWidth };
+  }
+
+  /** Re-decide whether the stacked layout is being forced by width, and
+   *  apply the result if it changed. Called on load, on the view toggle,
+   *  and on every resize, so rotating a phone or dragging a desktop
+   *  window across the threshold switches the sheet rather than leaving
+   *  it unscrollable. */
+  function syncStackedForWidth() {
+    const forced = narrowScreenNeedsStackedView(gridFitNow());
+    if (forced === forcedStacked) return false;
+    forcedStacked = forced;
+    const wanted = forced || simpleViewPreferred;
+    if (wanted !== simpleView) applySimpleView(wanted, { persist: false });
+    else syncViewToggleState();
+    return true;
+  }
+
+  /** The toggle's label/title/disabled state, in one place so the forced
+   *  and preferred paths can never leave it describing the wrong thing. */
+  function syncViewToggleState() {
+    playViewBtn.textContent = simpleView ? "Sheet View" : "Simple View";
+    playViewBtn.disabled = forcedStacked;
+    playViewBtn.title = forcedStacked
+      ? "Sheet View is off on a screen this narrow - the grid needs about 790px and would scroll sideways instead of fitting. Everything is stacked full-width here; Sheet View returns on a wider screen."
+      : (simpleView
+        ? "Switch back to the editable grid - your saved layout is exactly where you left it"
+        : "Switch to Simple View - every block and field stacked full-width (display only; your layout is untouched)");
+  }
 
   /** Turn Simple View on or off: the grid class, the sort keys, the
    *  builder chrome that means nothing over a read-only stacked view, and
    *  (unless `persist` is false) the character. One function so the button,
-   *  the first-load restore and the tab switch can never disagree about
-   *  what state the sheet is in. */
+   *  the first-load restore, the width rule and the tab switch can never
+   *  disagree about what state the sheet is in. */
   function applySimpleView(on, { persist = true } = {}) {
     simpleView = Boolean(on);
-    playViewBtn.textContent = simpleView ? "Sheet View" : "Simple View";
-    playViewBtn.title = simpleView
-      ? "Switch back to the editable grid - your saved layout is exactly where you left it"
-      : "Switch to Simple View - every block and field stacked full-width (display only; your layout is untouched)";
+    if (persist) simpleViewPreferred = simpleView;
+    syncViewToggleState();
     pageGrid.classList.toggle("is-simple", simpleView);
+    // The scroller gets its own class rather than being reached through
+    // `:has()` on the grid: CSS relational selectors are recent enough to
+    // be missing in older Safari and Firefox, and this is the rule that
+    // keeps a phone sheet from scrolling sideways.
+    scrollWrapper?.classList.toggle("page-grid-scroll--stacked", simpleView);
     applySimpleViewOrder(pageGrid, simpleView);
-    sidebarToggleBtn.style.display = simpleView ? "none" : "";
-    modeSelect.style.display = simpleView ? "none" : "";
-    rulesetSelect.style.display = simpleView ? "none" : "";
-    themeSelect.style.display = simpleView ? "none" : "";
-    displayDetails.style.display = simpleView ? "none" : "";
-    cardZonesWrap.hidden = simpleView;
+    // Which builder chrome to hide follows the CHOICE, not the layout.
+    //
+    // Simple View used to be something you picked, and hiding the toolbar
+    // with it was right: nothing in there can act on a read-only stacked
+    // view. Below the width the grid cannot fit, though, the stacked layout
+    // is forced on someone who never chose it - and the Display panel (print,
+    // theme, ruleset, reading options) has nothing to do with the layout at
+    // all. Hiding it there would take away features a phone still needs, to
+    // satisfy a rule about dragging blocks.
+    const readOnly = simpleViewPreferred;
+    sidebarToggleBtn.style.display = readOnly ? "none" : "";
+    modeSelect.style.display = readOnly ? "none" : "";
+    rulesetSelect.style.display = readOnly ? "none" : "";
+    themeSelect.style.display = readOnly ? "none" : "";
+    displayDetails.style.display = readOnly ? "none" : "";
+    cardZonesWrap.hidden = readOnly;
     if (!persist) return;
     character.simpleView = simpleView;
     if (!store.saveCharacterFields) return;
@@ -886,6 +956,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   playViewBtn.textContent = simpleView ? "Sheet View" : "Simple View";
   playViewBtn.title = "Switch to Simple View - every block and field stacked full-width (display only; your layout is untouched)";
   playViewBtn.addEventListener("click", () => {
+    if (forcedStacked) return;
     const turningOn = !simpleView;
     applySimpleView(turningOn);
     if (!turningOn) {
@@ -4679,6 +4750,18 @@ const closeDialog = () => {
       return creationGroups.find((g) => g.subrace && g.source === raceName) || null;
     }
 
+    /** Whether the Race pick is finished, not merely made. A thin wrapper
+     *  over the shared pure predicate, so the two call sites below read the
+     *  same answer as the unit tests do. */
+    function raceChoiceSettled(raceName = state.species) {
+      return sharedRacePickSatisfied({
+        raceName,
+        subraceGroup: raceName ? subraceGroupFor(raceName) : null,
+        choices: state.choices,
+      });
+    }
+
+
   /** Whether every group in `groups` is satisfied (owned-aware, via
    *  the shared section checker) — per-section gating for a merged
    *  wizard step: Next blocks until each section is complete. */
@@ -5873,8 +5956,7 @@ const closeDialog = () => {
         description: "Name your character, set starting level, and choose a species — its granted choices (languages, traits, subrace) appear right below it.",
         isComplete: () => {
           if (!((character.name || "").trim()) || !state.species) return false;
-          const sub = subraceGroupFor(state.species);
-          if (sub && !groupPicksSatisfied(sub, state.choices?.[sub.key])) return false;
+          if (!raceChoiceSettled(state.species)) return false;
           if (!choicesComplete(raceChoiceGroups)) return false;
           return !lineageFeatOffered() || Boolean(lineageFeatPick());
         },
@@ -5883,8 +5965,7 @@ const closeDialog = () => {
           if (!((character.name || "").trim())) out.push("No name yet.");
           if (!state.species) out.push("No species picked yet.");
           else {
-            const sub = subraceGroupFor(state.species);
-            if (sub && !groupPicksSatisfied(sub, state.choices?.[sub.key])) out.push("Subrace pick outstanding.");
+            if (!raceChoiceSettled(state.species)) out.push("Subrace pick outstanding.");
             if (!choicesComplete(raceChoiceGroups)) out.push("Choices still to make.");
             if (lineageFeatOffered() && !lineageFeatPick()) out.push("Ancestry feat not taken yet.");
           }
@@ -5918,11 +5999,19 @@ const closeDialog = () => {
             subraceGroupFn: (raceName) => {
               const group = subraceGroupFor(raceName);
               if (!group) return null;
-              return { group, pickedIds: state.choices?.[group.key] || [] };
+              // Flat and cross-category shapes alike: the nested list used to
+              // read `.options` alone, so a container race shaped as a
+              // cross-category group rendered NO subrace rows at all - and
+              // with no subrace to pick, such a race could be chosen and
+              // never finished. A container that cannot be completed is
+              // worse than no container at all.
+              const options = groupOptionsOf(group);
+              if (!options.length) return null;
+              return { group, options, pickedIds: state.choices?.[group.key] || [] };
             },
             subraceMechanicsFn: (raceName, subName) => {
               const group = subraceGroupFor(raceName);
-              const option = group?.options.find((o) => o.name === subName);
+              const option = groupOptionsOf(group).find((o) => o.name === subName);
               if (!option) return [];
               const sections = sharedMechanicsBulletsFor(
                 { statModifiers: option.statModifiers, featureGrants: option.featureGrants },
@@ -6295,7 +6384,12 @@ const closeDialog = () => {
           "If anything is still outstanding, the list under this heading names it and links to the page that needs it.",
           "What You Get Automatically at the bottom is the roll-up of every race, class, subclass, and background grant at your current level — read-only, nothing to fill in.",
         ],
-        isComplete: () => Boolean(state.species && state.className && state.background),
+        // The same predicate the Identity page gates on, not just "a race
+        // is named": a container race (Elf, Dwarf, Gnome, Halfling,
+        // Genasi) has to have a subrace chosen before the character counts
+        // as built, and Review is the page that says so out loud.
+        isComplete: () => Boolean(raceChoiceSettled(state.species) && state.className && state.background),
+
         render(container) {
           // Only what was chosen. This step used to re-render the full
           // pickers - all 15 ancestries, all 13 classes, all 9
@@ -7456,6 +7550,10 @@ const closeDialog = () => {
   // restore of what is already stored, not a change to it - calling this
   // on every load must not write to the character.
   if (simpleView) applySimpleView(true, { persist: false });
+  // Then the width rule, which needs the grid MEASURED: a screen too
+  // narrow for the grid stacks it whatever the stored preference says,
+  // and a screen that fits leaves the stored preference alone.
+  syncStackedForWidth();
 
   function renderTabs() {
     renderTabsInto(tabsBar, {
@@ -8625,7 +8723,17 @@ try {
   // --- Boot + responsive re-render ---------------------------------------
 
   renderAll();
-  const onResize = debounce(renderPageGrid, 150);
+  // The stacked layout is forced below a width the grid cannot fit, and the
+  // grid's own width is measured rather than known, so this has to run once
+  // the grid has been laid out - and again whenever that answer could
+  // change. Re-deciding here rather than in renderPageGrid keeps the rule in
+  // one place: applySimpleView must not be called from inside the render
+  // path it is itself changing.
+  syncStackedForWidth();
+  const onResize = debounce(() => {
+    syncStackedForWidth();
+    renderPageGrid();
+  }, 150);
   window.addEventListener("resize", onResize);
 
   function hasUnsavedChanges() {

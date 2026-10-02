@@ -300,9 +300,14 @@
    the standard CSS "full-bleed" trick (works because it's positioned
    relative to the viewport, not to its own parent's box). No fixed
    height and no vertical scroll box: the sheet is part of the page
-   and scrolls with it, toolbar and all. Horizontal overflow stays
-   contained so narrow screens still scroll sideways instead of
-   crushing cells below their usable floor. */
+   and scrolls with it, toolbar and all.
+
+   Horizontal overflow is contained here so a cell that would rather stay
+   readable than get narrower scrolls the SHEET, not the page. That trade
+   only makes sense while the grid is genuinely wider than the screen, so
+   below the width it cannot fit, customSheet.js forces the stacked
+   layout instead (narrowScreenNeedsStackedView in sheet/simpleView.js)
+   and .page-grid-scroll--stacked switches this box off. */
 .page-grid-scroll {
   position: relative;
   left: 50%;
@@ -312,6 +317,17 @@
   width: 100vw;
   overflow-x: auto;
   overflow-y: visible;
+}
+
+/* Stacked view. Set from applySimpleView alongside the grid's own class
+   rather than through `:has()`, which is recent enough to be absent in
+   older Safari and Firefox - and this rule is the difference between a
+   phone sheet that fits and one that scrolls sideways, so it cannot be
+   the rule that quietly stops applying. Nothing inside a stacked grid can
+   be wider than the box (`width: 100% !important` on every node), so the
+   scroller has nothing to scroll and a sideways drag moves nothing. */
+.page-grid-scroll--stacked {
+  overflow-x: hidden;
 }
 
 .sheet-workbench .page-grid-scroll {
@@ -396,6 +412,29 @@
 .toolbar-display__label {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
+}
+
+/* Phones: the panel is anchored to the summary's right edge, and the
+   summary is a ~90px box sitting somewhere in a wrapped toolbar row - so
+   right-anchoring a panel wider than that put the whole thing 169px off
+   the LEFT edge of the screen, with nothing on screen to reach it. It was
+   only clickable before because the sheet grid overflowed sideways and gave
+   the page a scrollbar to scroll along; taking that overflow away (which
+   the same change was for) left the panel genuinely unreachable.
+   Giving the summary the full row, and the panel both edges of it, ties
+   the panel to the page's own content edges at any width. */
+@media (max-width: 720px) {
+  .toolbar-display {
+    flex: 1 1 100%;
+  }
+  .toolbar-display__panel {
+    left: 0;
+    right: 0;
+    width: auto;
+    min-width: 0;
+    max-height: calc(100vh - 160px);
+    overflow-y: auto;
+  }
 }
 
 /* The two accessibility checkboxes stack under the "Reading" label rather
@@ -680,20 +719,47 @@
    exactly as they are, and the JS `order` values that produce the
    row-then-column sequence are cleared again on the way out.
 
-   The grid is absolutely positioned (left/top/width/height in pixels),
-   so this has to out-specify that with !important rather than add rules
-   on top - there is no cascade-friendly way to un-position a node from a
-   later, lower-specificity selector. `inline-flex`/`flex` on the
+   The NODES are absolutely positioned (left/top/width/height in pixels),
+   so those rules have to out-specify that with !important rather than add
+   rules on top - there is no cascade-friendly way to un-position a node
+   from a later, lower-specificity selector. `inline-flex`/`flex` on the
    containers is what turns "absolutely positioned at these pixels" into
    "stacked in this order", and `order` (set in JS from y,x) is what
-   makes the sequence row-then-column instead of DOM order. */
+   makes the sequence row-then-column instead of DOM order.
+
+   The grid's own `display` deliberately does NOT use !important. Nothing
+   in the screen stylesheet sets a display on `.page-grid` except
+   `.page-grid--leveling`, which this rule excludes - so a plain
+   declaration wins there on order alone. That matters because the print
+   pipeline hides the live grid with `.page-grid { display: none
+   !important }` (see print-helpers.js), and an `!important` here would
+   out-specify that: a stacked sheet would print its live editor AND the
+   print stage, doubling every page. */
 .page-grid.is-simple {
-  display: flex !important;
   flex-direction: column;
   align-items: stretch;
   gap: var(--space-3);
-  width: 100%;
+  /* Both dimensions need !important, and the height is the one that bites.
+     The renderer stamps inline `width` AND `height` on the grid from the
+     cell math (gridCanvasSize), and an inline style beats any stylesheet
+     rule. A flex COLUMN whose own height is still that fixed pixel value
+     shrinks its children to fit it - so every block came out shorter than
+     its own content, its fields spilled past its bottom edge, and the NEXT
+     block was drawn on top of them. `elementFromPoint` on a spell row's
+     prepared toggle returned the neighbouring field's value box, which is
+     what a "the toggle is covered" report looks like from the outside.
+     Height auto is also why the grid needs no fixed height to scroll: the
+     page scrolls, not the canvas. */
+  width: 100% !important;
+  height: auto !important;
+  max-width: 100% !important;
   min-width: 0;
+}
+/* Split out so the Leveling/Rules tabs keep their own display: those are
+   `display: block` layouts of their own, and `:not()` here rather than a
+   later rule is what keeps them out of the stacking. */
+.page-grid.is-simple:not(.page-grid--leveling) {
+  display: flex;
 }
 .page-grid.is-simple:not(.page-grid--leveling) .grid-node {
   position: static !important;

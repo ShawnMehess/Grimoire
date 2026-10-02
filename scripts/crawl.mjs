@@ -201,8 +201,23 @@ for (let step = 0; step < 22; step++) {
   // 2) Complete the step minimally: fill empties, pick first valid options.
   // Runs AFTER the sweep (row clicks replace inline choices) and again
   // after selecting the final row, so gating sees a finished page.
-  // NOTE: every pick re-renders its group, detaching the other inputs —
-  // so click ONE input per round and re-query until stable.
+  //
+  // Controls inside a row that is NOT selected are left alone, and that is a
+  // correctness fix rather than tidiness. Committing a value in a row's
+  // dropdown now selects that row (renderSinglePickerRows), so a bulk fill
+  // that walks every select on the page does not merely fill fields - it
+  // walks from race to race SELECTING each one, eight at a time. The sweep
+  // then toggles whichever of those it clicks, and the step finishes with no
+  // race selected and no enabled Next: blocked on a page a player could pass
+  // easily. Filling a row you have not picked was never meaningful work, and
+  // the selects that matter (ruleset, level, HP method) live outside rows.
+  //
+  // Written as a real function and passed in, because `page.evaluate` hands
+  // the function to the page and cannot close over anything here.
+  const skipUnpickedRow = (el) => {
+    const row = el.closest?.(".choice-row");
+    return !!row && !row.classList.contains("choice-row--selected");
+  };
   const fillStep = async () => {
     await page.evaluate(() => {
       document.querySelectorAll(".wizard input[type='text'], .wizard input:not([type])").forEach((i) => { if (!i.value) { i.value = "Crawl"; i.dispatchEvent(new Event("input", { bubbles: true })); } });
@@ -215,29 +230,31 @@ for (let step = 0; step < 22; step++) {
     // below). Capped: a full budget stays full, so extra rounds only
     // churn within the budget, never below it.
     for (let sround = 0; sround < 8; sround++) {
-      const filled = await page.evaluate(() => {
-        const s = [...document.querySelectorAll(".wizard select")].find((el) => !el.value && el.isConnected);
+      const filled = await page.evaluate((skip) => {
+        const live = (el) => !(skip ? skip(el) : false);
+        const s = [...document.querySelectorAll(".wizard select")].find((el) => !el.value && el.isConnected && live(el));
         if (!s) return false;
         const opt = [...s.options].find((o) => o.value && !/choose|select|none/i.test(o.text));
         if (!opt) return false;
         s.value = opt.value;
         s.dispatchEvent(new Event("change", { bubbles: true }));
         return true;
-      });
+      }, skipUnpickedRow);
       if (!filled) break;
       await page.waitForTimeout(250);
     }
     for (let round = 0; round < 40; round++) {
-      const clicked = await page.evaluate(() => {
+      const clicked = await page.evaluate((skip) => {
+        const live = (el) => !(skip ? skip(el) : false);
         const radioNames = new Set([...document.querySelectorAll(".wizard input[type='radio']")].map((r) => r.name));
         for (const name of radioNames) {
-          const group = [...document.querySelectorAll(`.wizard input[type='radio'][name="${CSS.escape(name)}"]`)].filter((r) => !r.disabled && r.isConnected);
+          const group = [...document.querySelectorAll(`.wizard input[type='radio'][name="${CSS.escape(name)}"]`)].filter((r) => !r.disabled && r.isConnected && live(r));
           if (group.length && !group.some((r) => r.checked)) { group[0].click(); return true; }
         }
-        const box = [...document.querySelectorAll(".wizard input[type='checkbox']:not(:checked)")].find((c) => !c.disabled && c.isConnected);
+        const box = [...document.querySelectorAll(".wizard input[type='checkbox']:not(:checked)")].find((c) => !c.disabled && c.isConnected && live(c));
         if (box) { box.click(); return true; }
         return false;
-      });
+      }, skipUnpickedRow);
       if (!clicked) break;
       await page.waitForTimeout(250);
     }
@@ -264,9 +281,22 @@ for (let step = 0; step < 22; step++) {
       await page.waitForTimeout(500);
     }
   } else if (names.length) {
-    // Nothing was selected (the normal case on a fresh page): take the first
-    // row so the step has something canonical to work from.
-    await sweep(`wizard:${label}`, `select first row ${names[0]}`, () => click(`.choice-row[data-row-name="${names[0]}"]`, 3000));
+    // Nothing was selected before the sweep: take the first row so the step
+    // has something canonical to work from.
+    //
+    // Guarded, because "nothing was selected before" no longer means nothing
+    // is selected NOW. fillStep clicks select options, and committing a value
+    // in a row's dropdown selects that row - so the sweep can leave a row
+    // selected on its own. Clicking it again here would then TOGGLE it off
+    // (a click on an open, selected row collapses and de-selects it), leaving
+    // the step with nothing selected and no enabled Next. This is the exact
+    // shape of the block it looks like it is fixing.
+    const alreadyPicked = await page.evaluate(
+      (n) => !!document.querySelector(`.choice-row[data-row-name="${CSS.escape(n)}"].choice-row--selected`),
+      names[0]).catch(() => false);
+    if (!alreadyPicked) {
+      await sweep(`wizard:${label}`, `select first row ${names[0]}`, () => click(`.choice-row[data-row-name="${names[0]}"]`, 3000));
+    }
     await page.waitForTimeout(600);
     await act(`wizard:${label}`, "refill after select", fillStep);
     await page.waitForTimeout(800);
@@ -301,8 +331,47 @@ for (let step = 0; step < 22; step++) {
     }
     return false;
   };
+  // 2c) Complete through NESTED rows: a subrace (Elf's High/Wood/Drow) or a
+  // subclass is a row nested inside the list rather than a dialog or a
+  // select, so neither of the two passes above can reach it. Nothing used to
+  // need this because no pass ever left a race selected that DEMANDED a
+  // subrace - the step simply had nothing outstanding. It can now: committing
+  // a value in an unselected row's dropdown selects that row (see
+  // renderSinglePickerRows), and the sweep below commits dropdown values in
+  // every row it walks. A race left selected with its subrace undecided is
+  // exactly the case this closes, so the walker reports a blocked step that a
+  // player could not get past.
+  const completeViaNestedRows = async (tag) => {
+    const enabled = async () => !!(await page.$(".wizard button.wizard__next:not([disabled])"))
+      || !!(await page.$(".wizard button:has-text('Finish'), .wizard button:has-text('Complete'), .wizard button:has-text('Create'), .wizard button:has-text('Apply'):not(.wizard__dot)"));
+    for (let r = 0; r < 12; r++) {
+      if (await enabled()) return true;
+      const nested = await page.$$(".wizard .choice-row--nested");
+      if (!nested.length) return false;
+      const pending = [];
+      for (const row of nested) {
+        const state = await row.evaluate((n) => ({
+          name: n.dataset.rowName,
+          selected: n.classList.contains("choice-row--selected"),
+        })).catch(() => null);
+        if (state?.name && !state.selected) pending.push(state.name);
+      }
+      if (!pending.length) return false;
+      // Pick one, then let the two passes above fill in whatever that opens.
+      await sweep(`wizard:${label}`, `nested-pick ${tag} ${pending[0]}`,
+        () => click(`.wizard .choice-row--nested[data-row-name="${CSS.escape(pending[0])}"]`, 3000));
+      await page.waitForTimeout(500);
+      await act(`wizard:${label}`, `fill after nested ${tag}`, fillStep);
+      await page.waitForTimeout(400);
+      await act(`wizard:${label}`, `dialogs after nested ${tag}`, () => completeViaDialogs(`nested-${tag}`));
+      await page.waitForTimeout(600);
+    }
+    return false;
+  };
   await act(`wizard:${label}`, "complete via dialogs", () => completeViaDialogs("fill"));
   await page.waitForTimeout(800);
+  await act(`wizard:${label}`, "complete via nested rows", () => completeViaNestedRows("fill"));
+  await page.waitForTimeout(600);
   // 3) Advance, or finish, or report blocked. If the canonical pick
   // doesn't enable Next (e.g. a class with intricate level-1 choices),
   // try every row — the first one that unlocks Next wins.
@@ -316,6 +385,11 @@ for (let step = 0; step < 22; step++) {
       await page.waitForTimeout(600);
       await act(`wizard:${label}`, "dialogs after try", () => completeViaDialogs(`try-${name}`));
       await page.waitForTimeout(600);
+      // A tried row may be one whose subrace is now required, and that
+      // subrace is a nested row rather than a dialog - so this fallback needs
+      // the same nested pass before it can call the step decided.
+      await act(`wizard:${label}`, "nested after try", () => completeViaNestedRows(`try-${name}`));
+      await page.waitForTimeout(400);
       finishBtn = await page.$(".wizard button:has-text('Finish'), .wizard button:has-text('Complete'), .wizard button:has-text('Create'), .wizard button:has-text('Apply'):not(.wizard__dot)");
       nextBtn = await page.$(".wizard button.wizard__next:not([disabled])");
       if (finishBtn || nextBtn) { console.log(`[wizard:${label}] unlocked via ${name}`); break; }

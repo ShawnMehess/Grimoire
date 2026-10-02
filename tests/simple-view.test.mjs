@@ -19,10 +19,12 @@ import {
   simpleViewOrder,
   simpleViewOrderFromNode,
   applySimpleViewOrder,
+  narrowScreenNeedsStackedView,
   shouldShowIntro,
   INTRO_LINES,
 } from "../js/render/sheet/simpleView.js";
 import { PAGE_COLS } from "../js/render/sheet/sheetLayouts.js";
+import { MIN_CELL_PX, GAP_PX } from "../js/render/sheet/sheetConstants.js";
 
 const nodeAt = (x, y) => ({ dataset: { gridX: String(x), gridY: String(y) }, style: {} });
 
@@ -140,6 +142,62 @@ describe("applySimpleViewOrder", () => {
   it("tolerates being handed nothing", () => {
     assert.doesNotThrow(() => applySimpleViewOrder(null, true));
     assert.doesNotThrow(() => applySimpleViewOrder({}, true));
+  });
+});
+
+// --- Forced stacking below the grid's own minimum width --------------------
+//
+// The grid is a fixed 16 columns with a floor on how small a cell may get,
+// so it has a hard minimum width and no shrinking brings it under a
+// phone's. Below that the sheet scrolled sideways for a canvas that was
+// mostly empty space beside a real character - which is the report this
+// rule answers. The stacked layout is the only readable one there, so it
+// is not a preference on that screen.
+
+describe("narrowScreenNeedsStackedView", () => {
+  /** The grid's real minimum: 16 columns at the cell floor, plus gaps.
+   *  Computed from the shipped constants rather than hard-coded, so this
+   *  test starts failing if the floor or the column count moves. */
+  const GRID_MIN = PAGE_COLS * MIN_CELL_PX + (PAGE_COLS - 1) * GAP_PX;
+
+  it("forces stacking below the width the grid needs", () => {
+    assert.equal(narrowScreenNeedsStackedView({ gridWidth: GRID_MIN, availableWidth: 390 }), true);
+    assert.equal(narrowScreenNeedsStackedView({ gridWidth: GRID_MIN, availableWidth: GRID_MIN - 40 }), true);
+  });
+
+  it("leaves a screen that fits alone", () => {
+    assert.equal(narrowScreenNeedsStackedView({ gridWidth: GRID_MIN, availableWidth: GRID_MIN }), false);
+    assert.equal(narrowScreenNeedsStackedView({ gridWidth: 1392, availableWidth: 1440 }), false);
+  });
+
+  it("ignores a sub-pixel difference", () => {
+    // A rounding wobble must not flip the whole sheet between modes on
+    // every resize event.
+    assert.equal(narrowScreenNeedsStackedView({ gridWidth: 1392, availableWidth: 1391 }), false);
+  });
+
+  it("says no when it has not measured yet", () => {
+    // The grid is measured after it is laid out. Guessing "narrow" before
+    // that would stack the sheet on every load and flicker back.
+    assert.equal(narrowScreenNeedsStackedView(), false);
+    assert.equal(narrowScreenNeedsStackedView({}), false);
+    assert.equal(narrowScreenNeedsStackedView({ gridWidth: 792 }), false);
+    assert.equal(narrowScreenNeedsStackedView({ availableWidth: 390 }), false);
+    assert.equal(narrowScreenNeedsStackedView({ gridWidth: 792, availableWidth: 0 }), false);
+    assert.equal(narrowScreenNeedsStackedView({ gridWidth: NaN, availableWidth: 390 }), false);
+  });
+
+  it("reads strings, because a measured width arrives as one sometimes", () => {
+    assert.equal(narrowScreenNeedsStackedView({ gridWidth: "792px", availableWidth: "390px" }), true);
+    assert.equal(narrowScreenNeedsStackedView({ gridWidth: "1392px", availableWidth: "1440px" }), false);
+  });
+
+  it("is the reason a phone cannot use Sheet View at all", () => {
+    // Stated as the arithmetic it is: the narrowest common phone is well
+    // under the grid's floor. If this ever goes false, some future change
+    // made the grid genuinely narrowable and the whole rule is dead weight.
+    assert.ok(GRID_MIN > 320, `the grid cannot fit a 320px phone (min ${GRID_MIN}px)`);
+    assert.ok(GRID_MIN < 1440, `but it fits a desktop (min ${GRID_MIN}px)`);
   });
 });
 

@@ -200,15 +200,21 @@ export function renderIdentityStepInto(container, state, deps) {
       afterRow: (raceName, rowEl) => {
         if (raceName !== state.species) return;
         const sub = subraceGroupFn ? subraceGroupFn(raceName) : null;
-        if (!sub?.group?.options?.length) return;
-        const picked = sub.group.options.find((o) => (sub.pickedIds || []).includes(o.id));
+        // `options` is passed in rather than read off the group here, so a
+        // subrace picker that splits its options across categories renders
+        // the same rows as a flat one. Reading `.options` alone made a
+        // cross-category container show nothing nested under it, which is
+        // the one shape that cannot then be completed.
+        const options = sub?.options || sub?.group?.options || [];
+        if (!options.length) return;
+        const picked = options.find((o) => (sub.pickedIds || []).includes(o.id));
         const holder = el("div");
-        selectableRowsFn(holder, sub.group.options.map((o) => o.name), {
+        selectableRowsFn(holder, options.map((o) => o.name), {
           selectedName: picked ? picked.name : "",
           getInfo: (n) => catalogInfoFn(["subrace"], n),
           getMechanicsList: (n) => (subraceMechanicsFn ? subraceMechanicsFn(raceName, n) : null),
           onSelect: (n) => {
-            const opt = sub.group.options.find((o) => o.name === n);
+            const opt = options.find((o) => o.name === n);
             if (opt && selectSubraceFn) selectSubraceFn(sub.group, opt.id);
           },
           nested: true,

@@ -214,3 +214,59 @@
   width: 100%;
   max-width: 320px;
 }
+
+/* --- Vault failure panel ------------------------------------------------
+ * Shown when the character list or one character's sheet cannot be
+ * fetched or rendered. It is a panel rather than a toast because the
+ * thing that failed is the whole page: there is nothing behind it to go
+ * back to, so it has to carry the reason, what to try, and the retry
+ * itself. The advice list is the part that matters - "check your
+ * connection" is wrong when an extension is blocking firestore.googleapis.com
+ * and right when the network is down, and those two need opposite
+ * responses. */
+.vault-error {
+  max-width: 560px;
+  margin: 0 auto var(--space-5);
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-inset);
+}
+
+.vault-error h3 {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-2);
+  border-left: 3px solid var(--color-negative, var(--color-accent));
+}
+
+.vault-error__message {
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.vault-error__advice {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.vault-error__advice li + li {
+  margin-top: var(--space-1);
+}
+
+.vault-error__detail {
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-faint);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-xs);
+  word-break: break-word;
+}
+
+.vault-error__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

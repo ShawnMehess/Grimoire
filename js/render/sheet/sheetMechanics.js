@@ -168,6 +168,125 @@ function activeAtLevel(items, level) {
   return items.filter((item) => !item.minLevel || item.minLevel <= level);
 }
 
+/** The level a segment says it needs, or 0 when it says nothing.
+ *
+ *  The word "level" has to be adjacent to the number in every one of
+ *  these, in either order, because "as a 2nd-level spell" is the SPELL's
+ *  level and "within 30 feet of you" is a distance - reading either as a
+ *  character-level gate would delete the sentence that explains what the
+ *  trait does. Three lead-ins cover every phrasing in the shipped data:
+ *  "starting at level 3" / "starting at 3rd level" (the Duergar, Yuan-ti,
+ *  Air Genasi), "when you reach 3rd level" / "once you reach 5th level"
+ *  (the tiefling bloodlines), and a bare "at level 9" / "from 3rd level".
+ *  Ordinals and cardinals both accepted, and 1-20 only, so a stray number
+ *  cannot swallow every clause after it.
+ *
+ *  The FIRST gate in a segment is the one that counts. A sentence is
+ *  available from the level it first says so: "when you reach 3rd level
+ *  and again at 10th level, you gain…" describes something you have at 3,
+ *  and taking the largest would hide a real benefit for seven levels. */
+const NUMBER_AFTER_LEVEL = String.raw`level\s*(\d{1,2})(?:st|nd|rd|th)?`;
+const NUMBER_BEFORE_LEVEL = String.raw`(\d{1,2})(?:st|nd|rd|th)\s+level`;
+// An ordinal alone is enough: the Drow writes "Darkness once per long
+// rest at 5th" with no second "level", and an English ordinal after "at"
+// reads as a level here. A bare CARDINAL is not ("within 30 feet of you",
+// "at 10gp"), so that shape stays out.
+const ORDINAL_ALONE = String.raw`(\d{1,2})(?:st|nd|rd|th)(?!\w)`;
+const LEVEL_CLAUSE = new RegExp(
+  [
+    String.raw`(?:starting|beginning)\s+(?:at\s+)?(?:${NUMBER_AFTER_LEVEL}|${NUMBER_BEFORE_LEVEL})`,
+    String.raw`(?:when|once|after)\s+you\s+(?:reach|are)\s+(?:${NUMBER_AFTER_LEVEL}|${NUMBER_BEFORE_LEVEL})`,
+    String.raw`(?:at|from|by)\s+(?:${NUMBER_AFTER_LEVEL}|${NUMBER_BEFORE_LEVEL}|${ORDINAL_ALONE})`,
+  ].join("|"),
+  "gi",
+);
+
+/** A semicolon, or a full stop followed by whitespace: the two
+ *  boundaries the shipped descriptions are built out of. The lookahead
+ *  keeps "2nd-level" from splitting, and requiring a space after the full
+ *  stop keeps a description's LAST period inside its final segment rather
+ *  than swallowing it. */
+const SEGMENT_BREAK = /([;!?]|\.(?=\s))\s*/g;
+
+function levelInSegment(text) {
+  LEVEL_CLAUSE.lastIndex = 0;
+  const m = LEVEL_CLAUSE.exec(text);
+  if (!m) return 0;
+  // Every outer alternative carries its own pair of capture groups, so the
+  // number is whichever group in the match actually captured.
+  const n = m.slice(1)
+    .map((g) => (g == null ? NaN : Number(g)))
+    .find((v) => Number.isFinite(v) && v > 0);
+  return n ? Math.min(20, n) : 0;
+}
+
+
+/** Split a description into the pieces that carry their own level gate.
+ *
+ *  Each piece keeps the punctuation that INTRODUCED it, so dropping a
+ *  gated piece and joining the survivors back together reproduces the
+ *  original's punctuation rather than inventing it: "Dancing Lights
+ *  cantrip; Faerie Fire once per long rest at 3rd level; Darkness once
+ *  per long rest at 5th. Charisma is your spellcasting ability." at
+ *  level 1 reads "Dancing Lights cantrip. Charisma is your spellcasting
+ *  ability." and not "Dancing Lights cantrip Charisma is your
+ *  spellcasting ability."
+ *
+ *  Returns `[{ sep, text, minLevel }]`. Pure. */
+function levelGatedSegments(text) {
+  const src = String(text ?? "");
+  const out = [];
+  let sep = "";
+  let last = 0;
+  SEGMENT_BREAK.lastIndex = 0;
+  let m;
+  while ((m = SEGMENT_BREAK.exec(src)) !== null) {
+    const body = src.slice(last, m.index).trim();
+    if (body) out.push({ sep, text: body });
+    sep = `${m[1]} `;
+    last = SEGMENT_BREAK.lastIndex;
+  }
+  const tail = src.slice(last).trim();
+  if (tail) out.push({ sep, text: tail });
+  return out.map((piece) => ({ ...piece, minLevel: levelInSegment(piece.text) }));
+}
+
+/** A description with the parts you do not have at this level removed.
+ *
+ *  The single fix for "the Duergar tells a level 1 character it casts
+ *  Enlarge/Reduce from level 3". `minLevel` on a feature grant hides the
+ *  WHOLE grant above a level, which cannot express a trait that starts
+ *  available and grows: one grant, one gate, so a Duergar either had no
+ *  Duergar Magic at all or all of it. The rules are inside the prose, so
+ *  the prose is what has to be read.
+ *
+ *  Returns null when nothing survives, which is the caller's signal to
+ *  drop the whole bullet rather than print an empty one. Computed on
+ *  every render from the level the player currently has, so changing the
+ *  level in the wizard re-reads the text rather than needing a reload.
+ *  Pure. */
+export function levelGatedText(text, level = Infinity) {
+  const src = String(text ?? "");
+  if (!src.trim()) return null;
+  const segments = levelGatedSegments(src);
+  // Only text that actually carries a gate is rebuilt, and text whose
+  // every segment survives is handed back untouched - so no description is
+  // ever re-joined differently from how it shipped. The overwhelming
+  // majority of the corpus takes the first exit and returns byte-identical.
+  if (!segments.some((s) => s.minLevel > 0)) return src;
+  const kept = segments.filter((s) => s.minLevel <= level);
+  if (!kept.length) return null;
+  if (kept.length === segments.length) return src;
+  // The first survivor keeps no separator: when the opening segment was
+  // the gated one, its successor's "; " or ". " would otherwise open the
+  // sentence with punctuation.
+  return kept
+    .map((piece, i) => `${i === 0 ? "" : piece.sep}${piece.text}`)
+    .join("")
+    .trim();
+}
+
+
 /** Pack-gate mirror of the producers' filter (see packAllows in
  *  sheetWizard.js, kept local so this module stays dependency-free):
  *  items naming a `requiresPack` (Tasha's optional rules) show only
@@ -497,11 +616,14 @@ const SCORE_DISPLAY_ORDER = ["str", "dex", "con", "int", "wis", "cha"];
  *  nothing in it is omitted outright.
  *
  *  Races read: Racial Traits (fixed order — Speed, then Darkvision,
- *  then Resistances, then any remaining traits) → Ability Score
- *  Increases (STR → DEX → CON → INT → WIS → CHA) → Proficiencies →
- *  Innate Abilities. The three fixed trait slots always appear with
- *  standard defaults when empty (30 ft. walking speed, no darkvision,
- *  no resistances).
+ * then Resistances, then any remaining traits) → Ability Score
+ * Increases (STR → DEX → CON → INT → WIS → CHA) → Proficiencies →
+ * Innate Abilities. The three fixed trait slots always appear with
+ * standard defaults when empty (30 ft. walking speed, no darkvision,
+ * no resistances) — EXCEPT on a parent race, which owns a `subrace`
+ * picker and therefore has no traits of its own to default. A parent
+ * says its traits come from the subrace instead, because the defaults
+ * would contradict every subrace it has (see the slot block below).
  *
  *  Classes read: "Level 1 Class Features" (hit lines lead, then every
  *  other current feature) → "Class Proficiencies" ("Saving Throws:
@@ -570,13 +692,18 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   // read whole (audit systemic fixes), so sentence-snipping them
   // would shorten sourced wording. Race rows keep the legacy
   // first-sentence brief.
+  //
+  // Both read `levelGatedText` first, so a sentence the rules gate above
+  // the level in hand is dropped before anything is shortened - otherwise
+  // the brief would happily quote the one sentence about a level 5 unlock
+  // on a level 1 character.
   const detailFor = (description, caveat = null) => {
-    const flat = humanizeGameText(String(description || "").replace(/\s+/g, " ").trim());
+    const flat = humanizeGameText(String(levelGatedText(description, level) || "").replace(/\s+/g, " ").trim());
     if (!flat) return caveat ? ` (${caveat})` : "";
     if (classDisplay || backgroundDisplay || subclassDisplay) {
       return caveat ? `${flat} (${caveat})` : flat;
     }
-    const brief = briefDescription(description, 120);
+    const brief = briefDescription(flat, 120);
     return caveat ? `${brief} (${caveat})` : brief;
   };
 
@@ -634,6 +761,11 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     // Unsourced subclass grants are omitted from player-facing display
     // until sourced (audit 2b) — traceable via docs/subclass-gaps.md.
     if (grant.unsourced) continue;
+    // A grant whose whole text sits above the level in hand says nothing
+    // this character has yet, so the line goes rather than rendering as a
+    // bare name with no detail beside it.
+    const description = levelGatedText(grant.description, level);
+    if (description === null) continue;
     // Class rows skip shared movement/senses/resistances and spell
     // access (see classDisplay) — hit lines are collected below for
     // the head of Level 1 Class Features instead.
@@ -651,9 +783,9 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     if (backgroundDisplay && isEquipmentGrant(grant)) {
       // Structured items, not one long sentence: the compiled text
       // joins pieces with semicolons, so split them back apart.
-      const pieces = String(grant.description || "").split(";").map((s) => s.trim()).filter(Boolean);
+      const pieces = String(description).split(";").map((s) => s.trim()).filter(Boolean);
       if (pieces.length) bgEquipment.push(...pieces);
-      else if (String(grant.description || "").trim()) bgEquipment.push(String(grant.description).trim());
+      else bgEquipment.push(String(description).trim());
       continue;
     }
     if (backgroundDisplay) {
@@ -669,7 +801,7 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
         const why = detailFor(grant.description, grant.caveat);
         subProfLines.push(`${name}${why ? `: ${why}` : ""}`);
       } else if (isAutoSpellGrant(grant)) {
-        subFeatures.push(resolveSpellSummary(grant.description, bundle, level));
+        subFeatures.push(resolveSpellSummary(description, bundle, level));
       } else {
         const why = detailFor(grant.description, grant.caveat);
         subFeatures.push(`${name}${why ? `: ${why}` : ""}`);
@@ -681,7 +813,7 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     } else if (isDarkvisionGrant(grant)) {
       darkvisionBits.push(featureBit(grant));
     } else if (isResistanceGrant(grant)) {
-      const why = briefDescription(grant.description, 120);
+      const why = briefDescription(description, 120);
       resistanceBits.push(`${name}${why ? `: ${why}` : ""}`);
     } else if (classDisplay && /^hit (die|points)/i.test(name)) {
       const why = detailFor(grant.description, grant.caveat);
@@ -692,6 +824,20 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
       else innate.push(`${name}${why ? `: ${why}` : ""}`);
     }
   }
+  // A PARENT race - one that owns a `subrace` picker, so its subraces
+  // supply the real traits - must not be given the standard-default slots
+  // below. Those defaults are a sensible floor for a finished race (every
+  // race has a speed) and a lie for a container: Genasi printed "Speed: 30
+  // feet / Darkvision: none / Resistances: none" while all four of its
+  // subraces have darkvision 60 ft, three have a resistance, and Air Genasi
+  // is 35 ft. The row stated, as fact, three things every one of its own
+  // children contradicts.
+  //
+  // So a parent says where its traits come from instead. It keeps whatever it
+  // genuinely grants itself - the Genasi flexible ASI is shared by all four
+  // heritages and belongs here - and only the invented slots are dropped.
+  const isParentRace = (bundle.choiceGroups || []).some((g) => g && g.subrace === true);
+
   // A "(override)" Darkvision replaces the base range rather than
   // listing alongside it (today only Duergar has both). The three
   // fixed slots always appear outside classDisplay/backgroundDisplay —
@@ -700,7 +846,7 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   // line. Class rows lead with hit lines instead (see classDisplay
   // above); background rows omit the whole section (backgrounds have
   // no speed/senses of their own).
-  if (!classDisplay && !backgroundDisplay) {
+  if (!classDisplay && !backgroundDisplay && !isParentRace) {
     if (speedBits.length === 0) speedBits.push("Speed: 30 feet");
     if (darkvisionBits.length === 0) darkvisionBits.push("Darkvision: none");
     if (resistanceBits.length === 0) resistanceBits.push("Resistances: none");
@@ -712,6 +858,9 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     ...resistanceBits,
     ...otherTraits,
   ];
+  // Last, so it reads as the answer to everything above it rather than as one
+  // more trait among them.
+  if (isParentRace) traits.push("Traits, speed and senses come from your subrace.");
 
   const scoreRank = (mod) => {
     const id = abilityIdFor(mod, abilityIds);

@@ -18,10 +18,14 @@ import {
   spellLevelFor,
   spellMetaLine,
   spellNameIndex,
+  properNounPhrases,
+  surroundingCapitalisedRun,
   SPELL_LINK_DENYLIST,
 } from "../js/data/spellIndex.js";
 import { FIXED_RACE_ENTRIES, FIXED_CLASS_ENTRIES } from "../js/data/contentFixups.js";
+import { RACE_EXTRA_ENTRIES } from "../js/data/extraRaces.js";
 import { FEAT_BUNDLES } from "../js/data/featBundles.js";
+import { mechanicsBulletsFor } from "../js/render/sheet/sheetMechanics.js";
 
 /** Every piece of prose the sheet can render for a race/class/feat. */
 function proseCorpus() {
@@ -174,5 +178,155 @@ describe("every mention in the shipped content", () => {
         assert.ok(spellEntryByName(hit.name), `${where} linked an unknown spell ${hit.name}`);
       }
     }
+  });
+});
+
+// Every one of these is a real line the picker prints, and every one of
+// them used to link a spell the player did not ask for: the Duergar's
+// weapon proficiency line turned "Light" into the Light cantrip, every
+// class's armor line did the same, and five feature NAMES each contained
+// a spell name as their second half.
+describe("a spell name is never a fragment of a longer name", () => {
+  const names = (text) => findSpellMentions(text).map((m) => m.name);
+
+  it("leaves a proficiency line alone", () => {
+    // The reported one. "Light Hammer" is a hammer; "Light" was a link to
+    // an evocation cantrip.
+    assert.deepEqual(names("Weapons: Battleaxe, Handaxe, Light Hammer, Warhammer"), []);
+    assert.deepEqual(names("Armor: Light Armor, Medium Armor, Heavy Armor, Shields"), []);
+    assert.deepEqual(names("Weapons: Dart, Sling, Quarterstaff, Light Crossbow"), []);
+    assert.deepEqual(names("Armor: Light Armor"), []);
+  });
+
+  it("leaves a feature or feat NAME alone", () => {
+    assert.deepEqual(names("Slow Fall: Use a reaction to reduce falling damage."), []);
+    assert.deepEqual(names("Dragon Fear: Prerequisites: Dragonborn with a draconic ancestry."), []);
+    assert.deepEqual(names("Shield Master: You use shields not just as armor."), []);
+    assert.deepEqual(names("Magical Guidance (Optional): When you fail an ability check."), []);
+    // The same line still links the one real mention in it.
+    assert.deepEqual(names("Light Bearer: Know the Light cantrip."), ["Light"]);
+  });
+
+  it("still links the spell inside those very sentences", () => {
+    // The rule is about the PHRASE, not the word. "Cast Light once per long
+    // rest" and "Cast Mage Armor on yourself" both have a capitalised
+    // neighbour, and neither neighbour is a shipped name - so a rule like
+    // "never link a word glued to a capitalised word" would throw away most
+    // of the good links along with the bad ones.
+    assert.deepEqual(names("You can cast Light once per long rest."), ["Light"]);
+    assert.deepEqual(names("Cast Mage Armor on yourself at will."), ["Mage Armor"]);
+    assert.deepEqual(names("Cast Detect Magic at will (no slot)."), ["Detect Magic"]);
+    assert.deepEqual(names("You know the Light cantrip. You know the Light cantrip."), ["Light", "Light"]);
+  });
+
+  it("leaves a spelled-out list of spells alone", () => {
+    assert.deepEqual(
+      names("Spells: Thaumaturgy, Hellish Rebuke, Darkness"),
+      ["Thaumaturgy", "Hellish Rebuke", "Darkness"],
+    );
+  });
+
+  it("measures the phrase around a mention", () => {
+    // The unit the fragment rule is built on, pinned on its own so a change
+    // to the walk fails here rather than as a mystery elsewhere.
+    const run = (text) => {
+      const at = text.indexOf("Light");
+      return surroundingCapitalisedRun(text, at, at + "Light".length).text;
+    };
+    assert.equal(run("Light Armor"), "Light Armor");
+    assert.equal(run("Armor: Light Armor, Medium Armor"), "Light Armor");
+    assert.equal(run("Know the Light cantrip."), "Light");
+    assert.equal(run("Bag of Holding and Light"), "Light");
+  });
+
+  it("indexes the shipped names it needs", () => {
+    const known = properNounPhrases();
+    for (const expected of ["light armor", "light hammer", "light crossbow", "shield master", "dragon fear"]) {
+      assert.ok(known.has(expected), `${expected} is a shipped name`);
+    }
+    // A feat name that ends in "(Optional)" in the compiled data is indexed
+    // with and without it, because the prose prints the bare form.
+    assert.ok(known.has("magical guidance"), "the parenthetical form is stripped too");
+  });
+});
+
+// The prose corpus above covers grant DESCRIPTIONS. The false positives
+// that actually reach a player mostly live in the lines the mechanics
+// renderer assembles from stat modifiers - "Weapons: Battleaxe, Handaxe,
+// Light Hammer" is built, not written - so they are checked where they
+// are built.
+describe("mentions in the assembled picker bullets", () => {
+  const deps = { abilityIds: [], abilities: [], skills: [] };
+  const bullets = [];
+  const add = (where, bundle) => {
+    if (!bundle) return;
+    // Three levels, not one: some of these grants only appear later (the
+    // Monk's Slow Fall is a level 2 feature), and a corpus pinned at level
+    // 1 would quietly stop covering them.
+    for (const level of [1, 5, 20]) {
+      for (const section of mechanicsBulletsFor(bundle, level, deps)) {
+        for (const item of section.items) bullets.push({ where: `${where}@${level}/${section.title}`, text: item });
+      }
+    }
+  };
+  for (const e of FIXED_RACE_ENTRIES) add(`race:${e.name}`, e.bundle);
+  for (const e of RACE_EXTRA_ENTRIES || []) add(`race:${e.name}`, e.bundle);
+  for (const e of FIXED_CLASS_ENTRIES) add(`class:${e.name}`, e.bundle);
+  for (const b of FEAT_BUNDLES) add(`feat:${b.name}`, b);
+
+  it("covers the shipped content", () => {
+    assert.ok(bullets.length > 500, `expected the real bullets, got ${bullets.length}`);
+  });
+
+  it("never links a proficiency tag as a spell", () => {
+    // Every "Weapons:" / "Armor:" line in the corpus, matched by its label
+    // rather than by a hand-written example, so a new race that grants a
+    // Light something fails here.
+    let checked = 0;
+    for (const { where, text } of bullets) {
+      if (!/^(Weapons|Armor|Tools|Vehicles|Other):/.test(text)) continue;
+      checked += 1;
+      assert.deepEqual(findSpellMentions(text), [], `${where} linked a spell out of a tag list: ${text}`);
+    }
+    assert.ok(checked > 10, `the tag lines are actually covered (${checked})`);
+  });
+
+  it("never links a grant's own NAME", () => {
+    // "Dragon Fear: Prerequisites:…" - the name half is a name, the detail
+    // half is prose, and only the second can be a spell mention. Checked on
+    // the real bullets, so a new feat called e.g. "Fear of the Pit" is
+    // covered without anyone remembering to add it here.
+    let checked = 0;
+    for (const { where, text } of bullets) {
+      const cut = text.indexOf(": ");
+      if (cut <= 0) continue;
+      checked += 1;
+      for (const hit of findSpellMentions(text)) {
+        assert.ok(hit.start >= cut, `${where} linked ${hit.name} out of the grant's own name "${text.slice(0, cut)}": ${text}`);
+      }
+    }
+    assert.ok(checked > 100, `the name half of bullets is actually covered (${checked})`);
+  });
+
+  it("drops the reported name-half false positives from the real bullets", () => {
+    // The four the report named, found in the data rather than pasted in.
+    // Without the fragment rule each of these linked a spell: "Fear",
+    // "Shield", "Slow" and "Guidance".
+    const reported = ["Dragon Fear", "Shield Master", "Slow Fall", "Magical Guidance"];
+    const found = new Map();
+    for (const { text } of bullets) {
+      const cut = text.indexOf(": ");
+      if (cut <= 0) continue;
+      // The compiled data writes some of these with a trailing qualifier
+      // ("Magical Guidance (Optional)"), so match on the stem.
+      const name = text.slice(0, cut);
+      const stem = reported.find((r) => name.startsWith(r));
+      if (!stem) continue;
+      if (!found.has(stem)) found.set(stem, []);
+      found.get(stem).push(...findSpellMentions(text).filter((h) => h.start < cut).map((h) => h.name));
+    }
+    assert.deepEqual([...found.keys()].sort(), [...reported].sort(),
+      `all four are real bullets to check (${[...found.keys()].join(", ") || "none found"})`);
+    for (const [stem, hits] of found) assert.deepEqual(hits, [], `${stem} links ${hits.join(", ")} out of its own name`);
   });
 });

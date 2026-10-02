@@ -486,6 +486,25 @@
   margin-bottom: var(--space-2);
 }
 
+/* Phones and narrow tablets: the pair spans the full width, one half
+   each. Sized by their content they came out 115px and 124px on a 392px
+   screen — not equal, and together only 288px of the 312px available, so
+   the row of controls read as two arbitrary little buttons floating at
+   the left of a phone-wide bar. `flex: 1 1 0` is what makes them equal:
+   with the default `flex-basis: auto` each one starts at its own text
+   width and only grows to share what's left, which is not the same thing.
+   It also grows with the screen rather than needing its own width per
+   breakpoint. */
+@media (max-width: 720px) {
+  .choice-row-list__collapse-controls {
+    width: 100%;
+  }
+  .choice-row-list__collapse-controls > .btn {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
 /* "Your choices" sections on merged wizard steps — one collapsible
    block per originating pick, same controls as the picker tables. */
 .wizard__choice-sections {

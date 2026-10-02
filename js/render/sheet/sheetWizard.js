@@ -397,6 +397,26 @@ export function groupPicksSatisfied(group, selectedIds = [], owned = new Set()) 
   return counted >= Math.max(0, (group.minSelections || 0) - freebies);
 }
 
+/** Whether the Race pick is finished, not merely made.
+ *
+ *  A race that owns a `subrace` picker is a CONTAINER, not a choice: Elf
+ *  grants nothing of its own (see isParentRace in sheetMechanics for the
+ *  other half of that), so clicking Elf has not chosen a species - it has
+ *  opened a list to choose one from. Treating the click as the selection is
+ *  what let a player walk off the Identity page with a half-built ancestry
+ *  and find out at Finish Setup.
+ *
+ *  Pure, so the page that gates on it and the page that lists what is still
+ *  outstanding cannot disagree. `groupOptionsOf` reads the flat and the
+ *  cross-category shapes alike, and a container with nothing in it counts as
+ *  an ordinary race rather than blocking on a pick nothing can supply. */
+export function racePickSatisfied({ raceName = "", subraceGroup = null, choices = {} } = {}) {
+  if (!raceName) return false;
+  if (!subraceGroup) return true;
+  if (groupOptionsOf(subraceGroup).length === 0) return true;
+  return groupPicksSatisfied(subraceGroup, choices?.[subraceGroup.key]);
+}
+
 /** Groups choice groups into "Your choices" sections by originating
  *  pick (the group's `source`, i.e. the race/class/subclass/background
  *  name that granted it), in first-appearance order. Groups with no
@@ -3087,18 +3107,12 @@ function renderSinglePickerRows(container, names, {
   names.forEach((name) => {
     const info = getInfo ? getInfo(name) : null;
     const selected = name === selectedName;
-    // First click selects the row and expands its details (animated);
-    // clicking the open, selected row again collapses it and de-selects
-    // (onSelect(null)). Row click alone handles collapse — no Collapse button.
-    const toggleRow = () => {
-      const detailsEl = row.querySelector(".choice-row__details");
-      if (name === selectedName && expandedChoiceRows.has(name)) {
-        expandedChoiceRows.delete(name);
-        if (detailsEl) animateRowDetails(detailsEl, row, false);
-        else row.classList.remove("choice-row--expanded");
-        onSelect(null);
-        return;
-      }
+    // Selecting a row WITHOUT ever collapsing one. Split out of toggleRow
+    // because a click on a control INSIDE the row has to be able to select
+    // the row it sits in, and that click must never be able to collapse it
+    // - collapsing the row out from under a dropdown mid-gesture is the
+    // exact failure this separation exists to prevent.
+    const selectRow = () => {
       // Switching the pick collapses whatever was previously selected
       // — otherwise every race/class/background you'd ever clicked
       // through stays pinned open, and the "only the pick is expanded"
@@ -3114,9 +3128,24 @@ function renderSinglePickerRows(container, names, {
         }
       }
       expandedChoiceRows.add(name);
-      if (detailsEl && detailsEl.hidden) animateRowDetails(detailsEl, row, true);
-      else if (detailsEl?.children.length) row.classList.add("choice-row--expanded");
+      const d = row.querySelector(".choice-row__details");
+      if (d && d.hidden) animateRowDetails(d, row, true);
+      else if (d?.children.length) row.classList.add("choice-row--expanded");
       onSelect(name);
+    };
+    // First click selects the row and expands its details (animated);
+    // clicking the open, selected row again collapses it and de-selects
+    // (onSelect(null)). Row click alone handles collapse — no Collapse button.
+    const toggleRow = () => {
+      const detailsEl = row.querySelector(".choice-row__details");
+      if (name === selectedName && expandedChoiceRows.has(name)) {
+        expandedChoiceRows.delete(name);
+        if (detailsEl) animateRowDetails(detailsEl, row, false);
+        else row.classList.remove("choice-row--expanded");
+        onSelect(null);
+        return;
+      }
+      selectRow();
     };
     const row = el("div", {
       class: "choice-row" + (nested ? " choice-row--nested" : "") + (selected ? " choice-row--selected" : ""),
@@ -3184,32 +3213,75 @@ function renderSinglePickerRows(container, names, {
       hasDetails = true;
     }
     if (hasDetails) {
-      // Clicks on a CONTROL inside an expanded row must not reach the row
-      // itself: they belong to the pick the player is reading or making, and
-      // without this, using a dropdown collapses the row out from under the
-      // cursor.
+      // A click on a CONTROL inside an expanded row selects the row, and
+      // stops there. Reaching the row's own handler would be wrong: the row
+      // handler TOGGLES, so a click on the control of an already-selected,
+      // open row would collapse it out from under the pointer.
       //
       // Clicks on anything else - the mechanics text, a trait name, the
-      // padding - must reach it. This used to stop every click, which made
-      // the expanded half of a row dead to selection: with Expand All open,
-      // only the portrait-and-flavour line above would take a click, and
-      // everything below it - which is most of what the player is reading -
-      // did nothing.
+      // padding - are left to bubble, so they select/toggle the row normally.
+      // This used to stop every click, which made the expanded half of a row
+      // dead to selection: with Expand All open, only the portrait-and-
+      // flavour line above would take a click, and everything below it -
+      // which is most of what the player is reading - did nothing.
+      //
+      // Which controls select on CLICK and which wait for CHANGE is the whole
+      // subtlety, because selecting a row re-renders the page and every node
+      // in the row is replaced. For a control whose action lives OUTSIDE the
+      // row that is harmless: a dialog-opening picker link and a button are
+      // already on the event path, so their own handler still runs after the
+      // re-render and the dialog still opens. It is NOT harmless for a
+      // native <select> - its popup never opens on a detached element - nor
+      // for a text field, which would lose the caret mid-typing. Those select
+      // the row on `change` instead: the moment the player has committed a
+      // value, which is both safe and unambiguous about what they meant.
       //
       // The walk is hand-rolled and stops AT this details element rather than
       // using closest(): the row itself carries role="button", so closest()
       // walks past the real controls, reaches the row, matches it, and stops
       // every click again - which is precisely the bug this replaces.
-      const INTERACTIVE = new Set(["SELECT", "INPUT", "BUTTON", "A", "LABEL", "TEXTAREA", "OPTION"]);
-      details.addEventListener("click", (e) => {
+      const SELECT_ON_CLICK = new Set(["BUTTON", "A"]);
+      const isControl = (n) => SELECT_ON_CLICK.has(n.tagName)
+        || n.tagName === "SELECT" || n.tagName === "INPUT" || n.tagName === "TEXTAREA"
+        || n.tagName === "LABEL" || n.tagName === "OPTION"
+        || n.classList?.contains("inline-pick-link")
+        || n.getAttribute?.("role") === "button"
+        || n.getAttribute?.("contenteditable") === "true";
+      const survivesRerender = (n) => SELECT_ON_CLICK.has(n.tagName)
+        || n.classList?.contains("inline-pick-link")
+        || n.getAttribute?.("role") === "button";
+      const findControl = (e) => {
         for (let n = e.target; n && n !== details; n = n.parentElement) {
-          if (INTERACTIVE.has(n.tagName)) { e.stopPropagation(); return; }
-          if (n.classList?.contains("inline-pick-link")) { e.stopPropagation(); return; }
-          if (n.getAttribute?.("contenteditable") === "true" || n.getAttribute?.("role") === "button") {
-            e.stopPropagation();
-            return;
-          }
+          if (isControl(n)) return n;
         }
+        return null;
+      };
+      // Capture phase, and that is not incidental. A picker link and an
+      // inline-pick <select> each stop propagation in their OWN click
+      // handler, so a bubble-phase listener here never sees them at all — the
+      // walk below would find nothing and the row would stay unselected. In
+      // capture the handler runs first, on the way down, before the control
+      // has had its say.
+      //
+      // That ordering is also why the two cases differ in what they do to
+      // propagation. A control that survives the re-render must be left alone:
+      // stopping here would stop the event before it ever reached the control,
+      // and a picker link's dialog would never open. A control that cannot
+      // survive it is stopped, so the row's own toggle can never fire — but
+      // only propagation is stopped, never the default, so a native dropdown
+      // still opens on a detached-then-refreshed element and `change` still
+      // arrives.
+      details.addEventListener("click", (e) => {
+        const control = findControl(e);
+        // Plain text and padding: let it bubble, so the row selects/toggles.
+        if (!control) return;
+        if (survivesRerender(control)) { selectRow(); return; }
+        e.stopPropagation();
+      }, true);
+      details.addEventListener("change", (e) => {
+        const control = findControl(e);
+        if (!control || survivesRerender(control)) return;
+        selectRow();
       });
       if (collapsible) {
         // The selected row reads as expanded even on a fresh render

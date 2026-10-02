@@ -33,6 +33,26 @@
   gap: var(--space-2);
 }
 
+/* Phones and narrow tablets: "Return to Character Selection" and
+   "Sign out (name)" split the header's full width, one half each. They
+   were sized by their own text, so they came out 153px and 183px on a
+   392px screen — not equal, and a different width from each other again
+   for every name length. `flex: 1 1 0` equalises them (the default
+   `flex-basis: auto` starts each at its text width and only shares out
+   the remainder), and `width: 100%` on the container makes the pair span
+   whatever the header actually has, which is the whole row once the
+   720px rule below stacks the header. */
+@media (max-width: 720px) {
+  #auth-area {
+    width: 100%;
+    align-self: stretch;
+  }
+  #auth-area > * {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
 .app-header__brand {
   display: flex;
   align-items: center;

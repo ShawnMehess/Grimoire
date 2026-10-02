@@ -40,12 +40,37 @@ full math.
 
 ### Modes
 
-- **Sheet View** — the 2D grid above.
-- **Simple View** — a display mode that stacks every block into a
+- **Sheet View** - the 2D grid above.
+- **Simple View** - a display mode that stacks every block into a
   full-width section and every field into a full-width row. Saved `x/y/w/h`
   are never written; the only DOM change is a flex `order` plus a class on
   the grid, both cleared on the way out, so switching back restores the
-  grid exactly. Good for small screens.
+  grid exactly.
+
+**Below the width the grid cannot fit, Simple View is not a preference.**
+The grid is a fixed 16 columns with a floor on how small a cell may get
+(`MIN_CELL_PX`), so its box is about 790px wide and no shrinking brings it
+under a phone's 344. Under that width the sheet stacks itself: the toggle
+names the view it cannot switch to, refuses, and says why, and widening the
+window brings Sheet View back — so a phone is one screen you scroll up and
+down, never sideways. The width rule is a pure predicate
+(`narrowScreenNeedsStackedView`) over the grid's own declared width, not a
+hard-coded breakpoint, so it follows the column count and the cell floor.
+
+The choice is kept separate from the effect on purpose. Stacking below that
+width is forced on someone who never asked for it, so the builder chrome the
+player chose to hide is still theirs to keep or lose: the Display panel
+(print, theme, reading options) has nothing to do with the layout, and
+taking it away on a phone would be losing features rather than gaining them.
+
+Phone portrait gets the same treatment from the stylesheet: the Expand All /
+Collapse All pair and the Return to Character Selection / Sign out pair each
+split their row evenly and span all of it (`flex: 1 1 0` rather than each
+sizing to its own label), and the Display panel anchors to the page edges
+instead of to a ~90px summary in a wrapped toolbar row — which used to hang
+169px off the left of the screen, reachable only because the sheet grid
+overflowed sideways and gave the page a scrollbar to scroll along.
+
 
 ---
 
@@ -140,6 +165,9 @@ js/
     characterStore.js the ONLY file that imports Firebase
     localStore.js     offline backend, same exports
     mockStore.js      demo.html's in-memory backend
+    loadFailure.js    why a fetch or a render failed, in words that name
+                      the fix (its own module because main.js awaits the
+                      backend at module scope and cannot be imported in Node)
     characterImages.js / bundleMaps.js   shared by both backends
 scripts/            compilers, checks, and browser tests (see Checks)
 tests/              node:test unit suites
@@ -156,7 +184,7 @@ Six gates. The first five are fast and need no browser; the last drives
 real Chrome.
 
 ```
-node --test tests/*.mjs          # 782 unit tests
+node --test tests/*.mjs          # 826 unit tests
 node scripts/check-imports.mjs   # import graph, syntax, CSS brace balance
 node scripts/smoke-imports.mjs   # module graph + pure-logic assertions
 node scripts/smoke-dom.mjs       # renderers against a stub DOM
@@ -294,6 +322,12 @@ How it behaves:
 - **Picker rows** show a personality blurb plus categorized, bulleted
   mechanics, collapsible per row. Bullets list only what applies at the
   current level — never future unlocks, never "(level N)" tags.
+- **A container race is not a species.** Elf, Dwarf, Gnome, Halfling and
+  Genasi own a subrace picker and grant nothing themselves, so clicking one
+  has opened a list, not chosen from it: the page stays blocked and the
+  outstanding list names it until a subrace is picked. The rule is one pure
+  predicate (`racePickSatisfied`), read by the page that gates on it and by
+  Review, so the two cannot disagree.
 - **Abilities read abbreviated everywhere** ("STR", never "Strength"),
   each hovering its full name. Compiled shorthand renders as prose
   ("@con.mod" → "CON modifier", "@prof" → "proficiency bonus").
@@ -306,8 +340,24 @@ How it behaves:
 - **A race's granted spells are filtered to the level in hand** — a
   tiefling sees its cantrip at 1 and gains the higher-level unlocks as it
   levels.
+- **So is the prose.** A trait that starts available and *grows* — the
+  Duergar's Magic, the Yuan-ti's Spellcasting, the Genasi's — cannot be
+  expressed by `minLevel`, which is one gate per grant and would have to
+  hide the whole trait. `levelGatedText` reads the level gates out of the
+  prose instead ("starting at level 3", "when you reach 3rd level"), keeping
+  only the clauses the character has and dropping the bullet entirely when
+  none survive. Recomputed from the level on every render, so changing the
+  level in the wizard re-reads the text — the trait appears and disappears as
+  you type the number, with no reload. `2nd-level spell` and `within 30 feet`
+  are never mistaken for character levels, and text with no gate in it comes
+  back byte-identical.
 - **Every spell named in prose links to that spell's entry** — in traits,
-  features, feats, descriptions, and the feature list on the sheet.
+  features, feats, descriptions, and the feature list on the sheet. And only
+  the whole name: "Light Hammer", "Light Armor", "Light Crossbow", "Slow
+  Fall", "Dragon Fear", "Shield Master" and "Magical Guidance" are all
+  names, so none of them links half a word to a cantrip. The test is on the
+  PHRASE, not the word — "cast Light once per long rest" still links,
+  because there the capitalised phrase is not a shipped name.
 - **Magical Secrets** (Bard 10/14/18, College of Lore 6) is a real
   any-class spell picker, capped at the unlocked total.
 - **A spell row says what the spell does.** Each option in a spell picker
@@ -487,6 +537,30 @@ otherwise would.
 - **Offline (`?offline=1`).** Same app, same features, data in this
   browser's localStorage. A banner on the character list says which mode
   you're in.
+
+### When it will not open
+
+A failed open used to be silent: the load rejected an unhandled promise, the
+vault stayed on screen, and the only explanation anywhere was a browser
+console line. Every failure now renders a panel with the reason, what to try,
+and a Retry — and the reason distinguishes the two failures that need
+opposite responses from the player:
+
+- **Blocked.** `Status code: (null)` means there was no response at all,
+  which is not what a dead network produces. Something is refusing the
+  request: an ad blocker, a privacy extension, a corporate filter. The panel
+  says so, names the host to allowlist, and offers a private window as a way
+  to test it (`js/state/loadFailure.js`).
+- **Answered.** A permission error or a missing document is a real reply, so
+  it gets the ordinary "check your connection" wording rather than an
+  allowlist to chase.
+- **Fetched but did not render** is caught separately: a saved document the
+  current build cannot lay out is a different failure from one that never
+  arrived, and neither may blank the page.
+
+The vault's own copy of every character it last listed is kept, because
+`listMyCharacters` returns whole documents: a second fetch that fails opens
+the character from that copy rather than not at all.
 
 ---
 

@@ -8,6 +8,12 @@ const characterStore = await loadStore();
 const { onAuthChange, signIn, signOutUser, listMyCharacters, loadCharacter, createCharacter, deleteCharacter, currentUserId } = characterStore;
 import { createBlankCharacter } from "./data/schema.js";
 import { forEachStoredImage } from "./state/characterImages.js";
+import { hydrateCharacter } from "./state/bundleMaps.js";
+// Its own module rather than a function below, because it is pure text
+// classification of a failed fetch and because it cannot be tested from
+// HERE: this file awaits `loadStore()` at module scope, so importing it in
+// Node would try to reach Firebase over the network.
+import { explainLoadFailure } from "./state/loadFailure.js";
 import { renderCustomSheet } from "./render/customSheet.js";
 import { computeAllFormulas } from "./data/formula.js";
 import { applySheetTheme } from "./data/themes.js";
@@ -267,13 +273,26 @@ async function renderCharacterList() {
     // open a console, and the message is usually the only thing that
     // distinguishes "you're offline" from "this browser is blocking
     // storage" - which have completely different fixes.
-    const detail = String(err?.message || "").trim();
-    appRoot.append(
-      el("p", { class: "leveling-tab__intro", text: "Couldn't load your characters — check your connection and try again." }),
-      detail ? el("p", { class: "leveling-tab__intro character-vault__error-detail", text: detail }) : null,
-      retryBtn);
+    const why = explainLoadFailure(err, { action: "load your characters" });
+    const box = el("div", { class: "vault-error", role: "alert" });
+    box.append(
+      el("h3", { text: why.title }),
+      el("p", { class: "vault-error__message", text: why.message }),
+      why.advice.length ? el("ul", { class: "vault-error__advice" }, ...why.advice.map((line) => el("li", { text: line }))) : null,
+      why.detail ? el("p", { class: "vault-error__detail", text: why.detail }) : null,
+      el("div", { class: "vault-error__actions" }, retryBtn,
+        why.blocked ? el("a", {
+          class: "btn", href: `${window.location.pathname}?offline=1`,
+          text: "Work offline instead",
+          title: "Same app, this browser's own storage. Nothing syncs.",
+        }) : null),
+    );
+    appRoot.append(box);
     return;
   }
+  // Remember the whole documents, not just the card summaries - see
+  // listedCharacters.
+  listedCharacters = new Map(characters.map((c) => [c.id, c]));
 
   const searchInput = el("input", { type: "search", class: "input-group__control character-vault__search", placeholder: "Search your characters…" });
   const searchRow = el("div", { class: "character-vault__search-row" }, searchInput);
@@ -433,12 +452,93 @@ async function createNewBlankCharacter() {
   // toolbar.
   const data = createBlankCharacter(currentUserId());
   data.sheetMode = "screen";
-  const id = await createCharacter(data);
+  // Guarded like an open, because it is one: a create that fails used to
+  // reject into nothing at all, leaving a "+ New Character" button that
+  // silently does not work.
+  let id = null;
+  try {
+    id = await createCharacter(data);
+  } catch (err) {
+    renderOpenFailure(appRoot, err, () => createNewBlankCharacter());
+    return;
+  }
   openCharacter(id);
 }
 
+/** The vault's own copy of every character it last listed, keyed by id.
+ *
+ *  `listMyCharacters` returns whole documents - layout, tabs, rules, the
+ *  lot - because the card previews are built from them. So when a
+ *  character fails to open on a second fetch, the data is already in this
+ *  module and re-hydrating it is a local operation rather than a guess.
+ *  That is the difference between "the character won't open" and "the
+ *  character opens from the copy this page already holds", and it needs
+ *  no new persistence: the copy is rebuilt from the next list refresh. */
+let listedCharacters = new Map();
+
+/** The error panel an open failure renders into, with the parts that are
+ *  actually useful: the reason, what to try, and a Retry that re-runs the
+ *  same open. Deliberately not `alertDialog` - this has to be able to
+ *  stay on screen next to the vault rather than covering it, and a failed
+ *  open has already torn down whatever sheet was there. */
+function renderOpenFailure(root, err, retry) {
+  const why = explainLoadFailure(err);
+  console.error("Failed to open character:", err);
+  root.innerHTML = "";
+  const box = el("div", { class: "vault-error", role: "alert" });
+  box.append(el("h3", { text: why.title }), el("p", { class: "vault-error__message", text: why.message }));
+  if (why.advice.length) {
+    const list = el("ul", { class: "vault-error__advice" });
+    for (const line of why.advice) list.append(el("li", { text: line }));
+    box.append(list);
+  }
+  if (why.detail) box.append(el("p", { class: "vault-error__detail", text: why.detail }));
+  const row = el("div", { class: "vault-error__actions" },
+    el("button", { type: "button", class: "btn btn--primary", text: "Try again", onclick: retry }));
+  if (why.blocked) {
+    row.append(el("a", {
+      class: "btn", href: `${window.location.pathname}?offline=1`,
+      text: "Work offline instead",
+      title: "Same app, this browser's own storage. Nothing syncs.",
+    }));
+  }
+  box.append(row);
+  root.append(box);
+}
+
 async function openCharacter(characterId) {
-  const character = await loadCharacter(characterId);
+  // Every failure from here is caught and shown. A rejected load used to
+  // reject an unhandled promise: the vault stayed up, the click looked
+  // like it did nothing, and the browser console carried the only
+  // explanation — which is the failure this exists to remove.
+  let character = null;
+  let loadError = null;
+  try {
+    character = await loadCharacter(characterId);
+  } catch (err) {
+    loadError = err;
+  }
+  if (!character) {
+    // Fall back to the copy this page already fetched for the vault. Not
+    // a repair: the sheet opens on last-known data and stays honest that
+    // it did, which beats a character that will not open at all.
+    const cached = listedCharacters.get(characterId);
+    if (cached) {
+      try {
+        character = hydrateCharacter({ ...cached });
+        loadError = null;
+        console.warn("Opened a character from this page's own copy after the fetch failed.");
+      } catch (err) {
+        console.error("The cached copy could not be rehydrated:", err);
+      }
+    }
+  }
+  if (!character) {
+    renderOpenFailure(appRoot, loadError || new Error("That character no longer exists."), () => openCharacter(characterId));
+    backBtn.style.display = "none";
+    return;
+  }
+
   // Remember this sheet's reading preferences so the vault can restore them.
   // Kept as a plain local rather than read back from storage, because the
   // vault renders before any character is opened on a first visit and a
@@ -449,7 +549,19 @@ async function openCharacter(characterId) {
 
   const sheetRoot = document.createElement("div");
   appRoot.append(sheetRoot);
-  openSheet = renderCustomSheet(sheetRoot, character, characterStore, {
-    onOpenCharacter: (id) => leaveCurrentSheet(() => openCharacter(id)),
-  });
+  // The render is guarded too, and separately: a document that loads but
+  // cannot be rendered (older saved state, a field shape this build no
+  // longer understands) is a different failure from a fetch that failed,
+  // and it must not be able to blank the page with no way back either.
+  try {
+    openSheet = renderCustomSheet(sheetRoot, character, characterStore, {
+      onOpenCharacter: (id) => leaveCurrentSheet(() => openCharacter(id)),
+    });
+  } catch (err) {
+    console.error("Failed to render character sheet:", err);
+    renderOpenFailure(appRoot, err, () => openCharacter(characterId));
+    backBtn.style.display = "none";
+    openSheet = null;
+  }
 }
+

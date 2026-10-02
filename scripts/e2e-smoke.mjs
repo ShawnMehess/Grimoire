@@ -124,8 +124,40 @@ async function runViewportTests(viewport) {
   // by a real stacked display mode under the spec's own "Simple View"
   // name. The assertions below are unchanged in substance — same toggle,
   // same engage/restore, same overflow check.
-  const playBtn = await page.$("button:has-text('Simple View')");
-  check(!!playBtn, "demo Simple View toggle exists");
+  //
+  // On a phone the stacked layout is ALREADY engaged by width (the grid
+  // needs about 790px and the page has 344), and the toggle says so by
+  // naming the other view and refusing to switch. So the assertions below
+  // have to work from whichever state the viewport forced, or they would be
+  // asserting that a phone shows a button it has no reason to offer.
+  const viewToggle = await page.evaluate(() => {
+    const btn = [...document.querySelectorAll(".sheet-toolbar button")]
+      .find((b) => /^(Sheet|Simple) View$/.test(b.textContent.trim()));
+    return btn
+      ? { text: btn.textContent.trim(), disabled: btn.disabled, title: btn.title }
+      : null;
+  });
+  check(!!viewToggle, `demo view toggle exists (${JSON.stringify(viewToggle)})`);
+  const forcedOnPhone = viewport.width < 800;
+  if (viewToggle) {
+    if (forcedOnPhone) {
+      // Nothing to click - and saying so is the point. The phone-width
+      // stacking itself is checked further down, where the whole layout is
+      // measured rather than inferred from a label.
+      check(viewToggle.disabled,
+        `and on a phone-width viewport it is disabled rather than offering a switch that does nothing (${JSON.stringify(viewToggle)})`);
+      check(viewToggle.text === "Sheet View",
+        `naming the view it cannot go to (got "${viewToggle.text}")`);
+      check(await page.$(".page-grid.is-simple"),
+        "and the sheet is already stacked by width");
+    } else {
+      check(viewToggle.text === "Simple View",
+        `and offers the switch on a screen that fits (got "${viewToggle.text}")`);
+    }
+  }
+  const playBtn = viewToggle && viewToggle.text === "Simple View" && !viewToggle.disabled
+    ? await page.$(`.sheet-toolbar button:text-is("${viewToggle.text}")`)
+    : null;
   if (playBtn) {
     await playBtn.click();
     await page.waitForTimeout(400);
@@ -461,26 +493,33 @@ async function runViewportTests(viewport) {
   // and leaves a captured handle detached. Clicking a detached element
   // throws and would take every later check down instead of reporting.
   if (viewport.name === "mobile") {
-    const simpleToggle = await page.$("button:has-text('Simple View')");
-    if (!simpleToggle) {
-      check(false, "the Simple View toggle is present");
-    } else if (await simpleToggle.click().then(() => true).catch(() => false)) {
-      await page.waitForTimeout(400);
-      const overflow = await page.evaluate(() => {
+    // On a phone the stacked layout is already engaged by width, so the
+    // toggle names the view it cannot switch to and refuses. Measuring the
+    // result rather than clicking through it is what the check is FOR; the
+    // desktop branch above still drives the toggle both ways.
+    const already = await page.evaluate(() => {
       const grid = document.querySelector(".page-grid.is-simple");
-      if (!grid) return { hasOverflow: true, reason: "no grid" };
+      const btn = [...document.querySelectorAll(".sheet-toolbar button")]
+        .find((b) => /^(Sheet|Simple) View$/.test(b.textContent.trim()));
       return {
-        hasOverflow: grid.scrollWidth > grid.clientWidth,
-        scrollWidth: grid.scrollWidth,
-        clientWidth: grid.clientWidth,
+        stacked: !!grid,
+        overflow: grid ? { scrollWidth: grid.scrollWidth, clientWidth: grid.clientWidth } : null,
+        toggle: btn ? { text: btn.textContent.trim(), disabled: btn.disabled } : null,
       };
     });
-    check(!overflow.hasOverflow || overflow.scrollWidth - overflow.clientWidth <= 5, `Simple View has minimal horizontal overflow at ${viewport.width}px (scrollWidth: ${overflow.scrollWidth}, clientWidth: ${overflow.clientWidth}, diff: ${overflow.scrollWidth - overflow.clientWidth}px)`);
-    // Back to Sheet View, and the stale-key check that follows it.
-    const back = await page.$("button:has-text('Sheet View')");
+    check(already.stacked, "the phone-width sheet is stacked by width");
+    check(already.toggle?.disabled === true,
+      `and its view toggle refuses rather than offering a switch that does nothing (${JSON.stringify(already.toggle)})`);
+    check(!already.overflow || already.overflow.scrollWidth <= already.overflow.clientWidth + 5,
+      `Simple View has minimal horizontal overflow at ${viewport.width}px (scrollWidth: ${already.overflow?.scrollWidth}, clientWidth: ${already.overflow?.clientWidth}, diff: ${(already.overflow?.scrollWidth || 0) - (already.overflow?.clientWidth || 0)}px)`);
+    // Back to Sheet View is only reachable on a screen that fits, so widen
+    // first and then drive it - which is also the only way to reach the
+    // stale-key check that follows it on a phone viewport.
+    await page.setViewportSize({ width: 1440, height: viewport.height });
+    await page.waitForTimeout(900);
+    const back = await page.$(".sheet-toolbar button:text-is('Sheet View')");
     if (back) await back.click().catch(() => {});
     await page.waitForTimeout(400);
-    }
   }
 
   // B: offline vault — the exact flow that once crashed new-character
@@ -688,15 +727,39 @@ async function runViewportTests(viewport) {
   // And the controls inside those lines must still work - that is what the
   // original stopPropagation was for, so a regression here would be as bad as
   // the bug being fixed.
+  //
+  // This used to be asserted on the Hill Dwarf row, where the only <a> it
+  // contained was the "Light" in "Light Hammer" wrongly linked to the Light
+  // cantrip - so the check passed FOR THE WRONG REASON, and removing that
+  // false positive failed it. It is now two checks: the rows that genuinely
+  // offer a pick control still offer one inside their details (which is what
+  // the click handling is for), and the Hill Dwarf's proficiency line links
+  // nothing at all (which is the bug).
   const controlStillWorks = await page.evaluate(() => {
-    const row = document.querySelector('.choice-row[data-row-name="Hill Dwarf"]');
+    const withControls = [...document.querySelectorAll(".choice-row[data-row-name]")]
+      .filter((r) => !r.classList.contains("choice-row--nested"))
+      .map((r) => ({
+        name: r.dataset.rowName,
+        links: r.querySelectorAll(".choice-row__details a").length,
+        selects: r.querySelectorAll(".choice-row__details select").length,
+      }))
+      .filter((r) => r.links || r.selects);
+    const hillDwarf = document.querySelector('.choice-row[data-row-name="Hill Dwarf"]');
     return {
-      hasLink: !!row?.querySelector("a"),
-      hasSelect: !!row?.querySelector("select"),
+      rowsWithControls: withControls.length,
+      sample: withControls.slice(0, 3),
+      hillDwarfSpellLinks: [...(hillDwarf?.querySelectorAll(".choice-row__mechanics-list .spell-link") || [])]
+        .map((a) => a.dataset.spell || a.textContent.trim()),
+      hillDwarfText: (hillDwarf?.querySelector(".choice-row__mechanics-list")?.textContent || "")
+        .replace(/\s+/g, " ").trim(),
     };
   });
-  check(controlStillWorks.hasLink || controlStillWorks.hasSelect,
-    `and the pick controls inside the details are still present (${JSON.stringify(controlStillWorks)})`);
+  check(controlStillWorks.rowsWithControls > 0,
+    `and the pick controls inside the details are still present (${controlStillWorks.rowsWithControls} rows offer one, e.g. ${JSON.stringify(controlStillWorks.sample)})`);
+  check(controlStillWorks.hillDwarfSpellLinks.length === 0,
+    `while a proficiency line links no spell (${JSON.stringify(controlStillWorks.hillDwarfSpellLinks)})`);
+  check(/Light Hammer/.test(controlStillWorks.hillDwarfText),
+    `and still says what it means (${JSON.stringify(controlStillWorks.hillDwarfText.slice(0, 90))})`);
 
   // Languages: the picker splits into Widespread / Rare, and the headings
   // cannot be picked. Languages appear as a native <optgroup> inside the
@@ -1516,8 +1579,20 @@ async function runViewportTests(viewport) {
   await reopen();
   check(!(await page.$(".sheet-intro")), "a dismissed orientation panel stays dismissed after a reload");
 
-  // Simple View on, reload, still on.
-  const simpleToggle = await page.$("button:has-text('Simple View')");
+  // Simple View on, reload, still on. Driven from a width that fits the
+  // grid: on a phone the stacked layout is already engaged by width and the
+  // toggle is deliberately inert, so this persistence check would be
+  // measuring the forced state rather than the stored preference.
+  const narrowForced = await page.evaluate(() => {
+    const grid = document.querySelector(".page-grid");
+    return (grid?.style?.width || "").replace("px", "") !== ""
+      && document.querySelector(".page-grid-scroll")?.clientWidth < parseFloat(grid.style.width || "0");
+  });
+  if (narrowForced) {
+    await page.setViewportSize({ width: 1440, height: viewport.height });
+    await page.waitForTimeout(900);
+  }
+  const simpleToggle = await page.$(".sheet-toolbar button:text-is('Simple View')");
   check(!!simpleToggle, "a finished character offers the Simple View toggle");
   if (simpleToggle) {
     await simpleToggle.click();
@@ -1536,7 +1611,7 @@ async function runViewportTests(viewport) {
     check(restored.stamped > 0, `the restored Simple View re-stamps its sort keys (${restored.stamped})`);
     // And back the other way, so the preference is a preference and not a
     // one-way door.
-    await page.click("button:has-text('Sheet View')");
+    await page.click(".sheet-toolbar button:text-is('Sheet View')");
     await page.waitForTimeout(600);
     await reopen();
     check(!(await page.$(".page-grid.is-simple")), "Sheet View survives a reload too");
@@ -1764,6 +1839,404 @@ const phoneCheck = (cond, msg) => {
     `with no line silently clipped away (${JSON.stringify(grid.visibleLines.filter((l) => !l.shown))})`);
   await phone.screenshot({ path: path.join(shotDir, "vault-phone.png") });
   await phone.close();
+
+// --- Phone portrait: nothing scrolls sideways, and pairs of buttons share the
+//     width evenly -------------------------------------------------------
+//
+// Three complaints, one cause each:
+//
+//  1. The sheet scrolled sideways with nothing off to either side. The grid
+//     is a fixed 16 columns with a floor on cell size, so its box is about
+//     790px and a phone has 344. customSheet.js now stacks the sheet below
+//     that width; this checks the consequence - the PAGE has no horizontal
+//     overflow and no scroller claims one, in Sheet View, Simple View and on
+//     the Leveling tab, and the toggle says why rather than doing nothing.
+//  2. Expand All / Collapse All were sized by their text (115px vs 124px)
+//     and together covered less than half the row.
+//  3. Return to Character Selection / Sign out likewise (153px vs 183px),
+//     and their widths changed again with the length of the display name.
+//
+// Asserted at two phone widths (320 and 390) because these are exactly the
+// kind of rule that happens to pass at one and fail at the other, and
+// because 320 is the width the sheet's own grid floor (MIN_CELL_PX) makes
+// impossible.
+for (const phoneWidth of [320, 390]) {
+  {
+    const sheet = await browser.newPage({ viewport: { width: phoneWidth, height: 844 } });
+    sheet.on("pageerror", (e) => problems.push(`PAGEERROR [sheet@${phoneWidth}]: ${e.message}`));
+    sheet.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [sheet@${phoneWidth}]: ${m.text()}`); });
+    await sheet.goto(`${base}/demo.html`, { waitUntil: "networkidle" });
+    await sheet.waitForTimeout(1600);
+
+    const geom = () => sheet.evaluate(() => {
+      const de = document.documentElement;
+      const wrap = document.querySelector(".page-grid-scroll");
+      // Anything that would give the page a sideways scrollbar, and any
+      // box that scrolls sideways inside itself.
+      const sideways = [...document.querySelectorAll("body *")]
+        .filter((el) => el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0)
+        .map((el) => ({
+          sel: el.tagName.toLowerCase() + (typeof el.className === "string" && el.className.trim() ? "." + el.className.trim().split(/\s+/)[0] : ""),
+          client: el.clientWidth, scroll: el.scrollWidth,
+        }));
+      const toggle = [...document.querySelectorAll(".sheet-toolbar button")]
+        .find((b) => /^(Sheet|Simple) View$/.test(b.textContent.trim()));
+      return {
+        pageScrollsSideways: de.scrollWidth > de.clientWidth + 1,
+        pageWidths: { scroll: de.scrollWidth, client: de.clientWidth },
+        wrapFits: wrap ? wrap.scrollWidth <= wrap.clientWidth + 1 : null,
+        wrapOverflowX: wrap ? getComputedStyle(wrap).overflowX : null,
+        stacked: !!document.querySelector(".page-grid.is-simple"),
+        sideways: sideways.slice(0, 6),
+        toggle: toggle ? { text: toggle.textContent.trim(), disabled: toggle.disabled, title: toggle.title } : null,
+      };
+    });
+
+    const main = await geom();
+    phoneCheck(!main.pageScrollsSideways,
+      `@${phoneWidth} the sheet page does not scroll sideways (${JSON.stringify(main.pageWidths)})`);
+    phoneCheck(main.wrapFits,
+      `@${phoneWidth} the sheet fits its own scroller, so nothing is off to the side`);
+    phoneCheck(main.wrapOverflowX === "hidden",
+      `@${phoneWidth} the sheet's horizontal scroller is switched off while stacked (${main.wrapOverflowX})`);
+    phoneCheck(main.stacked,
+      `@${phoneWidth} the sheet is stacked, because the 16-column grid cannot fit this screen`);
+    phoneCheck(!!main.toggle && main.toggle.disabled,
+      `@${phoneWidth} the Sheet/Simple View toggle is disabled rather than silently doing nothing`);
+    phoneCheck(!!main.toggle && /too narrow|too small|off on a screen/i.test(main.toggle.title),
+      `@${phoneWidth} and it says why (${JSON.stringify((main.toggle?.title || "").slice(0, 60))})`);
+    const clipping = main.sideways.filter((s) => /field-value|featurelist|input|select|textarea/.test(s.sel));
+    phoneCheck(clipping.length === 0,
+      `@${phoneWidth} and no field is cut off at its own edge (${JSON.stringify(clipping)})`);
+    await sheet.screenshot({ path: path.join(shotDir, `sheet-phone-${phoneWidth}.png`) });
+
+    // Widening the window has to bring Sheet View back, or the forced
+    // stacking would be a one-way door.
+    await sheet.setViewportSize({ width: 1440, height: 900 });
+    await sheet.waitForTimeout(1400);
+    const wide = await geom();
+    phoneCheck(!wide.stacked,
+      `@${phoneWidth} widening the window returns the sheet to the positioned grid`);
+    phoneCheck(!!wide.toggle && !wide.toggle.disabled,
+      `@${phoneWidth} and re-enables the view toggle`);
+
+    // Back to phone width, and through the other tabs, so "all viewing
+    // modes" is actually all of them.
+    await sheet.setViewportSize({ width: phoneWidth, height: 844 });
+    await sheet.waitForTimeout(1200);
+    const tabCount = await sheet.evaluate(() => document.querySelectorAll(".sheet-tab").length);
+    for (let t = 0; t < tabCount; t += 1) {
+      await sheet.evaluate((i) => document.querySelectorAll(".sheet-tab")[i]?.click(), t);
+      await sheet.waitForTimeout(900);
+      const g = await geom();
+      phoneCheck(!g.pageScrollsSideways,
+        `@${phoneWidth} tab ${t} does not scroll sideways (${JSON.stringify(g.pageWidths)})`);
+    }
+    await sheet.close();
+  }
+
+  {
+    // The wizard: the two pairs of buttons, on a page that is the same one
+    // at every phone width.
+    const wiz = await browser.newPage({ viewport: { width: phoneWidth, height: 844 } });
+    wiz.on("pageerror", (e) => problems.push(`PAGEERROR [wiz@${phoneWidth}]: ${e.message}`));
+    wiz.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [wiz@${phoneWidth}]: ${m.text()}`); });
+    await wiz.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await wiz.waitForTimeout(1200);
+    await wiz.click("button:has-text('+ New Character')");
+    await wiz.waitForTimeout(2200);
+
+    const auth = await wiz.evaluate(() => {
+      const area = document.getElementById("auth-area");
+      const cs = getComputedStyle(area);
+      const gap = parseFloat(cs.columnGap || cs.gap || "0") || 0;
+      const kids = [...area.children].filter((k) => k.getBoundingClientRect().width > 0);
+      const widths = kids.map((k) => k.getBoundingClientRect().width);
+      const areaWidth = area.getBoundingClientRect().width;
+      return {
+        labels: kids.map((k) => k.textContent.trim()),
+        widths: widths.map((w) => Math.round(w)),
+        areaWidth: Math.round(areaWidth),
+        gap: Math.round(gap),
+        equal: widths.length === 2 && Math.abs(widths[0] - widths[1]) <= 1,
+        // "Together they span the row" has to allow for the one gap
+        // between them - `flex: 1 1 0` divides what is LEFT after the gap,
+        // so asking for the full area would fail on a correct layout.
+        fills: widths.reduce((a, b) => a + b, 0) >= areaWidth - gap - 2,
+      };
+    });
+    phoneCheck(auth.labels.some((l) => /Return to Character/i.test(l)),
+      `@${phoneWidth} the header has the return and sign-out buttons (${JSON.stringify(auth.labels)})`);
+    phoneCheck(auth.equal,
+      `@${phoneWidth} and they are the SAME width (${JSON.stringify(auth.widths)} of ${auth.areaWidth})`);
+    phoneCheck(auth.fills,
+      `@${phoneWidth} spanning the whole row between them (${JSON.stringify(auth.widths)} + gap ${auth.gap} in ${auth.areaWidth})`);
+
+    // Land on the Identity page, which is where every picker - and every
+    // Expand All / Collapse All bar - lives.
+    await wiz.evaluate(() => {
+      const dots = [...document.querySelectorAll(".wizard__dot")];
+      const identity = dots.find((d) => /identity/i.test(d.title + " " + d.getAttribute("aria-label")));
+      (identity || dots[1] || dots[0]).click();
+    });
+    await wiz.waitForTimeout(1400);
+
+    const bars = await wiz.evaluate(() => {
+      const out = [];
+      for (const bar of document.querySelectorAll(".choice-row-list__collapse-controls")) {
+        const kids = [...bar.children];
+        const widths = kids.map((k) => k.getBoundingClientRect().width);
+        const barW = bar.getBoundingClientRect().width;
+        // The PARENT's content box, not the bar's own: the bar sits inside
+        // the page's padding, so "the full width available" is the parent's
+        // content width and not its border box.
+        const pcs = getComputedStyle(bar.parentElement);
+        const inset = ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"]
+          .reduce((sum, k) => sum + parseFloat(pcs[k] || "0"), 0);
+        const contentW = bar.parentElement.getBoundingClientRect().width - inset;
+        out.push({
+          labels: kids.map((k) => k.textContent.trim()),
+          widths: widths.map((w) => Math.round(w)),
+          equal: widths.length === 2 && Math.abs(widths[0] - widths[1]) <= 1,
+          spansParent: Math.abs(barW - contentW) <= 2,
+          barW: Math.round(barW),
+          contentW: Math.round(contentW),
+        });
+      }
+      return out;
+    });
+    phoneCheck(bars.length > 0, `@${phoneWidth} the page offers an Expand All / Collapse All bar (${bars.length})`);
+    for (const bar of bars) {
+      phoneCheck(bar.equal,
+        `@${phoneWidth} Expand All and Collapse All are the same width (${JSON.stringify(bar.widths)})`);
+      phoneCheck(bar.spansParent,
+        `@${phoneWidth} and together span the full width available (${bar.barW} of ${bar.contentW})`);
+    }
+
+    // No wizard page may scroll sideways, whatever is on it.
+    for (let step = 0; step < 7; step += 1) {
+      const o = await wiz.evaluate(() => {
+        const de = document.documentElement;
+        return { scrolls: de.scrollWidth > de.clientWidth + 1, s: de.scrollWidth, c: de.clientWidth };
+      });
+      phoneCheck(!o.scrolls, `@${phoneWidth} wizard step ${step} does not scroll sideways (${o.s}/${o.c})`);
+      const moved = await wiz.evaluate(() => {
+        const next = document.querySelector(".wizard button.wizard__next:not([disabled])");
+        if (next) { next.click(); return true; }
+        const dot = [...document.querySelectorAll(".wizard__dot")].find((d) => !d.classList.contains("active") && !d.disabled);
+        if (dot) { dot.click(); return true; }
+        return false;
+      });
+      await wiz.waitForTimeout(800);
+      if (!moved) break;
+    }
+    await wiz.close();
+  }
+}
+
+// --- Level-gated text in the picker, without a reload ----------------------
+//
+// The Duergar Magic grant names two unlocks at two levels in one piece of
+// prose, so a level 1 character used to be told it casts Enlarge/Reduce from
+// level 3. This drives the real wizard: set the level, read the bullet, raise
+// the level, read it again - in the SAME page, with no reload between. That
+// last part is the point, and it is why this is an e2e check rather than
+// only a unit test.
+{
+  const lg = await browser.newPage({ viewport: { width: 1400, height: 1200 } });
+  lg.on("pageerror", (e) => problems.push(`PAGEERROR [levelgate]: ${e.message}`));
+  lg.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [levelgate]: ${m.text()}`); });
+  await lg.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+  await lg.waitForTimeout(1200);
+  await lg.click("button:has-text('+ New Character')");
+  await lg.waitForTimeout(2000);
+  await lg.evaluate(() => {
+    const dots = [...document.querySelectorAll(".wizard__dot")];
+    const identity = dots.find((d) => /identity/i.test(d.title + " " + d.getAttribute("aria-label")));
+    (identity || dots[1] || dots[0]).click();
+  });
+  await lg.waitForTimeout(1400);
+  // Pick the container race, then its Duergar, so the subrace row is there.
+  await lg.evaluate(() => {
+    const dwarf = [...document.querySelectorAll(".choice-row[data-row-name='Dwarf']")][0];
+    dwarf?.click();
+  });
+  await lg.waitForTimeout(1200);
+  await lg.evaluate(() => {
+    const duergar = [...document.querySelectorAll(".choice-row--nested[data-row-name='Duergar']")][0];
+    duergar?.click();
+  });
+  await lg.waitForTimeout(1400);
+
+  const readMagic = () => lg.evaluate(() => {
+    const row = document.querySelector(".choice-row--nested[data-row-name='Duergar']");
+    if (!row) return null;
+    const details = row.querySelector(".choice-row__details");
+    const text = (details || row).textContent.replace(/\s+/g, " ");
+    const hit = /Duergar Magic\s*[:—-]\s*([^]*?)(?=Sunlight Sensitivity|$)/.exec(text);
+    return { whole: text, magic: hit ? hit[1].trim() : "" };
+  });
+  const setLevel = async (value) => {
+    await lg.evaluate((v) => {
+      const input = document.querySelector(".wizard input[type='number']");
+      if (!input) return;
+      input.value = String(v);
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }, value);
+    await lg.waitForTimeout(1300);
+  };
+
+  await setLevel(1);
+  const atOne = await readMagic();
+  phoneCheck(!!atOne, `the Duergar row is on screen (${JSON.stringify(atOne?.whole?.slice(0, 60))})`);
+  phoneCheck(!/Duergar Magic/.test(atOne?.whole || ""),
+    "a level 1 Duergar is told about no Duergar Magic at all");
+  phoneCheck(!/Enlarge/.test(atOne?.whole || "") && !/Invisibility/.test(atOne?.whole || ""),
+    "and specifically not about the level 3 or level 5 unlocks");
+
+  await setLevel(3);
+  const atThree = await readMagic();
+  phoneCheck(/Duergar Magic/.test(atThree?.whole || ""),
+    "raising the level to 3 pops the trait in, with no reload");
+  phoneCheck(/Enlarge\/Reduce/.test(atThree?.whole || ""),
+    "and at 3 it names the level 3 spell");
+  phoneCheck(!/Invisibility/.test(atThree?.whole || ""),
+    "while the level 5 spell is still hidden");
+
+  await setLevel(4);
+  const atFour = await readMagic();
+  phoneCheck(/Enlarge\/Reduce/.test(atFour?.whole || "") && !/Invisibility/.test(atFour?.whole || ""),
+    "at 4 it is unchanged, because the second unlock is a level 5 one");
+
+  await setLevel(5);
+  const atFive = await readMagic();
+  phoneCheck(/Enlarge\/Reduce/.test(atFive?.whole || "") && /Invisibility/.test(atFive?.whole || ""),
+    "at 5 the second unlock appears");
+
+  // Back down again, because a level can be lowered and a gate that only
+  // ever adds is not a gate.
+  await setLevel(1);
+  const backToOne = await readMagic();
+  phoneCheck(!/Duergar Magic/.test(backToOne?.whole || ""),
+    "and lowering the level again takes it away");
+
+  // The spell's real name is what the link has to resolve against.
+  phoneCheck(/Enlarge\/Reduce/.test(atFive?.whole || "") && !/Enlarge Reduce/.test(atFive?.whole || ""),
+    `the spell is named Enlarge/Reduce (${JSON.stringify((atFive?.magic || "").slice(0, 60))})`);
+  await lg.close();
+}
+
+// --- A click inside a row selects that row ---------------------------------
+
+//
+// Two different controls, two different answers, and the difference is not a
+// detail. Selecting a row re-renders the page, which replaces every node in
+// it:
+//
+//   - A PICKER LINK opens a dialog that lives outside the row, so selecting on
+//     click is free: the link's own handler is already on the event path and
+//     still runs after the re-render. Clicking it selects the row AND opens
+//     the dialog.
+//   - A NATIVE <select> cannot be re-rendered mid-click. Its popup opens on
+//     the element, and a detached element has no popup - so clicking one
+//     selects nothing, and the row must not collapse either. It selects the
+//     row on `change` instead, the moment a value is actually committed.
+//
+// The regression this guards is subtle: a bubble-phase listener would see
+// NEITHER control, because both stop propagation in their own handlers, and
+// the check would pass on a row that simply never got selected.
+{
+  const cr = await browser.newPage({ viewport: { width: 1400, height: 1200 } });
+  cr.on("pageerror", (e) => problems.push(`PAGEERROR [rowclick]: ${e.message}`));
+  await cr.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+  await cr.waitForTimeout(1200);
+  await cr.click("button:has-text('+ New Character')");
+  await cr.waitForTimeout(2000);
+  for (let hop = 0; hop < 14; hop++) {
+    if (await cr.evaluate(() => !!document.querySelector('.choice-row[data-row-name="Genasi"]'))) break;
+    const moved = await cr.evaluate(() => {
+      const n = document.querySelector(".wizard button.wizard__next:not([disabled])");
+      if (n) { n.click(); return true; }
+      const d = [...document.querySelectorAll(".wizard__dot:not([disabled])")]
+        .find((x) => !x.classList.contains("active"));
+      if (d) { d.click(); return true; }
+      return false;
+    });
+    if (!moved) break;
+    await cr.waitForTimeout(500);
+  }
+  const expandAll = await cr.$(".choice-row-list__collapse-controls button:text-matches('Expand All')");
+  phoneCheck(!!expandAll, "the row-click checks start from an expanded list");
+  if (expandAll) {
+    await expandAll.click();
+    await cr.waitForTimeout(900);
+    const rowSelected = (name) => cr.evaluate(
+      (n) => !!document.querySelector(`.choice-row[data-row-name="${n}"].choice-row--selected`), name);
+
+    // --- a picker link in an UNSELECTED row ---
+    const linked = await cr.evaluate(() => {
+      const row = [...document.querySelectorAll(".choice-row[data-row-name]")]
+        .find((r) => !r.classList.contains("choice-row--selected")
+          && r.querySelector(".choice-row__details .inline-pick-link"));
+      if (!row) return null;
+      const name = row.dataset.rowName;
+      row.querySelector(".choice-row__details .inline-pick-link").click();
+      return name;
+    });
+    phoneCheck(!!linked, `an unselected row offers a picker link to click (${linked})`);
+    if (linked) {
+      await cr.waitForTimeout(1000);
+      phoneCheck(await rowSelected(linked),
+        `clicking that link selects the row it sits in ("${linked}")`);
+      phoneCheck(await cr.evaluate(() => !!document.querySelector(".choice-dialog")),
+        "and the picker still opens");
+      await cr.keyboard.press("Escape");
+      await cr.waitForTimeout(600);
+    }
+
+    // --- a native <select> in an UNSELECTED row ---
+    // The dropdown is the one control that must NOT be re-rendered on click,
+    // so this asserts both halves: the click leaves it usable, and committing
+    // a value is what selects the row.
+    const picked = await cr.evaluate(() => {
+      const row = [...document.querySelectorAll(".choice-row[data-row-name]")]
+        .find((r) => !r.classList.contains("choice-row--selected")
+          && r.querySelector(".choice-row__details select"));
+      if (!row) return null;
+      const name = row.dataset.rowName;
+      const sel = row.querySelector(".choice-row__details select");
+      sel.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      return { name, options: sel.options.length };
+    });
+    phoneCheck(!!picked, `an unselected row offers a dropdown to click (${JSON.stringify(picked)})`);
+    if (picked) {
+      await cr.waitForTimeout(700);
+      phoneCheck(!(await rowSelected(picked.name)),
+        "clicking that dropdown selects nothing on its own");
+      const stillUsable = await cr.evaluate((n) => {
+        const row = document.querySelector(`.choice-row[data-row-name="${n}"]`);
+        const sel = row?.querySelector(".choice-row__details select");
+        return { inDom: !!sel, connected: sel?.isConnected ?? false, options: sel?.options.length ?? 0 };
+      }, picked.name);
+      phoneCheck(stillUsable.inDom && stillUsable.connected && stillUsable.options === picked.options,
+        `and leaves the dropdown in the document, openable (${JSON.stringify(stillUsable)})`);
+
+      // Committing is the gesture that selects the row.
+      await cr.evaluate((n) => {
+        const sel = document.querySelector(`.choice-row[data-row-name="${n}"] .choice-row__details select`);
+        if (!sel || sel.options.length < 2) return;
+        sel.value = sel.options[1].value;
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      }, picked.name);
+      await cr.waitForTimeout(1200);
+      phoneCheck(await rowSelected(picked.name),
+        `committing a value in it selects the row ("${picked.name}")`);
+    }
+  }
+  await cr.close();
+}
+
+
 // --- Spell picker row shape -------------------------------------------------
 //
 // A box on the left, then the name, then the basic facts on their OWN row, a

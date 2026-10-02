@@ -57,6 +57,38 @@ export function applySimpleViewOrder(container, on, cols = PAGE_COLS) {
   }
 }
 
+/** Whether the window is too narrow for the positioned grid, so the
+ *  sheet has to be stacked instead.
+ *
+ *  The grid is a fixed 16 columns with a floor on how small a cell may get
+ *  (MIN_CELL_PX), so it has a hard minimum width - about 790px - and no
+ *  amount of shrinking will bring it under a phone's 390. Below that
+ *  width the sheet either scrolls sideways for a canvas that is mostly
+ *  empty space to the right of a real character, or it crushes cells into
+ *  nothing. Neither is a usable sheet, so the stacked display is not a
+ *  preference on a screen that small: it is the only readable one.
+ *
+ *  `gridWidth` is the grid's own measured width (never a hard-coded
+ *  number), so this stays correct if the column count or the cell floor
+ *  ever change. A missing measurement means "not too narrow" - guessing
+ *  narrow on a screen that has not been measured yet would stack the
+ *  sheet on every load and flicker back. */
+export function narrowScreenNeedsStackedView({ gridWidth, availableWidth } = {}) {
+  // parseFloat, not Number: a width read straight off `style.width` is
+  // "792px", and Number() makes that NaN - which would read as "no
+  // measurement yet" and silently leave the phone with a sideways
+  // scrollbar, i.e. the exact failure this exists to prevent.
+  const px = (value) => {
+    const n = typeof value === "string" ? parseFloat(value) : Number(value);
+    return Number.isFinite(n) ? n : NaN;
+  };
+  const grid = px(gridWidth);
+  const avail = px(availableWidth);
+  if (!Number.isFinite(grid) || !Number.isFinite(avail)) return false;
+  if (avail <= 0) return false;
+  return grid > avail + 1;
+}
+
 /** Whether to show the one-time orientation panel.
  *
  *  Shown once per character and remembered on the character, not in local

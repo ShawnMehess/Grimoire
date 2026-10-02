@@ -18,6 +18,7 @@ import {
   sectionGroupsSatisfied,
   sectionsComplete,
   incompleteSectionNames,
+  racePickSatisfied,
   isChoiceSectionCollapsed,
   setChoiceSectionCollapsed,
   abilityScoreBonusesFrom,
@@ -524,6 +525,71 @@ describe("HP method preference rows", () => {
 
   it("still describes each method", () => {
     assert.ok(HP_METHOD_OPTIONS.every((o) => o.value && o.label && o.description));
+  });
+});
+
+describe("racePickSatisfied", () => {
+  const container = (key, opts = {}) => ({
+    key,
+    subrace: true,
+    minSelections: 1,
+    maxSelections: 1,
+    options: [{ id: "a", name: "A" }, { id: "b", name: "B" }],
+    ...opts,
+  });
+
+  it("does not count a container race as a species on its own", () => {
+    // The reported case. Elf/Dwarf/Gnome/Halfling/Genasi own a subrace
+    // picker and grant nothing themselves, so clicking one has opened a
+    // list, not chosen from it.
+    assert.equal(racePickSatisfied({ raceName: "Elf", subraceGroup: container("k"), choices: {} }), false);
+    assert.equal(racePickSatisfied({ raceName: "Elf", subraceGroup: container("k"), choices: { k: ["b"] } }), true);
+  });
+
+  it("treats an ordinary race as settled the moment it is named", () => {
+    assert.equal(racePickSatisfied({ raceName: "Human", subraceGroup: null, choices: {} }), true);
+  });
+
+  it("has no answer without a race at all", () => {
+    assert.equal(racePickSatisfied({ raceName: "", subraceGroup: null, choices: {} }), false);
+    assert.equal(racePickSatisfied({}), false);
+  });
+
+  it("does not deadlock on a container with nothing in it", () => {
+    // An empty container is not a container. Blocking here would be a page
+    // that can never be finished, which is worse than an ordinary race.
+    const empty = { key: "k", subrace: true, minSelections: 1, options: [] };
+    assert.equal(racePickSatisfied({ raceName: "Odd", subraceGroup: empty, choices: {} }), true);
+    const emptyCategories = { key: "k", subrace: true, minSelections: 1, categories: [] };
+    assert.equal(racePickSatisfied({ raceName: "Odd", subraceGroup: emptyCategories, choices: {} }), true);
+  });
+
+  it("reads a cross-category container the same as a flat one", () => {
+    // The shape that used to render no subrace rows at all: the picker
+    // offered nothing to click, so the race could never be completed.
+    const grouped = {
+      key: "k", subrace: true, minSelections: 1, maxSelections: 1,
+      categories: [{ label: "Day", options: [{ id: "d1", name: "Drow" }] }],
+    };
+    assert.equal(racePickSatisfied({ raceName: "Elf", subraceGroup: grouped, choices: {} }), false);
+    assert.equal(racePickSatisfied({ raceName: "Elf", subraceGroup: grouped, choices: { k: ["d1"] } }), true);
+  });
+
+  it("agrees with the shipped parent races", () => {
+    // Read from the real bundles rather than a written-out example, so a
+    // race that gains or loses its subrace picker moves this test with it.
+    const parents = FIXED_RACE_ENTRIES.filter((e) =>
+      (e.bundle.choiceGroups || []).some((g) => g.subrace === true));
+    assert.ok(parents.length >= 5, `there are container races to check (${parents.map((p) => p.name).join(", ")})`);
+    for (const parent of parents) {
+      const group = parent.bundle.choiceGroups.find((g) => g.subrace === true);
+      assert.equal(racePickSatisfied({ raceName: parent.name, subraceGroup: group, choices: {} }),
+        false, `${parent.name} is not a species until a subrace is picked`);
+      const first = (group.options || [])[0];
+      assert.equal(racePickSatisfied({
+        raceName: parent.name, subraceGroup: group, choices: { [group.key]: [first.id] },
+      }), true, `${parent.name} is finished once ${first.name} is picked`);
+    }
   });
 });
 
