@@ -12,40 +12,16 @@ export function tabIndex(tabs = [], id) {
   return tabs.findIndex((t) => t.id === id);
 }
 
-export function isGlobalTabKind(tab) {
-  return tab?.kind === "global";
-}
-
 export function layoutForTab(tab, fallbackLayout = []) {
   if (!tab) return fallbackLayout;
   return Array.isArray(tab.layout) ? tab.layout : fallbackLayout;
 }
 
-export function ensureMainTabShape(tabs, layout, newIdFn) {
-  if (!Array.isArray(tabs) || tabs.length === 0) {
-    return [{
-      id: newIdFn(),
-      name: "Main",
-      kind: "main",
-      layout: Array.isArray(layout) ? layout : [],
-    }];
-  }
-  return tabs;
-}
-
-export function needsRulesTab(tabs, setupComplete) {
-  if (setupComplete) return false;
-  return !tabs.some((tab) => tab.kind === "rules");
-}
-
-export function shouldRemoveRulesTab(tabs, setupComplete) {
-  if (!setupComplete) return false;
-  return tabs.some((tab) => tab.kind === "rules");
-}
-
 export function needsLevelingTab(tabs) {
   return !tabs.some((tab) => tab.kind === "leveling");
-}export function flattenFieldsAcrossTabs(tabs = []) {
+}
+
+export function flattenFieldsAcrossTabs(tabs = []) {
   const fields = [];
   tabs.forEach((tab) => {
     (tab.layout || []).forEach((block) => {

@@ -47,12 +47,6 @@ export function a11yEnabled(raw, id) {
   return raw?.[id] === true;
 }
 
-/** Every option that is currently on, as `["cb", "dyslexia"]`.
- *  Used to set the root attributes and to render the toggles' states. Pure. */
-export function activeA11yOptions(raw) {
-  return A11Y_OPTIONS.filter((opt) => a11yEnabled(raw, opt.id)).map((opt) => opt.id);
-}
-
 /** Set the root data attributes for the active options.
  *
  *  Every attribute is written on every call, including the "off" ones, and

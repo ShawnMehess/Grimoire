@@ -1,36 +1,19 @@
 // sheetState.js
 //
-// Mutable sheet-session state factory + pure selection-set helpers.
+// Pure selection-set helpers (no DOM).
 //
-// customSheet.js currently keeps all of this as closure `let`s inside
-// renderCustomSheet (selectedIds, undoStack, editMode, ...). New
-// sub-modules should take an explicit `ctx` created here instead of
-// closing over the renderer, so the big closure can shrink slice by
-// slice without behavior changes.
-
-export function createSheetState() {
-  return {
-    editMode: false,
-    selectedIds: new Set(),
-    undoStack: [],
-    redoStack: [],
-    collapsedBlockIds: new Set(),
-    expandedLevelUpRows: new Set(),
-    creationWizardState: { index: 0 },
-    levelingWizardState: { index: 0 },
-    levelingPendingState: {},
-    formulaValues: {},
-    radioOptionCounts: {},
-    spellSlotCounts: {},
-    grantedCheckboxes: new Set(),
-    grantedTags: new Map(),
-    grantedFeatures: [],
-    sidebarCollapsed: false,
-    unsavedChanges: false,
-    lastSelectionSignature: "",
-    groupBorderVisible: false,
-  };
-}
+// A `createSheetState()` factory used to live here too, listing every
+// mutable `let` inside renderCustomSheet's closure - the plan being that new
+// sub-modules would take an explicit ctx built from it, so the big closure
+// could shrink slice by slice. It was never adopted: nothing imported it, and
+// the only reference in the repo was an assertion in smoke-imports.mjs that
+// it existed. The closure `let`s it mirrored are still there.
+//
+// It is removed rather than kept as a promise, because a dead factory pinned
+// by a test advertises an API nothing uses, and the parallel it drew (one
+// place listing the closure's state) was already out of date. If the
+// dependency-injection shape is ever revisited, this is where its home would
+// be - but it should be written against the closure as it actually is then.
 
 // --- Pure selection-set helpers (no DOM) -------------------------------
 

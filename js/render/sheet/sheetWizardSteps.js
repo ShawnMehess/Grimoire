@@ -57,12 +57,6 @@ export function wizardUnavailableMessageFor(state) {
   return `As a level ${state.level} ${state.species || "character"} ${state.className || "character"}${state.subclass ? ` (${state.subclass})` : ""}, this page is not applicable.`;
 }
 
-export function bucketGroupsByCategory(groups, categories, categorizeFn) {
-  const byCategory = Object.fromEntries(categories.map((cat) => [cat.key, []]));
-  groups.forEach((group) => byCategory[categorizeFn(group)].push(group));
-  return byCategory;
-}
-
 /** Which ruleset counts as selected: the persisted one when it still
  *  exists, else the first registered system (display fallback — the
  *  caller persists an explicit pick separately). Single-select by

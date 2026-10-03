@@ -24,7 +24,6 @@ import {
   cloneWithNewIds,
 } from "../js/render/sheet/sheetDrag.js";
 import {
-  createSheetState,
   selectOnlySet,
   toggleInSet,
   selectionSignature,
@@ -105,7 +104,6 @@ assert(cloneWithNewIds({ id: "a", children: [{ id: "b" }] }, () => "n").id === "
 assert(selectOnlySet("a").has("a"), "selectOnlySet");
 assert(toggleInSet(new Set(["a"]), "b").has("b"), "toggleInSet add");
 assert(selectionSignature(new Set(["b", "a"])) === "a,b", "selectionSignature sorts");
-assert(createSheetState().selectedIds instanceof Set, "createSheetState");
 
 const toolbarMod = await import("../js/render/sheet/sheetToolbar.js");
 assert(typeof toolbarMod.buildChip === "function", "buildChip export");

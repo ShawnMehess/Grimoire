@@ -127,21 +127,3 @@ export function showToastIn(root, message, { isError = false } = {}) {
     setTimeout(() => toast.remove(), 200);
   }, 5000);
 }
-
-export function createSaveController({ statusEl, store, characterId, onSaved, onFailed }) {
-  return function saveWithStatus(fieldId, value) {
-    statusEl.textContent = "Saving…";
-    statusEl.style.color = "";
-    store.saveCharacterField(characterId, fieldId, value)
-      .then(() => {
-        statusEl.textContent = "Saved";
-        if (onSaved) onSaved();
-      })
-      .catch((err) => {
-        console.error(`Failed to save "${fieldId}":`, err);
-        statusEl.textContent = "⚠ Save failed — see console";
-        statusEl.style.color = "var(--color-negative)";
-        if (onFailed) onFailed(err);
-      });
-  };
-}

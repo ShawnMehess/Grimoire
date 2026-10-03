@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { A11Y_OPTIONS, a11yEnabled, activeA11yOptions, applyA11yMode } from "../js/ui/accessibility.js";
+import { A11Y_OPTIONS, a11yEnabled, applyA11yMode } from "../js/ui/accessibility.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -101,15 +101,6 @@ describe("a11yEnabled", () => {
     const prefs = { cb: true };
     assert.equal(a11yEnabled(prefs, "cb"), true);
     assert.equal(a11yEnabled(prefs, "dyslexia"), false);
-  });
-});
-
-describe("activeA11yOptions", () => {
-  it("lists only what is on, in declaration order", () => {
-    assert.deepEqual(activeA11yOptions({ dyslexia: true, cb: true }), ["cb", "dyslexia"]);
-    assert.deepEqual(activeA11yOptions({ cb: true }), ["cb"]);
-    assert.deepEqual(activeA11yOptions({}), []);
-    assert.deepEqual(activeA11yOptions(undefined), []);
   });
 });
 

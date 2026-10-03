@@ -92,18 +92,6 @@ export function shouldGrowForLabel(fieldW, maxW, scrollW, clientW) {
   return scrollW > clientW + 1;
 }
 
-export function blockReferenceFor(source, newId) {  return {
-    id: newId,
-    kind: "block",
-    sourceBlockId: source.id,
-    x: 0,
-    y: 0,
-    w: source.w,
-    h: source.h,
-    styleOverrides: {},
-  };
-}
-
 // --- Grid-lines background -------------------------------------------------
 //
 // Full migration of applyGridLines from customSheet.js. `isEdit` gates

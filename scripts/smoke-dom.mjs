@@ -317,7 +317,7 @@ const wizard = await import("../js/render/sheet/sheetWizard.js");
   wizard.renderSelectableRowsInto(box, ["A"], { selectedName: "", onSelect: () => {}, collapsible: false });
   assert(rowsOf(box.children[0]).length === 1, "single delegate renders");
   const box2 = document.createElement("div");
-  wizard.renderMultiSelectableRowsInto(box2, ["A"], { selectedSet: new Set(), onToggle: () => {} });
+  wizard.renderPickerTableInto(box2, ["A"], { mode: "multi", selectedSet: new Set(), onToggle: () => {} });
   assert(rowsOf(box2.children[0]).length === 1, "multi delegate renders");
 }
 

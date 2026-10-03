@@ -23,16 +23,6 @@ export function isResizableField(fieldType, resizableTypes) {
   return resizableTypes.has(fieldType);
 }
 
-export function fieldContentBounds(parentBlock, headerRows) {
-  return {
-    contentRows: parentBlock.h - headerRows,
-    maxXFor: (field) => parentBlock.w - field.w,
-    maxYFor: (field, contentRows) => contentRows - field.h,
-    maxWFor: (field) => parentBlock.w - field.x,
-    maxHFor: (field, contentRows) => contentRows - field.y,
-  };
-}
-
 export function renderFieldNodeInto(field, parentBlock, cw, parentStyle = {}, deps) {  const {
     isEdit,
     resizableTypes,
@@ -201,10 +191,6 @@ export function removeTag(items, tag) {
 export function dropdownVisibleChoices(choices = [], allowedSet) {
   if (!allowedSet) return choices.slice();
   return choices.filter((choice) => allowedSet.has(choice.id));
-}
-
-export function isCheckboxGranted(grantedSet, fieldId, index) {
-  return grantedSet.has(`${fieldId}::${index}`);
 }
 
 // --- Label + ghost + field-inner DOM ------------------------------------------

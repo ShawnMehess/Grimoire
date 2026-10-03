@@ -15,15 +15,6 @@ export function isStepApplicable(step) {
   return !step.isApplicable || step.isApplicable();
 }
 
-export function nextApplicableStep(steps, fromIndex, dir = 1) {
-  let i = fromIndex + dir;
-  while (i >= 0 && i < steps.length) {
-    if (isStepApplicable(steps[i])) return i;
-    i += dir;
-  }
-  return fromIndex;
-}
-
 /** Whether a choice group or option may show for the given content
  *  packs. Items without `requiresPack` always show; gated items show
  *  only when their named pack (e.g. "tashas" for Tasha's optional
@@ -2990,12 +2981,6 @@ export function renderLiveBulletItem(item) {
     li.append(select);
   });
   return li;
-}
-
-/** Multi-select table — legacy name, delegates to the generic
- *  picker table. Prefer renderPickerTableInto for new callers. */
-export function renderMultiSelectableRowsInto(container, names, opts = {}) {
-  return renderPickerTableInto(container, names, { ...opts, mode: "multi" });
 }
 
 function animateRowDetails(details, row, expand) {

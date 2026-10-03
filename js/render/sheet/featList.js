@@ -344,18 +344,6 @@ export function featPickableLabel(takenFeats = [], remaining = Infinity) {
   return `${left} feat pick${left === 1 ? "" : "s"} left (${taken}/${limit} used)`;
 }
 
-/** How many picks the character has left, per the leveling rules.
- *
- *  The gate is one feat per ASI actually spent: every level where the
- *  character took "+2/+1" instead bought a pick. Returns Infinity for a
- *  character with an uncapped source of feats (Custom Lineage's one-off
- *  feat), where a number would be misleading. */
-export function featPicksRemainingIn(pending, classLevels = []) {
-  const asiLevelsSpent = Math.max(0, ...[].concat(classLevels).map((entry) => Number(entry?.asiTaken) || 0), 0);
-  if (asiLevelsSpent === 0 && !(pending?.asiMode === "feat")) return 0;
-  return Math.max(0, asiLevelsSpent - ((pending?.featsTakenAtAsi) || 0));
-}
-
 // --- DOM -----------------------------------------------------------------
 
 /**

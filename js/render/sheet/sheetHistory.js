@@ -40,14 +40,6 @@ export function pushBounded(stack, entry, max = MAX_UNDO_STEPS) {
 
 export const ARROW_DELTAS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
 
-export function canUndo(stack) {
-  return stack.length > 0;
-}
-
-export function canRedo(stack) {
-  return stack.length > 0;
-}
-
 export function applyHistoryButtons(undoBtn, redoBtn, undoLen, redoLen) {
   undoBtn.disabled = undoLen === 0;
   redoBtn.disabled = redoLen === 0;
