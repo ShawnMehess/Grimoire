@@ -142,6 +142,73 @@ export function levelingRecordState(sheetLevel, { levelUps = {}, createdAtLevel 
   };
 }
 
+/** The revert dialog's body: what it takes back, and - only when there is
+ *  any - what has been edited by hand since and would be lost. Built as
+ *  real nodes rather than a string so the list can be a list, and so the
+ *  conflicts read as a separate, more serious block from the summary.
+ *
+ *  Pure apart from the `document` it needs; no app state. */
+export function buildRevertDialogBody(lines = [], conflicts = [], doc = document) {
+  const wrap = doc.createElement("div");
+  wrap.className = "app-dialog__revert";
+  if (lines.length) {
+    const list = doc.createElement("ul");
+    list.className = "app-dialog__revert-list";
+    for (const line of lines) {
+      const li = doc.createElement("li");
+      li.textContent = line;
+      list.append(li);
+    }
+    wrap.append(list);
+  }
+  if (conflicts.length) {
+    const warn = doc.createElement("p");
+    warn.className = "app-dialog__revert-warning";
+    // role="alert" so the warning is announced as the dialog opens,
+    // rather than being something a screen-reader user only finds by
+    // going looking for it.
+    warn.setAttribute("role", "alert");
+    warn.textContent = "Since this level was applied, you have changed some of these by hand. Reverting puts the old values back, and those changes will be lost:";
+    const list = doc.createElement("ul");
+    list.className = "app-dialog__revert-list";
+    for (const line of conflicts) {
+      const li = doc.createElement("li");
+      li.textContent = line;
+      list.append(li);
+    }
+    wrap.append(warn, list);
+  }
+  return wrap;
+}
+
+/** The revert control for the Leveling tab: a button for the highest
+ *  recorded level, or - for a character whose highest recorded level has
+ *  no record - a plain note saying why it can't be done. Never a disabled
+ *  button with a tooltip: nothing here is hoverable on a phone.
+ *
+ *  Returns null when there is nothing to say and nothing to offer, so the
+ *  tab isn't carrying dead chrome. */
+export function buildRevertControl({ level, canRevert, onRevert, doc = document }) {
+  if (level == null) return null;
+  const wrap = doc.createElement("div");
+  wrap.className = "leveling-revert";
+  if (!canRevert) {
+    const note = doc.createElement("p");
+    note.className = "leveling-revert__note";
+    note.textContent = "Can't revert automatically; this level was recorded before reverting existed.";
+    wrap.append(note);
+    return wrap;
+  }
+  const btn = doc.createElement("button");
+  btn.type = "button";
+  btn.className = "btn btn--danger leveling-revert__btn";
+  btn.textContent = `Revert Level ${level}`;
+  btn.title = `Put back everything level ${level} changed`;
+  btn.addEventListener("click", () => onRevert(level));
+  wrap.append(btn);
+  return wrap;
+}
+
 /** The toolbar's "Level Up" control, built from a `levelUpTarget`
  *  result. One node holding the button plus a caption that carries the
 
@@ -1052,7 +1119,7 @@ export function renderLevelingSubTabsInto(deps) {
 }
 
 export function renderLevelingTabInto(pageGrid, deps) {
-  const { guideEl, resourcesEl, currentLevel, expandedSet, gridFn, rowFn, scrollFn, emptyGuideNote = null, glanceEl = null, gapBanner = null } = deps;
+  const { guideEl, resourcesEl, currentLevel, expandedSet, gridFn, rowFn, scrollFn, emptyGuideNote = null, glanceEl = null, gapBanner = null, revertEl = null } = deps;
   const wrap = document.createElement("div");
   wrap.className = "leveling-tab";
 
@@ -1105,6 +1172,10 @@ export function renderLevelingTabInto(pageGrid, deps) {
     });
     walkthrough.append(jumpBtn);
   }
+
+  // Reverting belongs to the walkthrough, not the glance: it acts on the
+  // recorded walkthrough of a level, which is the thing this panel is.
+  if (revertEl) walkthrough.append(revertEl);
 
   for (let level = 1; level <= LEVEL_CAP; level++) {
     walkthrough.append(rowFn(level, level === currentLevel));

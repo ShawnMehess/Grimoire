@@ -206,6 +206,8 @@ normalizeChoiceGroup,
   renderLevelingTabInto,
   renderLevelingGlanceInto,
   buildLevelUpControl,
+  buildRevertDialogBody,
+  buildRevertControl,
   levelUpTarget,
   levelingRecordState,
   rawLevelFrom,
@@ -371,6 +373,11 @@ import {
   checkLevelPrereqs,
   applyAsiToScores,
   buildLevelUpEntry,
+  buildRevertRecord,
+  revertRecordFor,
+  highestRevertableLevel,
+  revertUndoLines,
+  revertConflictLines,
   ABILITY_DESCRIPTIONS as SHARED_ABILITY_DESCRIPTIONS,
   HP_METHOD_OPTIONS as SHARED_HP_METHOD_OPTIONS,
   POINT_BUY_MIN as SHARED_POINT_BUY_MIN,
@@ -7400,6 +7407,31 @@ const closeDialog = () => {
           }
 
           const before = clone({ layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps, rules: character.rules });
+          // Everything a revert would need to put back, captured BEFORE
+          // anything below changes it. Values, not deltas - see
+          // buildRevertRecord for why.
+          const hpMaxField = findStarterField(null, "HP Max");
+          const hpCurrentField = findStarterField(null, "HP Current");
+          const featuresField = findStarterField(null, "Features & Traits");
+          const revertHpBefore = {
+            max: hpMaxField ? numericFieldValue(hpMaxField) : null,
+            current: hpCurrentField ? numericFieldValue(hpCurrentField) : null,
+          };
+          const revertChoicesBefore = Object.fromEntries(
+            contentGroups.map((group) => [group.key, [...(character.rules.choices?.[group.key] || [])]])
+          );
+          const revertSlotsBefore = slotChanges.map((change) => {
+            const field = findStarterField(change.fieldId, change.label);
+            return { fieldId: change.fieldId, options: field ? field.options : null };
+          });
+          const revertMulticlassBefore = (character.rules.multiclass || []).map((e) => ({ ...e }));
+          const revertSubclassBefore = subclassField ? (subclassField.selected ?? null) : null;
+          const asiIds = needsAsi && pending.asiMode !== "feat"
+            ? (pending.asiMode === "single" ? [pending.asiAbility1] : [pending.asiAbility1, pending.asiAbility2]).filter(Boolean)
+            : [];
+          const revertAbilityBefore = Object.fromEntries(
+            asiIds.map((id) => [id, Number(character.rules.abilityScores?.[id] ?? 10)])
+          );
           // Record the multiclass take before anything level-gated runs
           // below (syncGrantedListItems resolves per-class levels live).
           if (isSecondary && levelClass) {
@@ -7413,9 +7445,9 @@ const closeDialog = () => {
             }
             character.rules.multiclass = mc;
           }
-          const hpMax = findStarterField(null, "HP Max");
-          const hpCurrent = findStarterField(null, "HP Current");
-          const features = findStarterField(null, "Features & Traits");
+          const hpMax = hpMaxField;
+          const hpCurrent = hpCurrentField;
+          const features = featuresField;
           const notes = (pending.notes || "").trim();
           const featureEntry = notes ? `${levelClass} level ${newClassLevel}: ${notes}` : `${levelClass} level ${newClassLevel}`;
           character.rules.hitDieSize = hitDieFor(levelClass);
@@ -7455,6 +7487,29 @@ const closeDialog = () => {
             asiSummary = `Took the ${pending.featChoice} feat instead of an ASI`;
           }
           appendUniqueTextListItem(features, featureEntry);
+          const revertRecord = buildRevertRecord({
+            level,
+            hpGain,
+            hpBefore: revertHpBefore,
+            // before/after per score, so a later hand edit reads as
+            // "neither" rather than as an ordinary re-rolled total.
+            abilities: Object.fromEntries(
+              asiIds.map((id) => [id, {
+                before: revertAbilityBefore[id],
+                after: Number(character.rules.abilityScores?.[id] ?? 10),
+              }])
+            ),
+            featAdded: needsAsi && pending.asiMode === "feat" ? pending.featChoice : null,
+            subclass: subclassField && !isSecondary
+              ? { fieldId: subclassField.id, before: revertSubclassBefore, after: subclassField.selected ?? null }
+              : null,
+            choicesBefore: revertChoicesBefore,
+            slotsBefore: revertSlotsBefore,
+            featureEntry,
+            multiclassBefore: revertMulticlassBefore,
+            className: levelClass,
+            subclassName: selectedSubclassName,
+          });
           character.levelUps[String(level)] = buildLevelUpEntry({
             level,
             hpGain,
@@ -7466,6 +7521,10 @@ const closeDialog = () => {
             appliedRulesetId: plan?.ruleset?.id || "content",
             prev: character.levelUps[String(level)] || {},
           });
+          // On the same entry as the level-up summary, so a character that
+          // re-applies the same level keeps one record rather than growing
+          // an unreachable second one.
+          character.levelUps[String(level)].revert = revertRecord;
           // New subclass/feat picks at this level can carry addItem
           // grants (circle spells, feat spells, …) — gated on the
           // level being applied, not the (still previous) sheet level.
@@ -7535,6 +7594,151 @@ const closeDialog = () => {
       guide.append(buildCancelLevelUpButton(level));
     }
     return guide;
+  }
+
+  /** The Revert control for the tab, or null when there is nothing to
+   *  offer and nothing to explain.
+   *
+   *  Shown for the HIGHEST recorded level only. Two cases produce no
+   *  button: a character with no recorded levels (nothing happened, so
+   *  there is no level to undo and no gap to explain), and a character
+   *  whose highest recorded level predates reverting — that one gets the
+   *  note in place of the button, because a button that cannot work is
+   *  worse than a sentence saying why not. */
+  function renderRevertControl() {
+    const highest = highestRevertableLevel(character.levelUps);
+    // The highest level with ANY entry, record or not — a legacy character
+    // needs the note, which is about their highest recorded level.
+    const highestAny = (() => {
+      const levels = Object.keys(character.levelUps || {})
+        .map(Number)
+        .filter((n) => Number.isFinite(n) && n >= 1);
+      return levels.length ? Math.max(...levels) : null;
+    })();
+    if (highest == null && highestAny == null) return null;
+    const level = highest ?? highestAny;
+    return buildRevertControl({
+      level,
+      canRevert: highest != null,
+      onRevert: (lvl) => revertLevel(lvl),
+    });
+  }
+
+  /** "Revert Level N", offered for the highest recorded level only.
+   *
+   *  Highest because reverting a lower one would leave the levels above it
+   *  standing on a base that no longer includes it, and their own records
+   *  would then describe a character that never existed.
+   *
+   *  Restores the BEFORE values in the record rather than subtracting the
+   *  gains back out, so a hand edit made since the level-up is replaced by
+   *  what was actually there — and, because that silently discards the
+   *  edit, the dialog says so and offers a way out.
+   *
+   *  The whole thing is one commitMutation wrapped in the same
+   *  save-then-rollback-or-restore shape Apply uses, so a failed save
+   *  leaves the character exactly as it was.
+   */
+  async function revertLevel(level) {
+    const entry = character.levelUps?.[String(level)];
+    const record = revertRecordFor(entry);
+    if (!record) return;
+    const conflicts = revertConflictLines(record, currentRevertState());
+    const lines = revertUndoLines(record);
+    const ok = await confirmDialog({
+      title: `Revert level ${level}?`,
+      messageNode: buildRevertDialogBody(lines, conflicts),
+      confirmLabel: `Revert level ${level}`,
+      tone: "danger",
+    });
+    if (!ok) return;
+
+    const snapshot = clone({ layout: character.layout, sheetTabs: character.sheetTabs, levelUps: character.levelUps, rules: character.rules });
+    // HP: restore, don't subtract. A rolled 1 with a -5 CON modifier lands
+    // on a legitimate +0, and only the stored value knows that.
+    const hpMax = findStarterField(null, "HP Max");
+    const hpCurrent = findStarterField(null, "HP Current");
+    if (hpMax && record.hpBefore?.max != null) hpMax.value = String(record.hpBefore.max);
+    if (hpCurrent && record.hpBefore?.current != null) hpCurrent.value = String(record.hpBefore.current);
+    for (const [id, pair] of Object.entries(record.abilities || {})) {
+      const scores = character.rules.abilityScores || {};
+      if (pair.before != null) scores[id] = pair.before;
+      const field = findStarterField(`${id}Score`, id.toUpperCase());
+      if (field && pair.before != null) field.value = String(pair.before);
+    }
+    if (record.featAdded) {
+      character.rules.feats = (character.rules.feats || []).filter((f) => f?.name !== record.featAdded);
+    }
+    if (record.subclass) {
+      const field = resolveFieldById(record.subclass.fieldId) || findStarterField("subclass", "Subclass");
+      if (field) field.selected = record.subclass.before ?? null;
+    }
+    for (const [key, picks] of Object.entries(record.choicesBefore || {})) {
+      character.rules.choices[key] = [...picks];
+    }
+    for (const slot of record.slotsBefore || []) {
+      const field = slot.fieldId ? resolveFieldById(slot.fieldId) : null;
+      if (field && slot.options != null) {
+        field.options = slot.options;
+        syncOptionWidth(field);
+      }
+    }
+    character.rules.multiclass = (record.multiclassBefore || []).map((e) => ({ ...e }));
+    if (record.featureEntry) {
+      const features = findStarterField(null, "Features & Traits");
+      if (features && Array.isArray(features.items)) {
+        features.items = features.items.filter((t) => t !== record.featureEntry);
+      }
+    }
+    character.rules = normalizeRulesState(character.rules);
+    // Forget the level entirely rather than leaving a half-record: a stale
+    // entry would read as "recorded" to the level-jump banner while none of
+    // its numbers were applied.
+    delete character.levelUps[String(level)];
+    statusEl.textContent = "Saving…";
+    try {
+      commitMutation(() => { setCharacterLevel(Math.max(1, level - 1)); }, { render: false, save: false });
+      await store.saveCharacterFields(character.id, {
+        layout: character.layout,
+        sheetTabs: character.sheetTabs,
+        levelUps: character.levelUps,
+        rules: character.rules,
+        levelingPending: snapshotPending(),
+      });
+      statusEl.textContent = "Saved";
+      showToast(`Level ${level} reverted — you're back at level ${Math.max(1, level - 1)}.`);
+      renderAll();
+    } catch (err) {
+      console.error("Failed to revert level-up:", err);
+      character.layout = snapshot.layout;
+      character.sheetTabs = snapshot.sheetTabs;
+      character.levelUps = snapshot.levelUps;
+      character.rules = snapshot.rules;
+      statusEl.textContent = "⚠ Save failed — see console";
+      renderAll();
+      showToast(`Level ${level} could not be un-reverted — nothing was changed.`, { isError: true });
+    }
+  }
+
+  /** What the record would be compared against, read live off the sheet.
+   *  Only the fields the record actually mentions are collected, so a
+   *  caller that knows nothing about (say) multiclass is never told about
+   *  it. */
+  function currentRevertState() {
+    const hpMax = findStarterField(null, "HP Max");
+    const hpCurrent = findStarterField(null, "HP Current");
+    const features = findStarterField(null, "Features & Traits");
+    const subclassField = findStarterField("subclass", "Subclass");
+    return {
+      hpMax: hpMax ? numericFieldValue(hpMax) : null,
+      hpCurrent: hpCurrent ? numericFieldValue(hpCurrent) : null,
+      abilityScores: character.rules?.abilityScores || {},
+      feats: character.rules?.feats || [],
+      subclassSelected: subclassField ? (subclassField.selected ?? null) : undefined,
+      choices: character.rules?.choices || {},
+      multiclass: character.rules?.multiclass || [],
+      featuresItems: features && Array.isArray(features.items) ? features.items : undefined,
+    };
   }
 
   /** "Cancel this level-up", at the foot of the walkthrough on every
@@ -7704,6 +7908,7 @@ const closeDialog = () => {
       gapBanner: recordState?.hasGap
         ? { text: recordState.bannerText, progressLabel: recordState.progressLabel }
         : null,
+      revertEl: renderRevertControl(),
       expandedSet: expandedLevelUpRows,
       gridFn: () => renderPageGrid(),
       rowFn: (level, isCurrent) => renderLevelUpRow(level, isCurrent),

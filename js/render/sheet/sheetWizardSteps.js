@@ -1489,3 +1489,167 @@ export function buildLevelUpEntry({ level, hpGain, subclassName, slots, featureE
     appliedRulesetId,
   };
 }
+
+/** Bumped only if the record's SHAPE changes incompatibly. Reverting a
+ *  record written by a future version would silently do the wrong thing,
+ *  so an unrecognised version is treated as no record at all. */
+export const REVERT_RECORD_VERSION = 1;
+
+/** The compact snapshot a level-up writes so it can be undone exactly.
+ *
+ *  Everything here is a BEFORE value, never a delta. Subtracting the HP
+ *  gain back out works right up until somebody edits HP by hand after the
+ *  level-up, at which point a subtraction quietly takes the wrong number
+ *  while a restore puts back the number that was actually there. Restoring
+ *  is also the only version that survives the level-up's own `+0` cases
+ *  (a rolled 1 with a −5 CON modifier legitimately lands on 0).
+ *
+ *  Compact on purpose: only the scores the ASI actually moved, only the
+ *  choice keys Apply overwrote, only the slot trackers it resized. A
+ *  character levelling to 20 carries twenty of these.
+ *
+ *  Pure — returns a fresh record, mutating nothing. */
+export function buildRevertRecord({
+  level,
+  hpGain = 0,
+  hpBefore = {},
+  abilities = {},
+  featAdded = null,
+  subclass = null,
+  choicesBefore = {},
+  slotsBefore = [],
+  featureEntry = "",
+  multiclassBefore = [],
+  className = "",
+  subclassName = "",
+} = {}) {
+  const record = {
+    revertVersion: REVERT_RECORD_VERSION,
+    level,
+    hpGain,
+    hpBefore: { max: hpBefore.max ?? null, current: hpBefore.current ?? null },
+    // before AND after, never just one: `before` is what a revert restores
+    // and `after` is what Apply left behind, and a hand edit shows up as
+    // "neither of those" — which a single number cannot tell apart from an
+    // ordinary re-rolled score.
+    abilities: Object.fromEntries(Object.entries(abilities).map(([id, pair]) => [id, {
+      before: pair.before,
+      after: pair.after,
+    }])),
+    subclass,
+    choicesBefore: Object.fromEntries(
+      Object.entries(choicesBefore).map(([key, picks]) => [key, [...(picks || [])]])
+    ),
+    slotsBefore: slotsBefore.map((s) => ({ fieldId: s.fieldId, options: s.options })),
+    featureEntry: featureEntry || "",
+    multiclassBefore: multiclassBefore.map((e) => ({ ...e })),
+  };
+  // Only present when something was actually taken, so a level-up with no
+  // feat doesn't carry an empty key that later reads as "a feat was added".
+  if (featAdded) record.featAdded = featAdded;
+  if (className) record.className = className;
+  if (subclassName) record.subclassName = subclassName;
+  return record;
+}
+
+/** The revert record on a level's entry, or null. A level recorded before
+ *  reverting existed has no `revertVersion` and is simply not revertable —
+ *  which is the case the Leveling tab explains in place of a button
+ *  rather than offering one that cannot work. */
+export function revertRecordFor(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  if (entry.revert?.revertVersion !== REVERT_RECORD_VERSION) return null;
+  return entry.revert;
+}
+
+/** The highest level on this character that can actually be reverted, or
+ *  null. Only the HIGHEST: reverting a lower one would leave the levels
+ *  above it standing on a base that no longer includes it, and those
+ *  levels' own records would then describe a character that never existed. */
+export function highestRevertableLevel(levelUps = {}) {
+  const levels = Object.keys(levelUps || {})
+    .map((key) => Number(key))
+    .filter((n) => Number.isFinite(n) && n >= 1 && revertRecordFor(levelUps[n]))
+    .sort((a, b) => a - b);
+  return levels.length ? levels[levels.length - 1] : null;
+}
+
+/** Plain-language lines for the revert dialog: what pressing it takes
+ *  back. Pure. */
+export function revertUndoLines(record) {
+  if (!record) return [];
+  const lines = [];
+  if (record.hpGain) {
+    lines.push(`Takes back ${record.hpGain} hit points (HP Max and HP Current both go back to what they were).`);
+  }
+  const bumped = Object.entries(record.abilities || {});
+  if (bumped.length) {
+    lines.push(`Puts your ability scores back: ${bumped.map(([id]) => id.toUpperCase()).join(", ")}.`);
+  }
+  if (record.featAdded) lines.push(`Removes the ${record.featAdded} feat.`);
+  if (record.subclassName) lines.push(`Puts your subclass back to what it was (${record.subclassName === "" ? "none" : "your earlier pick"}).`);
+  if (Object.keys(record.choicesBefore || {}).length) {
+    lines.push(`Puts your choices back for ${Object.keys(record.choicesBefore).length} question(s) on this level.`);
+  }
+  if ((record.slotsBefore || []).length) {
+    lines.push("Puts your spell slot counts back the way they were.");
+  }
+  if (record.featureEntry) lines.push(`Removes the "${record.featureEntry}" line from Features & Traits.`);
+  if ((record.multiclassBefore || []).length) lines.push("Puts your multiclass levels back.");
+  lines.push(`Drops your Level back to ${Math.max(1, (record.level ?? 1) - 1)} and forgets that this level was recorded.`);
+  return lines;
+}
+
+/** Whether anything the level-up wrote has since been changed by hand, as
+ *  one plain sentence per conflict (empty when the record still matches
+ *  what Apply left behind).
+ *
+ *  Reverting restores BEFORE values, so a field edited since the level-up
+ *  would have that edit thrown away without warning. Saying so is the
+ *  difference between an undo and data loss.
+ *
+ *  Pure — reads the record and a snapshot of current state. */
+export function revertConflictLines(record, current = {}) {
+  if (!record) return [];
+  const out = [];
+  const gain = Number(record.hpGain) || 0;
+  const { max, current: cur } = record.hpBefore || {};
+  if (gain) {
+    if (Number.isFinite(Number(current.hpMax)) && Number.isFinite(Number(max))
+      && Number(current.hpMax) !== Number(max) + gain) {
+      out.push("HP Max has been edited since this level was applied — reverting puts back the old value and loses that edit.");
+    }
+    if (Number.isFinite(Number(current.hpCurrent)) && Number.isFinite(Number(cur))
+      && Number(current.hpCurrent) !== Number(cur) + gain) {
+      out.push("HP Current has been edited since this level was applied — reverting puts back the old value and loses that edit.");
+    }
+  }
+  for (const [id, pair] of Object.entries(record.abilities || {})) {
+    const now = current.abilityScores?.[id];
+    if (Number.isFinite(Number(now)) && Number(now) !== Number(pair.after)) {
+      out.push(`${id.toUpperCase()} has been changed since this level was applied — reverting puts back ${pair.before}.`);
+    }
+  }
+  if (record.featAdded && Array.isArray(current.feats) && !current.feats.some((f) => f?.name === record.featAdded)) {
+    out.push(`The ${record.featAdded} feat is already gone from your sheet.`);
+  }
+  if (record.subclass && typeof current.subclassSelected !== "undefined"
+    && current.subclassSelected !== record.subclass.after && current.subclassSelected !== record.subclass.before) {
+    out.push("Your subclass has been changed since this level was applied — reverting puts back the earlier pick.");
+  }
+  for (const [key, before] of Object.entries(record.choicesBefore || {})) {
+    const now = current.choices?.[key];
+    if (Array.isArray(now) && JSON.stringify([...now].sort()) !== JSON.stringify([...before].sort())) {
+      out.push(`Your answer to "${key}" has been changed since this level was applied — reverting puts back the old one.`);
+    }
+  }
+  if (Array.isArray(current.multiclass)
+    && JSON.stringify(current.multiclass) !== JSON.stringify(record.multiclassBefore || [])) {
+    out.push("Your multiclass levels have been changed since this level was applied — reverting puts back the old ones.");
+  }
+  if (record.featureEntry && Array.isArray(current.featuresItems)
+    && !current.featuresItems.includes(record.featureEntry)) {
+    out.push(`The "${record.featureEntry}" line is no longer in Features & Traits — nothing to remove there.`);
+  }
+  return out;
+}

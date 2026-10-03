@@ -123,15 +123,21 @@ function buildDialog({ title, message, messageNode = null, tone = "default", ini
  *  Escape, or a backdrop click. `tone: "danger"` marks a destructive choice.
  *
  *   if (await confirmDialog({ title: "Delete?", message: "...", confirmLabel: "Delete", tone: "danger" })) ...
+ *
+ *  `messageNode` takes a built element instead of a `message` string, for the
+ *  cases that need more than one paragraph — a list of what an action will
+ *  undo, say. It is the same hook the other dialogs already use, so a
+ *  multi-line confirm needs no new rendering path.
  */
 export function confirmDialog({
   title = "Are you sure?",
   message = "",
+  messageNode = null,
   confirmLabel = "OK",
   cancelLabel = "Cancel",
   tone = "default",
 } = {}) {
-  const d = buildDialog({ title, message, tone, cancelValue: false });
+  const d = buildDialog({ title, message, messageNode, tone, cancelValue: false });
   d.buttons.append(
     el("button", { type: "button", class: "btn btn--secondary", text: cancelLabel, onclick: () => d.settle(false) }),
     el("button", {

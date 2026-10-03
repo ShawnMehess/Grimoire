@@ -65,6 +65,12 @@ import {
   HP_METHOD_OPTIONS,
   initPendingLevelState,
   pendingLevelHasPicks,
+  buildRevertRecord,
+  revertRecordFor,
+  highestRevertableLevel,
+  revertUndoLines,
+  revertConflictLines,
+  REVERT_RECORD_VERSION,
 } from "../js/render/sheet/sheetWizardSteps.js";
 import { nestedChoiceGroupsFor } from "../js/render/sheet/sheetWizard.js";
 import { FIXED_CLASS_ENTRIES } from "../js/data/contentFixups.js";
@@ -796,5 +802,128 @@ describe("cancelling an in-progress level-up", () => {
     assert.equal(pendingLevelHasPicks(pending), false);
     pending.asiMode = "double";
     assert.equal(pendingLevelHasPicks(pending), true);
+  });
+});
+
+describe("reverting a level-up", () => {
+  const record = (over = {}) => buildRevertRecord({
+    level: 5,
+    hpGain: 7,
+    hpBefore: { max: 30, current: 30 },
+    abilities: { str: { before: 14, after: 16 } },
+    featAdded: "Alert",
+    subclass: { fieldId: "subclass", before: null, after: "champion" },
+    choicesBefore: { "class:Fighter:profs": ["longsword"] },
+    slotsBefore: [{ fieldId: "slots1", options: 4 }],
+    featureEntry: "Fighter level 5: Extra Attack",
+    multiclassBefore: [{ name: "Wizard", levels: 1, subclass: "" }],
+    className: "Fighter",
+    ...over,
+  });
+
+  it("stores BEFORE values, never deltas", () => {
+    const r = record();
+    assert.equal(r.revertVersion, REVERT_RECORD_VERSION);
+    assert.equal(r.hpBefore.max, 30, "the HP to restore, not the HP to subtract from");
+    assert.deepEqual(r.abilities, { str: { before: 14, after: 16 } }, "before to restore and after to compare against");
+    assert.deepEqual(r.choicesBefore, { "class:Fighter:profs": ["longsword"] });
+    assert.deepEqual(r.slotsBefore, [{ fieldId: "slots1", options: 4 }]);
+    assert.deepEqual(r.multiclassBefore, [{ name: "Wizard", levels: 1, subclass: "" }]);
+  });
+
+  it("omits keys for things the level-up did not do", () => {
+    const r = buildRevertRecord({ level: 3, hpGain: 0, hpBefore: { max: 10, current: 10 } });
+    assert.equal("featAdded" in r, false, "no feat key when no feat was taken");
+    assert.equal("className" in r, false);
+    // And an empty choices map is a real value, not an absent one.
+    assert.deepEqual(r.choicesBefore, {});
+  });
+
+  it("copies what it is given rather than holding the caller's arrays", () => {
+    const picks = ["a"];
+    const r = buildRevertRecord({ level: 2, choicesBefore: { k: picks } });
+    picks.push("b");
+    assert.deepEqual(r.choicesBefore.k, ["a"], "a later edit cannot rewrite the record");
+  });
+
+  it("reads a level recorded before reverting existed as not revertable", () => {
+    // Legacy entries carry hp/className/features/appliedRulesetId and no
+    // record at all.
+    const legacy = { hp: "+7", className: "Fighter", features: "Fighter level 3", appliedRulesetId: "dnd5e-2014" };
+    assert.equal(revertRecordFor(legacy), null);
+    assert.equal(revertRecordFor({}), null);
+    assert.equal(revertRecordFor(null), null);
+    // A record from a shape this build doesn't know is also not revertable,
+    // rather than being applied on a guess.
+    assert.equal(revertRecordFor({ revert: { revertVersion: 99 } }), null);
+    assert.ok(revertRecordFor({ ...legacy, revert: record() }));
+  });
+
+  it("offers revert only for the highest recorded level", () => {
+    const ups = {
+      2: { revert: record({ level: 2 }) },
+      3: { revert: record({ level: 3 }) },
+      5: { hp: "+7", appliedRulesetId: "dnd5e-2014" },
+    };
+    assert.equal(highestRevertableLevel(ups), 3, "level 5 has no record, so 3 is the highest that does");
+    assert.equal(highestRevertableLevel({}), null);
+    assert.equal(highestRevertableLevel(null), null);
+    // Hand-typed rows never count.
+    assert.equal(highestRevertableLevel({ 1: { hp: "+3", className: "Fighter" } }), null);
+  });
+
+  it("lists what reverting takes back, in plain words", () => {
+    const lines = revertUndoLines(record());
+    const joined = lines.join(" ");
+    assert.match(joined, /7 hit points/);
+    assert.match(joined, /ability scores back: STR/);
+    assert.match(joined, /Removes the Alert feat/);
+    assert.match(joined, /spell slot counts back/);
+    assert.match(joined, /Drops your Level back to 4/);
+    assert.deepEqual(revertUndoLines(null), []);
+  });
+
+  it("reports no conflict while the sheet still matches what Apply wrote", () => {
+    assert.deepEqual(revertConflictLines(record(), {
+      hpMax: 37, hpCurrent: 37,
+      abilityScores: { str: 16 },
+      feats: [{ name: "Alert", level: 5 }],
+      subclassSelected: "champion",
+      choices: { "class:Fighter:profs": ["longsword"] },
+      multiclass: [{ name: "Wizard", levels: 1, subclass: "" }],
+      featuresItems: ["Fighter level 5: Extra Attack"],
+    }), []);
+  });
+
+  it("warns when a field was edited by hand after the level-up", () => {
+    const conflicts = revertConflictLines(record(), {
+      hpMax: 44, hpCurrent: 37,
+      abilityScores: { str: 18 },
+      feats: [],
+      subclassSelected: "battle-master",
+      choices: { "class:Fighter:profs": ["longbow"] },
+      multiclass: [{ name: "Wizard", levels: 2, subclass: "" }],
+      featuresItems: [],
+    });
+    const joined = conflicts.join(" ");
+    assert.match(joined, /HP Max has been edited/);
+    assert.match(joined, /STR has been changed/);
+    assert.match(joined, /Alert feat is already gone/);
+    assert.match(joined, /subclass has been changed/);
+    assert.match(joined, /answer to "class:Fighter:profs" has been changed/);
+    assert.match(joined, /multiclass levels have been changed/);
+    assert.match(joined, /no longer in Features & Traits/);
+  });
+
+  it("says nothing about a field it cannot see", () => {
+    // A caller that only knows the HP must not be told about choices it
+    // never looked at.
+    const conflicts = revertConflictLines(record({ choicesBefore: {}, multiclassBefore: [] }), { hpMax: 37, hpCurrent: 37 });
+    assert.deepEqual(conflicts, []);
+  });
+
+  it("treats a zero HP gain as nothing to restore", () => {
+    const r = buildRevertRecord({ level: 2, hpGain: 0, hpBefore: { max: 10, current: 4 } });
+    assert.deepEqual(revertConflictLines(r, { hpMax: 999, hpCurrent: 999 }), []);
   });
 });

@@ -1515,6 +1515,33 @@ async function runViewportTests(viewport) {
         return clone.textContent.replace(/\s+/g, " ").trim();
       })(),
       gapProgress: document.querySelector(".leveling-tab__gap-progress")?.textContent.trim() || null,
+      revert: (() => {
+        const btn = document.querySelector(".leveling-revert__btn");
+        const note = document.querySelector(".leveling-revert__note");
+        return {
+          btn: btn ? btn.textContent.trim() : null,
+          note: note ? note.textContent.trim() : null,
+          shown: !!document.querySelector(".leveling-revert")
+            && document.querySelector(".leveling-revert").getBoundingClientRect().height > 0,
+        };
+      })(),
+      featuresItems: (() => {
+        const f = [ch?.layout, ...(ch?.sheetTabs || []).map((t) => t.layout)]
+          .filter(Boolean).flatMap(walk).find((x) => x.id === "features");
+        return Array.isArray(f?.items) ? f.items.slice() : null;
+      })(),
+      hpMax: (() => {
+        const f = [ch?.layout, ...(ch?.sheetTabs || []).map((t) => t.layout)]
+          .filter(Boolean).flatMap(walk).find((x) => x.id === "hpMax");
+        return f ? String(f.value) : null;
+      })(),
+      strScore: (() => {
+        const f = [ch?.layout, ...(ch?.sheetTabs || []).map((t) => t.layout)]
+          .filter(Boolean).flatMap(walk).find((x) => x.id === "strScore");
+        return f ? String(f.value) : null;
+      })(),
+      rulesStr: ch?.rules?.abilityScores?.str ?? null,
+      rulesFeats: (ch?.rules?.feats || []).map((f) => f?.name),
       gapBannerShown: (() => {
         const n = document.querySelector(".leveling-tab__gap");
         return n ? n.getBoundingClientRect().height > 0 : false;
@@ -1628,6 +1655,126 @@ async function runViewportTests(viewport) {
     `and the range collapses to it (got ${JSON.stringify(afterApply.gapProgress)})`);
   check(/Level 5$/.test(afterApply.wizardTitle || ""),
     `with the walkthrough now on level 5 (title="${afterApply.wizardTitle}")`);
+
+  // --- Reverting the level you just applied ------------------------------
+  //
+  // Still on the fixture from above: level 5 sheet, level 4 recorded, so
+  // level 4 is the highest recorded and therefore the only one offered.
+  const beforeRevert = await readLevelUp();
+  check(beforeRevert.revert.btn === "Revert Level 4",
+    `the highest recorded level offers a Revert button (got ${JSON.stringify(beforeRevert.revert)})`);
+  check(beforeRevert.revert.shown, "and it is actually visible");
+  // Snapshot what the level-up changed, so the revert can be checked
+  // against it rather than against "something moved".
+  // Snapshot against the FIXTURE's base numbers, not against whatever the
+  // level-up just left: comparing to the post-Apply state would only prove
+  // the revert changed something, not that it changed it back.
+  const strBase = 16;
+  const featLinesBefore = (beforeRevert.featuresItems || []).length;
+
+  const revertHit = await clickOnSheet(".leveling-revert__btn");
+  check(revertHit.hittable, `the Revert button is really clickable (${revertHit.coveredBy || "clear"})`);
+  await page.waitForTimeout(700);
+  const dlg = await page.evaluate(() => {
+    const box = document.querySelector(".app-dialog__box");
+    return {
+      open: !!box,
+      danger: !!document.querySelector(".app-dialog__box--danger"),
+      title: box?.querySelector(".app-dialog__title")?.textContent?.trim() || null,
+      lines: [...(box?.querySelectorAll(".app-dialog__revert-list li") || [])].map((li) => li.textContent.trim()),
+      buttons: [...(box?.querySelectorAll(".modal-actions button") || [])].map((b) => b.textContent.trim()),
+    };
+  });
+  check(dlg.open, "clicking it opens a confirm dialog");
+  check(dlg.danger, "marked as a destructive choice");
+  check(dlg.title === "Revert level 4?", `titled for the level (got ${JSON.stringify(dlg.title)})`);
+  check(dlg.lines.some((l) => /hit points/.test(l)), `and it lists what it takes back (${JSON.stringify(dlg.lines.slice(0, 3))})`);
+  check(dlg.lines.some((l) => /ability scores back/.test(l)), "including the ability scores");
+  check(dlg.buttons.some((b) => /Revert level 4/.test(b)), `with a confirm button naming the level (${JSON.stringify(dlg.buttons)})`);
+
+  // Cancel first: nothing should change.
+  await page.evaluate(() => [...document.querySelectorAll(".app-dialog__actions button")]
+    .find((b) => /Cancel/i.test(b.textContent))?.click());
+  await page.waitForTimeout(600);
+  const afterCancelRevert = await readLevelUp();
+  check(afterCancelRevert.hpMax === beforeRevert.hpMax,
+    `backing out of the dialog changes nothing (HP ${afterCancelRevert.hpMax} vs ${beforeRevert.hpMax})`);
+  check(afterCancelRevert.rulesStr === beforeRevert.rulesStr, "and the ability score is untouched");
+  check(afterCancelRevert.revert.btn === "Revert Level 4", "and the button is still there");
+
+  // Now actually do it.
+  await clickOnSheet(".leveling-revert__btn");
+  await page.waitForTimeout(700);
+  await page.evaluate(() => [...document.querySelectorAll(".app-dialog__actions button")]
+    .find((b) => /Revert level/i.test(b.textContent))?.click());
+  await page.waitForTimeout(1600);
+  const afterRevert = await readLevelUp();
+  // Back to the level BEFORE the reverted one was applied: level 4's own
+  // effects are gone, so level 3 is what the character has actually earned.
+  check(afterRevert.level === "3", `reverting drops the Level back to 3 (got ${JSON.stringify(afterRevert.level)})`);
+  check(afterRevert.rulesStr === strBase,
+    `and puts the ability score back to the fixture's ${strBase} (got ${afterRevert.rulesStr})`);
+  check(afterRevert.rulesFeats.length === 0,
+    `the feat taken at level 4 is gone (got ${JSON.stringify(afterRevert.rulesFeats)})`);
+  check(!(afterRevert.featuresItems || []).some((t) => /level 4/.test(t)),
+    `and no level-4 line is left in Features & Traits (${JSON.stringify(afterRevert.featuresItems)})`);
+  check((afterRevert.featuresItems || []).length === featLinesBefore,
+    "and the features list is no longer than it was before the level-up");
+  // Level 4 is no longer recorded, so 5 becomes the highest recorded
+  // level - and it has no record, so the note takes the button's place.
+  check(afterRevert.revert.btn === null && /recorded before reverting existed/.test(afterRevert.revert.note || ""),
+    `a level recorded without a record explains itself instead of offering a button (got ${JSON.stringify(afterRevert.revert)})`);
+
+  // --- A hand edit after the level-up must be called out, not discarded ---
+  //
+  // Reverting restores BEFORE values, so anything typed into those fields
+  // afterwards would be thrown away. Silence there is data loss.
+  await setUpLeveling({ level: 5, className: "Fighter", subclass: "Champion", recordedLevels: [2, 3] });
+  await openLevelingTab();
+  await walkWizardToReview();
+  await clickOnSheet(".wizard__body button.btn--primary");
+  await page.waitForTimeout(1500);
+  // Edit HP by hand, the way a player correcting a number would.
+  await page.evaluate((name) => {
+    const KEY = "grimoire.local.characters.v1";
+    const stored = JSON.parse(localStorage.getItem(KEY) || "{}");
+    const c = Object.values(stored).find((x) => (x.name || "") === name);
+    const walk = (nodes) => (nodes || []).flatMap((n) => [n, ...(n.children || [])]);
+    for (const layout of [c?.layout, ...(c?.sheetTabs || []).map((t) => t.layout)]) {
+      for (const f of (layout ? walk(layout) : [])) {
+        if (f.id === "hpMax") f.value = String(Number(f.value || 0) + 5);
+      }
+    }
+    localStorage.setItem(KEY, JSON.stringify(stored));
+  }, probe.name);
+  // Reopen, or the running app keeps serving the pre-edit numbers from
+  // memory and there is nothing to detect.
+  await reopenSheet();
+  await openLevelingTab();
+  const edited = await readLevelUp();
+  check(edited.revert.btn === "Revert Level 4", "the revert button is offered again after the hand edit");
+  await clickOnSheet(".leveling-revert__btn");
+  await page.waitForTimeout(700);
+  const warnDlg = await page.evaluate(() => {
+    const box = document.querySelector(".app-dialog__box");
+    const warn = box?.querySelector(".app-dialog__revert-warning");
+    return {
+      warned: !!warn,
+      role: warn?.getAttribute("role") || null,
+      lead: warn?.textContent?.trim().slice(0, 60) || null,
+      lines: [...(box?.querySelectorAll(".app-dialog__revert-list li") || [])].map((li) => li.textContent.trim()),
+    };
+  });
+  check(warnDlg.warned, "the dialog warns that hand edits will be lost");
+  check(warnDlg.role === "alert", "and the warning is announced (role=alert)");
+  check(warnDlg.lines.some((l) => /HP Max has been edited/.test(l)),
+    `naming the field that was edited (${JSON.stringify(warnDlg.lines.filter((l) => /edited/.test(l)))})`);
+  // And Cancel really does back out of that.
+  await page.evaluate(() => [...document.querySelectorAll(".app-dialog__actions button")]
+    .find((b) => /Cancel/i.test(b.textContent))?.click());
+  await page.waitForTimeout(600);
+  const afterWarnCancel = await readLevelUp();
+  check(afterWarnCancel.revert.btn === "Revert Level 4", "and cancelling the warning leaves the level alone");
 
 
   // No reset needed: the Cleric fixture below seeds its own level.
