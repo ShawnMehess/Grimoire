@@ -15,6 +15,80 @@
 // `focused` stands in for document.activeElement: the dialog module moves
 // focus into the dialog and restores it on close, and a stub with no
 // concept of focus makes that crash rather than merely go unasserted.
+//
+// WHAT THIS STUB CAN AND CANNOT ANSWER
+//
+// The selector engine here understands ONE shape: a single class name, and
+// now a comma-separated list of them. Anything else - an attribute
+// selector, a descendant combinator, `:scope >`, a compound like `.a.b` -
+// used to return an empty array, and an empty array is indistinguishable
+// from "no such element on the page". That is the worst failure mode a
+// test harness can have: a test asserting on a node the stub cannot see
+// passes on zero elements and reports green.
+//
+// Measured against the app: 24 literal querySelector/querySelectorAll call
+// sites, of which this stub could answer 13. The 11 it could not included
+//   .grid-node--field[data-node-id]      selection and drag addressing
+//   .field-value--computed[data-field-id] the live-formula patch path
+//   button, input, textarea, select, [tabindex]   the dialog focus trap
+//   .wizard__nav .wizard__next           wizard nav gating
+//
+// So an unsupported selector now THROWS. That converts every silently-vacuous
+// assertion into a loud failure, which is the point: a harness that refuses
+// to answer is safe, and one that answers "nothing" is not. Anything the
+// stub cannot model belongs in scripts/e2e-smoke.mjs, which drives real
+// Chrome and can assert all of these.
+//
+const UNSUPPORTED_SELECTOR = (sel) =>
+  new Error(
+    `smoke-dom's selector stub cannot answer "${sel}". ` +
+    `It supports a tag name, a class, a compound of classes, and comma-separated ` +
+    `lists of those. Attribute selectors, descendant/child combinators, :scope and ` +
+    `pseudo-classes match nothing here, and asserting on nothing passes - so this ` +
+    `throws instead. Assert it in scripts/e2e-smoke.mjs (real Chrome), or assert the ` +
+    `pure helper that produces the node rather than the node itself.`
+  );
+
+// Comma lists, compounds, bare tag names and #id are supported because they are
+// cheap and were accounting for most of the misses - `buttons.querySelector
+// ("button")` in the dialog focus path is a bare tag and `#app-dialog-input`
+// is the prompt's initial focus, and both were silently finding nothing, so
+// neither the dialog's initial focus nor its focus target had ever actually
+// run. Attribute selectors, combinators and pseudo-classes are not, and
+// deliberately so.
+/** Parse a supported selector into matchers: { tag } / { id } / { classes }. */
+function parseSelector(sel) {
+  const raw = String(sel).trim();
+  // Anything with selector syntax the stub does not model, in any part.
+  if (/[\[\]()>+~:]/.test(raw)) throw UNSUPPORTED_SELECTOR(sel);
+  const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) throw UNSUPPORTED_SELECTOR(sel);
+  return parts.map((part) => {
+    if (part.startsWith("#")) {
+      const id = part.slice(1);
+      if (!id) throw UNSUPPORTED_SELECTOR(sel);
+      return { id };
+    }
+    if (part.startsWith(".")) {
+      const classes = part.split(".").slice(1).filter(Boolean);
+      if (!classes.length) throw UNSUPPORTED_SELECTOR(sel);
+      return { classes };
+    }
+    if (!/^[a-zA-Z][\w-]*$/.test(part)) throw UNSUPPORTED_SELECTOR(sel);
+    return { tag: part.toLowerCase() };
+  });
+}
+
+/** Does a stub node satisfy one of the parsed alternatives? */
+function selectorMatches(node, parsed) {
+  return parsed.some(({ tag, id, classes }) => {
+    if (tag && String(node.tag || "").toLowerCase() !== tag) return false;
+    if (id != null && String(node.attrs?.id ?? node.id ?? "") !== id) return false;
+    if (classes && !classes.every((k) => node._classes?.has(k))) return false;
+    return Boolean(tag || id || classes);
+  });
+}
+
 let focused = null;
 function makeNode(tag) {
   const node = {
@@ -77,12 +151,12 @@ function makeNode(tag) {
     },
     querySelector(sel) { return this.querySelectorAll(sel)[0] || null; },
     querySelectorAll(sel) {
+      const groups = parseSelector(sel);
       const out = [];
-      const cls = sel.startsWith(".") ? sel.slice(1) : null;
       const walk = (n) => {
         for (const c of n.children || []) {
           if (!c.tag) continue;
-          if (cls && c._classes?.has(cls)) out.push(c);
+          if (selectorMatches(c, groups)) out.push(c);
           walk(c);
         }
       };
@@ -90,10 +164,10 @@ function makeNode(tag) {
       return out;
     },
     closest(sel) {
-      const cls = sel.startsWith(".") ? sel.slice(1) : null;
+      const groups = parseSelector(sel);
       let n = this;
       while (n) {
-        if (cls && n._classes?.has(cls)) return n;
+        if (selectorMatches(n, groups)) return n;
         n = n.parent;
       }
       return null;
