@@ -27,6 +27,7 @@ import { FIXED_RACE_ENTRIES, FIXED_CLASS_ENTRIES, FIXED_BG_ENTRIES, SUBCLASS_BUN
 import { catalogEntryInfoIn } from "../js/render/sheet/sheetWizard.js";
 import { CHOICE_GROUP_CATEGORY_KEYS, categorizeChoiceGroup } from "../js/render/sheet/sheetMechanics.js";
 import { inferChoiceCategory, CATCH_ALL_CATEGORY } from "../js/data/choiceCategories.js";
+import { skillPick, languagePick, toolPick, spellPick, namedPick, skillOrLanguagePick } from "../js/data/missingPicks.js";
 import { stripBundlesFromPatch, hydrateCharacter } from "../js/state/bundleMaps.js";
 import {
   activeChoiceGroupsFor,
@@ -1432,6 +1433,18 @@ function applyStatModifiersForTest(fields, vm, cb, tags, levelFor, extra) {
   console.log(`phase4: catalog links — ${ids.size} catalog ids, ${linked.length} bundles linked (${dangling} dangling, ${NO_CATALOG_ENTRY.size} known no-entry, ${unlinked} unlinked); migration + id-lookup probes hold`);
 }
 
+// Every choice group the app ships, collected once. Section 10 checks their
+// page routing and section 11 checks their shape, and both walk the same set
+// - collecting it twice would let the two disagree about what "shipped" means.
+const SHIPPED_CHOICE_GROUPS = [];
+for (const e of FIXED_RACE_ENTRIES) for (const g of e.bundle?.choiceGroups || []) SHIPPED_CHOICE_GROUPS.push([`race "${e.name}"`, g]);
+for (const e of FIXED_CLASS_ENTRIES) for (const g of e.bundle?.choiceGroups || []) SHIPPED_CHOICE_GROUPS.push([`class "${e.name}"`, g]);
+for (const e of FIXED_BG_ENTRIES) for (const g of e.bundle?.choiceGroups || []) SHIPPED_CHOICE_GROUPS.push([`background "${e.name}"`, g]);
+for (const s of SUBCLASS_SUPPLEMENT) {
+  for (const g of SUBCLASS_BUNDLE_MAP.get(s.key)?.choiceGroups || []) SHIPPED_CHOICE_GROUPS.push([`subclass "${s.name}"`, g]);
+}
+for (const b of LINKED_FEAT_BUNDLES) for (const g of b.choiceGroups || []) SHIPPED_CHOICE_GROUPS.push([`feat "${b.name}"`, g]);
+
 // --- 10. Choice-group categories are explicit (Phase 4) ----------------------
 //
 // The wizard used to sort a bundle's choice groups onto its own creation
@@ -1440,15 +1453,7 @@ function applyStatModifiersForTest(fields, vm, cb, tags, levelFor, extra) {
 // silently move a group to a different page. The label regex survives only
 // as an import-compat net for homebrew, which arrives with no category.
 {
-  const groups = [];
-  for (const e of FIXED_RACE_ENTRIES) for (const g of e.bundle?.choiceGroups || []) groups.push([`race "${e.name}"`, g]);
-  for (const e of FIXED_CLASS_ENTRIES) for (const g of e.bundle?.choiceGroups || []) groups.push([`class "${e.name}"`, g]);
-  for (const e of FIXED_BG_ENTRIES) for (const g of e.bundle?.choiceGroups || []) groups.push([`background "${e.name}"`, g]);
-  for (const s of SUBCLASS_SUPPLEMENT) {
-    for (const g of SUBCLASS_BUNDLE_MAP.get(s.key)?.choiceGroups || []) groups.push([`subclass "${s.name}"`, g]);
-  }
-  for (const b of LINKED_FEAT_BUNDLES) for (const g of b.choiceGroups || []) groups.push([`feat "${b.name}"`, g]);
-
+  const groups = SHIPPED_CHOICE_GROUPS;
   for (const [src, g] of groups) {
     if (!g.pageCategory) fail(`${src} choice group "${g.label}" has no explicit pageCategory — the label fallback would be doing real work`);
     else if (!CHOICE_GROUP_CATEGORY_KEYS.has(g.pageCategory)) fail(`${src} choice group "${g.label}" has unknown pageCategory "${g.pageCategory}"`);
@@ -1487,6 +1492,125 @@ function applyStatModifiersForTest(fields, vm, cb, tags, levelFor, extra) {
   }
 
   console.log(`phase4: choice pages — all ${groups.length} shipped groups carry an explicit pageCategory, none moved page, ${marked} "features" markers intact; import fallback intact`);
+}
+
+// --- 11. Choice groups match the shape js/data/missingPicks.js builds -------
+//
+// The six builders in missingPicks.js (skillPick, languagePick, toolPick,
+// spellPick, namedPick, skillOrLanguagePick) are the de-facto contract for
+// what a choice group is: an id, a label, a pick budget, and exactly one
+// place its options come from. Nothing states that as a rule, though - the
+// builders just happen to agree, and every other producer (contentFixups
+// per-class rebuilds, the compiler, homebrew import) writes the same shape by
+// reading the existing code.
+//
+// So the shape is checked here instead, across every group the app ships
+// rather than only the ones a builder made. The failure this catches is
+// silent by nature: a group with no options, no spellPick and no categories
+// renders as an empty picker, and a group whose option has no id cannot have
+// its pick stored or removed.
+//
+// Unknown keys are deliberately allowed. The shipped set already carries
+// requiresPack, requiresGroup, requiresOption, spellPickOnly, subrace,
+// subclasses, sortAfter, type and pattern, and homebrew brings its own.
+{
+  const OPTION_SOURCES = ["options", "spellPick", "categories"];
+
+  /** Everything wrong with one group, as a list of messages. */
+  const describeGroupShape = (where, g) => {
+    const problems = [];
+    if (!g?.id) problems.push(`${where} has no id — picks are stored and removed by it`);
+    if (!g?.label) problems.push(`${where} has no label — the wizard shows nothing to click`);
+
+    const sources = OPTION_SOURCES.filter((k) => (k === "spellPick" ? g?.[k] : (g?.[k] || []).length));
+    if (sources.length === 0) {
+      problems.push(`${where} offers nothing: no options, no spellPick, no categories — it renders as an empty picker`);
+    }
+    // `options` alongside `categories` is ambiguous: a flat renderer shows the
+    // flat list only, so the category half would never be offered - which is
+    // why skillOrLanguagePick deliberately omits a flat list (see its note in
+    // missingPicks.js: a flat fallback would offer skills with nothing
+    // attached, the exact bug those groups exist to fix).
+    //
+    // `options` alongside `spellPick` is NOT ambiguous and is the intended
+    // shape: a spell pick ships one placeholder option ("Choose a spell")
+    // that opens the catalog, so the group is never rendered with nothing on
+    // it before the dialog opens.
+    if ((g?.options || []).length && (g?.categories || []).length) {
+      problems.push(`${where} declares both options and categories — a flat renderer would show the flat list only, so one half is unrendered`);
+    }
+
+    const min = Number(g?.minSelections);
+    const max = Number(g?.maxSelections);
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      problems.push(`${where} has a non-numeric pick budget (min ${g?.minSelections}, max ${g?.maxSelections})`);
+    } else if (min < 0 || max < min) {
+      problems.push(`${where} has an impossible pick budget (min ${min}, max ${max})`);
+    }
+
+    // Every option the group can offer, whichever way it is nested, has to be
+    // displayable and storable. Two accepted shapes:
+    //
+    //  - the ordinary one: an `id` (what a pick is stored and removed by) and
+    //    a `name` (what the row shows).
+    //  - a flexibleAbilityBonus option, which has neither by design: its
+    //    identity is a `pattern` ("2-1", "1-1-1") that the renderer expands
+    //    into the per-ability dropdowns, and its display text is the
+    //    `description`. Five races ship these (the free-form "+2/+1 or three
+    //    +1s" ability bonus).
+    //
+    // The failure being guarded against is silent: customSheet.js's comment
+    // at the flexibleAbilityBonus branch says the generic choice dialog
+    // "lists only options carrying a `name`, so it would open empty", and an
+    // option with an id but no name is equally unstorable in the picker.
+    const isFlexibleAsi = g?.type === "flexibleAbilityBonus";
+    const opts = [
+      ...(g?.options || []),
+      ...(g?.categories || []).flatMap((c) => c.options || []),
+    ];
+    const seen = new Set();
+    for (const o of opts) {
+      if (isFlexibleAsi) {
+        if (!o?.pattern) problems.push(`${where} is a flexibleAbilityBonus but an option has no pattern — nothing to expand into ability dropdowns`);
+        if (!o?.description) problems.push(`${where} is a flexibleAbilityBonus but an option has no description — the row would render blank`);
+        continue;
+      }
+      if (!o?.id) problems.push(`${where} has an option with no id (${JSON.stringify(o?.name || o?.description || "")}) — a pick of it cannot be stored`);
+      else if (seen.has(o.id)) problems.push(`${where} has two options with id "${o.id}" — a pick of one is indistinguishable from the other`);
+      else seen.add(o.id);
+      if (!o?.name) problems.push(`${where} has an option with no name (${JSON.stringify(o?.id || "")})`);
+    }
+    // A flexibleAbilityBonus group that kept a flat name/id would be routed
+    // to the wrong renderer entirely, so the type and the option shape have to
+    // agree.
+    if (isFlexibleAsi && (g?.options || []).some((o) => o?.id)) {
+      problems.push(`${where} is a flexibleAbilityBonus but an option carries a plain id — the two option shapes cannot be mixed`);
+    }
+    return problems;
+  };
+
+  const structural = [];
+  for (const [src, g] of SHIPPED_CHOICE_GROUPS) {
+    structural.push(...describeGroupShape(`${src} choice group ${JSON.stringify(g.label || "")}`, g));
+  }
+
+  // The builders themselves have to produce that shape, or the contract is
+  // only being enforced on content they did not write.
+  const sampleGroups = [
+    ["skillPick", skillPick("probe-skills", "Pick two", 2)],
+    ["languagePick", languagePick("probe-langs", "Pick one", 1)],
+    ["toolPick", toolPick("probe-tools", "Pick one", ["Smith's Tools"])],
+    ["spellPick", spellPick("probe-spells", "Pick a cantrip", { list: "wizard", level: 0 })],
+    ["namedPick", namedPick("probe-named", "Pick a totem", ["Bear", "Elk"])],
+    ["skillOrLanguagePick", skillOrLanguagePick("probe-either", "Skill or language")],
+  ];
+  for (const [name, g] of sampleGroups) structural.push(...describeGroupShape(`builder ${name}`, g));
+
+  if (structural.length) {
+    fail(`choice-group shape:\n  - ${structural.join("\n  - ")}`);
+  } else {
+    console.log(`choice-group shape: ${SHIPPED_CHOICE_GROUPS.length} shipped groups + 6 builders match the contract (id, label, one option source, valid budget, storable options)`);
+  }
 }
 
 if (failures) {
