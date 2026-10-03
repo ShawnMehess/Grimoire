@@ -184,12 +184,12 @@ Six gates. The first five are fast and need no browser; the last drives
 real Chrome.
 
 ```
-node --test tests/*.mjs          # 826 unit tests
+node --test tests/*.mjs          # 868 unit tests
 node scripts/check-imports.mjs   # import graph, syntax, CSS brace balance
 node scripts/smoke-imports.mjs   # module graph + pure-logic assertions
 node scripts/smoke-dom.mjs       # renderers against a stub DOM
 node scripts/verify-content.mjs  # content wiring + a 1-20 build simulation
-npm run test:e2e                 # real Chrome, desktop + mobile
+npm run test:e2e                 # real Chrome, desktop / tablet / mobile
 ```
 
 `verify-content.mjs` simulates full level 1–20 builds (Fighter, Light
@@ -399,8 +399,10 @@ lineage** rule hides the row, because a row you can never tick teaches
 nothing. Anything the parser cannot evaluate is treated as met — a rule we
 do not understand must never be the reason a feat disappears.
 
-The picker dialog is widened on large screens, because 83 feats with a
-mechanical line each is a lot to read in a narrow column.
+The picker dialog is widened above the phone breakpoint (721px), so a
+tablet gets the full 94vw width rather than falling back to a fixed pixel
+cap that gave a phone proportionally more room than a tablet — the one
+screen where a long feat list most needs the width.
 
 ---
 

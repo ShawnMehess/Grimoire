@@ -85,8 +85,25 @@ const base = `http://127.0.0.1:${server.address().port}`;
 const shotDir = path.join(os.tmpdir(), "grimoire-e2e");
 mkdirSync(shotDir, { recursive: true });
 
+// The phone ceiling, mirroring `@media (max-width: 720px)` in the
+// stylesheets. Named here rather than written inline so a check that needs
+// to reason about "is this screen a phone" reads the one number instead of
+// guessing a threshold of its own - the guess is what made the feat-dialog
+// width check wrong in both directions at once.
+const PHONE_CEILING_PX = 720;
+
 const viewportSizes = [
+  // Phone, tablet and laptop. The sheet is specified to work at all three,
+  // and 834px is the interesting one: it is above the 720px phone
+  // breakpoint (so the toolbar is not in its phone arrangement) while
+  // being far too narrow for the desktop grid, so it lands on the
+  // tablet-only rules rather than on either of the other two.
+  //
+  // 1440 rather than 1280 on purpose: 1280 is the narrow end of a laptop
+  // and 1440 is the common one, but what matters is that both clear the
+  // ~790px the grid needs, which the tablet does not.
   { name: "desktop", width: 1440, height: 900 },
+  { name: "tablet", width: 834, height: 1112 },
   { name: "mobile", width: 392, height: 844 },
 ];
 
@@ -138,18 +155,22 @@ async function runViewportTests(viewport) {
       : null;
   });
   check(!!viewToggle, `demo view toggle exists (${JSON.stringify(viewToggle)})`);
-  const forcedOnPhone = viewport.width < 800;
+  // Whether width forces the stacked layout is the APP's call - it measures
+  // the grid, which needs about 790px - so ask it rather than guessing from
+  // the viewport width. Guessing is what made this wrong at 834px, where
+  // the sheet is genuinely stacked but the old 800px threshold said it
+  // should not be.
+  const stackedByWidth = !!(await page.$(".page-grid.is-simple"));
+  const forcedStacked = stackedByWidth;
   if (viewToggle) {
-    if (forcedOnPhone) {
-      // Nothing to click - and saying so is the point. The phone-width
+    if (forcedStacked) {
+      // Nothing to click - and saying so is the point. The width-forced
       // stacking itself is checked further down, where the whole layout is
       // measured rather than inferred from a label.
       check(viewToggle.disabled,
-        `and on a phone-width viewport it is disabled rather than offering a switch that does nothing (${JSON.stringify(viewToggle)})`);
+        `and where width forces the stacked layout it is disabled rather than offering a switch that does nothing (${JSON.stringify(viewToggle)})`);
       check(viewToggle.text === "Sheet View",
         `naming the view it cannot go to (got "${viewToggle.text}")`);
-      check(await page.$(".page-grid.is-simple"),
-        "and the sheet is already stacked by width");
     } else {
       check(viewToggle.text === "Simple View",
         `and offers the switch on a screen that fits (got "${viewToggle.text}")`);
@@ -515,11 +536,23 @@ async function runViewportTests(viewport) {
     // Back to Sheet View is only reachable on a screen that fits, so widen
     // first and then drive it - which is also the only way to reach the
     // stale-key check that follows it on a phone viewport.
+    //
+    // The width is put back afterwards. It used to be left at 1440, and
+    // because every check below is labelled with `viewport.name` rather
+    // than with the width the window actually is, the rest of the phone
+    // run - the whole wizard, several hundred assertions' worth - was
+    // quietly executed at desktop width while reporting "[mobile]". A
+    // probe of the feat dialog showed it: identical 1354px boxes at 1440
+    // and at 392.
     await page.setViewportSize({ width: 1440, height: viewport.height });
     await page.waitForTimeout(900);
     const back = await page.$(".sheet-toolbar button:text-is('Sheet View')");
     if (back) await back.click().catch(() => {});
     await page.waitForTimeout(400);
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.waitForTimeout(900);
+    check(await page.evaluate((w) => window.innerWidth === w, viewport.width),
+      `and the phone-width run goes back to ${viewport.width}px afterwards (was ${await page.evaluate(() => window.innerWidth)}px)`);
   }
 
   // B: offline vault — the exact flow that once crashed new-character
@@ -849,15 +882,25 @@ async function runViewportTests(viewport) {
         // override silently loses on file order - the override has to be
         // compound, and this asserts the rendered result rather than the
         // rule, so a reordering of the CSS cannot quietly undo it.
+        //
+        // The expected share of the screen is the CSS's own contract, and
+        // the contract is about the SCREEN, not about a fixed pixel width:
+        // above the phone ceiling the dialog takes 94vw; below it, it falls
+        // back to the shared 560px box, which on a phone is the whole
+        // screen anyway. The old rule keyed off 1100px, which is where the
+        // MULTI-COLUMN list starts - a question about how much room a column
+        // needs, not how wide the screen is. Reading the wrong one of those
+        // two numbers gave a tablet 560px of 834 (67%) while a phone had
+        // 392 of 392, i.e. the widest screen in the set got the least.
         const dlgWidth = await page.evaluate(() => {
           const box = document.querySelector(".choice-dialog-overlay .choice-dialog");
           return box ? { w: box.getBoundingClientRect().width, vw: window.innerWidth } : null;
         });
         if (dlgWidth) {
           const pct = dlgWidth.w / dlgWidth.vw;
-          const expected = viewport.width >= 1100 ? 0.85 : 0.9;
-          check(pct >= expected,
-            `feat picker is wide on this screen (${Math.round(pct * 100)}% of viewport, wanted ${Math.round(expected * 100)}%)`);
+          const wide = dlgWidth.vw > PHONE_CEILING_PX;
+          check(pct >= (wide ? 0.9 : 0.85),
+            `feat picker uses the screen it is on (${Math.round(dlgWidth.w)}px = ${Math.round(pct * 100)}% of ${dlgWidth.vw}, wanted ${wide ? "90%+" : "85%+"})`);
         }
         await page.screenshot({ path: path.join(shotDir, `lineage-feat-${viewport.name}.png`) });
       }
@@ -2369,14 +2412,17 @@ for (const viewport of viewportSizes) {
 }
 
 
-// check() is scoped inside runViewportTests; this block is module level,
-// so it uses its own reporter writing to the same failures array.
 // check() is scoped inside runViewportTests; this block is module level, so
-// it gets its own reporter writing to the same failures array.
-const phoneCheck = (cond, msg) => {
-  if (!cond) failures.push("[phone] " + msg);
-  console.log((cond ? "ok" : "FAIL") + " [phone]: " + msg);
+// it gets its own reporter writing to the same failures array. The label is
+// a parameter because the sections after this one run at more than one
+// width, and a report line that says "phone" for a 1024px sweep is the same
+// class of mistake as the leaked viewport this file used to have.
+const reporter = (label) => (cond, msg) => {
+  if (!cond) failures.push(`[${label}] ` + msg);
+  console.log((cond ? "ok" : "FAIL") + ` [${label}]: ` + msg);
 };
+const phoneCheck = reporter("phone");
+const widthCheck = reporter("widths");
 
 
 // --- Phone portrait: Your Characters -------------------------------------
@@ -2679,6 +2725,116 @@ for (const phoneWidth of [320, 390]) {
     }
     await wiz.close();
   }
+}
+
+// --- Phone / tablet / laptop, swept in one place ----------------------------
+//
+// The per-viewport runs above each pick one width and assert a great deal at
+// it. What none of them asserted is the BOUNDARIES, and the boundaries are
+// where responsive work actually breaks: a rule that is right at 834px and
+// wrong at 861px is invisible to a test that only ever visits 834.
+//
+// Three bands matter here, and each has its own question:
+//
+//  - Phone (320-600): everything stacks and nothing scrolls sideways. Covered
+//    above at two widths; included in the sweep so the whole ladder is one
+//    run and one report.
+//  - The band the app itself creates: the positioned grid has a hard
+//    minimum of about 790px, so the sheet is STACKED on a tablet and in
+//    Sheet View on a laptop. Nothing may scroll sideways in that band
+//    either - it is a stacked sheet on a screen that has room, which is
+//    precisely the case a phone-only test never reaches.
+//  - Laptop (1024+): the grid fits, Sheet View is available again, and the
+//    grid is laid out rather than crushed.
+//
+// The stacking threshold is asserted as a MEASUREMENT, not as a literal: the
+// grid's own declared width against its scroller's width is the same
+// comparison `narrowScreenNeedsStackedView` makes, so this pins that the
+// app's decision and its own reason for it cannot disagree. Reading it back
+// out of the rendered sheet also means the sweep keeps working if MIN_CELL_PX
+// or the column count ever change, which is the point of keeping that rule a
+// predicate over a measurement rather than a hard-coded 800px.
+{
+  const ladder = [320, 390, 600, 720, 721, 834, 900, 1024, 1280, 1440];
+  const sweep = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  sweep.on("pageerror", (e) => problems.push(`PAGEERROR [widths @${sweep.viewportSize().width}]: ${e.message}`));
+  sweep.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [widths]: ${m.text()}`); });
+  await sweep.goto(`${base}/demo.html`, { waitUntil: "networkidle" });
+  await sweep.waitForTimeout(1400);
+
+  // Where the grid stopped fitting, so the assertions below can be stated as
+  // "the sheet agreed with its own measurement" rather than as a magic
+  // number that has to be re-guessed when the grid changes.
+  const measure = () => sweep.evaluate(() => {
+    const de = document.documentElement;
+    const grid = document.querySelector(".page-grid");
+    const scroller = document.querySelector(".page-grid-scroll");
+    const toggle = [...document.querySelectorAll(".sheet-toolbar button")]
+      .find((b) => /^(Sheet|Simple) View$/.test((b.textContent || "").trim()));
+    const declared = parseFloat(grid?.style?.width || "0") || 0;
+    return {
+      vw: window.innerWidth,
+      stacked: !!document.querySelector(".page-grid.is-simple"),
+      declaredGrid: declared,
+      scroller: scroller ? scroller.clientWidth : 0,
+      // The rule itself, recomputed here rather than read off a class, so a
+      // stale class left behind by a resize would be caught.
+      shouldStack: declared > 0 && (scroller?.clientWidth || 0) > 0
+        ? declared > scroller.clientWidth + 1 : null,
+      pageScrollsSideways: de.scrollWidth > de.clientWidth + 1,
+      page: { scroll: de.scrollWidth, client: de.clientWidth },
+      toggle: toggle
+        ? { text: (toggle.textContent || "").trim(), disabled: toggle.disabled, title: toggle.title }
+        : null,
+      cellPx: (() => {
+        const cell = document.querySelector(".grid-cell, .grid-node");
+        return cell ? Math.round(cell.getBoundingClientRect().width) : null;
+      })(),
+    };
+  });
+
+  let lastStacked = null;
+  let firstUnstacked = null;
+  for (const w of ladder) {
+    await sweep.setViewportSize({ width: w, height: 900 });
+    await sweep.waitForTimeout(950);
+    const m = await measure();
+
+    widthCheck(m.vw === w, `@${w} the window really is ${w}px (got ${m.vw})`);
+    widthCheck(!m.pageScrollsSideways,
+      `@${w} the sheet does not scroll sideways (${m.page.scroll}/${m.page.client})`);
+    if (m.shouldStack !== null) {
+      widthCheck(m.stacked === m.shouldStack,
+        `@${w} the layout agrees with the measurement (grid ${Math.round(m.declaredGrid)}px in ${m.scroller}px, stacked=${m.stacked}, should=${m.shouldStack})`);
+    }
+    if (m.stacked) {
+      lastStacked = w;
+      widthCheck(!!m.toggle && m.toggle.disabled,
+        `@${w} where the sheet is stacked by width the view toggle refuses (${JSON.stringify(m.toggle?.text)})`);
+      widthCheck(!!m.toggle && m.toggle.text === "Sheet View",
+        `@${w} and names the view it cannot go to (got "${m.toggle?.text}")`);
+    } else {
+      if (firstUnstacked === null) firstUnstacked = w;
+      widthCheck(!!m.toggle && !m.toggle.disabled,
+        `@${w} where the grid fits the view toggle is live again (${JSON.stringify(m.toggle?.text)})`);
+      widthCheck(!!m.toggle && m.toggle.text === "Simple View",
+        `@${w} and offers Simple View (got "${m.toggle?.text}")`);
+      // A cell at the floor is the whole reason for stacking. Anything
+      // narrower than MIN_CELL_PX in Sheet View means the floor is being
+      // breached and the stacking rule has stopped matching the grid.
+      widthCheck(m.cellPx === null || m.cellPx >= 40,
+        `@${w} a grid cell is never crushed below the 40px floor (got ${m.cellPx}px)`);
+    }
+  }
+
+  widthCheck(lastStacked !== null && firstUnstacked !== null,
+    `the ladder crosses the stacking threshold rather than sitting on one side of it (stacked up to ${lastStacked}px, unstacked from ${firstUnstacked}px)`);
+  widthCheck(lastStacked !== null && lastStacked > PHONE_CEILING_PX,
+    `the threshold is not the phone breakpoint: it is set by the grid's own minimum, so a tablet is stacked too (stacked up to ${lastStacked}px, phone ceiling ${PHONE_CEILING_PX}px)`);
+  widthCheck(firstUnstacked !== null && firstUnstacked <= 1100,
+    `and it lands below a laptop (unstacked from ${firstUnstacked}px)`);
+  await sweep.screenshot({ path: path.join(shotDir, "widths-final.png") });
+  await sweep.close();
 }
 
 // --- Level-gated text in the picker, without a reload ----------------------
