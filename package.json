@@ -12,6 +12,7 @@
     "test:content": "node scripts/verify-content.mjs",
     "test:e2e": "node scripts/e2e-smoke.mjs",
     "test:e2e:smoke": "node scripts/e2e-smoke.mjs --smoke",
+    "test:e2e:areas": "node scripts/e2e-smoke.mjs --list",
     "test:crawl": "node scripts/crawl.mjs",
     "gate": "node scripts/gate-fast.mjs",
     "verify": "npm run gate && npm run test:e2e"

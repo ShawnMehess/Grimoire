@@ -20,21 +20,35 @@
 //
 // Screenshots go to os.tmpdir(), never the repo.
 //
-// Run: npm run test:e2e          the whole suite
-//      npm run test:e2e:smoke    one viewport, core flow only (~30s)
+// Run: npm run test:e2e                    everything
+//      npm run test:e2e:smoke              the core flow, one viewport
+//      npm run test:e2e -- --list          print the area names, then exit
+//      npm run test:e2e -- --only AREA...  only the named areas
+//      npm run test:e2e -- --only '!AREA'  everything EXCEPT the named areas
 //
-// The --smoke subset exists because the full suite, even after the waits were
-// replaced with condition checks, is still a three-minute investment, and
-// three minutes is long enough that you stop running it "just to see". A
-// subset you will actually run between edits is worth more than a complete
-// suite you run before pushing.
+// Why areas, and not a dependency graph over the unit tests.
 //
-// What --smoke keeps is chosen by one rule: does this catch the failure that
-// would make the next ten minutes of work pointless? A syntax error in an
-// entry module, a bad import path, a render that throws, a wizard that never
-// opens, a page that fails to start at all. What it drops is everything whose
-// failure is real but not immediately blocking - the width sweep, the print
-// PDF, the per-pixel grid geometry, the level-gating prose.
+// The unit tests were the obvious candidate and the measurement said no.
+// Mapping source files to the tests that import them transitively: of the 45
+// js/ modules the suite reaches, the most confined are leaf utilities
+// (sheetConstants, simpleView, loadFailure - one test each), and the ones you
+// would most often want to change are the LEAST confined. sheetMechanics is
+// reachable from 19 of 30 test files; the whole content layer - schema,
+// contentFixups, every generated bundle - from 17 or 18, because those
+// modules are the subject matter rather than a dependency of it. Confining on
+// that graph saves 1.3s of a 2.0s suite in the good case and still runs 63%
+// of it in the bad one, while costing a graph build and a class of bug where
+// the graph is wrong and something goes unchecked.
+//
+// Areas are a different thing and they are honest here: the e2e is one long
+// script whose sections exercise genuinely different parts of the app and
+// share no state. There is no graph to infer because the sections were already
+// written as separate page-owning blocks. Naming them costs one line each and
+// turns a 140s run into a 30s one.
+//
+// The unit tests therefore stay unconfined, deliberately. At 2.0s they are not
+// the problem, and a selector that reported "almost everything" would be worse
+// than none.
 import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
@@ -43,13 +57,94 @@ import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
-// In smoke mode only ONE viewport runs. Which one matters: `desktop` is the
-// width where the grid lays out normally, so it is the one that exercises the
-// most code - the phone path is mostly the same render plus a stacking class.
-const SMOKE_ONLY = process.argv.includes("--smoke");
-const SKIP_BLOCKS = new Set(SMOKE_ONLY
-  ? ["widths-sweep", "print", "shapes", "simple-view-persist", "a11y", "leveling", "linked"]
-  : []);
+// --- Area selection -------------------------------------------------------
+//
+// The unit of selection is a named AREA. `npm run test:e2e -- --list` prints
+// them, so this is discoverable rather than something to grep for.
+//
+// `--only a b` runs ONLY those. `--only '!a b'` runs everything EXCEPT them,
+// and that is the shape you want most of the time: you are working on the
+// Leveling tab, so the other 90% should run to prove you did not break it,
+// while the 10% you are editing will not pass yet.
+//
+// Only areas whose checks own their browser page are selectable. A few blocks
+// here are nested inside a brace that does not close until much later in the
+// file - the "Phone portrait: Your Characters" block opens at 2617 and does not
+// close until 3580, with five other sections nested inside it - so they
+// cannot be wrapped without restructuring the file around them. They stay
+// unconditional rather than being faked with an early `return`, which would
+// skip whatever comes after as well.
+const argv = process.argv.slice(2);
+const flagValue = (name) => {
+  const i = argv.indexOf(name);
+  return i === -1 ? null : argv.slice(i + 1).filter((a) => !a.startsWith("--"));
+};
+
+// name -> what it covers. Listed rather than derived, so an area cannot
+// silently vanish when a section is refactored and so --list can say what
+// each one is.
+const AREAS = {
+  "print-pdf": "real Chrome print pipeline: page.pdf() page count and content",
+  shapes: "user-defined screen shapes: name, ratio, reflow, delete",
+  "vault-cards": "Your Characters on a phone: card count and meta lines",
+  "phone-layout": "phone portrait: no sideways scroll, evenly split buttons",
+  "widths-sweep": "320-1440px ladder: stacking threshold and cell floor",
+  "levelgated-text": "level-gated prose in a trait, changing with no reload",
+  rowclick: "a click inside a row selects that row (picker link vs <select>)",
+  "spell-rows": "spell picker row shape: facts, gist, disclosure",
+  "swipe-arrow": "edge arrow and swipe between steps on a touch viewport",
+  "load-failure": "a blocked entry script produces a failure page",
+};
+
+// The areas the smoke preset drops. Written as an explicit drop list so a new
+// area runs in smoke by default - the safer direction, since an area added
+// later and forgotten here should be checked, not skipped.
+const SMOKE_DROPS = new Set([
+  "print-pdf", "shapes", "phone-layout", "widths-sweep", "levelgated-text",
+  "rowclick", "spell-rows", "swipe-arrow",
+]);
+
+const onlyRaw = flagValue("--only");
+const SMOKE_ONLY = argv.includes("--smoke");
+const listed = argv.includes("--list");
+const invert = Boolean(onlyRaw && onlyRaw.length && onlyRaw.some((a) => a.startsWith("!")));
+const named = new Set((onlyRaw || []).map((a) => a.replace(/^!/, "")));
+
+if (onlyRaw && onlyRaw.length) {
+  const unknown = [...named].filter((a) => !(a in AREAS));
+  if (unknown.length) {
+    console.error(`e2e-smoke: unknown area(s): ${unknown.join(", ")}`);
+    console.error(`Known areas: ${Object.keys(AREAS).join(", ")}`);
+    process.exit(2);
+  }
+}
+
+let selected;
+if (named.size) selected = (name) => (invert ? !named.has(name) : named.has(name));
+else if (SMOKE_ONLY) selected = (name) => !SMOKE_DROPS.has(name);
+else selected = () => true;
+
+if (listed) {
+  console.log("e2e areas. Use --only <name> for just these, or --only '!<name>' for everything else.");
+  console.log("");
+  for (const [name, meaning] of Object.entries(AREAS)) {
+    console.log(`  ${selected(name) ? "on " : "off"}  ${name.padEnd(16)} ${meaning}`);
+  }
+  console.log("");
+  console.log("Unconditional (not selectable): the three viewport passes, and the");
+  console.log("wizard walkthrough inside each of them. Those are the app booting and");
+  console.log("rendering - the floor under everything else - and they are the blocks");
+  console.log("whose braces do not close where they appear to.");
+  process.exit(0);
+}
+
+// Whether an area is part of this run. A call site reads as
+// `if (inArea("print-pdf")) { ... }`, so the skip is visible where the work is
+// rather than hidden in a flag check far away.
+const inArea = (name) => {
+  if (!(name in AREAS)) throw new Error(`e2e-smoke: "${name}" is not a known area (add it to AREAS)`);
+  return selected(name);
+};
 
 const ROOT = path.resolve(path.join(path.dirname(fileURLToPath(import.meta.url)), ".."));
 let chromium;
@@ -131,19 +226,6 @@ const VIEWPORTS = [
 
 const viewportSizes = SMOKE_ONLY ? VIEWPORTS.slice(0, 1) : VIEWPORTS;
 
-// Gate a section of the suite behind the smoke subset.
-//
-// Returns true when the section should run, so a call site reads as
-// `if (section("print")) { ... }` - the skip is visible where the work is,
-// rather than hidden in a flag check somewhere far away.
-//
-// The names are the sections, not the reasons. What belongs here is decided
-// by one question: if this fails, is the failure going to waste the next ten
-// minutes of work? A render that throws, a wizard that never opens, a page
-// that cannot start - yes. A PDF that comes out one page short, or a dropdown
-// that is 2px narrower than intended - no, because those are found by the
-// full run before pushing, not between edits.
-const section = (name) => !SKIP_BLOCKS.has(name);
 
 const browser = await chromium.launch({
   executablePath: chromePath,
@@ -188,6 +270,57 @@ const settled = async (page, selector, what) => {
 const READY_SHEET = ".sheet-toolbar";
 const READY_VAULT = "button:has-text('+ New Character')";
 const READY_WIZARD = ".wizard";
+
+// Wait for a debounced PERSIST to land in localStorage.
+//
+// The sheet saves through `debounce(persistSheetState)` at 500ms, and every
+// interaction resets that timer - so a write lands 500ms after the LAST
+// action in a burst, plus the async localStorage write itself. The tests that
+// read storage back used to wait a flat 700ms, which leaves about a 200ms
+// margin and fails whenever the machine is busy. With three viewport passes
+// running concurrently the machine is always busy, which is why the
+// prepared-spells block was the suite's one reliably flaky section - and why
+// it failed DIFFERENTLY each run (0/8, 1/8, 8/8) rather than consistently.
+//
+// `quiet` cannot help here: the counter in the DOM updates immediately and
+// the write happens later, so there is no rendered-state change to wait for.
+// The only honest condition is the persisted value.
+//
+// `predicate` runs in the page against the stored character and should return
+// true once the save it is waiting for has happened. A timeout is swallowed,
+// because the caller asserts on the real values immediately afterwards and
+// that assertion is a far better failure message than "waitForFunction
+// timed out".
+const saved = async (page, predicate, what, arg = undefined, timeout = 15000) => {
+  try {
+    await page.waitForFunction(predicate, arg, { timeout });
+  } catch {
+    problems.push(`SAVE TIMEOUT: ${what} was not persisted within ${timeout}ms`);
+  }
+};
+
+// Wait until at least `n` spells are PREPARED in the stored document.
+//
+// `predicateAtLeast` is a real function rather than a string so Playwright can
+// serialise it; the body is kept in one place so "how the tests read storage"
+// is one function instead of a convention repeated at seven call sites.
+function preparedAtLeast(n) {
+  const stored = JSON.parse(localStorage.getItem("grimoire.local.characters.v1") || "{}");
+  const id = Object.keys(stored)[0];
+  const field = stored[id]?.sheetTabs?.[0]?.layout
+    ?.flatMap((b) => b.children || [])
+    ?.find((f) => f.id === "spellsKnown");
+  return (field?.preparedItems || []).length >= n;
+}
+// The prepared count, for callers that want the number rather than a boolean.
+function preparedCount() {
+  const stored = JSON.parse(localStorage.getItem("grimoire.local.characters.v1") || "{}");
+  const id = Object.keys(stored)[0];
+  const field = stored[id]?.sheetTabs?.[0]?.layout
+    ?.flatMap((b) => b.children || [])
+    ?.find((f) => f.id === "spellsKnown");
+  return (field?.preparedItems || []).length;
+}
 
 // Wait until the page stops changing, rather than for a fixed time.
 //
@@ -444,7 +577,7 @@ async function runViewportTests(viewport) {
   // Gated behind --smoke, and this is the block that makes that worth having:
   // page.pdf() runs a full layout and rasterisation pass in real Chrome, and
   // at three viewports it was a large fraction of the suite.
-  if (section("print-pdf") && printToggle) {
+  if (inArea("print-pdf") && printToggle) {
     // The Display panel is a <details>, and the block above already
     // opened it — toggling again would close it and hide the button.
     // Tested for VISIBILITY, not existence: everything inside a closed
@@ -549,7 +682,7 @@ async function runViewportTests(viewport) {
   // Gated behind --smoke: it forces a full re-flow of every tab three times
   // over, and its failure mode is a shape that lays out oddly - found by the
   // full run, not between edits.
-  if (section("shapes")) {
+  if (inArea("shapes")) {
     if (!await page.$("button:has-text('Add shape')").then((b) => b && b.isVisible())) {
       const summary = await page.$(".toolbar-display summary");
       if (summary) await summary.click();
@@ -1455,21 +1588,48 @@ async function runViewportTests(viewport) {
    *  hit-test assertion matters because a JS-dispatched click would succeed
    *  even if the control were permanently covered. */
   const clickOnSheet = async (selector) => {
-    const found = await page.evaluate((sel) => {
-      const el = document.querySelector(sel);
-      if (!el) return { ok: false, reason: "not found" };
-      el.scrollIntoView({ block: "center", inline: "nearest" });
-      const r = el.getBoundingClientRect();
-      const cx = Math.round(r.left + r.width / 2);
-      const cy = Math.round(r.top + r.height / 2);
-      const top = document.elementFromPoint(cx, cy);
-      return {
-        ok: true,
-        hittable: !!(top && (top === el || el.contains(top))),
-        coveredBy: top && !(top === el || el.contains(top)) ? `${top.tagName}.${String(top.className).slice(0, 40)}` : null,
-        cx, cy,
-      };
-    }, selector);
+    // Measure the element's box until it stops MOVING, then click that box.
+    //
+    // The obvious version - scroll into view, measure once, click - is wrong,
+    // and wrong in a way that cannot fail loudly. Between the measuring
+    // `evaluate` and the `mouse.click`, the sheet's debounced renderAll() can
+    // fire and move or replace the row. The click then lands at stale
+    // coordinates, on whatever is now there, or on nothing. No exception, and
+    // the hit test does not catch it because the hit test ran against the
+    // pre-move layout.
+    //
+    // That is what made the prepared-spells block the suite's one reliably
+    // flaky section: a toggle click would silently miss, the assertion would
+    // read a count of one where two were asked for, and WHICH assertion failed
+    // varied per run because it depended on which click happened to miss.
+    //
+    // So the box is required to be identical across two consecutive samples
+    // before the click is issued. That costs ~50ms on a settled sheet and
+    // removes the whole class.
+    let found = null;
+    let previousBox = null;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      found = await page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return { ok: false, reason: "not found" };
+        el.scrollIntoView({ block: "center", inline: "nearest" });
+        const r = el.getBoundingClientRect();
+        const cx = Math.round(r.left + r.width / 2);
+        const cy = Math.round(r.top + r.height / 2);
+        const top = document.elementFromPoint(cx, cy);
+        return {
+          ok: true,
+          hittable: !!(top && (top === el || el.contains(top))),
+          coveredBy: top && !(top === el || el.contains(top)) ? `${top.tagName}.${String(top.className).slice(0, 40)}` : null,
+          cx, cy,
+          box: `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)},${Math.round(r.height)}`,
+        };
+      }, selector);
+      if (!found.ok) return found;
+      if (found.box === previousBox) break;
+      previousBox = found.box;
+      await page.waitForTimeout(50);
+    }
     if (!found.ok) return found;
     if (!found.hittable) return found;
     await page.mouse.click(found.cx, found.cy);
@@ -2190,11 +2350,25 @@ async function runViewportTests(viewport) {
     `and the row is still ticked (${afterReload.pressed.join("/") || "none"})`);
 
   // Over the limit is allowed and warned about, never refused.
+  //
+  // `expectedPrepared` counts up as each toggle is clicked, because Bless is
+  // already prepared from the step above - so the wait after the FIRST click
+  // in this loop is for 2, not 1. Getting that off by one would either pass
+  // vacuously or hang until the timeout.
+  let expectedPrepared = 1;
   for (const name of ["Cure Wounds", "Guiding Bolt", "Healing Word", "Inflict Wounds",
     "Sanctuary", "Shield of Faith", "Command", "Detect Magic"]) {
     const hit = await clickOnSheet(`.spell-row__prepared-toggle[aria-label="Mark ${name} prepared"]`);
     check(hit.hittable, `every toggle is reachable, including ${name} (${hit.coveredBy || "clear"})`);
-    await page.waitForTimeout(400);
+    // Wait for each toggle to PERSIST, not just to render. Nine clicks in a
+    // row each reset the 500ms debounce, so without this the counter can be
+    // read mid-sequence - which is how the "9 / 8" check below was reading
+    // 8 / 8 on some runs and passing on others.
+    await saved(page, preparedAtLeast, `${name} prepared`, expectedPrepared);
+    // The render that follows the save, so the counter read below reflects
+    // every toggle in the burst rather than the last one's render.
+    await quiet(page);
+    expectedPrepared += 1;
   }
   const over = await page.evaluate(() => ({
     counter: document.querySelector(".spell-list-chrome__count")?.textContent || "",
@@ -2210,15 +2384,21 @@ async function runViewportTests(viewport) {
   check(over.preparedStillOn === 9, `and nothing was silently refused (${over.preparedStillOn} still prepared)`);
 
   // The filter removes rows rather than dimming ghosts.
+  //
+  // Each unprepare re-renders the row, so these clicks are separated by a
+  // render wait. Issued back to back they land on detached nodes and are
+  // silently dropped, which shows up as a filter count that is one or two
+  // rows off rather than as an error.
   const beforeFilter = await page.evaluate(() => document.querySelectorAll(".textlist-item").length);
-  await clickOnSheet('.spell-row__prepared-toggle[aria-label="Unprepare Sanctuary"]');
-  await clickOnSheet('.spell-row__prepared-toggle[aria-label="Unprepare Command"]');
-  await clickOnSheet('.spell-row__prepared-toggle[aria-label="Unprepare Shield of Faith"]');
-  await clickOnSheet('.spell-row__prepared-toggle[aria-label="Unprepare Bless"]');
-  await page.waitForTimeout(500);
+  for (const name of ["Sanctuary", "Command", "Shield of Faith", "Bless"]) {
+    await clickOnSheet(`.spell-row__prepared-toggle[aria-label="Unprepare ${name}"]`);
+    await quiet(page);
+  }
+  await saved(page, () => document.querySelectorAll('.spell-row__prepared-toggle[aria-pressed="true"]').length <= 8,
+    "one unprepared");
   const filterTap = await clickOnSheet(".spell-list-chrome__filter input");
   check(filterTap.hittable, `the prepared-only filter is clickable too (${filterTap.coveredBy || "clear"})`);
-  await page.waitForTimeout(700);
+  await quiet(page);
   const filtered = await page.evaluate(() => ({
     drawn: document.querySelectorAll(".textlist-item").length,
     checkbox: document.querySelector(".spell-list-chrome__filter input")?.checked,
@@ -2280,13 +2460,31 @@ async function runViewportTests(viewport) {
   // pick key at all - so it survives, correctly. Bless prepared as a Cleric
   // is still a legal Druid preparation, and silently dropping it on a class
   // change would lose work the player can see and undo.
+  // Wait until the spell list is rendered AND has stopped moving.
+  //
+  // `reopenSheet` navigates and clicks through to the character, then waits
+  // for the DOM to go quiet - but "quiet" is a property of the whole page, and
+  // the sheet finishes rendering its field values a beat after the structure
+  // stops changing. A click issued into that window measures a rectangle, then
+  // the row moves, and `page.mouse.click` lands on empty space: silently, with
+  // no error and no hit-test failure, because the hit test ran against the
+  // pre-move layout.
+  //
+  // The wait is on the specific thing the next action needs - the toggle's own
+  // box being the same twice in a row - rather than on a length of time.
   await setUpWizard({
     rules: { className: "Cleric", level: 5, abilityScores: { str: 10, dex: 10, con: 10, int: 10, wis: 16, cha: 10 } },
     spells: ["Bless", "Cure Wounds", "Guiding Bolt"],
   });
   await clickOnSheet('.spell-row__prepared-toggle[aria-label="Mark Bless prepared"]');
+  // Settle the RENDER before the second click. Preparing a spell re-renders
+  // the row, which replaces its DOM; a second click issued into that window
+  // lands on a detached node and is silently lost.
+  await quiet(page);
   await clickOnSheet('.spell-row__prepared-toggle[aria-label="Mark Cure Wounds prepared"]');
-  await page.waitForTimeout(700);
+  // Wait for the SAVE, not for a number of milliseconds. See `saved()`.
+  await saved(page, preparedAtLeast, "two spells prepared", 2);
+  await quiet(page);
   const clericSaved = await page.evaluate(() => {
     const stored = JSON.parse(localStorage.getItem("grimoire.local.characters.v1") || "{}");
     const id = Object.keys(stored)[0];
@@ -2357,7 +2555,13 @@ async function runViewportTests(viewport) {
   });
   check((await history()).undoDisabled === true, "Undo starts disabled on an untouched sheet");
   await clickOnSheet('.spell-row__prepared-toggle[aria-label="Mark Bless prepared"]');
-  await page.waitForTimeout(700);
+  // Both halves, in order. `saved` waits for the debounced write to land;
+  // `quiet` then waits for the render that follows it. Waiting only for the
+  // save is not enough - the counter in the DOM is updated by a separate
+  // debounced renderAll(), so the storage can be current while the screen
+  // still shows the old number, which is exactly the 0/8 this reported.
+  await saved(page, preparedAtLeast, "one spell prepared", 1);
+  await quiet(page);
   const afterPrepare = await history();
   check(afterPrepare.counter === "Prepared: 1 / 8", `one spell prepared (${afterPrepare.counter})`);
   check(afterPrepare.undoDisabled === false, "and Undo becomes available for it");
@@ -2614,7 +2818,14 @@ const widthCheck = reporter("widths");
 // race / class lines were not displayed at all on a phone - the media query
 // set .character-card__meta-lines to display:none, so a phone showed a
 // portrait and a name and nothing else.
-{
+//
+// NOTE on the brace: this block's own `{` does not close at the end of its
+// section. It closes near the end of the file, with the phone-layout,
+// widths-sweep, levelgated, rowclick and spell-rows sections nested inside it.
+// That is pre-existing shape in this script, not something to tidy here, and
+// it is why the sections below are gated individually rather than by wrapping
+// each section header. See the note above AREAS.
+if (inArea("vault-cards")) {
   const phone = await browser.newPage({ viewport: { width: 390, height: 844 } });
   phone.on("pageerror", (e) => problems.push(`PAGEERROR [phone]: ${e.message}`));
   await phone.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
@@ -2715,6 +2926,7 @@ const widthCheck = reporter("widths");
     `with no line silently clipped away (${JSON.stringify(grid.visibleLines.filter((l) => !l.shown))})`);
   await phone.screenshot({ path: path.join(shotDir, "vault-phone.png") });
   await phone.close();
+}
 
 // --- Phone portrait: nothing scrolls sideways, and pairs of buttons share the
 //     width evenly -------------------------------------------------------
@@ -2736,10 +2948,10 @@ const widthCheck = reporter("widths");
 // kind of rule that happens to pass at one and fail at the other, and
 // because 320 is the width the sheet's own grid floor (MIN_CELL_PX) makes
 // impossible.
-// Skipped under --smoke: it drives the sheet and the wizard at two phone
-// widths, and the phone layout is not what a desktop-width smoke run can
-// regress. A phone-only regression is caught by the full suite.
-if (!SKIP_BLOCKS.has("phone-widths")) {
+// Skipped under --smoke, and selectable with --only: it drives the sheet and
+// the wizard at two phone widths, and the phone layout is not what a
+// desktop-width smoke run can regress.
+if (inArea("phone-layout")) {
 for (const phoneWidth of [320, 390]) {
   {
     const sheet = await browser.newPage({ viewport: { width: phoneWidth, height: 844 } });
@@ -2924,7 +3136,7 @@ for (const phoneWidth of [320, 390]) {
 // an edit for.
 // (The per-viewport runs below already assert that the sheet does not scroll
 // sideways AT their width, so a gross overflow is still caught in smoke.)
-if (!SKIP_BLOCKS.has("widths-sweep")) {
+//
 //
 // The per-viewport runs above each pick one width and assert a great deal at
 // it. What none of them asserted is the BOUNDARIES, and the boundaries are
@@ -2951,7 +3163,7 @@ if (!SKIP_BLOCKS.has("widths-sweep")) {
 // out of the rendered sheet also means the sweep keeps working if MIN_CELL_PX
 // or the column count ever change, which is the point of keeping that rule a
 // predicate over a measurement rather than a hard-coded 800px.
-{
+if (inArea("widths-sweep")) {
   const ladder = [320, 390, 600, 720, 721, 834, 900, 1024, 1280, 1440];
   const sweep = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   sweep.on("pageerror", (e) => problems.push(`PAGEERROR [widths @${sweep.viewportSize().width}]: ${e.message}`));
@@ -3033,7 +3245,6 @@ if (!SKIP_BLOCKS.has("widths-sweep")) {
   await sweep.screenshot({ path: path.join(shotDir, "widths-final.png") });
   await sweep.close();
 }
-}
 
 // --- Level-gated text in the picker, without a reload ----------------------
 //
@@ -3043,7 +3254,7 @@ if (!SKIP_BLOCKS.has("widths-sweep")) {
 // the level, read it again - in the SAME page, with no reload between. That
 // last part is the point, and it is why this is an e2e check rather than
 // only a unit test.
-{
+if (inArea("levelgated-text")) {
   const lg = await browser.newPage({ viewport: { width: 1400, height: 1200 } });
   lg.on("pageerror", (e) => problems.push(`PAGEERROR [levelgate]: ${e.message}`));
   lg.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [levelgate]: ${m.text()}`); });
@@ -3146,7 +3357,7 @@ if (!SKIP_BLOCKS.has("widths-sweep")) {
 // The regression this guards is subtle: a bubble-phase listener would see
 // NEITHER control, because both stop propagation in their own handlers, and
 // the check would pass on a row that simply never got selected.
-{
+if (inArea("rowclick")) {
   const cr = await browser.newPage({ viewport: { width: 1400, height: 1200 } });
   cr.on("pageerror", (e) => problems.push(`PAGEERROR [rowclick]: ${e.message}`));
   await cr.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
@@ -3249,7 +3460,7 @@ if (!SKIP_BLOCKS.has("widths-sweep")) {
 // earlier version of this check looked for a .spell-picker-list and found
 // nothing at all, which is how the row turned out to carry only a school name
 // as its description.
-{
+if (inArea("spell-rows")) {
   const sp = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   sp.on("pageerror", (e) => problems.push(`PAGEERROR [spells]: ${e.message}`));
   await sp.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
@@ -3414,7 +3625,7 @@ if (!SKIP_BLOCKS.has("widths-sweep")) {
 // decision. Checked on a real touch viewport, because the arrow is hidden
 // above 1024px and the swipe is touch-only - on the desktop viewport there is
 // nothing here to find.
-{
+if (inArea("swipe-arrow")) {
   const t = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
   t.on("pageerror", (e) => problems.push(`PAGEERROR [swipe]: ${e.message}`));
   await t.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
@@ -3577,8 +3788,6 @@ if (!SKIP_BLOCKS.has("widths-sweep")) {
   await t.close();
 }
 
-}
-
 const vaultPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 vaultPage.on("pageerror", (e) => problems.push(`PAGEERROR [vault]: ${e.message}`));
 vaultPage.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [vault]: ${m.text()}`); });
@@ -3660,7 +3869,7 @@ if (vaultLineage) {
 //
 // Driven by loading a page whose entry script is blocked, which is exactly
 // what a stale cache or a missing deploy looks like from the browser's side.
-{
+if (inArea("load-failure")) {
   const brokenPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   // A blocked script IS the thing under test, so this page's own errors are
   // not collected into `problems` - they are the expected result.

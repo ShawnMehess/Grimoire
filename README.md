@@ -188,8 +188,11 @@ seconds; the last drives real Chrome.
 npm run gate              # the five fast gates, concurrently, ~3s
 npm test                  # unit tests only
 npm run test:watch        # unit tests, re-running on save
-npm run test:e2e:smoke    # real Chrome, one viewport, core flow, ~2.5min
-npm run test:e2e          # real Chrome, all three viewports, ~3min
+npm run test:e2e:smoke    # real Chrome, one viewport, core flow, ~80s
+npm run test:e2e:areas    # list the e2e areas you can select
+npm run test:e2e -- --only AREA...   # real Chrome, only those areas
+npm run test:e2e -- --only '!AREA'   # everything EXCEPT that area
+npm run test:e2e          # everything, ~160s
 npm run verify            # gate + the full e2e, i.e. everything
 ```
 
@@ -223,20 +226,65 @@ carries an explicit category and choice kind.
 serves the repo over local HTTP, drives the real app, fails on any page
 error, and writes screenshots and PDFs to `os.tmpdir()/grimoire-e2e`.
 
+### Confining the checks, and why the unit tests are not confined
+
+**Nothing is confined by default.** Every gate runs everything, every time. That
+is deliberate for the fast gates and worth revisiting for the e2e — the
+reasoning is below rather than a shrug.
+
+**The unit tests stay unconfined on purpose.** The obvious thing to build is a
+graph from source file to the tests that import it, and the measurement kills
+it. Of the 45 `js/` modules the suite reaches:
+
+| Change | Tests that must run |
+|---|---|
+| `js/data/themes.js`, `sheetConstants.js`, `simpleView.js`, `loadFailure.js` | 1 of 30 |
+| `js/render/sheet/sheetWizard.js` | 8 of 30 |
+| `js/data/schema.js`, `contentFixups.js`, the generated bundles | 17–18 of 30 |
+| `js/render/sheet/sheetMechanics.js` | 19 of 30 |
+
+The most-confined modules are leaf utilities; the ones you would most often
+want to change are the **least** confined, because the content layer is the
+*subject matter* of those tests rather than a dependency of them. Confinement
+would save 1.3s of a 2.5s suite in the good case and still run 63% of it in the
+bad one — while costing a graph build, and introducing a class of bug where the
+graph is wrong and something silently goes unchecked. At 2.5s it is not the
+problem.
+
+**The e2e is confined by area**, because that is where the wall clock is and
+because its sections are already independent. `npm run test:e2e:areas` prints
+them. Ten areas, selectable by name:
+
+```
+print-pdf  shapes  vault-cards  phone-layout  widths-sweep
+levelgated-text  rowclick  spell-rows  swipe-arrow  load-failure
+```
+
+A leading `!` inverts, which is the shape you usually want: you are working on
+the Leveling tab, so the other 90% should run to prove you did not break it,
+while the 10% you are editing will not pass yet.
+
+The three viewport passes and the wizard walkthrough inside them are
+**not** selectable. They are the app booting and rendering — the floor under
+everything else — and they are also the blocks whose braces do not close where
+they appear to, so they cannot be wrapped without restructuring the file. That
+is stated rather than hidden, and it is why a `--only` run is ~100s rather than
+the ~30s a fully-conforming selector would give.
+
 ### Why the e2e suite is not full of `waitForTimeout`
 
-It used to be. There were 136 of them, totalling 136 seconds of a suite that
-took eleven minutes — the tests were mostly asleep. Three changes fixed it:
+It used to be, and fixing it uncovered a real bug. There were 136 of them,
+totalling 136 seconds of a suite that took eleven minutes — the tests were
+mostly asleep. Three changes:
 
 - **`settled(page, selector)`** waits for the thing the page is actually
   waiting for (`.sheet-toolbar`, the vault's New Character button, `.wizard`)
   instead of guessing a millisecond count. A guess is wrong in both
   directions: too short on a loaded machine, and pure dead time on a fast one.
 - **`quiet(page)`** polls a fingerprint of what is on screen and returns when
-  two consecutive samples match, so it stops as soon as the app is idle rather
-  than after a fixed delay. It reads rendered text, selected `<select>` values
-  and checked/expanded state, because a node count or a text *length* cannot
-  see a dropdown commit a value.
+  two consecutive samples match. It reads rendered text, selected `<select>`
+  values and checked/expanded state, because a node count or a text *length*
+  cannot see a dropdown commit a value.
 - **The three viewport runs are concurrent.** They are independent browser
   contexts with no shared state, and they were 85% of the wall clock.
 
@@ -244,13 +292,27 @@ The rule for extending `quiet`'s sample list: add anything that can appear
 *over* the page or replace it — dialogs, overlays, toasts. A region that is
 merely part of the page is already covered.
 
-`--smoke` exists because a three-minute suite is long enough that you stop
-running it "just to see", and a subset you will actually run between edits is
-worth more than a complete suite you run before pushing. It keeps what catches
-the failure that would waste your next ten minutes — an entry module that
-throws, a wizard that never opens, a page that cannot start — and drops what
-fails without blocking further work: the width sweep, the print PDF, the
-per-pixel grid geometry.
+### Three bugs the wait removal found
+
+Worth recording, because all three presented as something else:
+
+1. **`clickOnSheet` measured an element's box, then clicked stale
+   coordinates.** If the debounced re-render moved the row in between, the
+   click landed on nothing — silently, because the hit test had already run
+   against the pre-move layout. It now requires the box to be identical across
+   two samples before clicking, which fixes every call site at once rather
+   than patching them one by one.
+2. **Reading `localStorage` 700ms after a click.** The sheet persists through
+   `debounce(persistSheetState)` at 500ms, and every action resets that timer,
+   so a burst of clicks writes 500ms after the *last* one. 700ms left a ~200ms
+   margin. Under three concurrent viewport passes that margin was being missed
+   often enough to fail most runs — and to fail *differently* each time
+   (`0/8`, `1/8`, `8/8`), which is what made it look like a content bug. Now
+   `saved()` waits on the persisted value, and the DOM is a separate debounced
+   render, so it waits for both, in that order.
+3. **An area helper named `area` collided with a local `const area`** inside a
+   `page.evaluate` callback. Harmless in the callback's scope, and a gate
+   evaluated in that scope would have called an `Element`. Renamed `inArea`.
 
 Print is verified against **real output**, not against what the CSS says:
 the e2e stubs `window.print()` to capture the print stage and the injected
