@@ -330,6 +330,82 @@ if (cssErrors.length) {
   }
 }
 
+// --- js: document/window listeners must be removable ------------------------
+//
+// Why: a listener registered on `document` or `window` outlives the element
+// it was set up for, because neither node is ever torn down. The only thing
+// that removes one is destroy() holding a reference to it — and an inline
+// `document.addEventListener("pointerdown", (e) => {...})` leaves no
+// reference to hold. That exact line shipped in customSheet.js: the handler
+// fired on every pointerdown for the rest of the session and could still call
+// renderPageGrid() on a detached tree, once per character ever opened.
+//
+// So the rule is: on document/window, the listener must be a name, not an
+// inline function. Removal is then destroy()'s job to get right, which is
+// reviewable; this rule only removes the reason it silently couldn't be.
+//
+// Scoped to document/window on purpose. Listeners on a renderer's own nodes
+// are fine either way: those nodes are discarded on the next full re-render,
+// so listener churn is bounded by node churn.
+{
+  const listenerErrors = [];
+  // A handler is removable if it resolves to a reference: a bare name, a
+  // member expression (`obj.handler`), or an indexed one (`handlers[k]`).
+  // It is NOT removable if it is a function or class expression, or any
+  // arrow — those exist only for the duration of the call. Testing the shape
+  // directly is more reliable than pattern-matching an identifier, which
+  // happily matches the word `function`.
+  const handlerIsReference = (expr) => {
+    const s = expr.trim();
+    if (/^(async\s+)?(function\b|class\b)/.test(s)) return false;
+    if (s.includes("=>")) return false;
+    return true;
+  };
+  for (const file of jsFilesUnder(join(ROOT, "js"), ".js")) {
+    const src = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const m of src.matchAll(/\b(document|window)\.addEventListener\s*\(/g)) {
+      // Walk from the open paren to its match, tracking nesting and strings,
+      // to get exactly this call's argument list.
+      let i = m.index + m[0].length;
+      let depth = 1;
+      let quote = null;
+      const start = i;
+      while (i < src.length && depth > 0) {
+        const ch = src[i];
+        if (quote) {
+          if (ch === "\\") { i += 2; continue; }
+          if (ch === quote) quote = null;
+        } else if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+        else if (ch === "(" || ch === "[" || ch === "{") depth++;
+        else if (ch === ")" || ch === "]" || ch === "}") depth--;
+        if (depth === 0) break;
+        i++;
+      }
+      const args = src.slice(start, i);
+      // Split off the event name (first argument), then look at the handler.
+      const comma = args.indexOf(",");
+      if (comma === -1) continue;
+      const handler = args.slice(comma + 1);
+      // Trailing options argument (capture, passive, once) is not the handler.
+      const lastComma = handler.lastIndexOf(",");
+      const handlerExpr = lastComma === -1 ? handler : handler.slice(0, lastComma);
+      if (handlerIsReference(handlerExpr)) continue;
+      const line = src.slice(0, m.index).split("\n").length;
+      listenerErrors.push(
+        `${file}:${line}: ${m[1]}.addEventListener(<inline>) - an inline handler cannot be removed, ` +
+        `and document/window outlive every element here. Hoist it to a const/function so destroy() can ` +
+        `take it off again.`
+      );
+    }
+  }
+  if (listenerErrors.length) {
+    console.error("LISTENER ERRORS:\n" + listenerErrors.join("\n"));
+    process.exit(1);
+  } else {
+    console.log("listeners: no unremovable document/window listeners");
+  }
+}
+
 // --- index.html: the page's only non-JS fallbacks --------------------------
 //
 // Both of these exist because the alternative is a page that silently does

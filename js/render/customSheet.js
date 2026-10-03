@@ -9034,7 +9034,13 @@ try {
       (v) => { toolbarWithOpenPopup = v; }
     );
   }
-  document.addEventListener("pointerdown", (e) => {
+  // Named, not anonymous: destroy() has to remove this. An inline arrow
+  // leaves no reference to remove, so every character opened in a session
+  // leaves a document-level handler behind, each retaining this whole render
+  // closure (character, caches, 267 nested functions) — and each one still
+  // runs on every click anywhere, able to call renderPageGrid() on a DOM tree
+  // that is no longer on the page.
+  const onDocumentPointerDown = (e) => {
     if (!e.target.closest(".style-popover, .field-type-menu, .node-toolbar button")) {
       const hadPopover = !!document.querySelector(".style-popover, .field-type-menu");
       closeOpenPopovers();
@@ -9052,7 +9058,8 @@ try {
         clearSelectionState();
       }
     }
-  });
+  };
+  document.addEventListener("pointerdown", onDocumentPointerDown);
 
   /** Keeps a block/field's toolbar visible while the pointer is over
    *  the block/field itself OR the toolbar — with a short grace period
@@ -9210,13 +9217,23 @@ try {
   window.addEventListener("beforeunload", onBeforeUnload);
 
   // main.js calls this before swapping this character's DOM out (for
-  // another character, or back to the list) — without it, the resize
-  // and beforeunload listeners above would just keep piling up, one
-  // more per character opened in the same session, each holding onto
-  // a whole stale render closure.
-  function   destroy() {
+  // another character, or back to the list) — without it, these listeners
+  // would just keep piling up, one set more per character opened in the
+  // same session, each holding onto a whole stale render closure.
+  //
+  // All four matter, and all four used to be missed in pairs: the two
+  // window-level ones were removed here while the two document-level ones
+  // (the keydown shortcut at the top of this closure and the pointerdown
+  // popover/selection handler down by the hover toolbar) were not, so
+  // opening ten characters in one session left twenty document listeners
+  // running. The document-level pair is the worse half: a keydown handler
+  // that fires on every keystroke, and a pointerdown handler that could
+  // still call renderPageGrid() on a detached tree.
+  function destroy() {
     window.removeEventListener("resize", onResize);
     window.removeEventListener("beforeunload", onBeforeUnload);
+    document.removeEventListener("keydown", onShortcut);
+    document.removeEventListener("pointerdown", onDocumentPointerDown);
     // Final flush of wizard resume state (fire-and-forget): picks made
     // seconds before closing would otherwise wait out the debounce and
     // never get written, so reopening would miss the very latest.
