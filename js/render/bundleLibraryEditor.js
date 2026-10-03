@@ -21,7 +21,7 @@
 import { positionCollectionMenu } from "./collectionMenuLayout.js";
 import { deepClone, newLocalId, el } from "./sheet/sheetHelpers.js";
 import { listContentPacks, listRulesets } from "../data/dnd5e.js";
-import { CREATION_CHOICE_CATEGORIES } from "./sheet/sheetMechanics.js";
+import { CREATION_CHOICE_CATEGORIES } from "../data/choiceCategories.js";
 import { confirmDialog, alertDialog } from "../ui/dialogs.js";
 
 const MODIFIER_OPS = [

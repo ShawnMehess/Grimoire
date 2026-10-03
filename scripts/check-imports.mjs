@@ -406,6 +406,50 @@ if (cssErrors.length) {
   }
 }
 
+// --- js/data must not reach up into render, state or ui ---------------------
+//
+// README.md describes js/data as "content and rules. Pure. No DOM, no
+// Firebase." That was not true: js/data/choiceCategories.js imported the
+// page-routing table from js/render/sheet/sheetMechanics.js, so the data
+// layer could not be loaded in a data-only context — which is what the
+// content compilers, the offline tooling and the migration work all need.
+//
+// Direction matters more than the specific pair. js/data is the bottom of
+// the stack; anything that touches the DOM, the network or the store sits
+// above it. An upward import is the one error that makes the layers a graph
+// instead of a stack, and it is invisible in review because the import looks
+// locally reasonable.
+//
+// ui -> render is deliberately NOT flagged. js/ui/dialogs.js borrows el()
+// from the sheet helpers, which is untidy naming rather than an inversion:
+// both layers are above data, so nothing below them is affected.
+{
+  const layeringErrors = [];
+  const dataDir = join(ROOT, "js", "data");
+  for (const file of jsFilesUnder(dataDir, ".js")) {
+    const src = readFileSync(file, "utf8");
+    for (const m of src.matchAll(/from\s+["']([^"']+)["']/g)) {
+      const spec = m[1];
+      if (!spec.startsWith(".")) continue;
+      const target = resolve(dirname(file), spec).replace(/\\/g, "/");
+      const rel = target.slice(ROOT.replace(/\\/g, "/").length + 1);
+      if (!/^js\/(render|state|ui)\//.test(rel)) continue;
+      const line = src.slice(0, m.index).split("\n").length;
+      layeringErrors.push(
+        `${file}:${line}: js/data imports ${rel} - data is the bottom layer, so this inverts the ` +
+        `stack and makes js/data unloadable without a DOM. Move the shared piece down into js/data, ` +
+        `or up into a module both may import.`
+      );
+    }
+  }
+  if (layeringErrors.length) {
+    console.error("LAYERING ERRORS:\n" + layeringErrors.join("\n"));
+    process.exit(1);
+  } else {
+    console.log("layering: js/data imports nothing from render, state or ui");
+  }
+}
+
 // --- index.html: the page's only non-JS fallbacks --------------------------
 //
 // Both of these exist because the alternative is a page that silently does

@@ -7,36 +7,34 @@
 // `resolveLabel` callback so the pure core stays testable; callers that
 // have sheet state pass `(id) => resolveFieldById(id)?.label`.
 
-export const CREATION_CHOICE_CATEGORIES = [
-  { key: "spells", title: "Spells & Special Abilities", test: /spell|cantrip|invocation/i },
-  { key: "languages", title: "Languages", test: /language/i },
-  { key: "equipment", title: "Starting Equipment", test: /equipment|\bgear\b|weapon|armor|\bpack\b/i },
-  { key: "feats", title: "Feats", test: /\bfeat\b/i },
-  { key: "abilities", title: "Ability Scores", test: /ability score|ability increase|asi/i },
-  { key: "skills", title: "Skills", test: /skill/i },
-  { key: "tools", title: "Tools", test: /tool/i },
-  { key: "weapons", title: "Weapons", test: /weapon/i },
-  { key: "armor", title: "Armor", test: /armor/i },
-  { key: "vehicles", title: "Vehicles", test: /vehicle/i },
-  { key: "feats", title: "Feats", test: /\bfeat\b/i },
-  { key: "proficiencies", title: "Ability Proficiencies", test: null },
-];
+// The creation-page table and the rule that reads it live in
+// js/data/choiceCategories.js, which is where they belong — they are pure
+// data with no DOM in them, and keeping a copy here meant js/data had to
+// import js/render. Re-exported under the old names so every existing
+// import site below (sheetWizard.js, customSheet.js, the content gates, the
+// tests) is unchanged.
+import {
+  CREATION_CHOICE_CATEGORIES,
+  CHOICE_GROUP_CATEGORY_KEYS,
+  inferChoiceCategory,
+} from "../../data/choiceCategories.js";
 
-/** Supported explicit category keys for choice groups. */
-export const CHOICE_GROUP_CATEGORY_KEYS = new Set(
-  CREATION_CHOICE_CATEGORIES.map((c) => c.key)
-);
+export { CREATION_CHOICE_CATEGORIES, CHOICE_GROUP_CATEGORY_KEYS };
 
 /**
  * Which page of the creation flow a choice group belongs on.
- * Pure — no side effects.
+ *
+ * A thin alias for `inferChoiceCategory`, which is the one implementation.
+ * This previously held its own byte-identical copy of the rule; two copies
+ * of a routing table is exactly the drift the data module's comment claimed
+ * to prevent.
  *
  * Prefers an explicit `pageCategory`, then an explicit `category` that's
  * already a valid page key, and only then falls back to keyword-matching
- * the label. Every group the repo ships now carries a `pageCategory`
- * (assigned in js/data/choiceCategories.js), so the label heuristic does
- * no work for our own content — verify-content.mjs asserts that, which is
- * what stops it quietly becoming load-bearing again.
+ * the label. Every group the repo ships carries a `pageCategory` (assigned
+ * in js/data/choiceCategories.js), so the label heuristic does no work for
+ * our own content — verify-content.mjs asserts that, which is what stops it
+ * quietly becoming load-bearing again.
  *
  * The heuristic is kept for imported homebrew, which arrives as JSON with
  * no page: dropping it would silently dump those groups onto the catch-all
@@ -45,16 +43,7 @@ export const CHOICE_GROUP_CATEGORY_KEYS = new Set(
  * CHOICE_GROUP_CATEGORY_KEYS.
  */
 export function categorizeChoiceGroup(group) {
-  if (group?.pageCategory && CHOICE_GROUP_CATEGORY_KEYS.has(group.pageCategory)) {
-    return group.pageCategory;
-  }
-  if (group?.category && CHOICE_GROUP_CATEGORY_KEYS.has(group.category)) {
-    return group.category;
-  }
-  // Import-compat fallback: heuristic based on label (homebrew content).
-  const label = group?.label || "";
-  const found = CREATION_CHOICE_CATEGORIES.find((cat) => cat.test && cat.test.test(label));
-  return (found || CREATION_CHOICE_CATEGORIES[CREATION_CHOICE_CATEGORIES.length - 1]).key;
+  return inferChoiceCategory(group);
 }
 
 export function statModifierLabel(mod, { abilityIds = [], abilities = [], skills = [], resolveLabel = null } = {}) {

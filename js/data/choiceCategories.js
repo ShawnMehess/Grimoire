@@ -4,7 +4,7 @@
 // the character-creation flow (Spells, Languages, Ability Scores, Feats,
 // Ability Proficiencies, …). That was decided by keyword-matching the
 // group's free-text label against the category list — see
-// CREATION_CHOICE_CATEGORIES in js/render/sheet/sheetMechanics.js.
+// CREATION_CHOICE_CATEGORIES below.
 //
 // That's a guess, and it happens at render time on every group forever:
 // rename a label from "Pick 2 skills" to "Chosen proficiencies" and the
@@ -29,8 +29,38 @@
 // Lives in its own module because two generated-data fixup paths need it
 // (contentFixups.js for races/classes/backgrounds/subclasses, and the feat
 // bundles), and either of those importing the other would be a cycle.
+//
+// The page table and the rule below used to live in
+// js/render/sheet/sheetMechanics.js, with a second copy of the rule here.
+// That made js/data import js/render, which contradicts the "Pure. No DOM,
+// no Firebase" claim in README.md, and it had already produced a real crash
+// (sheetWizard.js read `categorizeChoiceGroup` before importing it; see the
+// note in scripts/smoke-dom.mjs). The rule is now written once, here, and
+// sheetMechanics re-exports it under its old name so the render layer's
+// import sites are unchanged.
 
-import { CREATION_CHOICE_CATEGORIES, CHOICE_GROUP_CATEGORY_KEYS } from "../render/sheet/sheetMechanics.js";
+/** The pages a choice group can land on, in the order the wizard shows them,
+ *  with the keyword test used only as an import-compat fallback. The last
+ *  entry is the catch-all and must stay last — the fallback below indexes
+ *  the final element rather than naming a key. */
+export const CREATION_CHOICE_CATEGORIES = [
+  { key: "spells", title: "Spells & Special Abilities", test: /spell|cantrip|invocation/i },
+  { key: "languages", title: "Languages", test: /language/i },
+  { key: "equipment", title: "Starting Equipment", test: /equipment|\bgear\b|weapon|armor|\bpack\b/i },
+  { key: "feats", title: "Feats", test: /\bfeat\b/i },
+  { key: "abilities", title: "Ability Scores", test: /ability score|ability increase|asi/i },
+  { key: "skills", title: "Skills", test: /skill/i },
+  { key: "tools", title: "Tools", test: /tool/i },
+  { key: "weapons", title: "Weapons", test: /weapon/i },
+  { key: "armor", title: "Armor", test: /armor/i },
+  { key: "vehicles", title: "Vehicles", test: /vehicle/i },
+  { key: "proficiencies", title: "Ability Proficiencies", test: null },
+];
+
+/** Supported explicit category keys for choice groups. */
+export const CHOICE_GROUP_CATEGORY_KEYS = new Set(
+  CREATION_CHOICE_CATEGORIES.map((c) => c.key)
+);
 
 /** The catch-all: a group that matches no category belongs on the general
  *  proficiencies page. Named explicitly here rather than by indexing the
