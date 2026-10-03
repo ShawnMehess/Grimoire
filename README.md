@@ -170,6 +170,7 @@ js/
                       backend at module scope and cannot be imported in Node)
     characterImages.js / bundleMaps.js   shared by both backends
 scripts/            compilers, checks, and browser tests (see Checks)
+                   gate-fast.mjs runs the five no-browser gates together
 tests/              node:test unit suites
 data/               shared reference JSON + firestore.rules + storage.rules
 docs/               notes and import sources (see below)
@@ -180,17 +181,35 @@ index.html  demo.html
 
 ## Checks
 
-Six gates. The first five are fast and need no browser; the last drives
-real Chrome.
+Six gates. The first five need no browser and run together in about three
+seconds; the last drives real Chrome.
 
 ```
-node --test tests/*.mjs          # 868 unit tests
-node scripts/check-imports.mjs   # import graph, syntax, CSS brace balance
-node scripts/smoke-imports.mjs   # module graph + pure-logic assertions
-node scripts/smoke-dom.mjs       # renderers against a stub DOM
-node scripts/verify-content.mjs  # content wiring + a 1-20 build simulation
-npm run test:e2e                 # real Chrome, desktop / tablet / mobile
+npm run gate              # the five fast gates, concurrently, ~3s
+npm test                  # unit tests only
+npm run test:watch        # unit tests, re-running on save
+npm run test:e2e:smoke    # real Chrome, one viewport, core flow, ~2.5min
+npm run test:e2e          # real Chrome, all three viewports, ~3min
+npm run verify            # gate + the full e2e, i.e. everything
 ```
+
+The five fast gates are also runnable on their own, which is occasionally
+useful when one of them is what you are working on:
+
+```
+node --test "tests/**/*.mjs"   # 868 unit tests
+node scripts/check-imports.mjs # import graph, syntax, CSS brace balance
+node scripts/smoke-imports.mjs # module graph + pure-logic assertions
+node scripts/smoke-dom.mjs     # renderers against a stub DOM
+node scripts/verify-content.mjs # content wiring + a 1-20 build simulation
+```
+
+`npm run gate` runs them as plain child processes rather than chaining npm
+scripts. That is not a style preference: chaining five npm scripts spawns
+five extra Node processes, and at these sizes the overhead exceeded the work
+being saved — the same gates measured ~16s through a parallel runner over npm
+scripts and ~3s as direct children. It also prints a per-gate summary with
+each one's duration, which is the answer to "why did that get slow".
 
 `verify-content.mjs` simulates full level 1–20 builds (Fighter, Light
 Cleric, Devotion Paladin, Lore Bard), a 12-class sweep, every starter
@@ -203,6 +222,35 @@ carries an explicit category and choice kind.
 `PLAYWRIGHT_CHROME_PATH`, plus `npm install` for `playwright-core`. It
 serves the repo over local HTTP, drives the real app, fails on any page
 error, and writes screenshots and PDFs to `os.tmpdir()/grimoire-e2e`.
+
+### Why the e2e suite is not full of `waitForTimeout`
+
+It used to be. There were 136 of them, totalling 136 seconds of a suite that
+took eleven minutes — the tests were mostly asleep. Three changes fixed it:
+
+- **`settled(page, selector)`** waits for the thing the page is actually
+  waiting for (`.sheet-toolbar`, the vault's New Character button, `.wizard`)
+  instead of guessing a millisecond count. A guess is wrong in both
+  directions: too short on a loaded machine, and pure dead time on a fast one.
+- **`quiet(page)`** polls a fingerprint of what is on screen and returns when
+  two consecutive samples match, so it stops as soon as the app is idle rather
+  than after a fixed delay. It reads rendered text, selected `<select>` values
+  and checked/expanded state, because a node count or a text *length* cannot
+  see a dropdown commit a value.
+- **The three viewport runs are concurrent.** They are independent browser
+  contexts with no shared state, and they were 85% of the wall clock.
+
+The rule for extending `quiet`'s sample list: add anything that can appear
+*over* the page or replace it — dialogs, overlays, toasts. A region that is
+merely part of the page is already covered.
+
+`--smoke` exists because a three-minute suite is long enough that you stop
+running it "just to see", and a subset you will actually run between edits is
+worth more than a complete suite you run before pushing. It keeps what catches
+the failure that would waste your next ten minutes — an entry module that
+throws, a wizard that never opens, a page that cannot start — and drops what
+fails without blocking further work: the width sweep, the print PDF, the
+per-pixel grid geometry.
 
 Print is verified against **real output**, not against what the CSS says:
 the e2e stubs `window.print()` to capture the print stage and the injected

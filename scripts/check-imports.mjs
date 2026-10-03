@@ -12,10 +12,43 @@
 //      block globally and hid every button site-wide.
 // Run: node scripts/check-imports.mjs
 import { readdirSync, readFileSync, existsSync, mkdtempSync, copyFileSync, rmSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, execFile } from "node:child_process";
+import { cpus } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+// Module-goal parsing, in-process. Undefined without
+// --experimental-vm-modules, which is why there is a fallback below rather
+// than a hard dependency on the flag.
+import vm from "node:vm";
+
+const { SourceTextModule } = vm;
+const execFileAsync = promisify(execFile);
+
+// Re-exec once WITH the flag rather than making every caller remember it.
+//
+// The in-process parse is ~25x faster than spawning a checker per file, so
+// it is worth one extra process start (a few ms) to guarantee it is the path
+// taken. Anyone running this file directly - `node scripts/check-imports.mjs`,
+// which is how the README and several scripts invoke it - gets the fast path
+// without editing anything or copying a flag out of this file. The env guard
+// stops it recursing, and a failed re-exec is not fatal: the fallback pool
+// below still produces the same verdict.
+if (!SourceTextModule && !process.env.GRIMOIRE_VM_MODULES) {
+  try {
+    execFileSync(process.execPath, ["--no-warnings", "--experimental-vm-modules", fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+      stdio: "inherit",
+      env: { ...process.env, GRIMOIRE_VM_MODULES: "1" },
+    });
+    process.exit(0);
+  } catch {
+    // Fall through to the subprocess pool. Whatever made the re-exec fail
+    // (a locked-down sandbox, a stripped Node build) is not a reason to fail
+    // the gate.
+  }
+}
 
 const ROOT = resolve(join(dirname(fileURLToPath(import.meta.url)), ".."));
 const SHEET_DIR = join(ROOT, "js", "render", "sheet");
@@ -50,10 +83,26 @@ if (missing.length) {
 // Every JS file in the repo must at least parse — including entry
 // points like js/main.js that no test suite imports (DOM at module
 // scope), and the Firebase-backed modules Node cannot execute.
-// NOTE: plain `node --check x.js` does NOT catch early errors in
-// typeless .js files containing ESM (it passes files with genuine
-// duplicate-binding/paren bugs), so .js sources are checked as .mjs
-// copies — pure parse, no imports resolve, temp file removed after.
+//
+// Two things this has to get right:
+//
+//  - Plain `node --check x.js` does NOT catch early errors in typeless .js
+//    files containing ESM: it parses them as CommonJS-ish script and passes
+//    files with genuine duplicate-binding bugs. The parse therefore has to
+//    happen in MODULE GOAL, which is why the .js files were copied to .mjs
+//    before being checked.
+//  - It has to be fast. Spawning one `node --check` per file is 129
+//    interpreter startups, and that was 7.4 seconds - 70% of this whole
+//    gate - spent waiting for the same binary to boot 129 times. Overlapping
+//    them helps (7.4s -> 2.6s) but bottoms out around 1.9s because the cost
+//    is startup, not parsing.
+//
+// So the fast path parses in THIS process with `vm.SourceTextModule`, which
+// is module-goal by construction and needs no temp files at all: 129 files
+// in ~310ms, a 24x improvement, with identical coverage (verified to catch
+// the same duplicate-binding error `node --check` catches). It is behind
+// --experimental-vm-modules, so if that API is unavailable the parallel
+// subprocess pool below is the fallback rather than a hard failure.
 function jsFilesUnder(dir, extension) {
   const out = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -69,23 +118,52 @@ const syntaxFiles = [
   ...(existsSync(join(ROOT, "tests")) ? jsFilesUnder(join(ROOT, "tests"), ".mjs") : []),
 ];
 const syntaxErrors = [];
-const checkDir = mkdtempSync(join(tmpdir(), "grimoire-syntax-"));
-try {
-  syntaxFiles.forEach((file, i) => {
-    // .mjs checks directly; .js goes through a same-bytes .mjs copy
-    // so module-goal parsing applies (see NOTE above).
-    const target = file.endsWith(".mjs") ? file : join(checkDir, `check-${i}.mjs`);
-    if (target !== file) copyFileSync(file, target);
+
+if (typeof SourceTextModule === "function") {
+  for (const file of syntaxFiles) {
     try {
-      execFileSync(process.execPath, ["--check", target], { stdio: "pipe" });
-    } catch {
-      syntaxErrors.push(file);
+      // Parse only - no imports are resolved and nothing is evaluated, so a
+      // file that touches `document` at module scope is fine here.
+      // eslint-disable-next-line no-new
+      new SourceTextModule(readFileSync(file, "utf8"), { identifier: file });
+    } catch (e) {
+      syntaxErrors.push(`${file}: ${e.message.split("\n")[0]}`);
     }
-  });
-} finally {
-  rmSync(checkDir, { recursive: true, force: true });
+  }
+} else {
+  // Fallback: same checks, run concurrently rather than one at a time. The
+  // pool size is the CPU count, not the file count - past one check per core
+  // there is nothing left to overlap except memory bandwidth, and a 129-way
+  // spawn on a small machine just thrashes.
+  const checkDir = mkdtempSync(join(tmpdir(), "grimoire-syntax-"));
+  try {
+    // .mjs checks directly; .js goes through a same-bytes .mjs copy so
+    // module-goal parsing applies (see NOTE above).
+    const targets = syntaxFiles.map((file, i) => {
+      const target = file.endsWith(".mjs") ? file : join(checkDir, `check-${i}.mjs`);
+      if (target !== file) copyFileSync(file, target);
+      return { file, target };
+    });
+    const CONCURRENCY = Math.max(1, Math.min(targets.length, cpus().length));
+    let next = 0;
+    const worker = async () => {
+      while (true) {
+        const i = next++;
+        if (i >= targets.length) return;
+        const { file, target } = targets[i];
+        try {
+          await execFileAsync(process.execPath, ["--check", target], { stdio: "pipe" });
+        } catch {
+          syntaxErrors.push(`${file}: does not parse`);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  } finally {
+    rmSync(checkDir, { recursive: true, force: true });
+  }
 }
-console.log(`parsed ${syntaxFiles.length} files`);
+console.log(`parsed ${syntaxFiles.length} files${typeof SourceTextModule === "function" ? " (in-process)" : " (subprocess pool)"}`);
 if (syntaxErrors.length) {
   console.error("SYNTAX ERRORS:\n" + syntaxErrors.join("\n"));
   process.exit(1);

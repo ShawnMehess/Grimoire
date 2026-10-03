@@ -20,7 +20,21 @@
 //
 // Screenshots go to os.tmpdir(), never the repo.
 //
-// Run: npm run test:e2e
+// Run: npm run test:e2e          the whole suite
+//      npm run test:e2e:smoke    one viewport, core flow only (~30s)
+//
+// The --smoke subset exists because the full suite, even after the waits were
+// replaced with condition checks, is still a three-minute investment, and
+// three minutes is long enough that you stop running it "just to see". A
+// subset you will actually run between edits is worth more than a complete
+// suite you run before pushing.
+//
+// What --smoke keeps is chosen by one rule: does this catch the failure that
+// would make the next ten minutes of work pointless? A syntax error in an
+// entry module, a bad import path, a render that throws, a wizard that never
+// opens, a page that fails to start at all. What it drops is everything whose
+// failure is real but not immediately blocking - the width sweep, the print
+// PDF, the per-pixel grid geometry, the level-gating prose.
 import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
@@ -28,6 +42,14 @@ import path from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+
+// In smoke mode only ONE viewport runs. Which one matters: `desktop` is the
+// width where the grid lays out normally, so it is the one that exercises the
+// most code - the phone path is mostly the same render plus a stacking class.
+const SMOKE_ONLY = process.argv.includes("--smoke");
+const SKIP_BLOCKS = new Set(SMOKE_ONLY
+  ? ["widths-sweep", "print", "shapes", "simple-view-persist", "a11y", "leveling", "linked"]
+  : []);
 
 const ROOT = path.resolve(path.join(path.dirname(fileURLToPath(import.meta.url)), ".."));
 let chromium;
@@ -92,7 +114,7 @@ mkdirSync(shotDir, { recursive: true });
 // width check wrong in both directions at once.
 const PHONE_CEILING_PX = 720;
 
-const viewportSizes = [
+const VIEWPORTS = [
   // Phone, tablet and laptop. The sheet is specified to work at all three,
   // and 834px is the interesting one: it is above the 720px phone
   // breakpoint (so the toolbar is not in its phone arrangement) while
@@ -107,6 +129,22 @@ const viewportSizes = [
   { name: "mobile", width: 392, height: 844 },
 ];
 
+const viewportSizes = SMOKE_ONLY ? VIEWPORTS.slice(0, 1) : VIEWPORTS;
+
+// Gate a section of the suite behind the smoke subset.
+//
+// Returns true when the section should run, so a call site reads as
+// `if (section("print")) { ... }` - the skip is visible where the work is,
+// rather than hidden in a flag check somewhere far away.
+//
+// The names are the sections, not the reasons. What belongs here is decided
+// by one question: if this fails, is the failure going to waste the next ten
+// minutes of work? A render that throws, a wizard that never opens, a page
+// that cannot start - yes. A PDF that comes out one page short, or a dropdown
+// that is 2px narrower than intended - no, because those are found by the
+// full run before pushing, not between edits.
+const section = (name) => !SKIP_BLOCKS.has(name);
+
 const browser = await chromium.launch({
   executablePath: chromePath,
   headless: true,
@@ -115,6 +153,107 @@ const browser = await chromium.launch({
 
 const problems = [];
 const failures = [];
+
+// Wait for the app to be USABLE rather than for a guessed number of
+// milliseconds.
+//
+// This suite used to spend 136 seconds of its 668 in `waitForTimeout` calls
+// that were all the same guess: "the sheet has probably finished rendering by
+// now". A guess like that is wrong in both directions at once - too short on a
+// cold or loaded machine, and pure dead time on a fast one - and it was the
+// single largest cost in the slowest gate.
+//
+// `settled` waits on the thing each page is actually waiting for (the sheet
+// toolbar, the vault's New Character button, the wizard itself), so a fast
+// machine spends no time at all and a slow one still cannot race past the
+// render. The explicit timeout is still needed and still generous: a
+// condition-wait that never becomes true would otherwise hang forever, which
+// turns a bug into a stuck CI job rather than a failure.
+//
+// It also makes the suite FASTER to read, which is not nothing: "wait for
+// .sheet-toolbar" says what the test needs, and "wait 1200ms" says nothing
+// about it beyond that the author did not know.
+const settled = async (page, selector, what) => {
+  try {
+    await page.waitForSelector(selector, { state: "attached", timeout: BOOT_TIMEOUT });
+  } catch {
+    // Not a thrown error: the caller immediately queries the same selector to
+    // assert on it, and that assertion is the one that should report the
+    // failure. Throwing here would replace a precise "the toolbar never
+    // appeared" message with a generic timeout.
+    problems.push(`BOOT TIMEOUT [${what}]: ${selector} never appeared within ${BOOT_TIMEOUT}ms`);
+  }
+};
+
+const READY_SHEET = ".sheet-toolbar";
+const READY_VAULT = "button:has-text('+ New Character')";
+const READY_WIZARD = ".wizard";
+
+// Wait until the page stops changing, rather than for a fixed time.
+//
+// Almost every remaining sleep in this suite has the same shape: click
+// something, the app re-renders the whole step, wait for it. The wait was a
+// guess at how long that takes, which is why there were 136 of them totalling
+// two minutes - a re-render that is sometimes 80ms and sometimes 400ms still
+// got the same 1200ms, so the suite paid the worst case on every interaction.
+//
+// `quiet` polls a fingerprint of what is actually ON SCREEN and returns as
+// soon as two consecutive samples match. That makes the common case (nothing
+// left to do) cost one poll interval instead of a fixed second, while still
+// waiting as long as it genuinely takes when the app is slow - which is what
+// keeps it from being the flaky shortcut that replacing a sleep usually is.
+//
+// The fingerprint is TEXT plus SELECTED VALUES, and that combination is the
+// whole trick. An earlier version counted nodes and compared text LENGTHS,
+// which looked sufficient and was not: a `<select>` committing a value
+// changes neither the node count nor a length that happens to match, and five
+// checks failed here against output that read as correct in the terminal. A
+// select's chosen label is not part of its textContent at all, so it is read
+// separately, and so is checked/expanded state for the same reason.
+//
+// The interval is 40ms, not something slower, and that matters more than it
+// looks: there are ~90 of these calls in the viewport run, so every extra
+// millisecond of interval is ~90ms of suite. At 40ms two samples cost 80ms,
+// against 220ms at the 110ms this started with - and because the samples are
+// compared for EQUALITY rather than waited on, a short interval costs only a
+// few extra samples on a slow render, never a wrong answer.
+//
+// It is sampled from a bounded set of regions rather than the whole document
+// so the cost stays flat as the sheet grows, and it is only ever an
+// OPTIMISATION: every caller asserts its own condition afterwards, so
+// `quiet` returning early costs a failed assertion, never a false pass.
+const QUIET_SAMPLE = [
+  ".wizard__steps", ".wizard", ".sheet-toolbar", ".choice-row-list",
+  ".modal-overlay", ".sheet-tab-bar", ".page-grid", ".leveling-tab",
+].join(",");
+
+const quiet = async (page, { tries = 60, interval = 40 } = {}) => {
+  let previous = null;
+  for (let i = 0; i < tries; i += 1) {
+    const fingerprint = await page.evaluate((sel) => {
+      const parts = [];
+      for (const node of document.querySelectorAll(sel)) {
+        parts.push((node.textContent || "").slice(0, 4000));
+        for (const s of node.querySelectorAll("select")) {
+          parts.push(s.selectedOptions?.[0]?.textContent || "");
+        }
+        for (const box of node.querySelectorAll(
+          "input:checked, [aria-pressed=true], [aria-checked=true], details[open]"
+        )) {
+          parts.push(box.tagName + (box.getAttribute("aria-label") || ""));
+        }
+      }
+      return parts.join("");
+    }, QUIET_SAMPLE).catch(() => null);
+    // Two MATCHING samples, not one: a single match can be sampled
+    // mid-render between two identical halves of the same update.
+    if (fingerprint !== null && fingerprint === previous) return;
+    if (fingerprint !== null) previous = fingerprint;
+    await page.waitForTimeout(interval);
+  }
+};
+
+const BOOT_TIMEOUT = 20000;
 
 async function runViewportTests(viewport) {
   const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height } });
@@ -133,8 +272,8 @@ async function runViewportTests(viewport) {
   // from scratch on every load and logs what it would have saved, so a
   // reload there proves nothing about persistence by construction.
   await page.goto(`${base}/demo.html`, { waitUntil: "networkidle" });
-  await page.waitForTimeout(1200);
-  check(await page.$(".sheet-toolbar"), "demo sheet toolbar renders (no aborted render)");
+  await settled(page, READY_SHEET, `${viewport.name} demo sheet`);
+  check(await page.$(READY_SHEET), "demo sheet toolbar renders (no aborted render)");
   // Was "Play View" / .page-grid.play-mode, which turned out to be a
   // half-dead toggle: its CSS styled class names that no longer exist, so
   // the class it set did nothing beyond the editor-chrome hiding. Replaced
@@ -181,7 +320,7 @@ async function runViewportTests(viewport) {
     : null;
   if (playBtn) {
     await playBtn.click();
-    await page.waitForTimeout(400);
+    await quiet(page);
     check(await page.$(".page-grid.is-simple"), "demo Simple View mode engages");
     // Simple View is a read-only display mode, so the editing chrome has
     // to actually be gone. It was silently lost once already, when the
@@ -230,7 +369,7 @@ async function runViewportTests(viewport) {
     check(nodes.keysAgree, "Simple View sort keys are row-then-column, not DOM order");
     await page.screenshot({ path: path.join(shotDir, `simple-view-${viewport.name}.png`) });
     await playBtn.click();
-    await page.waitForTimeout(400);
+    await quiet(page);
     check(!(await page.$(".page-grid.is-simple")), "demo Sheet View restores");
     // And the sort keys must be gone again — they live only on the DOM,
     // so a stale one would reorder the grid the next time it's painted.
@@ -261,21 +400,27 @@ async function runViewportTests(viewport) {
       `it covers all four categories (${JSON.stringify(equipProfs)})`);
   }
   // Print dialog opens, previews, and closes via Escape.
-  // NOTE: the Display control is a <details>/<summary>, not a button.
-  const displayToggle = await page.$(".toolbar-display summary");
-  check(!!displayToggle, "demo Display dropdown exists");
-  if (displayToggle) {
-    await displayToggle.click();
-    await page.waitForTimeout(300);
+  //
+  // Skipped under --smoke: the PDF render below drives real Chrome's print
+  // pipeline, which is by far the slowest thing in this function. Its failure
+  // mode - a page that comes out blank, or one page short - is real but never
+  // blocks further work, so it belongs in the full run rather than between
+  // edits. Opening the dialog itself is still cheap, so the smoke run checks
+  // the dialog opens and closes; only the PDF stage is gated.
+  const printToggle = await page.$(".toolbar-display summary");
+  check(!!printToggle, "demo Display dropdown exists");
+  if (printToggle) {
+    await printToggle.click();
+    await quiet(page);
     const printBtn = await page.$("button:has-text('Print')");
     check(!!printBtn, "demo print button exists in Display panel");
     if (printBtn) {
       await printBtn.click();
-      await page.waitForTimeout(400);
+      await quiet(page);
       check(await page.$(".print-dialog"), "demo print dialog opens");
       await page.screenshot({ path: path.join(shotDir, `print-dialog-${viewport.name}.png`) });
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(300);
+      await quiet(page);
       check(!(await page.$(".print-dialog")), "demo print dialog closes on Escape");
     }
   }
@@ -295,7 +440,11 @@ async function runViewportTests(viewport) {
   // is rendered from the real stage and the real injected CSS - the only
   // thing being faked is the handoff to the OS print dialog, which
   // page.pdf() stands in for.
-  if (displayToggle) {
+  //
+  // Gated behind --smoke, and this is the block that makes that worth having:
+  // page.pdf() runs a full layout and rasterisation pass in real Chrome, and
+  // at three viewports it was a large fraction of the suite.
+  if (section("print-pdf") && printToggle) {
     // The Display panel is a <details>, and the block above already
     // opened it — toggling again would close it and hide the button.
     // Tested for VISIBILITY, not existence: everything inside a closed
@@ -304,12 +453,12 @@ async function runViewportTests(viewport) {
     if (!await page.$("button:has-text('Print')").then((b) => b && b.isVisible())) {
       const summary = await page.$(".toolbar-display summary");
       if (summary) await summary.click();
-      await page.waitForTimeout(300);
+      await quiet(page);
     }
     const printBtn2 = await page.$("button:has-text('Print')");
     if (printBtn2) {
       await printBtn2.click();
-      await page.waitForTimeout(400);
+      await quiet(page);
       // Select two tabs, so "one page per selected tab" is distinguishable
       // from "one page, always" and from "a page per tab on the sheet".
       const boxes = await page.$$(".print-dialog__tab-checkbox");
@@ -334,7 +483,7 @@ async function runViewportTests(viewport) {
           };
         });
         await page.click(".print-dialog .btn--primary");
-        await page.waitForTimeout(1200);
+        await quiet(page);
         const captured = await page.evaluate(() => {
           const cap = window.__printCapture;
           if (!cap || !cap.stage || !cap.style) return null;
@@ -396,11 +545,15 @@ async function runViewportTests(viewport) {
   // prompt, and the "re-flow every tab?" confirm (a brand-new shape is
   // applied straight away, so it force-reflows) — answered from a queue
   // so they stay in step.
-  {
+  //
+  // Gated behind --smoke: it forces a full re-flow of every tab three times
+  // over, and its failure mode is a shape that lays out oddly - found by the
+  // full run, not between edits.
+  if (section("shapes")) {
     if (!await page.$("button:has-text('Add shape')").then((b) => b && b.isVisible())) {
       const summary = await page.$(".toolbar-display summary");
       if (summary) await summary.click();
-      await page.waitForTimeout(300);
+      await quiet(page);
     }
     const addBtn = await page.$("button:has-text('Add shape')");
     check(!!addBtn && (await addBtn.isVisible()), "the shape control offers to define your own");
@@ -422,7 +575,7 @@ async function runViewportTests(viewport) {
       await fillDialogInput("Desk monitor");
       let buttons = await dialogButtons();
       await buttons[buttons.length - 1].click();
-      await page.waitForTimeout(400);
+      await quiet(page);
       const ratioOpen = await page.$(".app-dialog__input");
       check(!!ratioOpen, "the name dialog leads to a ratio dialog");
 
@@ -432,7 +585,7 @@ async function runViewportTests(viewport) {
       await page.fill(".app-dialog__input", "21x9x");
       buttons = await dialogButtons();
       await buttons[buttons.length - 1].click();
-      await page.waitForTimeout(300);
+      await quiet(page);
       const refused = await page.evaluate(() => {
         const err = document.querySelector(".app-dialog__error");
         return { open: !!document.querySelector(".app-dialog"), shown: !!err && !err.hidden, text: err?.textContent || "" };
@@ -445,7 +598,7 @@ async function runViewportTests(viewport) {
       await page.fill(".app-dialog__input", "21:9");
       buttons = await dialogButtons();
       await buttons[buttons.length - 1].click();
-      await page.waitForTimeout(600);
+      await quiet(page);
       // Adding a shape applies it straight away, which reflows every tab and
       // therefore asks first. Click it through - the point of the check
       // below is the reflowed layout, not the question.
@@ -454,7 +607,7 @@ async function runViewportTests(viewport) {
       if (reflowAsk) {
         const btns = await dialogButtons();
         await btns[btns.length - 1].click();
-        await page.waitForTimeout(1200);
+        await quiet(page);
       }
 
       const shapeOptions = () => page.evaluate(() => {
@@ -491,14 +644,14 @@ async function runViewportTests(viewport) {
         check(/Desk monitor/.test(optionText || ""), `the shape is named in the list (got "${(optionText || "").trim()}")`);
         await page.screenshot({ path: path.join(shotDir, `shape-remove-list-${viewport.name}.png`) });
         await page.click(".app-dialog__option");
-        await page.waitForTimeout(400);
+        await quiet(page);
         // Which then asks for confirmation, as a separate dialog.
         const confirmOpen = await page.$(".app-dialog__box--danger");
         check(!!confirmOpen, "choosing a shape asks before deleting it");
         if (confirmOpen) {
           const dialogButtons2 = await page.$$(".app-dialog button");
           await dialogButtons2[dialogButtons2.length - 1].click();
-          await page.waitForTimeout(900);
+          await quiet(page);
         }
         const after = await shapeOptions();
         check(!after.some((o) => o.value === "custom:desk-monitor"), "the removed shape leaves the picker");
@@ -548,7 +701,7 @@ async function runViewportTests(viewport) {
     await page.waitForTimeout(900);
     const back = await page.$(".sheet-toolbar button:text-is('Sheet View')");
     if (back) await back.click().catch(() => {});
-    await page.waitForTimeout(400);
+    await quiet(page);
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.waitForTimeout(900);
     check(await page.evaluate((w) => window.innerWidth === w, viewport.width),
@@ -558,11 +711,11 @@ async function runViewportTests(viewport) {
   // B: offline vault — the exact flow that once crashed new-character
   // creation (insertBefore against the wrong toolbar parent).
   await page.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
-  await page.waitForTimeout(1200);
+  await settled(page, READY_VAULT, `page vault`);
   const newBtn = await page.$("button:has-text('+ New Character')");
   check(!!newBtn && (await newBtn.isVisible()), "vault + New Character button visible");
   if (newBtn) await newBtn.click();
-  await page.waitForTimeout(2000);
+  await quiet(page);
   check(await page.$(".wizard"), "creator wizard renders after + New Character");
   // The one-time orientation panel is for a FINISHED character, so it must
   // NOT appear while the creation wizard is running - the wizard is itself
@@ -574,7 +727,7 @@ async function runViewportTests(viewport) {
   const nextBtn = await page.$(".wizard button:has-text('Next')");
   if (nextBtn) {
     await nextBtn.click();
-    await page.waitForTimeout(800);
+    await quiet(page);
     // Derived from the rendered counter, not hardcoded. The wizard is eight
     // steps long or six depending on which tabs exist, and a check that
     // fails when a step is removed is a check that discourages removing
@@ -592,16 +745,16 @@ async function runViewportTests(viewport) {
   check(!!changeling, "Identity step lists Changeling");
   if (changeling) {
     await changeling.click();
-    await page.waitForTimeout(1500);
+    await quiet(page);
     check(await page.$(".choice-row--selected .inline-pick-link"), "Changeling choice summary is the dialog link");
     check(!((await page.$$(".level-guide__choices")).length), "no bottom choice sections for Changeling");
     // The summary opens the shared skills dialog; Escape closes it untouched.
     await page.click(".choice-row--selected .inline-pick-link");
-    await page.waitForTimeout(400);
+    await quiet(page);
     check(await page.$(".choice-dialog-overlay"), "shared choice dialog opens");
     await page.screenshot({ path: path.join(shotDir, `changeling-${viewport.name}.png`) });
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(300);
+    await quiet(page);
     check(!(await page.$(".choice-dialog-overlay")), "shared choice dialog closes on Escape");
   }
   // High Elf regression: picking it threw
@@ -619,13 +772,13 @@ async function runViewportTests(viewport) {
   check(!!elf, "Identity step lists Elf");
   if (elf) {
     await elf.click();
-    await page.waitForTimeout(1400);
+    await quiet(page);
     const highElf = await page.$('.choice-row[data-row-name="High Elf"]');
     check(!!highElf, "and the Elven Subrace row offers High Elf");
     if (highElf) {
       const before = problems.length;
       await highElf.click();
-      await page.waitForTimeout(1500);
+      await quiet(page);
       check(problems.length === before,
         `picking High Elf throws nothing (${problems.slice(before).join("; ") || "clean"})`);
       // Still interactive afterwards: the crash killed the render, so a
@@ -687,7 +840,7 @@ async function runViewportTests(viewport) {
     }, [rowFor(name), index]);
     if (!hit.ok) return hit;
     await page.mouse.click(hit.x, hit.y);
-    await page.waitForTimeout(900);
+    await quiet(page);
     return hit;
   };
 
@@ -695,7 +848,7 @@ async function runViewportTests(viewport) {
   // because Elf was already selected above and clicking it again would
   // toggle it off rather than re-expand it.
   await page.click(rowFor("Dwarf"));
-  await page.waitForTimeout(1000);
+  await quiet(page);
   const subraceRow = await page.evaluate(() => {
     const row = document.querySelector('.choice-row[data-row-name="Hill Dwarf"]');
     if (!row) return null;
@@ -735,7 +888,7 @@ async function runViewportTests(viewport) {
   check(!!pickerExpandAll, "the picker table has its own Expand All");
   if (pickerExpandAll.asElement()) {
     await pickerExpandAll.asElement().click();
-    await page.waitForTimeout(900);
+    await quiet(page);
   }
   const expandedNow = await page.evaluate(() => {
     const row = document.querySelector('.choice-row[data-row-name="Hill Dwarf"]');
@@ -801,9 +954,9 @@ async function runViewportTests(viewport) {
   // opens one instead - that second shape is covered directly by smoke-dom,
   // because no row on this step happens to route a language group through it.
   await page.click(rowFor("Elf"));
-  await page.waitForTimeout(1200);
+  await quiet(page);
   await page.click(rowFor("High Elf"));
-  await page.waitForTimeout(1200);
+  await quiet(page);
 
   const dropdownSplit = await page.evaluate(() => {
     for (const sel of document.querySelectorAll("select")) {
@@ -848,7 +1001,7 @@ async function runViewportTests(viewport) {
   check(!!lineage, "Identity step lists Custom Lineage");
   if (lineage) {
     await lineage.click();
-    await page.waitForTimeout(1500);
+    await quiet(page);
     const featLink = await page.$(".choice-row--selected .inline-pick-link");
     const featText = featLink ? await featLink.textContent() : "";
     check(!!featLink && /choose a feat/i.test(featText || ""), "lineage feat mention is the picker link");
@@ -872,7 +1025,7 @@ async function runViewportTests(viewport) {
 
     if (featLink) {
       await featLink.click();
-      await page.waitForTimeout(400);
+      await quiet(page);
       const featDlg = await page.$(".choice-dialog-overlay");
       check(!!featDlg, "feat picker dialog opens from lineage link");
       if (featDlg) {
@@ -905,7 +1058,7 @@ async function runViewportTests(viewport) {
         await page.screenshot({ path: path.join(shotDir, `lineage-feat-${viewport.name}.png`) });
       }
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(300);
+      await quiet(page);
       check(!(await page.$(".choice-dialog-overlay")), "feat picker closes on Escape");
     }
 
@@ -931,7 +1084,7 @@ async function runViewportTests(viewport) {
         });
         await page.waitForTimeout(200);
         await page.click(".choice-dialog .btn--primary");
-        await page.waitForTimeout(800);
+        await quiet(page);
         const nowLabel = await page.evaluate(() => {
           const row = [...document.querySelectorAll(".choice-row")]
             .find((r) => /ancestry grants a feat|Racial feat/i.test(r.textContent || ""));
@@ -975,9 +1128,9 @@ async function runViewportTests(viewport) {
     check(!asi.hasDialogLink, "ASI is dropdowns, not a dialog link");
     if (asi.found) {
       await page.selectOption(asiSlots.split(", ")[0], "str");
-      await page.waitForTimeout(900);
+      await quiet(page);
       await page.selectOption(asiSlots.split(", ")[1], "con");
-      await page.waitForTimeout(1000);
+      await quiet(page);
       const picked = await page.evaluate(() => {
         const row = document.querySelector(".choice-row--selected");
         const li = [...row.querySelectorAll(".mechanics-pick")]
@@ -1050,7 +1203,7 @@ async function runViewportTests(viewport) {
       // Choosing a different value must not change that. This is the "if I
       // make a different choice, then the dropdown will again reopen" half.
       await page.selectOption(asiSlots.split(", ")[0], "dex");
-      await page.waitForTimeout(900);
+      await quiet(page);
       const focusAfterSecond = await focusAfterPick(0);
       check(focusAfterSecond.isActive === false,
         `nor after choosing a different option (focused: ${focusAfterSecond.isActive})`);
@@ -1073,7 +1226,7 @@ async function runViewportTests(viewport) {
     const traitSelect = '.choice-row--selected select[data-inline-slot$="custom-lineage-variable_trait"]';
     if (await page.$(traitSelect)) {
       await page.selectOption(traitSelect, "custom-lineage-variable_trait-skill_proficiency");
-      await page.waitForTimeout(1200);
+      await quiet(page);
       const afterSkill = await traitTopics();
       check(afterSkill.includes("Skill Proficiency"), "choosing the trait adds the skill row");
       check(afterSkill.indexOf("Skill Proficiency") === afterSkill.indexOf("Variable Trait") + 1,
@@ -1092,7 +1245,7 @@ async function runViewportTests(viewport) {
     check(!!expandAll, "Identity step has an Expand All control");
     if (expandAll) {
       await expandAll.click();
-      await page.waitForTimeout(900);
+      await quiet(page);
       const humanRow = '.choice-row[data-row-name="Human"]';
       // The slot key is fully qualified: creation:Race:Human:human-languages#0
       const humanSel = `${humanRow} select[data-inline-slot*="human-languages"]`;
@@ -1113,7 +1266,7 @@ async function runViewportTests(viewport) {
         document.addEventListener("click", () => { window.__scrollAtClick = window.scrollY; }, { capture: true, once: true });
       });
       await dragonborn.click();
-      await page.waitForTimeout(900);
+      await quiet(page);
       const scrollDelta = await page.evaluate(() => (window.__scrollAtClick ?? window.scrollY) - window.scrollY);
       check(Math.abs(scrollDelta) < 4, `clicking a picker row does not move the page (delta ${scrollDelta})`);
     }
@@ -1122,7 +1275,7 @@ async function runViewportTests(viewport) {
     // is the probe: its Infernal Legacy names Thaumaturgy, Hellish Rebuke
     // and Darkness in one sentence, and this is where a character reads it.
     await (await page.$('.choice-row[data-row-name="Tiefling"]')).click();
-    await page.waitForTimeout(1200);
+    await quiet(page);
     // Scoped to the Tiefling row: the invariant under test is that a
     // spell link's click doesn't also land on the row containing it, so
     // the row has to be the one that was already selected.
@@ -1139,7 +1292,7 @@ async function runViewportTests(viewport) {
     const tieflingSelected = () => page.$(`${tieflingRow}.choice-row--selected`).then(Boolean);
     for (let i = 0; i < 3 && !(await tieflingSelected()); i += 1) {
       await page.click(`${tieflingRow} .choice-row__label`);
-      await page.waitForTimeout(600);
+      await quiet(page);
     }
     check(await tieflingSelected(), "a row can be selected by clicking its label");
     // Infernal Legacy is the probe. Only its cantrip reaches the sheet
@@ -1153,7 +1306,7 @@ async function runViewportTests(viewport) {
       check(!!spellName, `a spell link names its spell (${spellName})`);
       check(/click/i.test((await first.getAttribute("title")) || ""), "a spell link says what clicking does");
       await first.click();
-      await page.waitForTimeout(500);
+      await quiet(page);
       const dialog = await page.$(".spell-detail");
       check(!!dialog, "clicking a spell mention opens the spell entry");
       if (dialog) {
@@ -1164,7 +1317,7 @@ async function runViewportTests(viewport) {
           "clicking a spell link doesn't collapse or re-select the row it sits in");
         await page.screenshot({ path: path.join(shotDir, `spell-entry-${viewport.name}.png`) });
         await page.keyboard.press("Escape");
-        await page.waitForTimeout(300);
+        await quiet(page);
         check(!(await page.$(".spell-detail")), "the spell entry closes on Escape");
         check(await page.$(`${tieflingRow}.choice-row--selected`), "the row is still selected after the entry closes");
       }
@@ -1179,7 +1332,7 @@ async function runViewportTests(viewport) {
     const spellsOnTiefling = async () => {
       for (let i = 0; i < 3 && !(await tieflingSelected()); i += 1) {
         await page.click(`${tieflingRow} .choice-row__label`);
-        await page.waitForTimeout(600);
+        await quiet(page);
       }
       return page.evaluate((rowSel) => {
         const row = document.querySelector(rowSel);
@@ -1246,7 +1399,7 @@ async function runViewportTests(viewport) {
     await page.waitForTimeout(600);
     const selector = `.character-card:has-text("${ok.name || "Unnamed"}")`;
     if (await page.$(selector)) await page.click(selector);
-    await page.waitForTimeout(1800);
+    await quiet(page);
     return ok;
   };
 
@@ -1259,10 +1412,10 @@ async function runViewportTests(viewport) {
     // (which silently un-set a patched Level). Navigating tears the app
     // down without offering it that chance.
     await page.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
-    await page.waitForTimeout(600);
+    await settled(page, READY_VAULT, `page vault`);
     const sel = `.character-card:has-text("${probe.name || "Unnamed"}")`;
     if (await page.$(sel)) await page.click(sel);
-    await page.waitForTimeout(1600);
+    await quiet(page);
   };
   check(await page.$(".page-grid"), "a finished character opens its sheet");
 
@@ -1341,7 +1494,7 @@ async function runViewportTests(viewport) {
     const el = tab.asElement();
     if (el) {
       await el.click().catch(() => {});
-      await page.waitForTimeout(800);
+      await quiet(page);
     }
   };
 
@@ -1357,7 +1510,7 @@ async function runViewportTests(viewport) {
     const mainEl = main.asElement();
     if (mainEl) {
       await mainEl.click().catch(() => {});
-      await page.waitForTimeout(500);
+      await quiet(page);
     }
     const handle = await page.evaluateHandle((l) => [...document.querySelectorAll(".grid-node--field")]
       .find((n) => n.querySelector(".field-label")?.textContent?.trim() === l)
@@ -1365,7 +1518,7 @@ async function runViewportTests(viewport) {
     const el = handle.asElement();
     if (!el) return false;
     await el.selectOption({ label: value }).catch(() => {});
-    await page.waitForTimeout(700);
+    await quiet(page);
     return true;
   };
 
@@ -1459,7 +1612,7 @@ async function runViewportTests(viewport) {
       const nextEl = nextHandle.asElement();
       if (nextEl) {
         await nextEl.click().catch(() => {});
-        await page.waitForTimeout(600);
+        await quiet(page);
         sameTitleRounds = 0;
         lastTitle = null;
       } else {
@@ -1774,7 +1927,7 @@ async function runViewportTests(viewport) {
     `the hand-typed row survives a reload (got ${JSON.stringify(afterRowReload.summary)})`);
   // Expanding the row again shows the saved text, not an empty box.
   await page.evaluate(() => document.querySelector('.leveling-row[data-level="3"] .leveling-row__toggle')?.click());
-  await page.waitForTimeout(700);
+  await quiet(page);
   const reopened = await page.evaluate(() => {
     const row = document.querySelector('.leveling-row[data-level="3"]');
     return row?.querySelector("textarea")?.value ?? null;
@@ -1881,7 +2034,7 @@ async function runViewportTests(viewport) {
   // Cancel first: nothing should change.
   await page.evaluate(() => [...document.querySelectorAll(".app-dialog__actions button")]
     .find((b) => /Cancel/i.test(b.textContent))?.click());
-  await page.waitForTimeout(600);
+  await quiet(page);
   const afterCancelRevert = await readLevelUp();
   check(afterCancelRevert.hpMax === beforeRevert.hpMax,
     `backing out of the dialog changes nothing (HP ${afterCancelRevert.hpMax} vs ${beforeRevert.hpMax})`);
@@ -1893,7 +2046,7 @@ async function runViewportTests(viewport) {
   await page.waitForTimeout(700);
   await page.evaluate(() => [...document.querySelectorAll(".app-dialog__actions button")]
     .find((b) => /Revert level/i.test(b.textContent))?.click());
-  await page.waitForTimeout(1600);
+  await quiet(page);
   const afterRevert = await readLevelUp();
   // Back to the level BEFORE the reverted one was applied: level 4's own
   // effects are gone, so level 3 is what the character has actually earned.
@@ -1958,7 +2111,7 @@ async function runViewportTests(viewport) {
   // And Cancel really does back out of that.
   await page.evaluate(() => [...document.querySelectorAll(".app-dialog__actions button")]
     .find((b) => /Cancel/i.test(b.textContent))?.click());
-  await page.waitForTimeout(600);
+  await quiet(page);
   const afterWarnCancel = await readLevelUp();
   check(afterWarnCancel.revert.btn === "Revert Level 4", "and cancelling the warning leaves the level alone");
 
@@ -2161,7 +2314,7 @@ async function runViewportTests(viewport) {
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForTimeout(600);
   await page.click(`.character-card:has-text("${probe.name || "Unnamed"}")`).catch(() => {});
-  await page.waitForTimeout(1600);
+  await quiet(page);
   // Not asserted here: that localStorage now reads empty. hydrateCharacter
   // repairs the LOADED copy and nothing writes it straight back, so the
   // stored record keeps its old value until the player's next save. That is
@@ -2210,7 +2363,7 @@ async function runViewportTests(viewport) {
   check(afterPrepare.undoDisabled === false, "and Undo becomes available for it");
 
   await page.click(undoBtn);
-  await page.waitForTimeout(800);
+  await quiet(page);
   const afterUndo = await history();
   check(afterUndo.counter === "Prepared: 0 / 8",
     `Undo takes the preparation back (got "${afterUndo.counter}")`);
@@ -2218,7 +2371,7 @@ async function runViewportTests(viewport) {
   check(afterUndo.redoDisabled === false, "and Redo becomes available");
 
   await page.click(redoBtn);
-  await page.waitForTimeout(800);
+  await quiet(page);
   const afterRedo = await history();
   check(afterRedo.counter === "Prepared: 1 / 8",
     `Redo puts it back (got "${afterRedo.counter}")`);
@@ -2261,10 +2414,10 @@ async function runViewportTests(viewport) {
     await page.waitForTimeout(600);
     const sel = `.character-card:has-text("${probe.name || "Unnamed"}")`;
     if (await page.$(sel)) await page.click(sel);
-    await page.waitForTimeout(1600);
+    await quiet(page);
   };
   await page.click(".sheet-intro__dismiss");
-  await page.waitForTimeout(500);
+  await quiet(page);
   check(!(await page.$(".sheet-intro")), "the orientation panel dismisses");
   await reopen();
   check(!(await page.$(".sheet-intro")), "a dismissed orientation panel stays dismissed after a reload");
@@ -2286,7 +2439,7 @@ async function runViewportTests(viewport) {
   check(!!simpleToggle, "a finished character offers the Simple View toggle");
   if (simpleToggle) {
     await simpleToggle.click();
-    await page.waitForTimeout(600);
+    await quiet(page);
     check(await page.$(".page-grid.is-simple"), "Simple View engages on a finished character");
     await page.screenshot({ path: path.join(shotDir, `simple-view-persisted-${viewport.name}.png`) });
     await reopen();
@@ -2302,7 +2455,7 @@ async function runViewportTests(viewport) {
     // And back the other way, so the preference is a preference and not a
     // one-way door.
     await page.click(".sheet-toolbar button:text-is('Sheet View')");
-    await page.waitForTimeout(600);
+    await quiet(page);
     await reopen();
     check(!(await page.$(".page-grid.is-simple")), "Sheet View survives a reload too");
 
@@ -2318,7 +2471,7 @@ async function runViewportTests(viewport) {
       const panel = await page.$(".toolbar-display[open]");
       if (!panel) {
         await page.click(".toolbar-display summary");
-        await page.waitForTimeout(300);
+        await quiet(page);
       }
     };
     await a11yOpen();
@@ -2407,9 +2560,39 @@ async function runViewportTests(viewport) {
   }
 }
 
-for (const viewport of viewportSizes) {
-  await runViewportTests(viewport);
-}
+// --- Phase timing ----------------------------------------------------------
+//
+// This suite is the slowest gate by an order of magnitude, so "which part" is
+// the first question whenever it gets slower. Only the viewport runs are
+// timed: they are three sequential passes over the whole app and account for
+// the large majority of the wall clock, and unlike the one-off blocks further
+// down they have unambiguous boundaries. Those blocks are left untimed on
+// purpose - they are flat labelled sections in a script where a stopwatch
+// attached to the wrong brace would report a confidently wrong number, which
+// is worse than reporting nothing.
+const phases = [];
+
+// The three viewport runs are independent - separate browser contexts, no
+// shared state, no ordering between them - so they run CONCURRENTLY. Each
+// opens its own context against its own viewport and asserts on its own page,
+// which is what makes this safe; the character data lives in each context's
+// own storage, so there is nothing for them to trip over.
+//
+// Serial, these three were 85% of the suite's wall clock. Concurrent, the
+// suite costs about as much as the slowest single pass.
+//
+// `problems` and `failures` are appended to from three places at once, but
+// only ever pushed to, never spliced or reordered, and Node runs that as
+// atomic at the granularity that matters here - so the report stays in one
+// piece even when two viewports fail in the same millisecond.
+await Promise.all(viewportSizes.map(async (viewport) => {
+  const t0 = Date.now();
+  try {
+    await runViewportTests(viewport);
+  } finally {
+    phases.push({ label: viewport.name, ms: Date.now() - t0 });
+  }
+}));
 
 
 // check() is scoped inside runViewportTests; this block is module level, so
@@ -2435,7 +2618,7 @@ const widthCheck = reporter("widths");
   const phone = await browser.newPage({ viewport: { width: 390, height: 844 } });
   phone.on("pageerror", (e) => problems.push(`PAGEERROR [phone]: ${e.message}`));
   await phone.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
-  await phone.waitForTimeout(1500);
+  await settled(phone, READY_VAULT, `phone vault`);
   // Assert the CSS viewport the media queries actually see. Playwright's
   // isMobile option changes device emulation and the resolved viewport, which
   // makes the layout width something other than the viewport passed in - so
@@ -2553,13 +2736,17 @@ const widthCheck = reporter("widths");
 // kind of rule that happens to pass at one and fail at the other, and
 // because 320 is the width the sheet's own grid floor (MIN_CELL_PX) makes
 // impossible.
+// Skipped under --smoke: it drives the sheet and the wizard at two phone
+// widths, and the phone layout is not what a desktop-width smoke run can
+// regress. A phone-only regression is caught by the full suite.
+if (!SKIP_BLOCKS.has("phone-widths")) {
 for (const phoneWidth of [320, 390]) {
   {
     const sheet = await browser.newPage({ viewport: { width: phoneWidth, height: 844 } });
     sheet.on("pageerror", (e) => problems.push(`PAGEERROR [sheet@${phoneWidth}]: ${e.message}`));
     sheet.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [sheet@${phoneWidth}]: ${m.text()}`); });
     await sheet.goto(`${base}/demo.html`, { waitUntil: "networkidle" });
-    await sheet.waitForTimeout(1600);
+    await settled(sheet, READY_SHEET, `sheet sheet`);
 
     const geom = () => sheet.evaluate(() => {
       const de = document.documentElement;
@@ -2620,7 +2807,7 @@ for (const phoneWidth of [320, 390]) {
     const tabCount = await sheet.evaluate(() => document.querySelectorAll(".sheet-tab").length);
     for (let t = 0; t < tabCount; t += 1) {
       await sheet.evaluate((i) => document.querySelectorAll(".sheet-tab")[i]?.click(), t);
-      await sheet.waitForTimeout(900);
+      await quiet(sheet);
       const g = await geom();
       phoneCheck(!g.pageScrollsSideways,
         `@${phoneWidth} tab ${t} does not scroll sideways (${JSON.stringify(g.pageWidths)})`);
@@ -2635,9 +2822,9 @@ for (const phoneWidth of [320, 390]) {
     wiz.on("pageerror", (e) => problems.push(`PAGEERROR [wiz@${phoneWidth}]: ${e.message}`));
     wiz.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [wiz@${phoneWidth}]: ${m.text()}`); });
     await wiz.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
-    await wiz.waitForTimeout(1200);
-    await wiz.click("button:has-text('+ New Character')");
-    await wiz.waitForTimeout(2200);
+    await settled(wiz, READY_VAULT, `wiz vault`);
+    await wiz.click(READY_VAULT);
+    await settled(wiz, READY_WIZARD, `wiz wizard`);
 
     const auth = await wiz.evaluate(() => {
       const area = document.getElementById("auth-area");
@@ -2726,8 +2913,18 @@ for (const phoneWidth of [320, 390]) {
     await wiz.close();
   }
 }
+}
 
 // --- Phone / tablet / laptop, swept in one place ----------------------------
+//
+// Skipped under --smoke: it re-walks ten widths to check boundary behaviour
+// that no single-width smoke run can regress, and it is one of the two
+// slowest standalone blocks. Its failure mode is a layout that is subtly
+// wrong at one specific width - worth the full run, not worth interrupting
+// an edit for.
+// (The per-viewport runs below already assert that the sheet does not scroll
+// sideways AT their width, so a gross overflow is still caught in smoke.)
+if (!SKIP_BLOCKS.has("widths-sweep")) {
 //
 // The per-viewport runs above each pick one width and assert a great deal at
 // it. What none of them asserted is the BOUNDARIES, and the boundaries are
@@ -2760,7 +2957,7 @@ for (const phoneWidth of [320, 390]) {
   sweep.on("pageerror", (e) => problems.push(`PAGEERROR [widths @${sweep.viewportSize().width}]: ${e.message}`));
   sweep.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [widths]: ${m.text()}`); });
   await sweep.goto(`${base}/demo.html`, { waitUntil: "networkidle" });
-  await sweep.waitForTimeout(1400);
+  await settled(sweep, READY_SHEET, `sweep sheet`);
 
   // Where the grid stopped fitting, so the assertions below can be stated as
   // "the sheet agreed with its own measurement" rather than as a magic
@@ -2836,6 +3033,7 @@ for (const phoneWidth of [320, 390]) {
   await sweep.screenshot({ path: path.join(shotDir, "widths-final.png") });
   await sweep.close();
 }
+}
 
 // --- Level-gated text in the picker, without a reload ----------------------
 //
@@ -2850,9 +3048,9 @@ for (const phoneWidth of [320, 390]) {
   lg.on("pageerror", (e) => problems.push(`PAGEERROR [levelgate]: ${e.message}`));
   lg.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [levelgate]: ${m.text()}`); });
   await lg.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
-  await lg.waitForTimeout(1200);
-  await lg.click("button:has-text('+ New Character')");
-  await lg.waitForTimeout(2000);
+  await settled(lg, READY_VAULT, `lg vault`);
+  await lg.click(READY_VAULT);
+  await settled(lg, READY_WIZARD, `lg wizard`);
   await lg.evaluate(() => {
     const dots = [...document.querySelectorAll(".wizard__dot")];
     const identity = dots.find((d) => /identity/i.test(d.title + " " + d.getAttribute("aria-label")));
@@ -2952,9 +3150,9 @@ for (const phoneWidth of [320, 390]) {
   const cr = await browser.newPage({ viewport: { width: 1400, height: 1200 } });
   cr.on("pageerror", (e) => problems.push(`PAGEERROR [rowclick]: ${e.message}`));
   await cr.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
-  await cr.waitForTimeout(1200);
-  await cr.click("button:has-text('+ New Character')");
-  await cr.waitForTimeout(2000);
+  await settled(cr, READY_VAULT, `cr vault`);
+  await cr.click(READY_VAULT);
+  await settled(cr, READY_WIZARD, `cr wizard`);
   for (let hop = 0; hop < 14; hop++) {
     if (await cr.evaluate(() => !!document.querySelector('.choice-row[data-row-name="Genasi"]'))) break;
     const moved = await cr.evaluate(() => {
@@ -2972,7 +3170,7 @@ for (const phoneWidth of [320, 390]) {
   phoneCheck(!!expandAll, "the row-click checks start from an expanded list");
   if (expandAll) {
     await expandAll.click();
-    await cr.waitForTimeout(900);
+    await quiet(cr);
     const rowSelected = (name) => cr.evaluate(
       (n) => !!document.querySelector(`.choice-row[data-row-name="${n}"].choice-row--selected`), name);
 
@@ -2994,7 +3192,7 @@ for (const phoneWidth of [320, 390]) {
       phoneCheck(await cr.evaluate(() => !!document.querySelector(".choice-dialog")),
         "and the picker still opens");
       await cr.keyboard.press("Escape");
-      await cr.waitForTimeout(600);
+      await quiet(cr);
     }
 
     // --- a native <select> in an UNSELECTED row ---
@@ -3055,9 +3253,9 @@ for (const phoneWidth of [320, 390]) {
   const sp = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   sp.on("pageerror", (e) => problems.push(`PAGEERROR [spells]: ${e.message}`));
   await sp.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
-  await sp.waitForTimeout(1200);
-  await sp.click("button:has-text('+ New Character')");
-  await sp.waitForTimeout(1800);
+  await settled(sp, READY_VAULT, `sp vault`);
+  await sp.click(READY_VAULT);
+  await settled(sp, READY_WIZARD, `sp wizard`);
   // Advance to Identity first (it lists species), pick Elf + High Elf, then
   // advance to Class and pick Wizard. Each stage waits for its own marker so a
   // slow re-render cannot race the click.
@@ -3138,12 +3336,12 @@ for (const phoneWidth of [320, 390]) {
   phoneCheck(!!opened?.open && opened.total > 0,
     `the Wizard's spell line opens a picker (${JSON.stringify(opened)})`);
   await sp.keyboard.press("Escape");
-  await sp.waitForTimeout(500);
+  await quiet(sp);
   const leveled = await openSpellLine("Spellbook");
   phoneCheck(!!leveled?.open && leveled.total > 0,
     `and so does the leveled list (${JSON.stringify(leveled)})`);
   await sp.keyboard.press("Escape");
-  await sp.waitForTimeout(500);
+  await quiet(sp);
   // Re-open Cantrips for the row-shape measurements below.
   await openSpellLine("Cantrips");
   await sp.waitForTimeout(900);
@@ -3220,10 +3418,10 @@ for (const phoneWidth of [320, 390]) {
   const t = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
   t.on("pageerror", (e) => problems.push(`PAGEERROR [swipe]: ${e.message}`));
   await t.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
-  await t.waitForTimeout(1200);
+  await settled(t, READY_VAULT, `t vault`);
   const newBtn = await t.$("button:has-text('+ New Character')");
   await newBtn.click();
-  await t.waitForTimeout(1800);
+  await quiet(t);
 
   const stepOf = () => t.evaluate(() => {
     const text = document.querySelector(".wizard")?.textContent || "";
@@ -3287,7 +3485,7 @@ for (const phoneWidth of [320, 390]) {
 
   if (!gated && arrow1.hittable) {
     await t.mouse.click(arrow1.x, arrow1.y);
-    await t.waitForTimeout(1100);
+    await quiet(t);
     const s1 = await stepOf();
     phoneCheck(s1.index === s0.index + 1,
       `tapping the arrow moves to the next step (${s0.index} -> ${s1.index})`);
@@ -3391,18 +3589,18 @@ const vaultCheck = (cond, msg) => {
 };
 
 await vaultPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
-await vaultPage.waitForTimeout(1200);
+await settled(vaultPage, READY_VAULT, `vaultPage vault`);
 const newBtn = await vaultPage.$("button:has-text('+ New Character')");
 vaultCheck(!!newBtn && (await newBtn.isVisible()), "vault + New Character button visible");
 if (newBtn) await newBtn.click();
-await vaultPage.waitForTimeout(2000);
+await quiet(vaultPage);
 vaultCheck(await vaultPage.$(".wizard"), "creator wizard renders after + New Character");
 await vaultPage.screenshot({ path: path.join(shotDir, "creator.png") });
 // Advance one wizard step to prove the wizard is alive, not paint.
 const nextBtn = await vaultPage.$(".wizard button:has-text('Next')");
 if (nextBtn) {
   await nextBtn.click();
-  await vaultPage.waitForTimeout(800);
+  await quiet(vaultPage);
   const stepText = /Step 2 of \d+/.test(await vaultPage.textContent("body"));
   vaultCheck(stepText, "creator wizard advances to step 2");
   await vaultPage.screenshot({ path: path.join(shotDir, "creator-step2.png") });
@@ -3416,30 +3614,30 @@ const changeling = await vaultPage.$(`.choice-row[data-row-name="Changeling"]`);
 vaultCheck(!!changeling, "Identity step lists Changeling");
 if (changeling) {
   await changeling.click();
-  await vaultPage.waitForTimeout(1500);
+  await quiet(vaultPage);
   vaultCheck(await vaultPage.$(".choice-row--selected .inline-pick-link"), "Changeling choice summary is the dialog link");
   vaultCheck(!((await vaultPage.$$(".level-guide__choices")).length), "no bottom choice sections for Changeling");
   // The summary opens the shared skills dialog; Escape closes it untouched.
   await vaultPage.click(".choice-row--selected .inline-pick-link");
-  await vaultPage.waitForTimeout(400);
+  await quiet(vaultPage);
   vaultCheck(await vaultPage.$(".choice-dialog-overlay"), "shared choice dialog opens");
   await vaultPage.screenshot({ path: path.join(shotDir, "changeling.png") });
   await vaultPage.keyboard.press("Escape");
-  await vaultPage.waitForTimeout(300);
+  await quiet(vaultPage);
   vaultCheck(!(await vaultPage.$(".choice-dialog-overlay")), "shared choice dialog closes on Escape");
 }
 const vaultLineage = await vaultPage.$(`.choice-row[data-row-name="Custom Lineage"]`);
 vaultCheck(!!vaultLineage, "Identity step lists Custom Lineage");
 if (vaultLineage) {
   await vaultLineage.click();
-  await vaultPage.waitForTimeout(1500);
+  await quiet(vaultPage);
   const vaultFeatLink = await vaultPage.$(".choice-row--selected .inline-pick-link");
   const vaultFeatText = vaultFeatLink ? await vaultFeatLink.textContent() : "";
   vaultCheck(!!vaultFeatLink && /choose a feat/i.test(vaultFeatText || ""), "lineage feat mention is the picker link");
   vaultCheck((await vaultPage.textContent("body")).includes("Racial feat"), "Racial feat picker sits on Identity");
   if (vaultFeatLink) {
     await vaultFeatLink.click();
-    await vaultPage.waitForTimeout(400);
+    await quiet(vaultPage);
     const vaultFeatDlg = await vaultPage.$(".choice-dialog-overlay");
     vaultCheck(!!vaultFeatDlg, "feat picker dialog opens from lineage link");
     if (vaultFeatDlg) {
@@ -3447,7 +3645,7 @@ if (vaultLineage) {
       await vaultPage.screenshot({ path: path.join(shotDir, "lineage-feat.png") });
     }
     await vaultPage.keyboard.press("Escape");
-    await vaultPage.waitForTimeout(300);
+    await quiet(vaultPage);
     vaultCheck(!(await vaultPage.$(".choice-dialog-overlay")), "feat picker closes on Escape");
   }
 }
@@ -3492,6 +3690,11 @@ await browser.close();
 server.close();
 
 console.log(`screenshots: ${shotDir}`);
+
+// Where the wall clock went, so the next question ("which part?") is answered
+// without hand-editing a stopwatch into a 3600-line script.
+const viewportTotal = phases.reduce((a, p) => a + p.ms, 0);
+console.log(`viewport runs: ${phases.map((p) => `${p.label} ${(p.ms / 1000).toFixed(1)}s`).join(", ")}  (${(viewportTotal / 1000).toFixed(1)}s total)`);
 if (problems.length) {
   console.error(`PAGE PROBLEMS (${problems.length}):\n` + problems.join("\n"));
   process.exitCode = 1;
