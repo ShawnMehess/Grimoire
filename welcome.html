@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Welcome - Character Vault</title>
+  <meta name="robots" content="noindex" />
+  <meta name="description" content="A private place to build and run D&amp;D 5e characters. Start here if the Character Vault is new to you." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314110f'/%3E%3Cpath d='M16 5l3.5 7.2L27 13l-5.7 5.1L22.8 27 16 22.9 9.2 27l1.5-8.9L5 13l7.5-.8z' fill='%23b3492b'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- Colours and fonts below are copies of the values in css/tokens.css,
+       not a link to it. This page is standalone on purpose: it has to render
+       even when the app's stylesheet is not here. They will drift if the
+       app's theme changes; nothing on this page breaks when they do. -->
+  <style>
+    :root {
+      --bg: #14110f;
+      --raised: #1d1a16;
+      --border: #3a332a;
+      --text: #e8e0d0;
+      --muted: #a89a82;
+      --accent: #b3492b;
+      --accent-hover: #d4602f;
+      /* Text colour for the big button. Swaps per state: white on the
+         darker accent is 5.4:1, but only 3.8:1 on the lighter hover, so the
+         hover state flips to dark ink (4.9:1) rather than ship a fail. */
+      --on-accent: #ffffff;
+      --display: "Cinzel", Georgia, "Times New Roman", serif;
+      --body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      /* Nothing on this page is a fixed-width canvas, so the viewport is
+         never allowed to scroll sideways at any width. */
+      overflow-x: hidden;
+    }
+
+    body {
+      margin: 0;
+      padding: 1.75rem 1.25rem 2.5rem;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--body);
+      font-size: 1rem;
+      line-height: 1.6;
+      -webkit-text-size-adjust: 100%;
+      overflow-wrap: break-word;
+    }
+
+    .wrap {
+      max-width: 42rem;
+      margin: 0 auto;
+    }
+
+    /* --- Header --- */
+
+    .page-header {
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .page-header h1 {
+      margin: 0 0 0.5rem;
+      font-family: var(--display);
+      font-size: clamp(1.75rem, 6vw, 2.5rem);
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0.01em;
+    }
+
+    .page-header p {
+      margin: 0;
+      font-size: 1.0625rem;
+      color: var(--muted);
+    }
+
+    /* --- Main button --- */
+
+    .cta-row {
+      margin: 2rem 0 0;
+    }
+
+    .cta {
+      display: block;
+      width: 100%;
+      padding: 1rem 1.25rem;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      background: var(--accent);
+      color: var(--on-accent);
+      font-family: var(--body);
+      font-size: 1.0625rem;
+      font-weight: 600;
+      line-height: 1.3;
+      text-align: center;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .cta {
+        transition: background-color 120ms ease, border-color 120ms ease;
+      }
+    }
+
+    .cta:hover,
+    .cta:active {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+      color: var(--bg);
+    }
+
+    /* --- Sections --- */
+
+    section {
+      margin-top: 2rem;
+    }
+
+    h2 {
+      margin: 0 0 0.6rem;
+      font-family: var(--display);
+      font-size: 1.25rem;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+
+    p {
+      margin: 0 0 1rem;
+    }
+
+    section > p:last-child,
+    ol:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Numbered and bulleted lists share the type scale with body text so
+       the page reads as one thing. */
+    ol,
+    ul {
+      margin: 0;
+      padding-left: 1.35rem;
+    }
+
+    li {
+      margin-bottom: 0.5rem;
+    }
+
+    li:last-child {
+      margin-bottom: 0;
+    }
+
+    /* A step name from the wizard, set apart from its own description
+       without shouting it. */
+    .step-name {
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    /* Callout for the "ask your DM first" advice. */
+    .note {
+      padding: 1rem 1.15rem;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: 4px;
+      background: var(--raised);
+    }
+
+    .note p:last-child {
+      margin-bottom: 0;
+    }
+
+    .note strong {
+      color: var(--text);
+    }
+
+    /* --- Footer --- */
+
+    .page-footer {
+      margin-top: 2.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.9375rem;
+    }
+
+    .page-footer p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* --- Focus --- */
+
+    a:focus-visible {
+      outline: 3px solid var(--text);
+      outline-offset: 3px;
+      border-radius: 3px;
+    }
+
+    .cta:focus-visible {
+      outline: 3px solid var(--text);
+      outline-offset: 3px;
+    }
+
+    /* --- Print: black on white, and drop the chrome that means nothing
+       on paper. The button becomes a plain line of text so it does not
+       print as a filled block. --- */
+
+    @media print {
+      :root {
+        --bg: #ffffff;
+        --raised: #ffffff;
+        --border: #999999;
+        --text: #000000;
+        --muted: #333333;
+        --accent: #000000;
+        --accent-hover: #000000;
+        --on-accent: #000000;
+      }
+
+      body {
+        padding: 0;
+        background: #ffffff;
+        color: #000000;
+        font-size: 11pt;
+      }
+
+      .cta {
+        border: 1px solid #000000;
+        background: transparent;
+        color: #000000;
+      }
+
+      a {
+        color: #000000;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="page-header">
+      <h1>Character Vault</h1>
+      <p>A private place to build and run your D&amp;D 5e characters.</p>
+    </header>
+
+    <main>
+      <p class="cta-row">
+        <a class="cta" href="./">Open the Character Vault</a>
+      </p>
+
+      <section aria-labelledby="start-heading">
+        <h2 id="start-heading">Getting started</h2>
+        <ol>
+          <li>Sign in with your Google account, using the sign-in button in the top corner of the vault page.</li>
+          <li>Click <strong>+ New Character</strong> at the top of your list of characters.</li>
+          <li>Work through the creation wizard, then finish setup.</li>
+        </ol>
+      </section>
+
+      <section aria-labelledby="dm-heading">
+        <h2 id="dm-heading">Before you start: ask your DM</h2>
+        <div class="note">
+          <p><strong>Ask your DM what rules they want before you pick, because everything after that depends on it.</strong></p>
+          <p>The first wizard step is where you choose which books your character is built from, and that limits what the later steps can offer you. You can change the books later, but anything you picked that only existed in a removed book gets cleared, so it asks you first.</p>
+        </div>
+      </section>
+
+      <section aria-labelledby="wizard-heading">
+        <h2 id="wizard-heading">What the wizard asks you</h2>
+        <ol>
+          <li><span class="step-name">Rules &amp; Sources.</span> Pick your books, and how hit points get worked out.</li>
+          <li><span class="step-name">Identity.</span> Name, starting level, and species, plus whatever that species grants.</li>
+          <li><span class="step-name">Class.</span> What your character does best. Sets hit points, attacks and features.</li>
+          <li><span class="step-name">Background.</span> Where they come from. Grants proficiencies and starting gear.</li>
+          <li><span class="step-name">Story.</span> Two free-text boxes for appearance and backstory. Both optional, editable later.</li>
+          <li><span class="step-name">Starting Conditions.</span> Your six ability scores, and your starting equipment.</li>
+          <li><span class="step-name">Review.</span> Check what you picked, then finish setup. Nothing is locked in; every choice stays editable.</li>
+        </ol>
+      </section>
+
+      <section aria-labelledby="after-heading">
+        <h2 id="after-heading">After you finish setup</h2>
+        <p>You get a character sheet you can rearrange as you like, split across tabs: Main, Character, and Leveling. Come back to the Leveling tab when your character levels up.</p>
+        <p>There are display options too: Simple View stacks every block full width in reading order, and there are theme choices if you want a different look.</p>
+      </section>
+
+      <section aria-labelledby="devices-heading">
+        <h2 id="devices-heading">Using it on different devices</h2>
+        <p>It works on a laptop, a tablet and a phone, and the page adapts to whichever screen you are on. There is a print stylesheet too, so a printed sheet comes out black on white rather than as a dark screen.</p>
+      </section>
+    </main>
+
+    <footer class="page-footer">
+      <p>Found a bug or have an idea? Tell Shawn.</p>
+      <p>It is a hobby project and still changing, so things will move around a bit.</p>
+    </footer>
+  </div>
+</body>
+</html>
