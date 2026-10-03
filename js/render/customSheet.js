@@ -207,6 +207,7 @@ normalizeChoiceGroup,
   renderLevelingGlanceInto,
   buildLevelUpControl,
   levelUpTarget,
+  levelingRecordState,
   rawLevelFrom,
   LEVEL_CAP,
 } from "./sheet/sheetLeveling.js";
@@ -1769,7 +1770,15 @@ const closeDialog = () => {
     // holding 21 should read as "you hit the cap", not as "you have no
     // level", which is what the clamped read would report.
     const raw = rawLevelFrom(resolveFieldById(character.levelFieldId || "level")?.value);
-    levelUpControl.syncLevelUpControl(levelUpTarget(raw, { pendingAtLevel: hasPendingLevelUp(raw) }));
+    const outstanding = hasOutstandingLevels(raw);
+    levelUpControl.syncLevelUpControl(levelUpTarget(raw, {
+      // Levels a jump left unrecorded make this a resume, not a start: the
+      // walkthrough has work to do at a level BELOW the sheet's own, and
+      // raising again would only push the sheet further ahead of its
+      // records. Same button, same place — it just takes you to the
+      // outstanding level instead of past it.
+      pendingAtLevel: hasPendingLevelUp(raw) || outstanding,
+    }));
   }
 
   function onLevelUpClick() {
@@ -1777,7 +1786,8 @@ const closeDialog = () => {
     // time — the sync in renderAll is the only thing keeping it fresh,
     // and a stale "start" must never double-raise.
     const raw = rawLevelFrom(resolveFieldById(character.levelFieldId || "level")?.value);
-    const live = levelUpTarget(raw, { pendingAtLevel: hasPendingLevelUp(raw) });
+    const pendingHere = hasPendingLevelUp(raw);
+    const live = levelUpTarget(raw, { pendingAtLevel: pendingHere });
     if (live.kind === "unknown" || live.kind === "capped") {
       syncLevelUpButton();
       return;
@@ -1789,6 +1799,14 @@ const closeDialog = () => {
     const tab = character.sheetTabs.find((t) => t.kind === "leveling");
     if (tab) activeTabId = tab.id;
     if (live.kind === "start") {
+      // Levels a jump left outstanding: DO NOT raise past them. The walk
+      // through takes the lowest one, and raising first would push the
+      // sheet further ahead of its own records. Resuming that
+      // walkthrough is the only correct action here.
+      if (hasOutstandingLevels(raw)) {
+        renderAll();
+        return;
+      }
       // Raise FIRST, then render: the guide derives everything from the
       // Level field (the primary's post-apply level is "total minus
       // applied secondaries"), so it has to see the new total to compute
@@ -1800,6 +1818,17 @@ const closeDialog = () => {
     // Resuming: the level is already raised and the picks are already
     // there. Just show the Walkthrough half again.
     renderAll();
+  }
+
+  /** Whether a jump left levels the walkthrough still has to take. Reads
+   *  the same state the banner does, so the button and the banner can
+   *  never disagree. */
+  function hasOutstandingLevels(sheetLevel) {
+    if (sheetLevel == null) return false;
+    return levelingRecordState(sheetLevel, {
+      levelUps: character.levelUps,
+      createdAtLevel: character.createdAtLevel,
+    }).hasGap;
   }
 
   // Visible save-state feedback — saves happen silently in the
@@ -4542,12 +4571,24 @@ const closeDialog = () => {
     // here — matches Shawn's ask to not keep the wizard tab around
     // afterward.
     character.setupComplete = true;
+    // The level this character was MADE at, recorded once and only here.
+    // Creation records nothing into character.levelUps, so without this a
+    // character created at level 3 would look to the level-jump banner
+    // like levels 1-3 had all been skipped. Read from the Level FIELD
+    // (raw, unclamped) rather than rules.level, and only if the character
+    // doesn't already have one — Finish Setup is guarded against
+    // double-finish, and a second pass must not re-stamp the floor over a
+    // level-up the player has since applied.
+    if (character.createdAtLevel == null) {
+      const made = rawLevelFrom(resolveFieldById(character.levelFieldId || "level")?.value);
+      character.createdAtLevel = Number.isFinite(made) && made >= 1 ? made : 1;
+    }
     normalizeTabs();
     const levelingTab = character.sheetTabs.find((tab) => tab.kind === "leveling");
     if (levelingTab) activeTabId = levelingTab.id;
     // Keep the top-level mirror in sync with the canonical rules copy.
     character.rulesetId = character.rules.rulesetId;
-    await store.saveCharacterFields(character.id, { rules: character.rules, rulesetId: character.rules.rulesetId, layout: character.layout, sheetTabs: character.sheetTabs, setupComplete: true, creationStepId: null });
+    await store.saveCharacterFields(character.id, { rules: character.rules, rulesetId: character.rules.rulesetId, layout: character.layout, sheetTabs: character.sheetTabs, setupComplete: true, createdAtLevel: character.createdAtLevel, creationStepId: null });
     // Setup always completes (every applicable write above was
     // attempted) — but a customized sheet may be missing targets, and
     // those are reported loudly here, never dropped silently.
@@ -6642,8 +6683,17 @@ const closeDialog = () => {
     const rows = featRowModels(bundles, catalogEntries, {
       takenFeats,
       remaining: Infinity,
-      abilityScores: character.rules?.abilityScores || state.abilityScores || {},
-      raceName: state.raceName || character.rules?.race || "",
+      abilityScores: character.rules?.abilityScores || {},
+      // The picked race, off the sheet's own Race dropdown — the same read
+      // the rest of the guide uses for a class or subclass. This used to
+      // read a `state` local that belonged to renderRulesTab() and was
+      // never in scope here, so it threw a ReferenceError on every render
+      // of this picker — and since the ASI step's DEFAULT mode is "took a
+      // feat instead", that blanked the whole Leveling tab for every
+      // character levelling into an ASI (every class at 4/8/12/16/19).
+      // Racial feat prerequisites are checked against it (featList.js
+      // featRequirementStatus), so it cannot simply be left blank.
+      raceName: selectedChoiceName("race", "Race") || character.rules?.species || "",
     })
       .map((row) => ({ ...row, taken: row.id === selectedName }));
     renderFeatListInto(container, rows, {
@@ -6668,11 +6718,29 @@ const closeDialog = () => {
 
   function renderRulesetLevelGuide() {
     const primaryName = selectedChoiceName("class", "Class");
-    const level = currentCharacterLevel();
+    const sheetLevel = currentCharacterLevel();
     // No Level on the sheet means no level to guide (and no "null"
     // pending keys or levelUps["null"] entries) — the tab explains
     // itself via the empty-guide note instead.
-    if (level == null) return null;
+    if (sheetLevel == null) return null;
+    // Which level this pass is actually about. Normally that is the sheet
+    // level — you raised it to N and the walkthrough takes level N. But a
+    // level typed straight in (3 -> 5) skips the levels in between, and
+    // the walkthrough used to offer only 5, so level 4 was never walked
+    // through and nothing said so. When levels are outstanding the pass
+    // takes the LOWEST of them instead, and applying it leaves the next
+    // one waiting for the pass after.
+    //
+    // Everything below reads `level` as "the level being taken", which is
+    // exactly what the outstanding level is: primaryLevel stays
+    // "total minus applied secondaries" for THAT level, so a Fighter
+    // mid-jump gets level 4's HP, ASI and spell slots first and level 5's
+    // on the following pass - not both computed against the sheet total.
+    const recordState = levelingRecordState(sheetLevel, {
+      levelUps: character.levelUps,
+      createdAtLevel: character.createdAtLevel,
+    });
+    const level = recordState.levelToProcess;
     const entries = multiclassEntries();
     const primaryLevel = (() => {
       const used = entries.reduce((n, e) => n + (Number(e.levels) || 0), 0);
@@ -7608,6 +7676,12 @@ const closeDialog = () => {
   function renderLevelingTab() {
     const currentLevel = currentCharacterLevel();
     const guideEl = renderRulesetLevelGuide();
+    // Same read the guide just made, so the banner and the walkthrough can
+    // never disagree about which level is being worked on.
+    const recordState = currentLevel == null ? null : levelingRecordState(currentLevel, {
+      levelUps: character.levelUps,
+      createdAtLevel: character.createdAtLevel,
+    });
     // The guided panel only exists when the sheet names a class (and
     // level) the rules know — otherwise the tab reads as mysteriously
     // empty, so say what's missing and what still works by hand.
@@ -7627,6 +7701,9 @@ const closeDialog = () => {
       glanceEl: renderLevelingGlance(),
       resourcesEl: renderResourceTrackers(),
       currentLevel,
+      gapBanner: recordState?.hasGap
+        ? { text: recordState.bannerText, progressLabel: recordState.progressLabel }
+        : null,
       expandedSet: expandedLevelUpRows,
       gridFn: () => renderPageGrid(),
       rowFn: (level, isCurrent) => renderLevelUpRow(level, isCurrent),

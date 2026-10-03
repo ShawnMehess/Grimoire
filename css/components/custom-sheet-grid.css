@@ -366,6 +366,32 @@
   font-size: var(--text-sm);
 }
 
+/* Levels a jump left unrecorded. Deliberately not an error tone: nothing
+   has gone wrong, there is just work waiting, and the walkthrough below is
+   about to do it in order. The progress label sits on its own line under
+   the sentence so neither has to give way to the other on a phone. */
+.leveling-tab__gap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3) 0;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-left-width: 4px;
+  border-left-color: var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-inset);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.leveling-tab__gap-progress {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
 .leveling-tab__jump {
   align-self: flex-start;
 }

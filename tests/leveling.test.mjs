@@ -45,6 +45,7 @@ import {
   dropdownEntryForGroupKey,
   levelUpTarget,
   rawLevelFrom,
+  levelingRecordState,
   LEVEL_CAP,
 } from "../js/render/sheet/sheetLeveling.js";
 import { stripSecondaryClassBundle } from "../js/data/contentFixups.js";
@@ -300,5 +301,142 @@ describe("leveling entry point", () => {
     assert.ok(intro, "intro copy found");
     assert.match(intro[1], /Level Up button/);
     assert.match(intro[1], /Level field/);
+  });
+});
+
+describe("levels skipped by a multi-level jump", () => {
+  // A recorded level-up is one the wizard actually applied, which it marks
+  // with appliedRulesetId. That marker already decides "already applied"
+  // in renderRulesetLevelGuide, so it is the recorded-or-not signal here
+  // too - no new flag on the character.
+  const applied = (...levels) => Object.fromEntries(
+    levels.map((l) => [String(l), { hp: `+${l}`, appliedRulesetId: "dnd5e-2014" }])
+  );
+
+  it("reproduces the gap: a 3->5 jump leaves 4 and 5 unrecorded", () => {
+    // This is the bug. The sheet level is 5 and level 3 is the highest
+    // recorded, so levels 4 and 5 were never walked through - the old
+    // code offered the wizard the SHEET level (5) and silently skipped 4.
+    const state = levelingRecordState(5, { levelUps: applied(2, 3) });
+    assert.equal(state.highestRecorded, 3);
+    assert.deepEqual(state.unrecorded, [4, 5]);
+    assert.equal(state.hasGap, true);
+    // And the level the wizard should actually process is the LOWEST
+    // unrecorded one, not the sheet level.
+    assert.equal(state.levelToProcess, 4);
+  });
+
+  it("names the gap exactly", () => {
+    assert.equal(
+      levelingRecordState(5, { levelUps: applied(2, 3) }).bannerText,
+      "You're level 5, but levels 4 and 5 haven't been recorded yet."
+    );
+    // One outstanding level reads in the singular.
+    assert.equal(
+      levelingRecordState(5, { levelUps: applied(2, 3, 4) }).bannerText,
+      "You're level 5, but level 5 hasn't been recorded yet."
+    );
+    // Three or more take a comma before the and.
+    assert.equal(
+      levelingRecordState(6, { levelUps: applied(2), createdAtLevel: 1 }).bannerText,
+      "You're level 6, but levels 3, 4, 5 and 6 haven't been recorded yet."
+    );
+    // No gap, no banner at all.
+    assert.equal(levelingRecordState(5, { levelUps: applied(2, 3, 4, 5) }).bannerText, null);
+  });
+
+  it("walks the outstanding levels in order, one per pass", () => {
+    // Applying the lowest first is what makes the passes correct: each
+    // level's own HP, features, ASI and spell slots are computed for THAT
+    // level, and the next pass picks up where this one stopped.
+    let levelUps = applied(2, 3);
+    const seen = [];
+    for (let pass = 0; pass < 4; pass++) {
+      const state = levelingRecordState(5, { levelUps });
+      if (!state.hasGap) break;
+      const level = state.levelToProcess;
+      seen.push(level);
+      // Each pass records the level it processed.
+      levelUps = { ...levelUps, [String(level)]: { appliedRulesetId: "dnd5e-2014" } };
+    }
+    assert.deepEqual(seen, [4, 5], "two passes, lowest first, no level skipped");
+    assert.equal(levelingRecordState(5, { levelUps }).hasGap, false);
+  });
+
+  it("shows progress through the outstanding range", () => {
+    const state = levelingRecordState(5, { levelUps: applied(2, 3) });
+    assert.equal(state.progressLabel, "Level 4 of 4-5");
+    // Down to one left, the range collapses.
+    const last = levelingRecordState(5, { levelUps: applied(2, 3, 4) });
+    assert.equal(last.progressLabel, "Level 5 of 5");
+  });
+
+  it("does not nag a character created above level 1", () => {
+    // Creation records nothing at all, so a character MADE at level 3 has
+    // an empty levelUps and would otherwise look like levels 1-3 are all
+    // outstanding. createdAtLevel is the floor that prevents that.
+    const state = levelingRecordState(3, { levelUps: {}, createdAtLevel: 3 });
+    assert.equal(state.hasGap, false);
+    assert.equal(state.bannerText, null);
+    assert.deepEqual(state.unrecorded, []);
+    assert.equal(state.levelToProcess, 3, "and the wizard just works on the current level");
+
+    // Higher creation level, same answer.
+    assert.equal(levelingRecordState(7, { levelUps: {}, createdAtLevel: 7 }).hasGap, false);
+    // Created at 3 but since applied level 4 -> still nothing outstanding.
+    assert.equal(levelingRecordState(4, { levelUps: applied(4), createdAtLevel: 3 }).hasGap, false);
+    // Created at 3 and now at 5 -> levels 4 and 5 are genuinely missing.
+    assert.deepEqual(
+      levelingRecordState(5, { levelUps: applied(4), createdAtLevel: 3 }).unrecorded,
+      [5]
+    );
+  });
+
+  it("treats a legacy character with no records as created where it stands", () => {
+    // createdAtLevel did not exist before this change, so it cannot be
+    // back-filled honestly. A legacy character with NO recorded level-ups
+    // has no evidence of a jump, and nagging every pre-existing level-5
+    // sheet would be a worse regression than missing a jump nobody
+    // recorded. One WITH records still gets checked from its highest.
+    assert.equal(levelingRecordState(5, { levelUps: {}, createdAtLevel: null }).hasGap, false);
+    assert.deepEqual(
+      levelingRecordState(5, { levelUps: applied(2), createdAtLevel: null }).unrecorded,
+      [3, 4, 5]
+    );
+  });
+
+  it("does not count a hand-typed row as a level the wizard applied", () => {
+    // The manual rows write free text into levelUps with no
+    // appliedRulesetId, so someone filling in rows by hand has NOT run a
+    // level-up for that level - it is still outstanding, and the banner
+    // should say so rather than claim it is recorded.
+    const state = levelingRecordState(5, {
+      levelUps: { 2: { hp: "+7", className: "Fighter" }, 3: applied(3)[3], 5: { hp: "+9" } },
+      createdAtLevel: 1,
+    });
+    assert.deepEqual(state.recorded, [3], "only the applied one counts as recorded");
+    assert.deepEqual(state.unrecorded, [4, 5],
+      "the hand-typed rows are still outstanding, and so is the skipped 4");
+
+    // A hand-typed row BELOW the highest applied level is settled history,
+    // not something to re-walk: the floor is the highest recorded, and you
+    // can only skip forward.
+    assert.deepEqual(
+      levelingRecordState(3, {
+        levelUps: { 2: { hp: "+7" }, 3: applied(3)[3] },
+        createdAtLevel: 1,
+      }).unrecorded,
+      []
+    );
+  });
+
+  it("handles a level below the recorded high, and a level-1 character", () => {
+    // Lowering the sheet below what was recorded isn't a gap - nothing is
+    // missing going forward.
+    assert.equal(levelingRecordState(2, { levelUps: applied(2, 3, 4, 5) }).hasGap, false);
+    // A fresh level-1 character has nothing outstanding and no banner.
+    const fresh = levelingRecordState(1, { levelUps: {}, createdAtLevel: 1 });
+    assert.equal(fresh.hasGap, false);
+    assert.equal(fresh.levelToProcess, 1);
   });
 });

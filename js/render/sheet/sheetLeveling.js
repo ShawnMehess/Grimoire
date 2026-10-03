@@ -69,8 +69,82 @@ export function levelUpTarget(level, { pendingAtLevel = false, cap = LEVEL_CAP }
   return { kind: "start", level: at + 1, label: "Level Up", reason: `Raise your Level field to ${at + 1} and walk through what you gain.` };
 }
 
+/** "4", "4 and 5", "3, 4 and 5" - a bare level list for prose, with the
+ *  Oxford comma only once there are three. Pure. */
+export function formatLevelList(levels) {
+  const nums = (levels || []).filter(Number.isFinite);
+  if (nums.length <= 1) return nums.length ? String(nums[0]) : "";
+  if (nums.length === 2) return `${nums[0]} and ${nums[1]}`;
+  return `${nums.slice(0, -1).join(", ")} and ${nums[nums.length - 1]}`;
+}
+
+/** What has actually been recorded against a character's levels, and
+ *  which levels a multi-level jump skipped over.
+ *
+ *  A level counts as RECORDED when its levelUps entry carries
+ *  `appliedRulesetId` - the same marker renderRulesetLevelGuide already
+ *  treats as "this level was applied" (re-applying would stack HP, ASIs
+ *  and multiclass levels). No new flag on the character. The manual
+ *  per-level rows write free text into the same object without that
+ *  marker, so a hand-filled row is correctly NOT a recorded level-up.
+ *
+ *  The FLOOR is what makes this quiet for characters who did nothing
+ *  wrong:
+ *
+ *  - `createdAtLevel` (written once at Finish Setup) is the level the
+ *    character was MADE at. Character creation records nothing at all, so
+ *    without it a character created at level 3 would look like levels 1-3
+ *    were all skipped.
+ *  - Legacy characters have no `createdAtLevel` and it cannot be
+ *    back-filled honestly. One with no recorded level-ups at all has no
+ *    evidence of a jump, so the floor becomes the current level and it is
+ *    left alone; nagging every pre-existing level-5 sheet would be a worse
+ *    regression than missing a jump nobody recorded. A legacy character
+ *    WITH records is still measured from its highest.
+ *
+ *  Pure - returns the ordered list of outstanding levels, the level the
+ *  wizard should process next (the LOWEST outstanding one, so the passes
+ *  happen in order and each level's own numbers are computed for that
+ *  level), the banner sentence, and a progress label. */
+export function levelingRecordState(sheetLevel, { levelUps = {}, createdAtLevel = null } = {}) {
+  const recorded = Object.entries(levelUps || {})
+    .filter(([, entry]) => entry && typeof entry === "object" && entry.appliedRulesetId)
+    .map(([key]) => Number(key))
+    .filter((n) => Number.isFinite(n) && n >= 1)
+    .sort((a, b) => a - b);
+  const highestRecorded = recorded.length ? recorded[recorded.length - 1] : null;
+  const creation = Number.isFinite(createdAtLevel) && createdAtLevel >= 1
+    ? createdAtLevel
+    : (recorded.length ? 1 : sheetLevel);
+  const floor = Math.max(creation, highestRecorded ?? 0);
+
+  const unrecorded = [];
+  const seen = new Set(recorded);
+  for (let l = Math.max(1, floor) + 1; l <= (sheetLevel ?? 0); l++) {
+    if (!seen.has(l)) unrecorded.push(l);
+  }
+  const hasGap = unrecorded.length > 0;
+  const levelToProcess = hasGap ? unrecorded[0] : sheetLevel;
+  const first = unrecorded[0];
+  const last = unrecorded[unrecorded.length - 1];
+
+  return {
+    recorded,
+    highestRecorded,
+    creationLevel: creation,
+    unrecorded,
+    hasGap,
+    levelToProcess,
+    progressLabel: hasGap ? `Level ${levelToProcess} of ${first === last ? first : `${first}-${last}`}` : null,
+    bannerText: hasGap
+      ? `You're level ${sheetLevel}, but ${unrecorded.length === 1 ? "level" : "levels"} ${formatLevelList(unrecorded)} ${unrecorded.length === 1 ? "hasn't" : "haven't"} been recorded yet.`
+      : null,
+  };
+}
+
 /** The toolbar's "Level Up" control, built from a `levelUpTarget`
  *  result. One node holding the button plus a caption that carries the
+
  *  reason: `aria-describedby` points at that same caption rather than
  *  only a `title`, because a tooltip is invisible to a keyboard user
  *  and unreadable on a phone. The caption is VISIBLE whenever the
@@ -978,7 +1052,7 @@ export function renderLevelingSubTabsInto(deps) {
 }
 
 export function renderLevelingTabInto(pageGrid, deps) {
-  const { guideEl, resourcesEl, currentLevel, expandedSet, gridFn, rowFn, scrollFn, emptyGuideNote = null, glanceEl = null } = deps;
+  const { guideEl, resourcesEl, currentLevel, expandedSet, gridFn, rowFn, scrollFn, emptyGuideNote = null, glanceEl = null, gapBanner = null } = deps;
   const wrap = document.createElement("div");
   wrap.className = "leveling-tab";
 
@@ -986,6 +1060,24 @@ export function renderLevelingTabInto(pageGrid, deps) {
   intro.className = "leveling-tab__intro";
   intro.textContent = "Use the Level Up button up top when your level goes up — it moves you to the next level and walks you through what you gain. Or set the Level field yourself and come back here to fill in whatever applies for your class at that level, leaving the rest blank.";
   wrap.append(intro);
+
+  // A level typed straight in skips the levels in between, and the old
+  // walkthrough only ever offered the level on the sheet — so those levels
+  // were never walked through and nothing said so. Said out loud here,
+  // with the walkthrough taking the lowest outstanding level first.
+  if (gapBanner?.text) {
+    const banner = document.createElement("p");
+    banner.className = "leveling-tab__gap";
+    banner.setAttribute("role", "status");
+    banner.textContent = gapBanner.text;
+    if (gapBanner.progressLabel) {
+      const progress = document.createElement("span");
+      progress.className = "leveling-tab__gap-progress";
+      progress.textContent = gapBanner.progressLabel;
+      banner.append(progress);
+    }
+    wrap.append(banner);
+  }
 
   // Everything the walkthrough shows (guide, feature uses, the per-level
   // rows) goes in one panel; the at-a-glance read of the grant model goes

@@ -1288,11 +1288,160 @@ async function runViewportTests(viewport) {
   // facts, and the button and the walkthrough both read the sheet.
   // (Walking a creation wizard to a Fighter here would be testing the
   // wizard, not the button.)
-  const setUpLeveling = async ({ level, className }) => {
+  /** Opens the Leveling tab the way a player would — by clicking it. The
+   *  sheet remembers whichever tab was last open, so a probe that assumed
+   *  the Leveling tab was showing would be asserting about a tab that may
+   *  not be the one on screen. */
+  const openLevelingTab = async () => {
+    const tab = await page.evaluateHandle(() => [...document.querySelectorAll(".sheet-tab")]
+      .find((t) => t.textContent.trim() === "Leveling"));
+    const el = tab.asElement();
+    if (el) {
+      await el.click().catch(() => {});
+      await page.waitForTimeout(800);
+    }
+  };
+
+  /** Picks a value in one of the sheet's own dropdowns, found by its label.
+   *  Through the control, not by writing a choice id into storage: the app
+   *  regenerates choice ids on load, so a patched id matches nothing by the
+   *  time it renders. Switches to the first tab first — the Class/Subclass
+   *  pickers live on the sheet's own tab, not on Leveling, and a dropdown
+   *  that isn't on screen simply isn't there to pick from. */
+  const pickDropdown = async (label, value) => {
+    const main = await page.evaluateHandle(() => [...document.querySelectorAll(".sheet-tab")]
+      .find((t) => t.textContent.trim() !== "Leveling"));
+    const mainEl = main.asElement();
+    if (mainEl) {
+      await mainEl.click().catch(() => {});
+      await page.waitForTimeout(500);
+    }
+    const handle = await page.evaluateHandle((l) => [...document.querySelectorAll(".grid-node--field")]
+      .find((n) => n.querySelector(".field-label")?.textContent?.trim() === l)
+      ?.querySelector("select.field-value--dropdown"), label);
+    const el = handle.asElement();
+    if (!el) return false;
+    await el.selectOption({ label: value }).catch(() => {});
+    await page.waitForTimeout(700);
+    return true;
+  };
+
+  /** Walks the level-up walkthrough from wherever it is to the Review
+   *  page, filling whatever each page still needs, and returns the title of
+   *  the page it stopped on.
+   *
+   *  Deliberately driven through the rendered controls rather than by
+   *  writing pending state into storage: the thing under test is that the
+   *  walkthrough TAKES the outstanding level, and poking its state directly
+   *  would leave the very ordering this checks untouched. Feat picking is
+   *  avoided because it opens a dialog; the ASI is taken as +2 to a score
+   *  instead, which is the same step without the modal. */
+  const walkWizardToReview = async () => {
+    let lastTitle = null;
+    let sameTitleRounds = 0;
+    let last = null;
+    for (let guard = 0; guard < 20; guard++) {
+      const state = await page.evaluate(() => {
+        const wizard = document.querySelector(".wizard");
+        if (!wizard) {
+          return {
+            gone: true,
+            onLeveling: !!document.querySelector(".page-grid--leveling"),
+            gridText: (document.querySelector(".page-grid")?.textContent || "").replace(/\s+/g, " ").trim().slice(0, 160),
+          };
+        }
+        const activeDot = [...wizard.querySelectorAll(".wizard__dot")]
+          .find((d) => d.classList.contains("wizard__dot--active"));
+        const body = wizard.querySelector(".wizard__body");
+        const selects = [...(body?.querySelectorAll("select.input-group__control") || [])];
+        const apply = [...wizard.querySelectorAll("button")].find((b) => /^Apply Level/.test(b.textContent.trim()));
+        const next = wizard.querySelector(".wizard__nav:not(.wizard__nav--top) .wizard__next");
+        return {
+          title: activeDot ? activeDot.textContent.trim() : null,
+          atReview: !!apply,
+          applyText: apply ? apply.textContent.trim() : null,
+          // The ASI step defaults to "took a feat instead"; +2 to one score
+          // is the same step with no dialog to dismiss.
+          asiIsFeat: selects.length > 0 && selects[0].value === "feat",
+          emptySelects: selects.filter((s) => !s.value).length,
+          emptyNumbers: [...(body?.querySelectorAll('input[type="number"]') || [])].filter((i) => !i.value).length,
+          emptyTexts: [...(body?.querySelectorAll('input[type="text"], textarea') || [])].filter((i) => !i.value).length,
+          looseRadios: [...(body?.querySelectorAll('input[type="radio"]') || [])].filter((r) => !r.checked && !r.disabled).length,
+          hasNext: !!next,
+          nextDisabled: next ? next.disabled : null,
+        };
+      });
+      last = state;
+      if (state.gone || state.atReview) return state;
+      // Fill whatever this page still needs.
+      await page.evaluate(() => {
+        const fire = (node, type) => node.dispatchEvent(new Event(type, { bubbles: true }));
+        const mode = [...document.querySelectorAll(".wizard .wizard__body select.input-group__control")][0];
+        if (mode && mode.value === "feat") { mode.value = "single"; fire(mode, "change"); }
+        for (const s of [...document.querySelectorAll(".wizard .wizard__body select.input-group__control")].filter((x) => !x.value)) {
+          const opt = [...s.options].find((o) => o.value);
+          if (opt) { s.value = opt.value; fire(s, "change"); }
+        }
+        for (const i of [...document.querySelectorAll('.wizard .wizard__body input[type="number"]')].filter((x) => !x.value)) {
+          i.value = "7"; fire(i, "input"); fire(i, "change");
+        }
+        for (const i of [...document.querySelectorAll('.wizard .wizard__body input[type="text"], .wizard .wizard__body textarea')].filter((x) => !x.value)) {
+          i.value = "Probe"; fire(i, "input"); fire(i, "change");
+        }
+        // Choice groups are radio sets, one per <fieldset>: clicking the
+        // first unchecked radio ANYWHERE would just swap the pick inside
+        // whichever group happened to come first and never satisfy the
+        // others. Walk each group's own first free option instead. The
+        // handler re-renders the group, so every node has to be re-queried
+        // between clicks.
+        for (let pass = 0; pass < 6; pass++) {
+          let clicked = false;
+          for (const fs of document.querySelectorAll(".wizard .wizard__body .level-guide__choices")) {
+            const input = [...fs.querySelectorAll("input[type=radio]:not(:disabled), input[type=checkbox]:not(:disabled)")]
+              .find((r) => !r.checked);
+            if (input) { input.click(); clicked = true; }
+          }
+          if (!clicked) break;
+        }
+      });
+      await page.waitForTimeout(450);
+      // Advance when this page is complete. Filling and advancing in the
+      // same pass is what a person does; waiting for a turn where there is
+      // nothing left to fill just spins on a page whose control it cannot
+      // satisfy.
+      const nextHandle = await page.evaluateHandle(() => {
+        const n = document.querySelector(".wizard__nav:not(.wizard__nav--top) .wizard__next");
+        return n && !n.disabled ? n : null;
+      });
+      const nextEl = nextHandle.asElement();
+      if (nextEl) {
+        await nextEl.click().catch(() => {});
+        await page.waitForTimeout(600);
+        sameTitleRounds = 0;
+        lastTitle = null;
+      } else {
+        // No advance available: if the page isn't moving, say so with what
+        // was still unfilled rather than looping to the guard.
+        sameTitleRounds = state.title === lastTitle ? sameTitleRounds + 1 : 0;
+        lastTitle = state.title;
+        if (sameTitleRounds >= 3) return { ...state, stuck: true };
+      }
+    }
+    return { ...(last || {}), gaveUp: true };
+  };
+
+  const setUpLeveling = async ({ level, className, subclass = null, recordedLevels = [], createdAtLevel = 1 }) => {
     await page.evaluate((extra) => {
       const KEY = "grimoire.local.characters.v1";
       const stored = JSON.parse(localStorage.getItem(KEY) || "{}");
-      const id = Object.keys(stored)[0];
+      // The SAME character reopenSheet opens (it clicks this card by name).
+      // Keying off Object.keys(...)[0] patches whichever character happens
+      // to be first, which is only the one on screen when the vault holds a
+      // single character — and a fixture that seeds a different sheet than
+      // it asserts on fails in ways that look like product bugs.
+      const id = Object.entries(stored)
+        .find(([, c]) => (c.name || "") === extra.name)?.[0];
+      if (!id) throw new Error(`fixture: no character named "${extra.name}"`);
       const walk = (nodes) => nodes.flatMap((n) => [n, ...(n.children || [])]);
       // Every copy: the renderer reads sheetTabs[i].layout, and
       // character.layout is only a mirror of the FIRST tab.
@@ -1313,24 +1462,18 @@ async function runViewportTests(viewport) {
       // level-up is already in progress, and a recorded level-up would put
       // the walkthrough on its "already applied" panel instead of the wizard.
       delete stored[id].levelingPending;
-      stored[id].levelUps = {};
+      stored[id].levelUps = Object.fromEntries(extra.recordedLevels.map((l) => [String(l), {
+        hp: `+${l}`, className: extra.className, appliedRulesetId: "dnd5e-2014",
+      }]));
+      stored[id].createdAtLevel = extra.createdAtLevel;
       localStorage.setItem(KEY, JSON.stringify(stored));
-    }, { level, className });
+    }, { level, className, recordedLevels, createdAtLevel, name: probe.name });
     await reopenSheet();
-    // The Class is picked THROUGH the sheet's own dropdown rather than by
-    // writing a choice id into storage: the app regenerates choice ids on
-    // load (normalizeChoiceObjects), so a patched id matches nothing by the
-    // time it renders and the dropdown just reads back as unset. The
-    // dropdown field's own id is generated too, so it is found by its
-    // label — the same way the app's findStarterField does.
-    const classSelect = await page.evaluateHandle(() => [...document.querySelectorAll(".grid-node--field")]
-      .find((n) => n.querySelector(".field-label")?.textContent?.trim() === "Class")
-      ?.querySelector("select.field-value--dropdown"));
-    const classEl = classSelect.asElement();
-    if (classEl) {
-      await classEl.selectOption({ label: className }).catch(() => {});
-      await page.waitForTimeout(800);
-    }
+    await pickDropdown("Class", className);
+    // A character part-way up the levels has already chosen a subclass, and
+    // that is what keeps the walkthrough's own Subclass page from gating the
+    // run below (its pick lives in a rich picker row, not a plain control).
+    if (subclass) await pickDropdown("Subclass", subclass);
   };
 
   /** The toolbar button's whole state at once. The Level is read off the
@@ -1338,11 +1481,11 @@ async function runViewportTests(viewport) {
    *  Main tab's layout, so while the Leveling tab is open it is legitimately
    *  not in the document, and a probe that looked for it there would read
    *  "no level" at the exact moment the raise had just worked. */
-  const readLevelUp = () => page.evaluate(() => {
+  const readLevelUp = () => page.evaluate((name) => {
     const btn = document.querySelector(".level-up__btn");
     const note = document.querySelector(".level-up__note");
     const stored = JSON.parse(localStorage.getItem("grimoire.local.characters.v1") || "{}");
-    const ch = stored[Object.keys(stored)[0]];
+    const ch = Object.entries(stored).find(([, c]) => (c.name || "") === name)?.[1];
     const walk = (nodes) => (nodes || []).flatMap((n) => [n, ...(n.children || [])]);
     const levelField = [ch?.layout, ...(ch?.sheetTabs || []).map((t) => t.layout)]
       .filter(Boolean).flatMap(walk).find((f) => f.id === "level");
@@ -1361,9 +1504,24 @@ async function runViewportTests(viewport) {
       level: levelField ? String(levelField.value).trim() : null,
       onLevelingTab: !!document.querySelector(".page-grid--leveling"),
       wizard: !!document.querySelector(".wizard"),
+      wizardTitle: document.querySelector(".wizard h2")?.textContent.trim() || null,
+      gapBanner: (() => {
+        const n = document.querySelector(".leveling-tab__gap");
+        if (!n) return null;
+        // The progress label is a child span, so read the sentence without
+        // it rather than trying to un-concatenate the two out of textContent.
+        const clone = n.cloneNode(true);
+        clone.querySelector(".leveling-tab__gap-progress")?.remove();
+        return clone.textContent.replace(/\s+/g, " ").trim();
+      })(),
+      gapProgress: document.querySelector(".leveling-tab__gap-progress")?.textContent.trim() || null,
+      gapBannerShown: (() => {
+        const n = document.querySelector(".leveling-tab__gap");
+        return n ? n.getBoundingClientRect().height > 0 : false;
+      })(),
       cancel: document.querySelector(".level-guide__cancel")?.textContent.trim() || null,
     };
-  });
+  }, probe.name);
 
   await setUpLeveling({ level: 1, className: "Fighter" });
   const startButton = await readLevelUp();
@@ -1410,6 +1568,67 @@ async function runViewportTests(viewport) {
     `and the reason is VISIBLE, not just a tooltip (shown=${atCap.note.shown}, text="${atCap.note.text}")`);
   check(atCap.button.describedBy === "level-up-note",
     `and the button points at that caption for screen readers (aria-describedby=${atCap.button.describedBy})`);
+
+  // --- A level typed straight in, skipping the levels in between -------
+  //
+  // Seed a character whose highest recorded level is 3 but whose sheet
+  // level says 5 - exactly what typing 5 into the Level field does. The
+  // walkthrough used to offer only the sheet level, so level 4 was skipped
+  // and nothing said so.
+  await setUpLeveling({ level: 5, className: "Fighter", recordedLevels: [2, 3] });
+  await openLevelingTab();
+  const jumped = await readLevelUp();
+  check(jumped.gapBanner === "You're level 5, but levels 4 and 5 haven't been recorded yet.",
+    `the gap banner names the skipped levels exactly (got ${JSON.stringify(jumped.gapBanner)})`);
+  check(jumped.gapProgress === "Level 4 of 4-5",
+    `and shows progress through the range (got ${JSON.stringify(jumped.gapProgress)})`);
+  check(jumped.gapBannerShown, "and the banner is actually visible");
+  // The walkthrough must be working on level 4, not the sheet's 5.
+  check(/Level 4$/.test(jumped.wizardTitle || ""),
+    `and the walkthrough is on the LOWEST unrecorded level (title="${jumped.wizardTitle}")`);
+  // The button offers to continue rather than raising past 4.
+  check(/continue/i.test(jumped.button.text), `and the button offers to continue, not to level past (got "${jumped.button.text}")`);
+
+  // Clicking it must NOT raise the sheet to 6 - that is the bug's other
+  // half, and the button is the only thing that could do it.
+  await clickOnSheet(".level-up__btn");
+  await page.waitForTimeout(1000);
+  const afterJumpClick = await readLevelUp();
+  check(afterJumpClick.level === "5",
+    `clicking does not raise past the outstanding levels (got ${JSON.stringify(afterJumpClick.level)})`);
+
+  // --- A character CREATED above level 1 must not be nagged -------------
+  await setUpLeveling({ level: 3, className: "Fighter", recordedLevels: [], createdAtLevel: 3 });
+  await openLevelingTab();
+  const createdHigh = await readLevelUp();
+  check(!createdHigh.gapBanner,
+    `a character created at level 3 gets no gap banner (got ${JSON.stringify(createdHigh.gapBanner)})`);
+  check(!/continue/i.test(createdHigh.button.text),
+    `and its button still offers a normal level-up (got "${createdHigh.button.text}")`);
+
+  // --- Applying the lowest leaves the next one waiting --------------------
+  //
+  // This is what makes the banner actionable rather than just a warning:
+  // take level 4 through the walkthrough and level 5 must become the
+  // outstanding one, on its own.
+  await setUpLeveling({ level: 5, className: "Fighter", subclass: "Champion", recordedLevels: [2, 3] });
+  await openLevelingTab();
+  const walked = await walkWizardToReview();
+  check(walked.atReview,
+    `the level-4 walkthrough can be walked to Review (${JSON.stringify(walked).slice(0, 220)})`);
+  check(walked.applyText === "Apply Level 4 Changes",
+    `and it is Apply LEVEL 4, not the sheet's 5 (got ${JSON.stringify(walked.applyText)})`);
+  const applyHit = await clickOnSheet(".wizard__body button.btn--primary");
+  check(applyHit.hittable, `the Apply button is really clickable (${applyHit.coveredBy || "clear"})`);
+  await page.waitForTimeout(1500);
+  const afterApply = await readLevelUp();
+  check(afterApply.gapBanner === "You're level 5, but level 5 hasn't been recorded yet.",
+    `applying level 4 leaves only level 5 outstanding (got ${JSON.stringify(afterApply.gapBanner)})`);
+  check(afterApply.gapProgress === "Level 5 of 5",
+    `and the range collapses to it (got ${JSON.stringify(afterApply.gapProgress)})`);
+  check(/Level 5$/.test(afterApply.wizardTitle || ""),
+    `with the walkthrough now on level 5 (title="${afterApply.wizardTitle}")`);
+
 
   // No reset needed: the Cleric fixture below seeds its own level.
 
