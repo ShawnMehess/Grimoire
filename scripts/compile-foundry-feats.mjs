@@ -56,7 +56,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
 const INPUT = path.join(ROOT, "docs", "New Info", "5e-feats.txt");
 const SPELLS_INPUT = path.join(ROOT, "docs", "New Info", "5e-spells.txt");
-const OUTPUT = path.join(ROOT, "js", "data", "featBundles.js");
+// GRIMOIRE_OUT redirects the output so verify-generated.mjs can compile to a
+// temp file and compare, instead of overwriting the committed module and
+// leaving the tree dirty when the check fails.
+const OUTPUT = process.env.GRIMOIRE_OUT
+  ? path.resolve(process.env.GRIMOIRE_OUT)
+  : path.join(ROOT, "js", "data", "featBundles.js");
 
 // --- Site vocabularies (must match js/data/blockModel.js + js/data/schema.js) ---
 const ABILITIES = [

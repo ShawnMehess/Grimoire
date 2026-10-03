@@ -155,7 +155,12 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
 const INFO = path.join(ROOT, "docs", "New Info");
-const OUTPUT = path.join(ROOT, "js", "data", "contentCatalogs.js");
+// GRIMOIRE_OUT redirects the output so verify-generated.mjs can compile to a
+// temp file and compare, instead of overwriting the committed module and
+// leaving the tree dirty when the check fails.
+const OUTPUT = process.env.GRIMOIRE_OUT
+  ? path.resolve(process.env.GRIMOIRE_OUT)
+  : path.join(ROOT, "js", "data", "contentCatalogs.js");
 
 const skipped = [];
 function skip(reason, name) {

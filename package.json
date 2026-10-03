@@ -10,6 +10,7 @@
     "test:smoke": "node --test scripts/smoke-imports.mjs scripts/smoke-dom.mjs",
     "test:imports": "node scripts/check-imports.mjs",
     "test:content": "node scripts/verify-content.mjs",
+    "test:generated": "node scripts/verify-generated.mjs",
     "test:e2e": "node scripts/e2e-smoke.mjs",
     "test:e2e:smoke": "node scripts/e2e-smoke.mjs --smoke",
     "test:e2e:areas": "node scripts/e2e-smoke.mjs --list",

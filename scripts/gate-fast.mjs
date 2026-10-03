@@ -40,6 +40,11 @@ const gates = [
   { name: "smoke-imports", cmd: process.execPath, args: ["scripts/smoke-imports.mjs"] },
   { name: "smoke-dom", cmd: process.execPath, args: ["scripts/smoke-dom.mjs"] },
   { name: "content", cmd: process.execPath, args: ["scripts/verify-content.mjs"] },
+  // Regenerates all three compiler-owned data modules into a temp dir and
+  // compares. Runs its own compilers, so it is the slowest member of the
+  // set by a wide margin - which is why the gates run concurrently and the
+  // total costs about the slowest rather than the sum.
+  { name: "generated", cmd: process.execPath, args: ["scripts/verify-generated.mjs"] },
 ];
 const run = (gate) => new Promise((resolveRun) => {
   const started = Date.now();

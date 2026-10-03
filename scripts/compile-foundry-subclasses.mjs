@@ -14,9 +14,12 @@
 // Writes:
 //   js/data/subclassContent.js   (SUBCLASS_SUPPLEMENT, SUBCLASS_CHOICE_NAMES)
 //
-// NOTE: the committed output carries hand fixes a clean re-run would
-// clobber (e.g. the source's "Shephard" typo ships corrected as
-// "Shepherd", plus formatting) — re-run, then re-apply them.
+// A clean re-run is byte-identical to the committed module: every fix that
+// used to live only in the output is encoded below (the source's "Shephard"
+// typo corrects to "Shepherd" in displayName; the Battle Smith choiceId
+// keeps its unhyphenated byte). scripts/verify-generated.mjs asserts this on
+// every gate run, so "did a regen change anything?" is answered by the
+// check rather than by re-running and eyeballing a diff.
 //
 // Supplement entry:
 //   { key, name, className, choiceId, bundle: { statModifiers: [],
@@ -57,7 +60,12 @@ const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
 const INPUT = path.join(ROOT, "docs", "New Info", "5e-subclasses.txt");
-const OUTPUT = path.join(ROOT, "js", "data", "subclassContent.js");
+// GRIMOIRE_OUT redirects the output so verify-generated.mjs can compile to a
+// temp file and compare, instead of overwriting the committed module and
+// leaving the tree dirty when the check fails.
+const OUTPUT = process.env.GRIMOIRE_OUT
+  ? path.resolve(process.env.GRIMOIRE_OUT)
+  : path.join(ROOT, "js", "data", "subclassContent.js");
 const SUMMARIES_PATH = path.join(ROOT, "data", "subclass-feature-summaries.json");
 
 const log = [];

@@ -181,13 +181,15 @@ index.html  demo.html
 
 ## Checks
 
-Six gates. The first five need no browser and run together in about three
+Seven gates. The first six need no browser and run together in about three
 seconds; the last drives real Chrome.
 
 ```
-npm run gate              # the five fast gates, concurrently, ~3s
+npm run gate              # the six fast gates, concurrently, ~3s
 npm test                  # unit tests only
 npm run test:watch        # unit tests, re-running on save
+npm run test:content      # content invariants only
+npm run test:generated    # generated modules match a fresh compile
 npm run test:e2e:smoke    # real Chrome, one viewport, core flow, ~80s
 npm run test:e2e:areas    # list the e2e areas you can select
 npm run test:e2e -- --only AREA...   # real Chrome, only those areas
@@ -335,8 +337,10 @@ node scripts/compile-foundry-races-bg.mjs     # thin race/bg placeholders,
 node scripts/compile-mechanics-content.mjs    # the mechanics JSON
 ```
 
-**Generated files are never hand-edited.** Everything applied on top of
-them lives in a fixup layer, so the generators stay regenerable:
+**Generated files are never hand-edited**, and that is checked rather than
+promised: `npm run test:generated` recompiles each one and fails on any
+difference. Everything applied on top of them lives in a fixup layer, so the
+generators stay regenerable:
 
 - `js/data/contentFixups.js` — the main patch layer: Fighting Styles,
   Expertise, Metamagic, Eldritch Invocations + Pact Boon, Hunter's Prey,
@@ -383,10 +387,19 @@ them lives in a fixup layer, so the generators stay regenerable:
   explicit `pageCategory`, so it isn't re-guessed from its label per
   render.
 
-One regen caveat: the committed `subclassContent.js` carries hand fixes a
-clean re-run would clobber (a source typo ships corrected, plus
-formatting) — re-run, then re-apply them; see the note in
-`compile-foundry-subclasses.mjs`.
+A clean re-run of every compiler is byte-identical to what is committed,
+including `subclassContent.js` — the fixes that used to exist only in the
+output (the source's "Shephard" typo ships corrected, and the Battle Smith
+`choiceId` keeps its unhyphenated byte) are encoded in
+`compile-foundry-subclasses.mjs` itself. `npm run test:generated` asserts this
+on every gate run: it recompiles all three into a temp directory and diffs, so
+a hand-edit inside a 48,000-line generated module is a gate failure naming the
+file and line rather than a silent revert months later.
+
+Two generated modules are not covered, because there is no in-repo compiler to
+compare against: `subclassFeatureText.js` (its input is the gitignored wiki
+scrape cache) and `defaultContent.js` (a one-off Python script, not checked in
+— see `docs/RESCUE-NOTES.md`, "Regenerating this later").
 
 Save/load strips and rehydrates all default bundles so characters stay
 lean — `js/state/bundleMaps.js`, shared by both backends.
