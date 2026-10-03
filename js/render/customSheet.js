@@ -66,6 +66,7 @@ import { openCatalogLibraryManager } from "./catalogLibraryEditor.js";
 import { openCatalogBrowser } from "./catalogBrowser.js";
 import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets, listContentPacks, getContentPack, defaultContentPackIds, hitDieFor, multiclassSlotsFor, classNamesIn, subclassesAcrossRulesets, contentIdMatches } from "../data/dnd5e.js";
 import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor, classLevelsFor, meetsMulticlassPrereq, effectiveScoresFor, multiclassPrereqReason, includedRulesetIds, primaryRulesetId } from "../data/rulesEngine.js";
+import { primaryLevelFor, levelReachedByClass, postApplyClassSlices, subclassNameForClass } from "../data/multiclassLevels.js";
 import { spellcastingModelFor } from "../data/spellcastingModels.js";
 import { SUBCLASS_SUPPLEMENT } from "../data/subclassContent.js";
 import { stripSecondaryClassBundle, FIXED_RACE_ENTRIES, SUPERSEDED_RACE_NAMES, legacyRaceBundles, SUBCLASS_BUNDLE_MAP, normSubclassKey, LEGACY_ASI_COMBOS } from "../data/contentFixups.js";
@@ -6756,10 +6757,7 @@ const closeDialog = () => {
     });
     const level = recordState.levelToProcess;
     const entries = multiclassEntries();
-    const primaryLevel = (() => {
-      const used = entries.reduce((n, e) => n + (Number(e.levels) || 0), 0);
-      return Math.max(1, (level ?? 1) - used);
-    })();
+    const primaryLevel = primaryLevelFor(level, entries);
 
     // In-progress answers for this level — see levelingPendingState
     // comment near its declaration for why this can't just be a local.
@@ -6794,9 +6792,7 @@ const closeDialog = () => {
     // The primary's post-apply level is the total minus applied
     // secondaries — NOT the total itself, which is what `level`
     // holds (the Level field already shows the new total).
-    const newClassLevel = levelClass === primaryName
-      ? primaryLevel
-      : (!levelClass ? (level ?? 1) : (entryForLevelClass ? entryForLevelClass.levels + 1 : 1));
+    const newClassLevel = levelReachedByClass({ level, entries, primaryName, className: levelClass });
     const selectedSubclass = levelClass === primaryName
       ? selectedChoiceName("subclass", "Subclass")
       : (entryForLevelClass?.subclass || "");
@@ -6896,20 +6892,18 @@ const closeDialog = () => {
     // is the class being taken, since the Level field already holds
     // the new total.
     const guideSlotChanges = (() => {
-      const takingPrimary = !levelClass || levelClass === primaryName;
-      const postPrimary = takingPrimary ? primaryLevel : primaryLevel - 1;
       const pendingNew = takingNewClass && pending.newClassName ? [{ name: pending.newClassName, levels: 1 }] : [];
-      const slices = [{ name: primaryName, levels: postPrimary }, ...entries.map((e) => ({
-        name: e.name,
-        levels: e.levels + (!takingNewClass && e.name === levelClass ? 1 : 0),
-      })), ...pendingNew]
-        .filter((s) => s.name && s.levels > 0)
-        .map((s) => {
-          const cls = getRulesetClass(character.rules?.rulesetId || character.rulesetId, s.name);
-          const sub = s.name === primaryName ? selectedChoiceName("subclass", "Subclass")
-            : (entries.find((e) => e.name === s.name)?.subclass || (s.name === pending.newClassName ? pending.subclass : ""));
-          return { name: s.name, levels: s.levels, caster: cls?.caster || null, subclass: sub };
-        });
+      // Post-apply level arithmetic lives in js/data/multiclassLevels.js so it
+      // cannot disagree with the other four call sites; only the caster and
+      // subclass lookups below need the sheet.
+      const slices = postApplyClassSlices({
+        level, entries, primaryName, levelClass, takingNewClass, newClassName: pending.newClassName,
+      }).map((s) => {
+        const cls = getRulesetClass(character.rules?.rulesetId || character.rulesetId, s.name);
+        const sub = s.name === primaryName ? selectedChoiceName("subclass", "Subclass")
+          : (entries.find((e) => e.name === s.name)?.subclass || (s.name === pending.newClassName ? pending.subclass : ""));
+        return { name: s.name, levels: s.levels, caster: cls?.caster || null, subclass: sub };
+      });
       if (!slices.some((s) => s.caster === "full" || s.caster === "half" || s.caster === "pact") && !pendingNew.length) {
         return plan?.slotChanges || [];
       }
@@ -6946,11 +6940,8 @@ const closeDialog = () => {
       const reason = multiclassPrereqReason(effectiveScores, primaryName, toClass);
       return reason ? { ok: false, reason } : { ok: true, reason: "" };
     };
-    const subclassForLevelClass = (name) => {
-      if (!name || name === "__new") return "";
-      if (name === primaryName) return selectedChoiceName("subclass", "Subclass");
-      return entries.find((e) => e.name === name)?.subclass || "";
-    };
+    const subclassForLevelClass = (name) =>
+      subclassNameForClass({ primaryName, primarySubclass: selectedChoiceName("subclass", "Subclass"), entries, className: name });
     /** Flavor plus what the class gains at the level taking it would
      *  reach — the same "what does this actually do" context creator
      *  rows carry, so staying vs. dipping can be compared at a glance.
@@ -6960,9 +6951,7 @@ const closeDialog = () => {
       if (!resolved) return null;
       // Primary take reaches the post-apply primary level (total
       // minus applied secondaries), not the total itself.
-      const atLevel = resolved === primaryName
-        ? primaryLevel
-        : ((entries.find((e) => e.name === resolved)?.levels || 0) + 1);
+      const atLevel = levelReachedByClass({ level, entries, primaryName, className: resolved });
       const gains = classFeatureGrantsAtLevel(resolved, atLevel)
         .map((g) => g.name)
         .filter(Boolean);
@@ -6990,11 +6979,13 @@ const closeDialog = () => {
             selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
             getInfo: (name) => catalogEntryInfo(["class"], name),
             getMechanicsList: (name) => {
-              // What the class gains at the level taking it would
-              // reach — same context the creator rows carry.
-              const atLevel = name === primaryName ? (level ?? 1)
-                : ((entries.find((e) => e.name === name)?.levels || 0) + 1);
-              return mechanicsListFor("Class", name, atLevel);
+              // What the class gains at the level taking it would reach -
+              // same context the creator rows carry, and the same helper
+              // classLevelInfo() uses. This used to read the raw sheet total
+              // for the primary, which agreed with primaryLevel only for a
+              // single-class character and showed the wrong features for a
+              // multiclassed one; see js/data/multiclassLevels.js.
+              return mechanicsListFor("Class", name, levelReachedByClass({ level, entries, primaryName, className: name }));
             },
             removeFn: (name) => {
               character.rules.multiclass = (character.rules.multiclass || []).filter((e) => e.name !== name);
