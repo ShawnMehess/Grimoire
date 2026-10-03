@@ -19,7 +19,7 @@
 // the old narrow fixed-width floating panel.
 
 import { positionCollectionMenu } from "./collectionMenuLayout.js";
-import { deepClone, newLocalId } from "./sheet/sheetHelpers.js";
+import { deepClone, newLocalId, el } from "./sheet/sheetHelpers.js";
 import { listContentPacks, listRulesets } from "../data/dnd5e.js";
 import { CREATION_CHOICE_CATEGORIES } from "./sheet/sheetMechanics.js";
 import { confirmDialog, alertDialog } from "../ui/dialogs.js";
@@ -184,7 +184,16 @@ export function openBundleLibraryManager(store, onChange) {
       const groupLabel = document.createElement("button");
       groupLabel.type = "button";
       groupLabel.className = "bundle-library-list__group";
-      groupLabel.innerHTML = `<span class="bundle-library-list__group-caret">${isExpanded ? "▾" : "▸"}</span><span class="bundle-library-list__group-name">${category}</span><span class="bundle-library-list__group-count">${entries.length}</span>`;
+      // Built with el(), not innerHTML: a library name and a category are
+      // user-authored and persisted (a global library is written to
+      // publicBundleLibraries and read back by every user), so
+      // interpolating either into markup would run it as HTML in everyone
+      // else's session. el() puts text in textContent.
+      groupLabel.replaceChildren(
+        el("span", { class: "bundle-library-list__group-caret", text: isExpanded ? "▾" : "▸" }),
+        el("span", { class: "bundle-library-list__group-name", text: category }),
+        el("span", { class: "bundle-library-list__group-count", text: String(entries.length) }),
+      );
       groupLabel.addEventListener("click", () => {
         if (isExpanded) expandedCategories.delete(category);
         else expandedCategories.add(category);
@@ -202,7 +211,10 @@ export function openBundleLibraryManager(store, onChange) {
         item.type = "button";
         item.className = "bundle-library-list__item" +
           (!isNew && selected.id === lib.id ? " active" : "");
-        item.innerHTML = `<span>${lib.name || "Unnamed"}</span><span class="bundle-library-list__scope">${lib.scope === "global" ? "Global" : "Mine"}</span>`;
+        item.replaceChildren(
+          el("span", { text: lib.name || "Unnamed" }),
+          el("span", { class: "bundle-library-list__scope", text: lib.scope === "global" ? "Global" : "Mine" }),
+        );
         item.addEventListener("click", () => selectEntry(lib, false));
 
         const deleteBtn = document.createElement("button");

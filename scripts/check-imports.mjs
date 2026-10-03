@@ -273,6 +273,63 @@ if (cssErrors.length) {
   console.log("css: braces balanced, screen chrome visible, no sub-12px text");
 }
 
+// --- js: no interpolated innerHTML ----------------------------------------
+//
+// Why this rule exists: `item.innerHTML = `<span>${lib.name}</span>`` was live
+// in both library editors. A library name is user-authored and persisted, and a
+// global library is written to publicBundleLibraries and read back by every
+// user, so a name of `<img src=x onerror=...>` executed in every other
+// session that opened the manager. Stored, cross-user, and reachable by
+// anyone who can publish a global bundle.
+//
+// The rule is deliberately narrow - it fires only on a TEMPLATE LITERAL with
+// an interpolation, which is the shape that was actually exploitable. It
+// does not try to judge `x.innerHTML = someVariable`, because roughly ten of
+// those exist today and are a different question: they are the rich-text
+// round-trip (js/render/sheet/sheetFields.js writes `field.value` back into a
+// contenteditable so bold/italic/colour survive a save, and reads it out
+// again), which is stored markup by design rather than by accident. Deciding
+// that one needs sanitisation at the boundary is its own piece of work, and
+// folding it in here would mean either failing the gate on pre-existing
+// deliberate code or quietly allowlisting a security decision.
+//
+// The safe path is el() in js/render/sheet/sheetHelpers.js, which puts
+// strings in textContent, or `x.innerHTML = ""` to clear.
+{
+  const markupErrors = [];
+  for (const file of jsFilesUnder(join(ROOT, "js"), ".js")) {
+    // Block comments only. Stripping `//` would mangle the https:// URLs that
+    // appear in string literals in these files.
+    const src = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const m of src.matchAll(/\.innerHTML\s*=\s*`/g)) {
+      // Walk the template literal to its closing (unescaped) backtick and
+      // look for an interpolation before it.
+      let i = m.index + m[0].length;
+      let interpolated = false;
+      while (i < src.length) {
+        const ch = src[i];
+        if (ch === "\\") { i += 2; continue; }
+        if (ch === "`") break;
+        if (ch === "$" && src[i + 1] === "{") { interpolated = true; break; }
+        i++;
+      }
+      if (!interpolated) continue;
+      const line = src.slice(0, m.index).split("\n").length;
+      markupErrors.push(
+        `${file}:${line}: innerHTML is assigned a template literal with an interpolation - ` +
+        `a name or category reaching the DOM this way is executed as markup. Use el() from ` +
+        `js/render/sheet/sheetHelpers.js so the text lands in textContent.`
+      );
+    }
+  }
+  if (markupErrors.length) {
+    console.error("MARKUP ERRORS:\n" + markupErrors.join("\n"));
+    process.exit(1);
+  } else {
+    console.log("markup: no interpolated innerHTML in js/");
+  }
+}
+
 // --- index.html: the page's only non-JS fallbacks --------------------------
 //
 // Both of these exist because the alternative is a page that silently does

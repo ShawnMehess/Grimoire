@@ -17,7 +17,7 @@
 
 import { positionCollectionMenu } from "./collectionMenuLayout.js";
 import { MAX_IMAGE_BYTES } from "./sheet/sheetConstants.js";
-import { deepClone, newLocalId } from "./sheet/sheetHelpers.js";
+import { deepClone, newLocalId, el } from "./sheet/sheetHelpers.js";
 import { confirmDialog, alertDialog } from "../ui/dialogs.js";
 
 // --- Effects targeting --------------------------------------------------
@@ -583,7 +583,12 @@ export function openCatalogLibraryManager(store, onChange, resolveField) {
       item.type = "button";
       item.className = "bundle-library-list__item" +
         (!isNew && selected.id === cat.id ? " active" : "");
-      item.innerHTML = `<span class="catalog-list-item__name">${cat.name || "Unnamed"}</span><span class="bundle-library-list__scope">${cat.scope === "global" ? "Global" : "Mine"}</span>`;
+      // A catalog name is user-authored and persisted; el() keeps it in
+      // textContent so a name is never interpreted as markup.
+      item.replaceChildren(
+        el("span", { class: "catalog-list-item__name", text: cat.name || "Unnamed" }),
+        el("span", { class: "bundle-library-list__scope", text: cat.scope === "global" ? "Global" : "Mine" }),
+      );
       item.addEventListener("click", () => selectEntry(cat, false));
       listCol.append(item);
     });
