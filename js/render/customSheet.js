@@ -3587,6 +3587,11 @@ const closeDialog = () => {
 
   const LEVEL_UP_FIELDS = SHARED_LEVEL_UP_FIELDS;
 
+  // Whether the Leveling tab's by-hand history is open. Held here rather
+  // than on the <details> node because editing any row re-renders the tab,
+  // and a node-local flag would be rebuilt closed under the cursor.
+  let levelHistoryOpen = false;
+
   const saveLevelUps = debounce(() => saveWithStatus("levelUps", character.levelUps), 400);
 
   /** The character's current level, read straight off the "level"
@@ -7948,6 +7953,8 @@ const closeDialog = () => {
         ? { text: recordState.bannerText, progressLabel: recordState.progressLabel }
         : null,
       revertEl: renderRevertControl(),
+      historyOpen: levelHistoryOpen,
+      onHistoryOpen: (open) => { levelHistoryOpen = Boolean(open); },
       expandedSet: expandedLevelUpRows,
       gridFn: () => renderPageGrid(),
       rowFn: (level, isCurrent) => renderLevelUpRow(level, isCurrent),

@@ -1633,6 +1633,112 @@ async function runViewportTests(viewport) {
   check(!/continue/i.test(createdHigh.button.text),
     `and its button still offers a normal level-up (got "${createdHigh.button.text}")`);
 
+  // --- Level history: closed by default, still fully working ---------------
+  const levelHistory = () => page.evaluate(() => {
+    const details = document.querySelector(".leveling-history");
+    const rows = [...document.querySelectorAll(".leveling-row")];
+    const current = rows.find((r) => r.classList.contains("leveling-row--current"));
+    return {
+      present: !!details,
+      open: details ? details.open : null,
+      label: details?.querySelector("summary")?.textContent?.trim() || null,
+      rows: rows.length,
+      // A row inside a closed <details> is in the document but not laid
+      // out; that is what "built, just not shown" looks like from here.
+      rowHeights: rows.filter((r) => r.getBoundingClientRect().height > 0).length,
+      currentLevel: current ? Number(current.dataset.level) : null,
+      currentSummary: current?.querySelector(".leveling-row__summary")?.textContent?.trim() || null,
+      jumpBtn: document.querySelector(".leveling-tab__jump")?.textContent?.trim() || null,
+    };
+  });
+
+  await setUpLeveling({ level: 5, className: "Fighter", subclass: "Champion", recordedLevels: [2, 3] });
+  await openLevelingTab();
+  const hist = await levelHistory();
+  check(hist.present, "the manual per-level rows sit behind a disclosure");
+  check(hist.rows === 0 || hist.rows === 20, `the rows are still built (${hist.rows} in the document)`);
+  check(hist.label === "Level history (edit by hand)",
+    `labelled as the by-hand route (got ${JSON.stringify(hist.label)})`);
+  check(hist.open === false, `closed by default (open=${hist.open})`);
+  check(hist.rowHeights === 0,
+    `and none of the twenty rows is on the page while it is closed (${hist.rowHeights} laid out)`);
+  check(hist.jumpBtn === "↓ Jump to Level 5", `with the jump button still offered (got ${JSON.stringify(hist.jumpBtn)})`);
+
+  // Jump must OPEN the disclosure - scrolling to a row inside a closed
+  // <details> scrolls to nothing.
+  const jumpedToHistory = await clickOnSheet(".leveling-tab__jump");
+  check(jumpedToHistory.hittable, `the Jump button is really clickable (${jumpedToHistory.coveredBy || "clear"})`);
+  await page.waitForTimeout(900);
+  const afterJump = await levelHistory();
+  check(afterJump.open === true, `jumping opens the disclosure (open=${afterJump.open})`);
+  check(afterJump.rowHeights > 0, `and the rows are laid out (${afterJump.rowHeights} visible)`);
+  // A level the wizard actually recorded shows a filled-in count on its row:
+  // the two routes write the same object, which is the overlap worth knowing
+  // about (the commit message spells it out).
+  const recordedRow = await page.evaluate(() => {
+    const row = document.querySelector('.leveling-row[data-level="3"]');
+    return row?.querySelector(".leveling-row__summary")?.textContent?.trim() || null;
+  });
+  check(recordedRow && recordedRow !== "Nothing yet",
+    `a recorded level shows its filled-in count on the row (got ${JSON.stringify(recordedRow)})`);
+
+  // The rows still save. Type into one by hand and check it persists.
+  const rowTyped = await page.evaluate(() => {
+    const row = document.querySelector('.leveling-row[data-level="3"] .leveling-row__toggle');
+    row?.click();
+    return !!row;
+  });
+  check(rowTyped, "a history row still expands");
+  await page.waitForTimeout(700);
+  // Expanding a row re-renders the whole tab. The disclosure has to stay
+  // open through that, or it snaps shut under the cursor on the first
+  // click - which is why its state lives beside the sheet, not on the node.
+  check((await levelHistory()).open === true,
+    "and expanding a row does not close the disclosure behind it");
+  await page.evaluate(() => {
+    // The FIRST textarea on a row is "Class Taken", not Notes - a row's
+    // fields come from LEVEL_UP_FIELDS in order, so say which one is being
+    // typed into rather than assuming.
+    const row = document.querySelector('.leveling-row[data-level="3"]');
+    const field = row?.querySelector("textarea");
+    if (!field) return;
+    field.value = "Hand-typed class name for level 3";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForTimeout(900);
+  const typed = await page.evaluate((name) => {
+    const KEY = "grimoire.local.characters.v1";
+    const stored = JSON.parse(localStorage.getItem(KEY) || "{}");
+    const c = Object.values(stored).find((x) => (x.name || "") === name);
+    return c?.levelUps?.["3"]?.className ?? null;
+  }, probe.name);
+  check(typed === "Hand-typed class name for level 3",
+    `and a hand-typed row still saves (got ${JSON.stringify(typed)})`);
+
+  // And it survives a reload - it is a saved row, not a transient one.
+  await reopenSheet();
+  await openLevelingTab();
+  await page.waitForTimeout(400);
+  const afterRowReload = await page.evaluate(() => {
+    const details = document.querySelector(".leveling-history");
+    const row = document.querySelector('.leveling-row[data-level="3"]');
+    return {
+      summary: row?.querySelector(".leveling-row__summary")?.textContent?.trim() || null,
+      open: details ? details.open : null,
+    };
+  });
+  check(afterRowReload.summary && afterRowReload.summary !== "Nothing yet",
+    `the hand-typed row survives a reload (got ${JSON.stringify(afterRowReload.summary)})`);
+  // Expanding the row again shows the saved text, not an empty box.
+  await page.evaluate(() => document.querySelector('.leveling-row[data-level="3"] .leveling-row__toggle')?.click());
+  await page.waitForTimeout(700);
+  const reopened = await page.evaluate(() => {
+    const row = document.querySelector('.leveling-row[data-level="3"]');
+    return row?.querySelector("textarea")?.value ?? null;
+  });
+  check(reopened === "Hand-typed class name for level 3",
+    `and reopening it shows what is in it (got ${JSON.stringify(reopened)})`);
+
   // --- "Level N gives you:" ----------------------------------------------
   //
   // Built from the same grant model the At a Glance table reads. This is

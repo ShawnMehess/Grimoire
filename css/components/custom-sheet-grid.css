@@ -423,6 +423,57 @@
   margin-bottom: 0;
 }
 
+/* Level history: the hand-typed per-level rows, closed by default so the
+   walkthrough above them is unambiguously the primary route. A native
+   <details>, so it is keyboard-operable and announces its state without
+   any script - which is also why the marker has to be styled rather than
+   removed. */
+.leveling-history {
+  margin-top: var(--space-3);
+  border-top: var(--border-width) solid var(--color-border);
+  padding-top: var(--space-3);
+}
+
+.leveling-history__summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  /* The summary line is the only way into twenty rows of free text, so it
+     has to read as a control rather than as a caption. */
+  padding: var(--space-2) 0;
+  list-style-position: inside;
+}
+
+.leveling-history__summary:hover {
+  color: var(--color-text);
+}
+
+.leveling-history__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+/* An unstyled block between the <details> and the rows, hidden explicitly
+   while the disclosure is closed.
+   Author CSS has to say this itself rather than lean on the browser's
+   rule: an author `display: flex` anywhere inside a <details> BEATS the
+   user-agent `display: none` on its children, so simply not styling the
+   rows was not enough to keep twenty of them off the page. Stating the
+   closed state directly puts the author rule on the right side of that
+   fight instead of the wrong one. */
+.leveling-history:not([open]) > .leveling-history__holder {
+  display: none;
+}
+
+.leveling-history__inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
 /* Revert, on the walkthrough. Full-width on a phone like the rest of the
    Leveling tab's actions - it is a big, destructive, deliberate press. */
 .leveling-revert {

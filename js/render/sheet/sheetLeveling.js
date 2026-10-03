@@ -1165,7 +1165,7 @@ export function renderLevelingSubTabsInto(deps) {
 }
 
 export function renderLevelingTabInto(pageGrid, deps) {
-  const { guideEl, resourcesEl, currentLevel, expandedSet, gridFn, rowFn, scrollFn, emptyGuideNote = null, glanceEl = null, gapBanner = null, revertEl = null } = deps;
+  const { guideEl, resourcesEl, currentLevel, expandedSet, gridFn, rowFn, scrollFn, emptyGuideNote = null, glanceEl = null, gapBanner = null, revertEl = null, historyOpen = false, onHistoryOpen = null } = deps;
   const wrap = document.createElement("div");
   wrap.className = "leveling-tab";
 
@@ -1206,12 +1206,55 @@ export function renderLevelingTabInto(pageGrid, deps) {
   }
   if (resourcesEl) walkthrough.append(resourcesEl);
 
+  // The 20 per-level rows, behind a closed disclosure.
+  //
+  // They are a SECOND way to record the same thing the walkthrough
+  // records, and having both flat on the page made the tab read as "pick
+  // one of twenty text boxes" before you had seen what the walkthrough
+  // does. Closed by default so the walkthrough is unambiguously the
+  // primary route; the rows themselves are untouched, so anything you
+  // have typed into them by hand is still here and still editable.
+  const history = document.createElement("details");
+  history.className = "leveling-history";
+  if (historyOpen) history.open = true;
+  const historySummary = document.createElement("summary");
+  historySummary.className = "leveling-history__summary";
+  historySummary.textContent = "Level history (edit by hand)";
+  history.append(historySummary);
+  // An unstyled block between the <details> and the rows. Chrome hides a
+  // closed <details> with a UA `display: none` on its non-summary children,
+  // and an author `display: flex` on that same child BEATS the UA rule -
+  // which leaked all twenty rows back onto the page. The direct child stays
+  // unstyled so the browser's hiding works, and this carries it.
+  const historyHolder = document.createElement("div");
+  historyHolder.className = "leveling-history__holder";
+  const historyRows = document.createElement("div");
+  historyRows.className = "leveling-history__inner";
+  for (let level = 1; level <= LEVEL_CAP; level++) {
+    historyRows.append(rowFn(level, level === currentLevel));
+  }
+  historyHolder.append(historyRows);
+  history.append(historyHolder);
+  // Opening it by hand has to stick as well. Editing a row re-renders the
+  // tab, and without this the disclosure would snap shut under the cursor
+  // after the first keystroke.
+  if (typeof onHistoryOpen === "function") {
+    history.addEventListener("toggle", () => onHistoryOpen(history.open));
+  }
+  walkthrough.append(history);
+
   if (currentLevel) {
     const jumpBtn = document.createElement("button");
     jumpBtn.type = "button";
     jumpBtn.className = "btn leveling-tab__jump";
     jumpBtn.textContent = `↓ Jump to Level ${currentLevel}`;
     jumpBtn.addEventListener("click", () => {
+      // Opening the disclosure is part of arriving at the row: scrolling to
+      // something inside a closed <details> scrolls to nothing at all.
+      // Set through the caller's flag rather than on the node, because
+      // expanding the row re-renders the tab and a node-local assignment
+      // would be thrown away by the rebuild it triggers.
+      if (onHistoryOpen) onHistoryOpen(true);
       expandedSet.add(currentLevel);
       gridFn();
       scrollFn(currentLevel);
@@ -1222,10 +1265,6 @@ export function renderLevelingTabInto(pageGrid, deps) {
   // Reverting belongs to the walkthrough, not the glance: it acts on the
   // recorded walkthrough of a level, which is the thing this panel is.
   if (revertEl) walkthrough.append(revertEl);
-
-  for (let level = 1; level <= LEVEL_CAP; level++) {
-    walkthrough.append(rowFn(level, level === currentLevel));
-  }
 
   // Only offer the switcher when there's a glance view to switch to —
   // a one-tab "tab list" is just a label.
