@@ -370,6 +370,54 @@
   align-self: flex-start;
 }
 
+/* "Level Up" — the toolbar's route into leveling. One flex row with the
+   button and its reason, so the reason can sit UNDER the button when
+   there isn't width for it beside (which is most phone widths) instead
+   of pushing the toolbar's other controls around. */
+.level-up {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.level-up__note {
+  flex-basis: 100%;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  max-width: 34ch;
+}
+
+/* Resuming a level-up is a different act from starting one, so it reads
+   as secondary rather than as another fresh primary action. */
+.level-up__btn--resume {
+  background: var(--color-bg-raised);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  box-shadow: none;
+}
+
+/* "Cancel this level-up", at the foot of the walkthrough on every page.
+   Full-width on a phone so it's an easy thumb target rather than a
+   small inline button after the step body. */
+.level-guide__cancel {
+  align-self: flex-start;
+}
+
+@media (max-width: 480px) {
+  .level-up,
+  .level-up__btn,
+  .level-guide__cancel {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .level-up__note {
+    max-width: none;
+    text-align: center;
+  }
+}
+
 .save-status {
   font-size: var(--text-xs);
   color: var(--color-text-muted);

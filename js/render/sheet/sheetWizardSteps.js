@@ -900,6 +900,52 @@ export function initPendingLevelState(pendingState, levelKey, { subclass, choice
   return pendingState[levelKey];
 }
 
+/** Whether a pending level-up holds anything the player actually
+ *  decided — the test behind "discard your picks?" when a level-up is
+ *  cancelled.
+ *
+ *  `initPendingLevelState` pre-fills the object with defaults, so
+ *  "the entry exists" is NOT "they chose something": merely opening the
+ *  walkthrough and walking away would otherwise prompt about discarding
+ *  picks nobody made. Compared against those defaults instead:
+ *  `asiMode` starts at "feat", and `className` starts at the primary
+ *  class (a value the wizard also resets to whenever it isn't valid, so
+ *  it cannot be told apart from the default and is treated as no
+ *  decision — picking your own primary for a level is not worth a
+ *  prompt).
+ *
+ *  `choices` needs the caller's baseline to answer honestly. Pending
+ *  choice groups are synced from the character's ALREADY-MADE picks
+ *  (syncPendingChoices), so a wizard opened on a character with spells
+ *  already on it arrives full of non-empty pick lists that nobody just
+ *  chose. Passing `character.rules.choices` as `baselineChoices` counts
+ *  only the groups that actually differ from what was already there;
+ *  omitting it falls back to "any non-empty pick list counts", which is
+ *  the safe-but-noisy answer.
+ *
+ *  Pure — reads its arguments, returns a boolean, mutates nothing. */
+export function pendingLevelHasPicks(pending, { baselineChoices = null } = {}) {
+  if (!pending || typeof pending !== "object") return false;
+  const text = (v) => String(v ?? "").trim();
+  // Every field the wizard leaves blank until asked.
+  if (text(pending.hp) || text(pending.notes) || text(pending.asiAbility1)) return true;
+  if (text(pending.asiAbility2) || text(pending.featChoice) || text(pending.newClassName)) return true;
+  // A subclass pick only exists on a subclass-gated level, so anything
+  // here is a decision.
+  if (text(pending.subclass)) return true;
+  if (text(pending.asiMode) && pending.asiMode !== "feat") return true;
+  const choices = pending.choices;
+  if (choices && typeof choices === "object") {
+    for (const [key, picks] of Object.entries(choices)) {
+      const now = [...(Array.isArray(picks) ? picks : [])].sort();
+      if (!now.length) continue;
+      const before = [...(Array.isArray(baselineChoices?.[key]) ? baselineChoices[key] : [])].sort();
+      if (now.length !== before.length || now.some((p, i) => p !== before[i])) return true;
+    }
+  }
+  return false;
+}
+
 /** "Which class gains this level" picker for the level-up guide's
  *  optional first step (only rendered at total level 2+, since
  *  multiclassing can't start at 1st). Radios for the primary class

@@ -205,6 +205,10 @@ normalizeChoiceGroup,
   renderLevelUpRowInto,
   renderLevelingTabInto,
   renderLevelingGlanceInto,
+  buildLevelUpControl,
+  levelUpTarget,
+  rawLevelFrom,
+  LEVEL_CAP,
 } from "./sheet/sheetLeveling.js";
 import {
   ensureBundleShape,
@@ -345,6 +349,7 @@ import {
   reviewOutstandingInto,
   reviewFinishButtonInto,
   initPendingLevelState,
+  pendingLevelHasPicks,
   syncPendingChoices,
   slotsSummary,
   alreadyAppliedPanel,
@@ -1720,6 +1725,82 @@ const closeDialog = () => {
   renderLevelFieldChip();
   cardZonesWrap.append(levelFieldWrap);
   toolbar.append(cardZonesWrap);
+
+  // "Level Up" — the way in to leveling. Before this, the only route was
+  // finding the Level field, typing the next number into it, and then
+  // finding the Leveling tab, which is three separate discoveries for
+  // something you do every single level.
+  //
+  // Built once (like the rest of the toolbar chrome) and re-synced from
+  // renderAll, because whether it can act depends on the live level and
+  // on whether picks are already in progress.
+  //
+  // The tab to come back to when a level-up is cancelled: the tab that
+  // was open when the level-up STARTED, not whatever is open later. Held
+  // in a closure rather than stored, since it's only meaningful while a
+  // level-up is actually in progress.
+  let levelUpReturnTabId = null;
+  const levelUpControl = buildLevelUpControl(levelUpTarget(null), onLevelUpClick);
+  toolbar.append(levelUpControl);
+
+  /** Raises the Level field by one — the same mutation a manual edit of
+   *  that field performs (buildTextValueInto's oninput sets
+   *  field.value inside commitMutation), so formulas, spell slots,
+   *  granted features and dropdown access all recompute exactly as they
+   *  do when you type the number yourself. Going through
+   *  commitMutation (rather than assigning the value directly) is what
+   *  keeps the undo stack and the autosave honest. */
+  function setCharacterLevel(next) {
+    const levelField = resolveFieldById(character.levelFieldId || "level");
+    if (!levelField) return false;
+    levelField.value = String(next);
+    return true;
+  }
+
+  function hasPendingLevelUp(level) {
+    return level != null && Boolean(levelingPendingState[String(level)]);
+  }
+
+  /** Re-reads the level and re-points the toolbar button at it. Called
+   *  from renderAll so a manual Level edit, a cancel, or finishing setup
+   *  all leave the button saying the truth. */
+  function syncLevelUpButton() {
+    // Deliberately the RAW level, not currentCharacterLevel(): a field
+    // holding 21 should read as "you hit the cap", not as "you have no
+    // level", which is what the clamped read would report.
+    const raw = rawLevelFrom(resolveFieldById(character.levelFieldId || "level")?.value);
+    levelUpControl.syncLevelUpControl(levelUpTarget(raw, { pendingAtLevel: hasPendingLevelUp(raw) }));
+  }
+
+  function onLevelUpClick() {
+    // Re-resolve rather than trusting the target captured at build
+    // time — the sync in renderAll is the only thing keeping it fresh,
+    // and a stale "start" must never double-raise.
+    const raw = rawLevelFrom(resolveFieldById(character.levelFieldId || "level")?.value);
+    const live = levelUpTarget(raw, { pendingAtLevel: hasPendingLevelUp(raw) });
+    if (live.kind === "unknown" || live.kind === "capped") {
+      syncLevelUpButton();
+      return;
+    }
+    levelUpReturnTabId = activeTabId;
+    // The Leveling tab takes over from Character Setup once setup is
+    // finished (see normalizeTabs), so it exists from here on; guard
+    // anyway so a hand-edited sheet without one doesn't throw.
+    const tab = character.sheetTabs.find((t) => t.kind === "leveling");
+    if (tab) activeTabId = tab.id;
+    if (live.kind === "start") {
+      // Raise FIRST, then render: the guide derives everything from the
+      // Level field (the primary's post-apply level is "total minus
+      // applied secondaries"), so it has to see the new total to compute
+      // the step right. Raising at Apply instead would put every one of
+      // those calculations a level behind.
+      commitMutation(() => { setCharacterLevel(live.level); });
+      return;
+    }
+    // Resuming: the level is already raised and the picks are already
+    // there. Just show the Walkthrough half again.
+    renderAll();
+  }
 
   // Visible save-state feedback — saves happen silently in the
   // background otherwise, which means a failed save (e.g. a
@@ -7383,8 +7464,56 @@ const closeDialog = () => {
       // picks, not just the page. Debounced, so a burst of edits is
       // still a single small write.
       ["input", "change", "click"].forEach((type) => guide.addEventListener(type, persistWizardProgressSoon, true));
+      guide.append(buildCancelLevelUpButton(level));
     }
     return guide;
+  }
+
+  /** "Cancel this level-up", at the foot of the walkthrough on every
+   *  page — not just Review, because the wizard's own Next-gating means
+   *  a half-finished level-up is most often abandoned from an early
+   *  page, and the button has to be there when they decide to stop.
+   *
+   *  Undoes the raise the toolbar's Level Up button did (see
+   *  onLevelUpClick): back down one level, drop this level's pending
+   *  picks, and return to whatever tab the level-up started from. The
+   *  picks are the only thing worth asking about — a level-up abandoned
+   *  before anything was decided has nothing to lose, so it just goes.
+   */
+  function buildCancelLevelUpButton(level) {
+    const btn = el("button", {
+      type: "button",
+      class: "btn btn--secondary level-guide__cancel",
+      text: "Cancel this level-up",
+    });
+    btn.addEventListener("click", async () => {
+      const key = String(level);
+      // Baseline matters: pending choice groups arrive pre-populated
+      // with the picks the character ALREADY had, so without it a
+      // character with spells on their sheet would be asked about
+      // discarding "picks" they never made this level.
+      if (pendingLevelHasPicks(levelingPendingState[key], {
+        baselineChoices: character.rules?.choices,
+      })) {
+        const ok = await confirmDialog({
+          title: "Cancel this level-up?",
+          message: `Your picks for level ${level} will be discarded and you'll drop back to level ${level - 1}.`,
+          confirmLabel: "Cancel level-up",
+          tone: "danger",
+        });
+        if (!ok) return;
+      }
+      delete levelingPendingState[key];
+      levelingWizardState.index = 0;
+      levelingWizardState.stepId = null;
+      const returnTab = character.sheetTabs.find((t) => t.id === levelUpReturnTabId);
+      if (returnTab) activeTabId = returnTab.id;
+      // Same commitMutation path the raise used, so the drop back down
+      // recomputes formulas, slots and granted lists identically.
+      commitMutation(() => { setCharacterLevel(level - 1); });
+      persistWizardProgress();
+    });
+    return btn;
   }
 
   /** Short/Long Rest: restores feature uses by reset type. A long rest
@@ -7533,6 +7662,7 @@ const closeDialog = () => {
     toolbar.style.display = character.setupComplete ? "" : "none";
     tabsBar.style.display = character.setupComplete ? "" : "none";
     blockFrame.style.display = character.setupComplete ? "" : "none";
+    syncLevelUpButton();
     renderTabs();
     renderBlockFrame();
     renderPageGrid();

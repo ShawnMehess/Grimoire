@@ -7,6 +7,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   classLevelsFor,
   meetsMulticlassPrereq,
@@ -42,6 +43,9 @@ import {
   collectListItemGrantsIn,
   applyBundleModifiersIn,
   dropdownEntryForGroupKey,
+  levelUpTarget,
+  rawLevelFrom,
+  LEVEL_CAP,
 } from "../js/render/sheet/sheetLeveling.js";
 import { stripSecondaryClassBundle } from "../js/data/contentFixups.js";
 
@@ -216,5 +220,85 @@ describe("choice groups and modifiers", () => {
 
   it("recognizes the subclass field", () => {
     assert.equal(isSubclassField({ id: "subclass" }), true);
+  });
+});
+
+describe("leveling entry point", () => {
+  it("raises the level by exactly one", () => {
+    const target = levelUpTarget(1);
+    assert.equal(target.kind, "start");
+    assert.equal(target.level, 2);
+    assert.equal(levelUpTarget(7).level, 8);
+    // One level, never two, no matter where it starts.
+    for (const from of [1, 2, 5, 11, 19]) {
+      assert.equal(levelUpTarget(from).level, from + 1);
+    }
+  });
+
+  it("resumes an in-progress level-up instead of raising again", () => {
+    // The wizard keys pending picks by the level being applied, and the
+    // raise happens on the click - so pending picks at the CURRENT level
+    // mean that level was already reached by an earlier click.
+    const first = levelUpTarget(4);
+    assert.equal(first.kind, "start");
+    assert.equal(first.level, 5);
+    const second = levelUpTarget(first.level, { pendingAtLevel: true });
+    assert.equal(second.kind, "resume");
+    // Crucially the level does not move again.
+    assert.equal(second.level, 5);
+    assert.match(second.label, /Continue/);
+  });
+
+  it("disables at the cap and says why", () => {
+    const atCap = levelUpTarget(LEVEL_CAP);
+    assert.equal(atCap.kind, "capped");
+    assert.ok(atCap.reason.includes(String(LEVEL_CAP)), "reason names the cap");
+    // Past the cap (typed by hand) reads as capped, not as "no level".
+    assert.equal(levelUpTarget(LEVEL_CAP + 1).kind, "capped");
+    // One below the cap still works.
+    assert.equal(levelUpTarget(LEVEL_CAP - 1).level, LEVEL_CAP);
+  });
+
+  it("treats a missing or nonsensical level as unknown, never as a raise", () => {
+    for (const bad of [null, undefined, "", "   ", "abc", NaN, Infinity, -Infinity, {}]) {
+      const target = levelUpTarget(bad);
+      assert.equal(target.kind, "unknown", `level ${JSON.stringify(bad)}`);
+      assert.ok(target.reason.length > 0, "an unknown level explains itself");
+    }
+    assert.equal(levelUpTarget(0).kind, "unknown");
+    assert.equal(levelUpTarget(-3).kind, "unknown");
+  });
+
+  it("never produces a level outside 1..20 from a readable input", () => {
+    // Guards the NaN/Infinity trap: both fail every comparison, so a
+    // naive implementation falls through to "start" and returns NaN + 1.
+    for (const bad of [NaN, Infinity, -Infinity, "NaN", undefined, null]) {
+      const target = levelUpTarget(bad);
+      assert.notEqual(target.kind, "start", `${String(bad)} must not raise`);
+    }
+  });
+
+  it("keeps an out-of-range level readable so the cap is distinguishable", () => {
+    // currentCharacterLevel() clamps to 1..20 and reports null past it,
+    // which made a hand-typed 21 read as "you have no level". The raw
+    // read keeps the number so the button can say "that's the cap".
+    assert.equal(rawLevelFrom("21"), 21);
+    assert.equal(rawLevelFrom("  7 "), 7);
+    assert.equal(rawLevelFrom("3</div>"), 3);
+    assert.equal(rawLevelFrom(""), null);
+    assert.equal(rawLevelFrom(undefined), null);
+    assert.equal(rawLevelFrom("abc"), null);
+  });
+
+  it("points the intro at the Level Up button and keeps the manual route", () => {
+    // The intro is built inline in renderLevelingTabInto; assert on the
+    // literal the copy is required to carry so a rewrite can't quietly
+    // drop the only mention of the button, or quietly remove the manual
+    // route people on customized sheets still depend on.
+    const src = readFileSync(new URL("../js/render/sheet/sheetLeveling.js", import.meta.url), "utf8");
+    const intro = src.match(/intro\.textContent = "([^"]*)"/);
+    assert.ok(intro, "intro copy found");
+    assert.match(intro[1], /Level Up button/);
+    assert.match(intro[1], /Level field/);
   });
 });

@@ -63,6 +63,8 @@ import {
   reviewLinesFor,
   resolvePrimaryRuleset,
   HP_METHOD_OPTIONS,
+  initPendingLevelState,
+  pendingLevelHasPicks,
 } from "../js/render/sheet/sheetWizardSteps.js";
 import { nestedChoiceGroupsFor } from "../js/render/sheet/sheetWizard.js";
 import { FIXED_CLASS_ENTRIES } from "../js/data/contentFixups.js";
@@ -743,5 +745,56 @@ describe("language sections (Widespread / Rare)", () => {
     const before = [...LANGUAGES];
     languageSections();
     assert.deepEqual(LANGUAGES, before);
+  });
+});
+
+describe("cancelling an in-progress level-up", () => {
+  const fresh = () => {
+    const state = {};
+    initPendingLevelState(state, "4", { subclass: "", choices: {}, className: "Fighter", newClassName: "" });
+    return state["4"];
+  };
+
+  it("sees no picks in a level-up nobody has touched", () => {
+    // The entry exists purely because the walkthrough was opened. That
+    // must not read as "you made choices worth discarding".
+    assert.equal(pendingLevelHasPicks(fresh()), false);
+    assert.equal(pendingLevelHasPicks(null), false);
+    assert.equal(pendingLevelHasPicks(undefined), false);
+    assert.equal(pendingLevelHasPicks({}), false);
+  });
+
+  it("sees picks once anything is actually chosen", () => {
+    for (const mutate of [
+      (p) => { p.hp = "7"; },
+      (p) => { p.notes = "took the Alert feat"; },
+      (p) => { p.asiMode = "single"; },
+      (p) => { p.asiAbility1 = "str"; },
+      (p) => { p.asiAbility2 = "con"; },
+      (p) => { p.featChoice = "Alert"; },
+      (p) => { p.subclass = "Champion"; },
+      (p) => { p.newClassName = "Wizard"; },
+      (p) => { p.choices = { "class:wizard:spells": ["fireball"] }; },
+    ]) {
+      const pending = fresh();
+      mutate(pending);
+      assert.equal(pendingLevelHasPicks(pending), true, JSON.stringify(pending));
+    }
+  });
+
+  it("does not mistake whitespace or an empty pick list for a decision", () => {
+    const pending = fresh();
+    pending.hp = "   ";
+    pending.notes = "";
+    pending.choices = { "class:fighter:profs": [] };
+    assert.equal(pendingLevelHasPicks(pending), false);
+  });
+
+  it("treats 'feat' as the untouched default but a changed ASI mode as a pick", () => {
+    const pending = fresh();
+    assert.equal(pending.asiMode, "feat");
+    assert.equal(pendingLevelHasPicks(pending), false);
+    pending.asiMode = "double";
+    assert.equal(pendingLevelHasPicks(pending), true);
   });
 });

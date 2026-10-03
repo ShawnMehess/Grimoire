@@ -1210,7 +1210,12 @@ async function runViewportTests(viewport) {
   const probe = await seedFinished({ simpleView: false, sawIntro: false, setupComplete: true });
   if (probe) {
   const reopenSheet = async () => {
-    await page.reload({ waitUntil: "networkidle" });
+    // goto, not reload: these fixtures write localStorage and then come
+    // here, and a reload gives the app's own debounced persist() a window
+    // to flush its in-memory state over the top of what was just written
+    // (which silently un-set a patched Level). Navigating tears the app
+    // down without offering it that chance.
+    await page.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
     await page.waitForTimeout(600);
     const sel = `.character-card:has-text("${probe.name || "Unnamed"}")`;
     if (await page.$(sel)) await page.click(sel);
@@ -1274,6 +1279,139 @@ async function runViewportTests(viewport) {
     await page.mouse.click(found.cx, found.cy);
     return found;
   };
+
+  // --- The Level Up entry point ------------------------------------------
+  //
+  // Driven through real clicks on the real toolbar button. The fixture
+  // patches the SHEET's Level field and Class dropdown rather than
+  // rules.level/rules.className: those are a separate copy of the same
+  // facts, and the button and the walkthrough both read the sheet.
+  // (Walking a creation wizard to a Fighter here would be testing the
+  // wizard, not the button.)
+  const setUpLeveling = async ({ level, className }) => {
+    await page.evaluate((extra) => {
+      const KEY = "grimoire.local.characters.v1";
+      const stored = JSON.parse(localStorage.getItem(KEY) || "{}");
+      const id = Object.keys(stored)[0];
+      const walk = (nodes) => nodes.flatMap((n) => [n, ...(n.children || [])]);
+      // Every copy: the renderer reads sheetTabs[i].layout, and
+      // character.layout is only a mirror of the FIRST tab.
+      const allFields = [stored[id].layout, ...(stored[id].sheetTabs || []).map((t) => t.layout)]
+        .filter(Boolean).flatMap(walk);
+      // EVERY copy of the Level field, not just the first: character.layout
+      // is only a mirror of the first tab, so setting one of the two leaves
+      // the copy the renderer actually reads still saying the old level.
+      const levelFields = allFields.filter((f) => f.id === "level");
+      levelFields.forEach((f) => { f.value = String(extra.level); });
+      stored[id].rules = {
+        ...(stored[id].rules || {}),
+        className: extra.className,
+        level: extra.level,
+        abilityScores: { str: 16, dex: 12, con: 14, int: 10, wis: 10, cha: 8 },
+      };
+      // Pending picks from an earlier probe would make the button think a
+      // level-up is already in progress, and a recorded level-up would put
+      // the walkthrough on its "already applied" panel instead of the wizard.
+      delete stored[id].levelingPending;
+      stored[id].levelUps = {};
+      localStorage.setItem(KEY, JSON.stringify(stored));
+    }, { level, className });
+    await reopenSheet();
+    // The Class is picked THROUGH the sheet's own dropdown rather than by
+    // writing a choice id into storage: the app regenerates choice ids on
+    // load (normalizeChoiceObjects), so a patched id matches nothing by the
+    // time it renders and the dropdown just reads back as unset. The
+    // dropdown field's own id is generated too, so it is found by its
+    // label — the same way the app's findStarterField does.
+    const classSelect = await page.evaluateHandle(() => [...document.querySelectorAll(".grid-node--field")]
+      .find((n) => n.querySelector(".field-label")?.textContent?.trim() === "Class")
+      ?.querySelector("select.field-value--dropdown"));
+    const classEl = classSelect.asElement();
+    if (classEl) {
+      await classEl.selectOption({ label: className }).catch(() => {});
+      await page.waitForTimeout(800);
+    }
+  };
+
+  /** The toolbar button's whole state at once. The Level is read off the
+   *  STORED character rather than the DOM: the Level field lives on the
+   *  Main tab's layout, so while the Leveling tab is open it is legitimately
+   *  not in the document, and a probe that looked for it there would read
+   *  "no level" at the exact moment the raise had just worked. */
+  const readLevelUp = () => page.evaluate(() => {
+    const btn = document.querySelector(".level-up__btn");
+    const note = document.querySelector(".level-up__note");
+    const stored = JSON.parse(localStorage.getItem("grimoire.local.characters.v1") || "{}");
+    const ch = stored[Object.keys(stored)[0]];
+    const walk = (nodes) => (nodes || []).flatMap((n) => [n, ...(n.children || [])]);
+    const levelField = [ch?.layout, ...(ch?.sheetTabs || []).map((t) => t.layout)]
+      .filter(Boolean).flatMap(walk).find((f) => f.id === "level");
+    return {
+      button: btn ? {
+        text: btn.textContent.trim(),
+        disabled: btn.disabled,
+        title: btn.title,
+        describedBy: btn.getAttribute("aria-describedby"),
+      } : null,
+      note: note ? {
+        text: note.textContent.trim(),
+        hidden: note.hidden,
+        shown: note.getBoundingClientRect().height > 0,
+      } : null,
+      level: levelField ? String(levelField.value).trim() : null,
+      onLevelingTab: !!document.querySelector(".page-grid--leveling"),
+      wizard: !!document.querySelector(".wizard"),
+      cancel: document.querySelector(".level-guide__cancel")?.textContent.trim() || null,
+    };
+  });
+
+  await setUpLeveling({ level: 1, className: "Fighter" });
+  const startButton = await readLevelUp();
+  check(!!startButton.button, "the Level Up button is on the toolbar");
+  check(startButton.level === "1", `the fixture's Level field reads 1 (got ${JSON.stringify(startButton.level)})`);
+  check(startButton.button.text === "Level Up", `and it is labelled plainly (got "${startButton.button.text}")`);
+  check(!startButton.button.disabled, "and it is live on a level-1 character");
+  check(startButton.note.hidden, "with no reason caption while it can act");
+
+  const clickedStart = await clickOnSheet(".level-up__btn");
+  check(clickedStart.hittable, `the button is really clickable, not covered (${clickedStart.coveredBy || "clear"})`);
+  await page.waitForTimeout(1000);
+  const afterStart = await readLevelUp();
+  check(afterStart.level === "2", `clicking it raises the Level field to 2 (got ${JSON.stringify(afterStart.level)})`);
+  check(afterStart.onLevelingTab, "and lands you on the Leveling tab");
+  check(afterStart.wizard, "with the level-up walkthrough open");
+  check(afterStart.cancel === "Cancel this level-up",
+    `and a Cancel this level-up button on the walkthrough (got ${JSON.stringify(afterStart.cancel)})`);
+
+  // A second click on the SAME level must resume, not raise to 3: the
+  // first click already raised it, and the walkthrough is now holding
+  // picks for level 2.
+  await clickOnSheet(".level-up__btn");
+  await page.waitForTimeout(1000);
+  const afterSecond = await readLevelUp();
+  check(afterSecond.level === "2", `a second click resumes instead of raising again (got ${JSON.stringify(afterSecond.level)})`);
+  check(/continue/i.test(afterSecond.button.text), `and the button says it is continuing (got "${afterSecond.button.text}")`);
+
+  // Cancel puts the level back and hands you off the Leveling tab.
+  const cancelClicked = await clickOnSheet(".level-guide__cancel");
+  check(cancelClicked.hittable, `the Cancel button is really clickable (${cancelClicked.coveredBy || "clear"})`);
+  await page.waitForTimeout(1000);
+  const afterCancel = await readLevelUp();
+  check(afterCancel.level === "1", `cancelling restores level 1 (got ${JSON.stringify(afterCancel.level)})`);
+  check(afterCancel.button.text === "Level Up", "and the button is back to offering a level-up");
+
+  // The cap: level 20 must give a DISABLED button and a reason readable
+  // without hovering anything.
+  await setUpLeveling({ level: 20, className: "Fighter" });
+  const atCap = await readLevelUp();
+  check(atCap.button.disabled,
+    `at the cap the button is disabled (level=${JSON.stringify(atCap.level)}, text="${atCap.button.text}", title="${atCap.button.title}")`);
+  check(atCap.note.shown && atCap.note.text.length > 0,
+    `and the reason is VISIBLE, not just a tooltip (shown=${atCap.note.shown}, text="${atCap.note.text}")`);
+  check(atCap.button.describedBy === "level-up-note",
+    `and the button points at that caption for screen readers (aria-describedby=${atCap.button.describedBy})`);
+
+  // No reset needed: the Cleric fixture below seeds its own level.
 
   // Nine level-1 Cleric spells against a level-5 limit of 8, so the fixture
   // can actually reach "over". Four spells could never get past 8/8 and the

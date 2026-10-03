@@ -12,6 +12,116 @@ export function levelFromMap(levelFieldId, valueMap) {
   return Number.isFinite(v) ? v : 0;
 }
 
+/** The highest character level the rules run to. Not a "nice to know"
+ *  number but a hard edge the rest of the app already enforces in four
+ *  places as a bare literal (currentCharacterLevel in customSheet.js,
+ *  normalizeRulesState/classLevelsFor in rulesEngine.js, the level
+ *  tables in dnd5e.js, and the per-level row loop below) - naming it
+ *  here lets the level-up UI say "that's the cap" instead of letting a
+ *  typed 21 read as "no level at all". */
+export const LEVEL_CAP = 20;
+
+/** Reads the Level field as a number WITHOUT the 1..20 clamp, so a
+ *  character left at an out-of-range number reports what is actually
+ *  there. `currentCharacterLevel` deliberately degrades to null there;
+ *  the level-up button needs to tell "you typed nonsense" apart from
+ *  "you typed 21 and hit the cap" to decide which message to show.
+ *  Pure - returns null when the field holds no plain integer. */
+export function rawLevelFrom(value) {
+  const n = parseInt(value, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** What clicking "Level Up" should do at the current level. Pure, and
+ *  the single place the three outcomes are decided:
+ *
+ *    "unknown" - no readable level, so there is nothing to level up
+ *                FROM. (Level missing/blank/non-numeric.)
+ *    "capped"  - at the cap (or past it from a manual edit), so the
+ *                button is disabled rather than silently refusing.
+ *    "resume"  - this level already has in-progress picks, so the level
+ *                was raised on an earlier click and the button returns
+ *                to that walkthrough instead of raising AGAIN.
+ *    "start"   - raise to level + 1.
+ *
+ *  `pendingAtLevel` is "does character.levelingPending have an entry for
+ *  this level" — the wizard keys its in-progress picks by the level
+ *  being applied, which (because raising happens on click) is the level
+ *  the button just moved to. */
+export function levelUpTarget(level, { pendingAtLevel = false, cap = LEVEL_CAP } = {}) {
+  // NaN and Infinity fail every comparison silently, so either would
+  // otherwise fall all the way through to "start" and produce NaN + 1
+  // (or 21). Normalize to null first and treat it as unreadable.
+  const parsed = Number(level);
+  const at = Number.isFinite(parsed) ? parsed : null;
+  if (at == null) {
+    return { kind: "unknown", label: "Level Up", reason: "Set your Level on the sheet first — then this button can level you up." };
+  }
+  if (at >= cap) {
+    return { kind: "capped", level: at, cap, label: "Level Up", reason: `Level ${cap} is the highest level in the rules — you've reached the top.` };
+  }
+  if (at < 1) {
+    return { kind: "unknown", level: at, label: "Level Up", reason: `Level ${at} isn't a level — set it to a number from 1 to ${cap} on the sheet.` };
+  }
+  if (pendingAtLevel) {
+    return { kind: "resume", level: at, label: "Continue Level Up", reason: `Level ${at} is already started — continue where you left off.` };
+  }
+  return { kind: "start", level: at + 1, label: "Level Up", reason: `Raise your Level field to ${at + 1} and walk through what you gain.` };
+}
+
+/** The toolbar's "Level Up" control, built from a `levelUpTarget`
+ *  result. One node holding the button plus a caption that carries the
+ *  reason: `aria-describedby` points at that same caption rather than
+ *  only a `title`, because a tooltip is invisible to a keyboard user
+ *  and unreadable on a phone. The caption is VISIBLE whenever the
+ *  button is disabled (unknown level, or the cap) so the reason is
+ *  never something you have to go looking for.
+ *
+ *  Returns the wrapper so the caller can append it to the toolbar once
+ *  and re-sync it later (a level field edit, a pending pick, finishing
+ *  setup) via `syncLevelUpControl`. */
+export function buildLevelUpControl(target, onClick) {
+  const wrap = document.createElement("span");
+  wrap.className = "level-up";
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "btn btn--primary level-up__btn";
+  wrap.append(btn);
+
+  const note = document.createElement("span");
+  note.className = "level-up__note";
+  note.id = "level-up-note";
+  wrap.append(note);
+
+  btn.addEventListener("click", () => {
+    // A disabled button doesn't fire click, but a stale one (level
+    // changed under us since the last sync) must still not act.
+    if (btn.disabled) return;
+    onClick(target);
+  });
+
+  wrap.syncLevelUpControl = (next) => {
+    target = next;
+    const disabled = next.kind === "unknown" || next.kind === "capped";
+    btn.textContent = next.label;
+    btn.disabled = disabled;
+    btn.classList.toggle("level-up__btn--resume", next.kind === "resume");
+    btn.title = next.reason;
+    note.textContent = disabled ? next.reason : "";
+    note.hidden = !disabled;
+    if (disabled) btn.setAttribute("aria-describedby", note.id);
+    else btn.removeAttribute("aria-describedby");
+    // A disabled button drops out of the tab order, so the reason has to
+    // be reachable another way or a screen-reader user just finds a dead
+    // control. role="status" announces it when it appears on render.
+    if (disabled) note.setAttribute("role", "status");
+    else note.removeAttribute("role");
+  };
+  wrap.syncLevelUpControl(target);
+  return wrap;
+}
+
 export function normalizeChoiceGroup(group, index, keyPrefix) {
   return {
     ...group,
@@ -874,7 +984,7 @@ export function renderLevelingTabInto(pageGrid, deps) {
 
   const intro = document.createElement("p");
   intro.className = "leveling-tab__intro";
-  intro.textContent = "Come back here whenever your level goes up. Fill in whatever applies for your class at that level — leave the rest blank.";
+  intro.textContent = "Use the Level Up button up top when your level goes up — it moves you to the next level and walks you through what you gain. Or set the Level field yourself and come back here to fill in whatever applies for your class at that level, leaving the rest blank.";
   wrap.append(intro);
 
   // Everything the walkthrough shows (guide, feature uses, the per-level
@@ -904,7 +1014,7 @@ export function renderLevelingTabInto(pageGrid, deps) {
     walkthrough.append(jumpBtn);
   }
 
-  for (let level = 1; level <= 20; level++) {
+  for (let level = 1; level <= LEVEL_CAP; level++) {
     walkthrough.append(rowFn(level, level === currentLevel));
   }
 
