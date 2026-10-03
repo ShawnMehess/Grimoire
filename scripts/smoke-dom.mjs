@@ -531,7 +531,21 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   const pending = {};
   steps.renderGuideHpStepInto(box, pending, { conScore: 14, dieSize: 10, method: "average" });
   assert(pending.hp === "8", "HP prefilled with average + CON");
-  assert(box.textContent.includes("Fixed average"), "HP math note renders");
+  // The note has to name all three ingredients in words - the die, the
+  // average and the CON modifier - because "d10 ÷ 2, rounded up" is a
+  // formula, and the whole point of the note is that a player who cannot
+  // read the formula can still tell what the number is made of.
+  assert(/d10/.test(box.textContent) && /rounded up/.test(box.textContent)
+    && /Constitution modifier is \+2/.test(box.textContent),
+  `HP math note renders in words (got ${JSON.stringify(box.textContent.trim())})`);
+  // And the roll variant has to say the range rather than leave a bare
+  // "1-8" with no indication of where it came from.
+  const rollBox = document.createElement("div");
+  const rollPending = {};
+  steps.renderGuideHpStepInto(rollBox, rollPending, { conScore: 14, dieSize: 10, method: "roll" });
+  assert(/d10/.test(rollBox.textContent) && /Constitution modifier is \+2/.test(rollBox.textContent)
+    && /from 3 to 12/.test(rollBox.textContent),
+  `the roll note says the die, the modifier and the range (got ${JSON.stringify(rollBox.textContent.trim())})`);
 }
 // The HP method preference rows: no expand/collapse affordance (they have
 // nothing to expand), and an icon in the portrait slot instead of a letter
@@ -1105,6 +1119,35 @@ function openTestDialog(host, overrides = {}) {
   ], { currentLevel: 3 });
   assert(steps.textContent.includes("Level 3"), "a step shows its level");
   assert(steps.textContent.includes("Keen Eye"), "and its grants");
+
+  // "Level N gives you:" - sourced text only, and nothing at all when
+  // there is nothing sourced to say.
+  const gainsHost = document.createElement("div");
+  const gains = leveling.renderLevelGainsInto(gainsHost, [
+    { name: "Extra Attack", description: "You can attack three times instead of once." },
+    { name: "Mystic Knuckles", description: "" },
+  ], { level: 5 });
+  assert(gains, "the gains summary renders when there is something to say");
+  assert(gainsHost.textContent.includes("Level 5 gives you:"), "it names the level and asks what it gives");
+  assert(gainsHost.textContent.includes("Extra Attack"), "a sourced feature is listed");
+  assert(gainsHost.textContent.includes("attack three times"), "with its own description quoted, not paraphrased");
+  assert(gainsHost.textContent.includes("Mystic Knuckles"), "a feature with no description is still listed");
+  // Name only, with no dash and nothing standing in for the missing text.
+  // Asserted on a summary of its own so the concatenation is exact.
+  const bareHost = document.createElement("div");
+  const bareOnly = leveling.renderLevelGainsInto(bareHost,
+    [{ name: "Mystic Knuckles", description: "" }], { level: 3 });
+  assert(bareOnly.textContent === "Level 3 gives you:Mystic Knuckles",
+    `a feature with no description is listed by name alone (got ${JSON.stringify(bareOnly.textContent)})`);
+  // Nothing sourced: no heading at all, rather than an empty heading that
+  // reads as a bug in the app.
+  const emptyHost = document.createElement("div");
+  const nothing = leveling.renderLevelGainsInto(emptyHost, [], { level: 8 });
+  assert(nothing === null && emptyHost.textContent === "",
+    "a level with no sourced grants shows no summary at all");
+  assert(leveling.renderLevelGainsInto(document.createElement("div"),
+    [{ name: "", description: "" }], { level: 3 }) === null,
+  "a blank grant is not a line of text");
 
   const buildTabs = (withGlance) => {
     const glance = document.createElement("div");

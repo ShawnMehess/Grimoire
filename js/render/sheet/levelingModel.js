@@ -228,6 +228,45 @@ export function upcomingGrantsByLevel(grants = [], context = {}) {
     .map(([level, entries]) => ({ level, grants: entries }));
 }
 
+/** The grants that unlock exactly AT `level` — what that one level gives
+ *  you, rather than everything you are holding by the time you get
+ *  there. Asked as `upcomingGrantsByLevel` at `level - 1` so the
+ *  walkthrough's summary and the At a Glance table are the same read of
+ *  the same model and cannot drift apart.
+ *
+ *  Pure. */
+export function grantsAtLevel(grants = [], context = {}, level) {
+  const n = Number(level);
+  if (!Number.isFinite(n) || n < 1) return [];
+  const step = upcomingGrantsByLevel(grants, { ...context, level: n - 1 })
+    .find((s) => s.level === n);
+  return step ? step.grants : [];
+}
+
+/** Plain-language lines for "Level N gives you:".
+ *
+ *  Only sourced text, ever. A feature with a description is quoted from
+ *  that description; one without shows its NAME ONLY; one with neither is
+ *  dropped rather than filled in with a paraphrase. A summary that
+ *  invents rules text is worse than a shorter honest one, because the
+ *  player cannot tell which parts to trust.
+ *
+ *  Grants with no name and no label are left out: those are stat
+ *  modifiers and dropdown-access rules, whose "names" are field ids, and
+ *  listing `strScore` under "gives you" is noise rather than help.
+ *
+ *  Pure — reads its arguments, returns plain objects, mutates nothing. */
+export function levelGainLines(grants = [], context = {}, level) {
+  return grantsAtLevel(grants, context, level)
+    .map((g) => {
+      const name = String(g.effect?.name || g.effect?.label || "").trim();
+      const description = typeof g.effect?.description === "string" ? g.effect.description.trim() : "";
+      if (!name) return null;
+      return { name, description, type: g.type, source: g.source || "" };
+    })
+    .filter(Boolean);
+}
+
 /** Every level named in a grant's conditions, for the OR-across / AND-within
  *  shape an entry can take. */
 function levelsIn(conditions) {

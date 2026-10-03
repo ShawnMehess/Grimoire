@@ -23,6 +23,8 @@ import {
   activeGrantsIn,
   upcomingGrantsByLevel,
   levelingStepsIn,
+  grantsAtLevel,
+  levelGainLines,
 } from "../js/render/sheet/levelingModel.js";
 
 const ctx = (over = {}) => ({ level: 1, race: "", class: "", subclass: "", ...over });
@@ -303,5 +305,72 @@ describe("the real content flows through the model", () => {
     const types = new Set(grants.map((g) => g.type));
     assert.ok(types.has("ability") && types.has("optionAccess") && types.has("equipmentProficiency"),
       `expected several types, got ${[...types].join(", ")}`);
+  });
+});
+
+describe("what a single level gives you", () => {
+  const fighter = grantsIn({
+    featureGrants: [
+      { name: "Fighting Style", minLevel: 1, description: "Choose a fighting style." },
+      { name: "Second Attack", minLevel: 5, description: "You can attack twice instead of once." },
+      { name: "Extra Attack", minLevel: 5, description: "You can attack three times instead of once." },
+      { name: "Mystic Knuckles", minLevel: 3 },
+    ],
+  }, { source: "Fighter", kind: "Class" });
+
+  it("returns only the grants that unlock AT that level", () => {
+    const at5 = grantsAtLevel(fighter, ctx(), 5).map((g) => g.effect.name);
+    assert.deepEqual(at5.sort(), ["Extra Attack", "Second Attack"], "not level 1's, not level 3's");
+    const at3 = grantsAtLevel(fighter, ctx(), 3).map((g) => g.effect.name);
+    assert.deepEqual(at3, ["Mystic Knuckles"]);
+  });
+
+  it("agrees with the At a Glance model rather than a second opinion", () => {
+    // grantsAtLevel is upcomingGrantsByLevel asked about one level, so the
+    // walkthrough's summary and that table cannot drift apart.
+    const fromGlance = upcomingGrantsByLevel(fighter, ctx({ level: 4 }))
+      .find((s) => s.level === 5)?.grants || [];
+    assert.deepEqual(grantsAtLevel(fighter, ctx(), 5), fromGlance);
+  });
+
+  it("carries a feature's own description through, and never invents one", () => {
+    const lines = levelGainLines(fighter, ctx(), 5);
+    const byName = Object.fromEntries(lines.map((l) => [l.name, l]));
+    assert.equal(byName["Extra Attack"].description, "You can attack three times instead of once.");
+    // No sourced text: the name only, and no paraphrase standing in for it.
+    const at3 = levelGainLines(fighter, ctx(), 3);
+    assert.equal(at3[0].name, "Mystic Knuckles");
+    assert.equal(at3[0].description, "");
+  });
+
+  it("drops a grant with neither a name nor text, rather than showing a blank", () => {
+    const grants = grantsIn({ featureGrants: [{ minLevel: 4 }, { name: "Real One", minLevel: 4 }] },
+      { source: "X", kind: "Class" });
+    const lines = levelGainLines(grants, ctx(), 4);
+    assert.deepEqual(lines.map((l) => l.name), ["Real One"]);
+  });
+
+it("honours a condition the character does not meet", () => {
+    // A class gate comes from the bundles the caller collected, but the
+    // model also accepts one on the grant itself, and it must be enforced
+    // at the level being asked about - not just at the current one.
+    const gated = [
+      { id: "g1", type: "ability", conditions: [{ minLevel: 5, subclass: "Champion" }],
+        effect: { name: "Improved Critical", description: "Roll a crit on a 19 or 20." } },
+      { id: "g2", type: "ability", conditions: [{ minLevel: 5, subclass: "Eldritch Knight" }],
+        effect: { name: "Something else entirely" } },
+    ];
+    assert.deepEqual(levelGainLines(gated, ctx({ subclass: "Champion" }), 5).map((l) => l.name),
+      ["Improved Critical"]);
+    assert.deepEqual(levelGainLines(gated, ctx({ subclass: "Battle Master" }), 5), [],
+      "a level this character reached without the subclass grants nothing to say");
+  });
+
+  it("says nothing for a level that grants nothing, or for a nonsense level", () => {
+    assert.deepEqual(levelGainLines(fighter, ctx(), 12), []);
+    assert.deepEqual(grantsAtLevel(fighter, ctx(), 0), []);
+    assert.deepEqual(grantsAtLevel(fighter, ctx(), null), []);
+    assert.deepEqual(grantsAtLevel(fighter, ctx(), NaN), []);
+    assert.deepEqual(levelGainLines([], ctx(), 5), []);
   });
 });

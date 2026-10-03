@@ -18,10 +18,31 @@ export { ABILITY_DESCRIPTIONS };
 // gone. That sentence was doing real work for the first option especially:
 // "Fixed Average" reads like a one-time total, and nothing else on the page
 // says it is applied again at every level.
+//
+// Each description also carries the ARITHMETIC in plain words - die,
+// average, CON modifier, added together - because "how is this number
+// worked out" is the part a first-time player cannot get from the label,
+// and it is the same three numbers every time. None of this changes the
+// calculation: see averageHpOnce / rollHpOnce.
 export const HP_METHOD_OPTIONS = [
-  { value: "average", label: "Fixed Average", icon: "∑", description: "Always take the fixed average for your hit die (e.g. 5 for a d8), plus your Constitution modifier. Used every time you level up. Consistent and predictable, no rolling involved." },
-  { value: "roll", label: "Roll In-Browser", icon: "⚄", description: "Roll your hit die right here each time you level up, plus your Constitution modifier. ..." },
-  { value: "manual", label: "Roll at the Table", icon: "✎", description: "Roll however you prefer at the table (or elsewhere) and just type the result in when you level up." },
+  {
+    value: "average",
+    label: "Fixed Average",
+    icon: "∑",
+    description: "Every time you level up, this adds the same amount: half your hit die, rounded up (6 on a d10), plus your Constitution modifier. A Fighter with +2 Constitution gains 8 at every level. No rolling, and you always know the number.",
+  },
+  {
+    value: "roll",
+    label: "Roll In-Browser",
+    icon: "⚄",
+    description: "Every time you level up, this page rolls your hit die for you and adds your Constitution modifier. You might get more or less than the fixed average, so your hit points will vary level to level.",
+  },
+  {
+    value: "manual",
+    label: "Roll at the Table",
+    icon: "✎",
+    description: "Nothing is worked out for you. Every time you level up, roll however you like at the table (or wherever you play) and type the result in — remembering to add your Constitution modifier to the roll.",
+  },
 ];
 
 export const POINT_BUY_MIN = 8;
@@ -1376,11 +1397,15 @@ export function renderGuideHpStepInto(container, pending, { conScore, dieSize, m
   }
 
   // Show the HP math the same way the ability-scores step shows point
-  // buy — the number should never look made up.
+  // buy — the number should never look made up. In words rather than
+  // arithmetic symbols, because "d10 ÷ 2, rounded up" is a formula, and a
+  // player who cannot read the formula still needs to know what the number
+  // is made of.
   const avg = method === "average" ? Math.floor(dieSize / 2) + 1 : 0;
+  const conWord = `${conMod >= 0 ? "plus" : "minus"} ${Math.abs(conMod)}`;
   container.append(el("p", { class: "leveling-tab__intro", text: method === "average"
-    ? `Fixed average: ${avg} (d${dieSize} ÷ 2, rounded up) ${conMod >= 0 ? "+" : ""}${conMod} CON = ${avg + conMod} HP`
-    : `Roll 1d${dieSize} ${conMod >= 0 ? "+" : ""}${conMod} CON modifier = 1–${dieSize + conMod} HP (then type the result)` }));
+    ? `Your hit die is a d${dieSize}. Half of that, rounded up, is ${avg} — and your Constitution modifier is ${conMod >= 0 ? "+" : ""}${conMod}. Added together, this level adds ${avg + conMod} hit points.`
+    : `Your hit die is a d${dieSize}, and your Constitution modifier is ${conMod >= 0 ? "+" : ""}${conMod}. Roll the die and ${conWord} that, so this level can add anywhere from ${1 + conMod} to ${dieSize + conMod} hit points. Type in whatever you rolled.` }));
 
   const hpInput = el("input", {
     type: "number", min: "1", step: "1", required: true,
@@ -1406,9 +1431,12 @@ export function renderGuideHpStepInto(container, pending, { conScore, dieSize, m
   }
 }
 
+/** The Notes page body. One optional box, and the label says so: nothing
+ *  here is required, and a blank answer is a valid one rather than a
+ *  skipped step. */
 export function renderGuideNotesStepInto(container, pending) {
   const benefitsInput = el("textarea", {
-    placeholder: "Record features, spells, proficiencies, or other choices from your source book.",
+    placeholder: "Anything else from your source book — leave blank if there isn't anything.",
     value: pending.notes || "",
     oninput: () => { pending.notes = benefitsInput.value; },
   });

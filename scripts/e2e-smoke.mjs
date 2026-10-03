@@ -1633,6 +1633,43 @@ async function runViewportTests(viewport) {
   check(!/continue/i.test(createdHigh.button.text),
     `and its button still offers a normal level-up (got "${createdHigh.button.text}")`);
 
+  // --- "Level N gives you:" ----------------------------------------------
+  //
+  // Built from the same grant model the At a Glance table reads. This is
+  // also the regression test for the bundle list that omitted the PRIMARY
+  // class (multiclassEntries is the secondaries), which left a single-class
+  // character with no class grants at any level.
+  const gainsProbe = () => page.evaluate(() => {
+    const section = document.querySelector(".level-gains");
+    return {
+      present: !!section,
+      heading: section?.querySelector(".level-gains__heading")?.textContent?.trim() || null,
+      items: [...(section?.querySelectorAll(".level-gains__list li") || [])]
+        .map((li) => li.textContent.trim()),
+      shown: section ? section.getBoundingClientRect().height > 0 : false,
+      firstBeforeWizardTitle: (() => {
+        const g = document.querySelector(".level-gains");
+        const h = document.querySelector(".wizard h2");
+        return !!(g && h) && !!(g.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING);
+      })(),
+    };
+  });
+
+  await setUpLeveling({ level: 5, className: "Fighter", subclass: "Champion", recordedLevels: [2, 3] });
+  await openLevelingTab();
+  const gains = await gainsProbe();
+  check(gains.present, "the walkthrough opens with a 'what this level gives you' summary");
+  check(gains.heading === "Level 4 gives you:",
+    `for the level being walked, not the sheet's (got ${JSON.stringify(gains.heading)})`);
+  check(gains.shown, "and it is visible");
+  check(gains.firstBeforeWizardTitle, "sitting above the wizard's own title");
+  check(gains.items.length > 0,
+    `and it lists this class's level-4 features, not just race/background (${JSON.stringify(gains.items.slice(0, 4))})`);
+  // At least one entry must carry real sourced text; if the primary-class
+  // bundle were missing again this would be empty entirely.
+  check(gains.items.some((t) => t.length > 40),
+    `quoting a sourced description rather than a bare name (${JSON.stringify(gains.items.find((t) => t.length > 40))})`);
+
   // --- Applying the lowest leaves the next one waiting --------------------
   //
   // This is what makes the banner actionable rather than just a warning:

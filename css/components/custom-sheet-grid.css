@@ -392,6 +392,37 @@
   white-space: nowrap;
 }
 
+/* "Level N gives you:" — the sourced summary at the top of the
+   walkthrough. Muted heading so it reads as orientation rather than as
+   another step in the wizard. */
+.level-gains {
+  margin: 0 0 var(--space-4) 0;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-inset);
+}
+
+.level-gains__heading {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.level-gains__list {
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: var(--text-sm);
+}
+
+.level-gains__list li {
+  margin-bottom: var(--space-1);
+}
+
+.level-gains__list li:last-child {
+  margin-bottom: 0;
+}
+
 /* Revert, on the walkthrough. Full-width on a phone like the rest of the
    Leveling tab's actions - it is a big, destructive, deliberate press. */
 .leveling-revert {

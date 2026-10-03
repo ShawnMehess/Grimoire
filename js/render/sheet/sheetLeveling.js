@@ -142,6 +142,52 @@ export function levelingRecordState(sheetLevel, { levelUps = {}, createdAtLevel 
   };
 }
 
+/** "Level N gives you:" — the plain-language summary at the top of the
+ *  walkthrough, from `levelGainLines` (which only ever quotes sourced
+ *  text).
+ *
+ *  Returns null when there is nothing sourced to say, so a level with no
+ *  data on file shows no heading at all. An empty "Level 8 gives you:"
+ *  over a blank list reads as a bug in the app rather than as an absence
+ *  of data.
+ *
+ *  `level` is the level being worked on, which is NOT always the level on
+ *  the sheet: a jump the banner is walking through shows the level the
+ *  walkthrough is actually on. */
+export function renderLevelGainsInto(container, lines = [], { level, doc = document } = {}) {
+  const usable = (lines || []).filter((l) => l && l.name);
+  if (!usable.length) return null;
+  const wrap = doc.createElement("section");
+  wrap.className = "level-gains";
+  const heading = doc.createElement("h3");
+  heading.className = "level-gains__heading";
+  heading.textContent = `Level ${level} gives you:`;
+  wrap.append(heading);
+  const list = doc.createElement("ul");
+  list.className = "level-gains__list";
+  for (const line of usable) {
+    const item = doc.createElement("li");
+    const name = doc.createElement("strong");
+    name.textContent = line.name;
+    item.append(name);
+    // No description means the name stands alone. Nothing is paraphrased in
+    // to fill the gap - an invented rules sentence is worse than none,
+    // because a player cannot tell which parts to trust.
+    if (line.description) {
+      item.append(doc.createTextNode(" — "));
+      // Plain text, matching how renderLevelingGlanceInto renders the same
+      // grant names and sources. Rich-text runs (ability highlighting, spell
+      // links) would mean importing sheetWizard.js here for a summary
+      // paragraph, and the glance this sits beside doesn't do them either.
+      item.append(doc.createTextNode(line.description));
+    }
+    list.append(item);
+  }
+  wrap.append(list);
+  container.append(wrap);
+  return wrap;
+}
+
 /** The revert dialog's body: what it takes back, and - only when there is
  *  any - what has been edited by hand since and would be lost. Built as
  *  real nodes rather than a string so the list can be a list, and so the
@@ -1125,7 +1171,7 @@ export function renderLevelingTabInto(pageGrid, deps) {
 
   const intro = document.createElement("p");
   intro.className = "leveling-tab__intro";
-  intro.textContent = "Use the Level Up button up top when your level goes up — it moves you to the next level and walks you through what you gain. Or set the Level field yourself and come back here to fill in whatever applies for your class at that level, leaving the rest blank.";
+  intro.textContent = "When your character goes up a level, press the Level Up button up top. It moves you to the next level and walks you through what you gain, one step at a time. If you'd rather set the Level field yourself, that's fine too — everything still fills in here.";
   wrap.append(intro);
 
   // A level typed straight in skips the levels in between, and the old

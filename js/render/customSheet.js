@@ -208,6 +208,7 @@ normalizeChoiceGroup,
   buildLevelUpControl,
   buildRevertDialogBody,
   buildRevertControl,
+  renderLevelGainsInto,
   levelUpTarget,
   levelingRecordState,
   rawLevelFrom,
@@ -411,9 +412,10 @@ import { A11Y_OPTIONS, a11yEnabled, applyA11yMode } from "../ui/accessibility.js
 import { applySimpleViewOrder, narrowScreenNeedsStackedView, shouldShowIntro, INTRO_LINES } from "./sheet/simpleView.js";
 import { featRowModels, renderFeatListInto } from "./sheet/featList.js";
 import {
-  allGrantsIn,
+allGrantsIn,
   levelingContextFor,
   levelingStepsIn,
+  levelGainLines,
 } from "./sheet/levelingModel.js";
 import {
   LINKED_DISPLAY_FIELDS,
@@ -7259,7 +7261,7 @@ const closeDialog = () => {
     steps.push({
       id: "notes",
       title: "Notes",
-      description: "Jot down anything else worth recording from your source book — new proficiencies, invocations, spells, or other choices that don't fit neatly into the steps above.",
+      description: "Anything else worth recording from your source book — invocations, extra proficiencies, a spell your book lists but this page doesn't ask for. Leave it blank if there's nothing; you can always come back and add it later.",
       render(container) {
         renderGuideNotesStepInto(container, pending);
       },
@@ -7268,7 +7270,7 @@ const closeDialog = () => {
     steps.push({
       id: "review",
       title: "Review & Apply",
-      description: "Here's a summary of this level's changes. If everything looks right, hit Apply — this writes your HP, subclass, ability score increase, and notes to the sheet and can't easily be undone.",
+      description: "Here's everything this level will change on your sheet. Check it over, then hit Apply to write it in. If you'd rather not keep it, there's a Revert button on this tab afterwards.",
       render(container) {
         // Full creator-style review: one line per fact (class, race,
         // background, HP, subclass, ASI/feat, slots) plus every
@@ -7578,6 +7580,14 @@ const closeDialog = () => {
     });
 
     const singleClass = !entries.length && !takingNewClass;
+    // "Level N gives you:" from the same grant model the At a Glance table
+    // reads, quoting only sourced text. `level` is the level this pass is
+    // working on, which during a multi-level jump is BELOW the level on the
+    // sheet - the summary has to describe the level being walked, or it
+    // describes the wrong one.
+    const gainsEl = renderLevelGainsInto(document.createElement("div"),
+      levelGainLines(levelingGrantsFor(), levelingContextFor(character, level), level),
+      { level });
     const guide = renderStepWizard(steps, levelingWizardState, {
       title: singleClass
         ? `${primaryName || "Character"} Level ${level}`
@@ -7592,6 +7602,10 @@ const closeDialog = () => {
       // still a single small write.
       ["input", "change", "click"].forEach((type) => guide.addEventListener(type, persistWizardProgressSoon, true));
       guide.append(buildCancelLevelUpButton(level));
+      // The summary goes ABOVE the wizard's own title, not inside it:
+      // renderStepWizardInto owns its wrap, and prepending a node to it
+      // would fight the dots/progress layout it lays out from the top.
+      if (gainsEl) guide.insertBefore(gainsEl, guide.firstChild);
     }
     return guide;
   }
@@ -7857,15 +7871,29 @@ const closeDialog = () => {
    *  Gathered from the same bundle sources the sheet applies, including
    *  secondary classes and taken feats, so a multiclassed character sees
    *  all of it rather than just their first class. */
-  function renderLevelingGlance() {
-    const level = currentCharacterLevel() ?? 1;
+  /** Every bundle this character's leveling data comes from, in the
+   *  [{ name, kind, bundle }] shape allGrantsIn takes.
+   *
+   *  Shared by the At a Glance table and the walkthrough's "Level N gives
+   *  you" summary so the two cannot disagree about what a level grants.
+   *
+   *  The PRIMARY class is in here, which it was not before: the bundle list
+   *  was built from multiclassEntries() alone, and that is
+   *  character.rules.multiclass - the SECONDARY classes only. A
+   *  single-class character therefore had no class bundle at all, so the
+   *  glance listed their race and background and nothing their class gave
+   *  them, at any level. */
+  function levelingBundlesFor() {
     const bundles = [];
     const addBundle = (kind, name) => {
+      if (!name) return;
       const bundle = bundleFor(kind, name, currentRulesetId());
       if (bundle) bundles.push({ name, kind, bundle });
     };
     addBundle("Race", selectedChoiceName("species", "Race"));
     addBundle("Background", selectedChoiceName("background", "Background"));
+    addBundle("Class", primaryClassName());
+    addBundle("Subclass", selectedChoiceName("subclass", "Subclass"));
     for (const entry of multiclassEntries()) {
       addBundle("Class", entry.name);
       if (entry.subclass) addBundle("Subclass", entry.subclass);
@@ -7873,8 +7901,19 @@ const closeDialog = () => {
     for (const feat of character.rules?.feats || []) {
       addBundle("Feat", feat.name);
     }
-    const grants = allGrantsIn(bundles, { includedPacks: includedRulesetIds() });
-    return renderLevelingGlanceInto(levelingStepsIn(grants, levelingContextFor(character, level)), { currentLevel: level });
+    return bundles;
+  }
+
+  function levelingGrantsFor() {
+    return allGrantsIn(levelingBundlesFor(), { includedPacks: includedRulesetIds() });
+  }
+
+  function renderLevelingGlance() {
+    const level = currentCharacterLevel() ?? 1;
+    return renderLevelingGlanceInto(
+      levelingStepsIn(levelingGrantsFor(), levelingContextFor(character, level)),
+      { currentLevel: level }
+    );
   }
 
   function renderLevelingTab() {
