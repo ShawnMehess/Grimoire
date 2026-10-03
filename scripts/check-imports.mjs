@@ -502,6 +502,105 @@ if (cssErrors.length) {
   console.log(`di: ${total}/${BASELINE} injected dependency keys (${BASELINE - total} of headroom)`);
 }
 
+// --- js: no dead exports ------------------------------------------------------
+//
+// An `export` nothing can reach is not clutter, it is a promise the codebase
+// doesn't keep: a reader assumes it is used, and grep says otherwise. So the
+// count is now stated and cannot rise.
+//
+// WHAT COUNTS AS DEAD. An export is dead when no other module imports it by
+// name AND no other module reaches it through a namespace (`import * as ns`)
+// or a dynamic import (`await import(...)`, which hands back the whole module
+// namespace). That last case matters here: js/state/store.js does
+// `await import("./characterStore.js")` and main.js then calls
+// `characterStore.loadCharacter(...)`, so every export of the three store
+// backends is reachable even though nothing imports them by name.
+//
+// WHAT DOES NOT COUNT AS DEAD, which is the trap in this codebase: an export
+// no other module imports but which its OWN module uses is live code. A
+// survey once counted 146 such exports in js/render and ~1,346 lines as
+// "dead" - every one of them turned out to be called inside its own file
+// (aspectPresets' reflowLayoutToCols, sheetMechanics' collapseBits,
+// levelingModel's conditionsMet, and so on). Only 16 exports here were
+// genuinely unreferenced, and those are already gone. The distinction is why
+// this rule is a ratchet on a number rather than a bulk deletion: "not
+// imported elsewhere" is not the same question as "unreachable".
+//
+// Baseline 0: the sweep is done, so any new dead export is a regression
+// someone has to justify rather than an accumulation nobody notices.
+{
+  const dead = [];
+  const modules = new Map();
+  for (const file of jsFilesUnder(join(ROOT, "js"), ".js")) {
+    const src = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const m of src.matchAll(/^export\s+(?:async\s+)?(?:function\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)/gm)) {
+      modules.set(m[1], file);
+    }
+  }
+
+// What each module imports, by name, plus the modules reached wholesale.
+// tests/ and scripts/ count as importers: an export that only the gates or
+// the suites use is wired up, not dead. (CATCH_ALL_CATEGORY and
+// TAG_VOCABULARY exist for verify-content.mjs alone.)
+const CONSUMERS = [
+  ...jsFilesUnder(join(ROOT, "js"), ".js"),
+  ...(existsSync(join(ROOT, "scripts")) ? jsFilesUnder(join(ROOT, "scripts"), ".mjs") : []),
+  ...(existsSync(join(ROOT, "tests")) ? jsFilesUnder(join(ROOT, "tests"), ".mjs") : []),
+];
+const importedNames = new Set(); // `${targetFile}::${name}`
+const wholesale = new Set(); // targetFile
+for (const file of CONSUMERS) {
+    const src = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const m of src.matchAll(/(?:^|\n)\s*import\s+([\s\S]*?)\s*from\s*["'](\.[^"']+)["']/g)) {
+      const target = resolve(dirname(file), m[2]);
+      const clause = m[1];
+      const ns = clause.match(/\*\s+as\s+/);
+      if (ns) { wholesale.add(target); continue; }
+      const braces = clause.match(/\{([\s\S]*)\}/);
+      if (!braces) continue;
+      for (const part of braces[1].split(",")) {
+        const t = part.trim();
+        if (!t) continue;
+        importedNames.add(`${target}::${(t.split(/\s+as\s+/)[0] || "").trim()}`);
+      }
+    }
+    // `await import("./x.js")` yields the whole namespace.
+    for (const m of src.matchAll(/import\s*\(\s*["'](\.[^"']+)["']\s*\)/g)) {
+      wholesale.add(resolve(dirname(file), m[1]));
+    }
+  }
+
+  for (const [name, file] of modules) {
+    if (importedNames.has(`${file}::${name}`)) continue;
+    if (wholesale.has(file)) continue;
+    // Referenced from anywhere outside its own declaration?
+    const pat = new RegExp(`\\b${name.replace(/\$/g, "\\$")}\\b`);
+    const declLine = new RegExp(`^export\\s+(?:async\\s+)?(?:function\\*?|const|let|var|class)\\s+${name.replace(/\$/g, "\\$")}\\b`, "m");
+    let elsewhere = false;
+    for (const otherFile of CONSUMERS) {
+      if (otherFile === file) continue;
+      if (pat.test(readFileSync(otherFile, "utf8"))) { elsewhere = true; break; }
+    }
+    if (elsewhere) continue;
+    // Inside its own file: anything beyond the declaration line is a use.
+    const own = readFileSync(file, "utf8").split(/\r?\n/);
+    const declIndex = own.findIndex((l) => declLine.test(l));
+    const usedInternally = own.some((l, i) => i !== declIndex && pat.test(l));
+    if (!usedInternally) dead.push(`${file.replace(/\\/g, "/")}: ${name}`);
+  }
+
+  if (dead.length) {
+    console.error(
+      `DEAD EXPORTS (${dead.length}) — an export nothing imports and nothing calls:\n` +
+      dead.map((d) => `  - ${d}`).join("\n") +
+      `\n  If one is genuinely unused, delete it. If it is reached dynamically or through a\n` +
+      `  namespace, teach this check about that rather than leaving it to rot.`
+    );
+    process.exit(1);
+  }
+  console.log(`dead exports: none (${modules.size} exports checked, all imported elsewhere, used internally, or reached dynamically)`);
+}
+
 // --- index.html: the page's only non-JS fallbacks --------------------------
 //
 // Both of these exist because the alternative is a page that silently does

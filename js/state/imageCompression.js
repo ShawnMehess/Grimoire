@@ -3,51 +3,11 @@
 // Client-side image compression using HTML5 Canvas.
 // Resizes images to max 500px width (preserving aspect ratio)
 // and exports as WebP Base64 Data URL with 0.7 quality.
-
-/**
- * Compress an image File to a Base64 Data URL.
- * @param {File} file - The image file to compress
- * @param {Object} [options]
- * @param {number} [options.maxWidth=500] - Maximum width in pixels
- * @param {number} [options.quality=0.7] - WebP quality (0-1)
- * @returns {Promise<string>} - Base64 Data URL (e.g., "data:image/webp;base64,...")
- */
-export async function compressImageToBase64(file, { maxWidth = 500, quality = 0.7 } = {}) {
-  return new Promise((resolve, reject) => {
-    if (!file || !file.type.startsWith("image/")) {
-      reject(new Error("Not an image file"));
-      return;
-    }
-
-    const img = new Image();
-    img.onload = () => {
-      // Calculate new dimensions preserving aspect ratio
-      let { width, height } = img;
-      if (width > maxWidth) {
-        height = Math.round((height * maxWidth) / width);
-        width = maxWidth;
-      }
-
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0, width, height);
-
-      // Export as WebP Base64
-      try {
-        const dataUrl = canvas.toDataURL("image/webp", quality);
-        resolve(dataUrl);
-      } catch (err) {
-        // Fallback to JPEG if WebP not supported
-        const dataUrl = canvas.toDataURL("image/jpeg", quality);
-        resolve(dataUrl);
-      }
-    };
-    img.onerror = () => reject(new Error("Failed to load image"));
-    img.src = URL.createObjectURL(file);
-  });
-}
+//
+// Only the data-URL entry point is kept. There was a second one taking a
+// File and going via URL.createObjectURL; nothing called it, and it had been
+// dead for long enough that the "images are not compressed yet" note in
+// customSheet.js had stopped matching what the file could already do.
 
 /**
  * Compress a data URL image to a smaller Base64 Data URL.

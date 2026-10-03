@@ -42,10 +42,6 @@ export function normalizeThemeMode(mode, themeId) {
   return "dark";
 }
 
-export function sheetThemeName(id) {
-  return SHEET_THEMES.find((t) => t.id === normalizeThemeId(id))?.name || SHEET_THEMES[0].name;
-}
-
 // Each theme ships its own default border treatment (see the
 // [data-theme] .grid-node blocks in tokens.css). The style popover's
 // Border Shape picker offers these same looks per-node, so a node can

@@ -227,6 +227,12 @@ checks than as conventions:
   object was scoped and deliberately not done; see the comment in
   `check-imports.mjs` for why the original justification did not survive
   measurement. Lowering it needs no justification, raising it does.
+- **`dead exports:`** — an `export` that no other module imports *and*
+  nothing calls, used internally, or reaches through a dynamic or namespace
+  import. Currently zero. The distinction matters: an export no other module
+  imports but which its **own** module calls is live code, not dead code —
+  a survey here once counted 146 such exports and ~1,300 lines as dead, and
+  every one turned out to be called inside its own file.
 
 `npm run gate` runs them as plain child processes rather than chaining npm
 scripts. That is not a style preference: chaining five npm scripts spawns
