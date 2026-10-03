@@ -198,16 +198,35 @@ npm run test:e2e          # everything, ~160s
 npm run verify            # gate + the full e2e, i.e. everything
 ```
 
-The five fast gates are also runnable on their own, which is occasionally
+The six fast gates are also runnable on their own, which is occasionally
 useful when one of them is what you are working on:
 
 ```
-node --test "tests/**/*.mjs"   # 868 unit tests
-node scripts/check-imports.mjs # import graph, syntax, CSS brace balance
+node --test "tests/**/*.mjs"   # 920 unit tests
+node scripts/check-imports.mjs # import graph, syntax, CSS, and four code rules (below)
 node scripts/smoke-imports.mjs # module graph + pure-logic assertions
 node scripts/smoke-dom.mjs     # renderers against a stub DOM
 node scripts/verify-content.mjs # content wiring + a 1-20 build simulation
+node scripts/verify-generated.mjs # generated modules match a fresh compile
 ```
+
+`check-imports.mjs` also enforces four rules that are cheaper to state as
+checks than as conventions:
+
+- **`markup:`** — no `innerHTML` assigned a template literal containing an
+  interpolation. A library name is user-authored and persisted, so
+  interpolating one runs it as markup in everyone else's session. Use `el()`.
+- **`listeners:`** — no `function`/arrow handler on `document` or `window`.
+  Neither node is torn down, so an inline handler cannot be removed by
+  anyone, including `destroy()`.
+- **`layering:`** — nothing under `js/data` may import `render`, `state` or
+  `ui`. Data is the bottom of the stack; an upward import makes `js/data`
+  unloadable without a DOM.
+- **`di:`** — a ratchet on the injected-dependency count (currently 278,
+  zero headroom). It exists because the full collapse into one context
+  object was scoped and deliberately not done; see the comment in
+  `check-imports.mjs` for why the original justification did not survive
+  measurement. Lowering it needs no justification, raising it does.
 
 `npm run gate` runs them as plain child processes rather than chaining npm
 scripts. That is not a style preference: chaining five npm scripts spawns

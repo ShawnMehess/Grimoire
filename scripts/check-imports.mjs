@@ -450,6 +450,58 @@ if (cssErrors.length) {
   }
 }
 
+// --- js: the dependency-injection ratchet ------------------------------------
+//
+// The convention across js/render/sheet/ is that a renderer takes its
+// collaborators as an explicit `deps` object rather than closing over them.
+// That is a genuine improvement over reaching into a parent scope - the pure
+// half of each module is callable from a test - but the shape it settled into
+// passes each dependency as its own key: 265 of them from customSheet.js, and
+// 278 across the five files that use it.
+//
+// The honest cost is that a caller has to know the name of every collaborator
+// a callee reaches for, and the callee cannot tell you the list: it is
+// whatever the call site happens to pass. That is the part worth shrinking.
+//
+// A full collapse into one context object was scoped and then not done. The
+// original justification was three "monster" functions, and measuring them
+// directly showed two of the three were 58 and 218 lines rather than the
+// 825 and 1,976 an earlier estimate claimed - the estimate had counted
+// nested functions as part of the enclosing one. There is one large function
+// left (renderRulesetLevelGuide, ~880 lines), and rewriting 265 call sites
+// to address a problem that size is not a trade worth making blind.
+//
+// So this is a ratchet rather than a refactor. The count was never
+// measurable before; now it is printed on every gate run and cannot rise
+// without someone editing this file and saying why in the commit that does
+// it. Lowering the baseline is the intended direction and needs no
+// justification; raising it does.
+//
+// New modules should take a single context object instead of adding to the
+// count, which is why a file outside the existing set trips this too.
+{
+  const BASELINE = 278;
+  // One recursive walk of js/render, which covers customSheet.js, everything
+  // under sheet/, and the standalone editors. Walking those as separate lists
+  // double-counted customSheet.js and reported 543 against a real 278.
+  const depFiles = jsFilesUnder(join(ROOT, "js", "render"), ".js");
+  let total = 0;
+  for (const file of depFiles) {
+    if (!existsSync(file)) continue;
+    total += (readFileSync(file, "utf8").match(/\b[a-zA-Z_$][\w$]*Fn\s*:/g) || []).length;
+  }
+  if (total > BASELINE) {
+    console.error(
+      `DEPENDENCY-INJECTION RATCHET: ${total} injected dependency keys, baseline ${BASELINE}.\n` +
+      `  New renderers should take one context object rather than adding to the count.\n` +
+      `  If this genuinely had to rise, raise BASELINE in check-imports.mjs and say why in the\n` +
+      `  commit - a higher number needs a reason, a lower one does not.`
+    );
+    process.exit(1);
+  }
+  console.log(`di: ${total}/${BASELINE} injected dependency keys (${BASELINE - total} of headroom)`);
+}
+
 // --- index.html: the page's only non-JS fallbacks --------------------------
 //
 // Both of these exist because the alternative is a page that silently does
