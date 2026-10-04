@@ -53,6 +53,42 @@ worse than an empty cell, because a player cannot tell which is which.
 is an unofficial, non-commercial tool. It is not affiliated with, endorsed by,
 or sponsored by Wizards of the Coast. No affiliation is implied.
 
+### Where trademarked names actually appear
+
+Inventory taken 2026-10-04, because the answer is not the obvious one.
+
+**Not in the shipped app at all.** `Forgotten Realms` (a Wizards trademark),
+`Vecna`, `Bahamut` and `Tiamat` appear only in `docs/New Info/*`, the raw
+Foundry exports. Those are compiler inputs, not shipped content: the strings
+never reach `js/`, so no player receives them. Verified by searching every
+file under `js/`.
+
+**In the shipped app, but inside verbatim rules prose.** Three places:
+
+- `defaultContent.js` — the *Truesight* description names "the vampire Count
+  Strahd von Zarovich" as its worked example
+- `contentCatalogs.js` — a spell effect uses "beholder" to describe what it
+  summons
+- `defaultContent.js` — "mind flayer" inside a class or subclass description
+
+(For what it's worth, `mind flayer`, `beholder`, `rakshasa` and `demogorgon`
+are all in the SRD 5.1 monster list, so those three are CC BY 4.0 content and
+explicitly permitted.)
+
+### Why these were not removed
+
+Removing a proper name from a rules description corrupts the rules. A player
+reading a Truesight description that no longer names the vampire is being
+misled about what the spell does — and the surrounding prose remains verbatim
+PHB text either way, so the copyright exposure is unchanged.
+
+Truncating text to dodge a trademark is not a defence, and it makes the tool
+worse for the six people who use it in exchange for nothing. The names are
+left in place deliberately, not overlooked.
+
+If they are ever removed, it should be as part of replacing the descriptions
+with original prose — not by deleting a word from Wizards'.
+
 ## Not legal advice
 
 This file records provenance so it can be reviewed by someone qualified to
