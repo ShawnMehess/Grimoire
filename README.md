@@ -1,9 +1,18 @@
 # Grimoire
 
-A private, D&D-only character creator and manager. Statically hosted via
+A D&D-only character creator and manager. Statically hosted via
 GitHub Pages, backed by Firebase (Firestore + Auth + Storage) for shared
 persistence among friends, with a fully functional offline mode that needs
 no backend at all.
+
+> **Unofficial, non-commercial fan tool.** Not affiliated with, endorsed by,
+> or sponsored by Wizards of the Coast. `Dungeons & Dragons` is their
+> trademark.
+>
+> The code is CC0. The 5e content is **not** — it is derived from the System
+> Reference Document (CC BY 4.0) and other sources under their own terms, and
+> the CC0 dedication does not reach it. Provenance, attribution and trademark
+> notes: **`THIRD-PARTY-NOTICES.md`**. Not legal advice.
 
 ---
 

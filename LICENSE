@@ -1,3 +1,21 @@
+SCOPE — PLEASE READ FIRST
+========================
+
+The CC0 1.0 Universal dedication below applies to THE CODE IN THIS
+REPOSITORY: everything under js/, css/, scripts/, tests/ and the HTML
+entry points.
+
+It does NOT apply to third-party content — the Foundry exports under
+docs/New Info/, and the generated content modules under js/data/ that
+carry spell, item, feat, class and subclass text derived from Wizards of
+the Coast's Dungeons & Dragons. A licence cannot grant rights in someone
+else's copyright, so this dedication is void to the extent it reaches that
+content; stating the boundary is the point of this header.
+
+Provenance, attribution and trademark notes are in
+THIRD-PARTY-NOTICES.md.
+
+==============================================================================
 Creative Commons Legal Code
 
 CC0 1.0 Universal
