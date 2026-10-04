@@ -13,9 +13,18 @@ name: crawl
 # job sitting at "Skipped". Separate file: this one runs when it says it will.
 on:
   schedule:
-    # 04:17 UTC nightly. Off the hour on purpose - scheduled workflows queue
-    # behind the busiest minute and 04:00 is the most contended one there is.
-    - cron: "17 4 * * *"
+    # 08:35 UTC = 12:35 AM Pacific Standard Time (UTC-8).
+    #
+    # GitHub cron is UTC and fixed, so this cannot follow daylight saving.
+    # Pacific DST runs 2027-03-14 to 2026-11-01 (i.e. PDT, UTC-7, for most of
+    # the year), so:
+    #
+    #   1 Nov 2026 - 14 Mar 2027  (PST, UTC-8)  fires 12:35 AM  <- as asked
+    #   14 Mar - 1 Nov 2027       (PDT, UTC-7)  fires 11:35 PM
+    #
+    # If 12:35 AM wall-clock all year matters more than the literal PST offset,
+    # use "35 7 * * *" instead: that is 12:35 AM today and 1:35 AM in winter.
+    - cron: "35 8 * * *"
   workflow_dispatch:
 
 jobs:
