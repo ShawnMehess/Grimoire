@@ -370,7 +370,9 @@ export const LANGUAGE_BULLET_LABEL = TAG_FIELD_LABELS.languages;
  *  Proficiencies" + "Starting Equipment" + "Background Feature",
  *  subclasses use "Subclass Features"
  *  (see docs/CONTENT-AUDIT-2026-09.md systemic fix 1 and
- *  docs/SUBCLASS-CONTENT-AUDIT-2026-09.md display rule 5). */
+ *  docs/SUBCLASS-CONTENT-AUDIT-2026-09.md display rule 5).
+ *  There is deliberately no "Spells" heading: a race's granted spells
+ *  are a line of its Innate Abilities list, not a section. */
 export const MECHANICS_TITLES = {
   traits: "Racial Traits",
   scores: "Ability Score Increases",
@@ -382,7 +384,6 @@ export const MECHANICS_TITLES = {
   bgEquipment: "Starting Equipment",
   bgFeature: "Background Feature",
   subclassFeatures: "Subclass Features",
-  spells: "Spells",
 };
 
 /** Plain-language ability reference, moved here from
@@ -465,6 +466,277 @@ export function splitAbilityTokens(text) {
     const id = byToken[m[1]];
     const entry = ABILITY_GLOSSARY[id];
     out.push({ abbr: entry.abbr, id, name: entry.name });
+    last = m.index + m[0].length;
+  }
+  if (last < src.length) out.push({ text: src.slice(last) });
+  return out;
+}
+
+/** Every glossary term, longest literal first.
+ *
+ *  Ordering matters and cannot be left to chance. A combined alternation
+ *  tries its alternatives left to right at each position, so the longer
+ *  phrases have to come first or "proficiency bonus" is eaten by
+ *  "proficiency" and the bonus explanation never appears. Sorting by the
+ *  pattern's source length does not work either - `proficienc(?:y|ies)` is
+ *  more characters than `proficiency bonus` while matching less - so each
+ *  entry names its own phrase and that is what gets sorted on. Pure. */
+export const GAMEPLAY_TERMS = [
+  // --- What a proficiency is -------------------------------------------------
+  {
+    id: "proficiencyBonus",
+    phrase: "proficiency bonus",
+    patterns: [/\bproficiency bonus\b/i],
+    description: "A number you add to rolls you are trained in. It is your level, doubled, plus any bonus from your class - a level 5 character has +3, a level 9 character has +4.",
+  },
+  {
+    id: "savingThrow",
+    phrase: "saving throw",
+    patterns: [/\bsaving throws?\b/i],
+    description: "A roll made to resist something - a spell, a trap, a trap's effect. You roll your spell save DC against the caster's roll; if yours is higher you avoid the effect. Add your proficiency bonus if you have proficiency in that save.",
+  },
+  {
+    id: "deathSavingThrow",
+    phrase: "death saving throw",
+    patterns: [/\bdeath saving throws?\b/i],
+    description: "At 0 hit points, roll a d10 each turn: 10 or higher you get back up, 9 or lower you take damage. Three successes and you stabilize; three failures and you die.",
+  },
+  {
+    id: "abilityCheck",
+    phrase: "ability check",
+    patterns: [/\bability checks?\b/i],
+    description: "A roll to see whether you succeed at something, using one ability: STR for Athletics, DEX for Stealth, WIS for Perception, and so on.",
+  },
+  {
+    id: "spellSaveDc",
+    phrase: "spell save DC",
+    patterns: [/\bspell save DC\b/i],
+    description: "The number you roll against to resist one of your spells. It is 8 plus your proficiency bonus plus your spellcasting ability modifier.",
+  },
+  {
+    id: "armorClass",
+    phrase: "armor class",
+    patterns: [/\barmor class\b/i],
+    description: "How hard you are to hit, written as AC. An attack hits when the total of the d20, your attack bonus, is equal to or higher than the target's AC.",
+  },
+  {
+    id: "attackRoll",
+    phrase: "attack roll",
+    patterns: [/\battack rolls?\b/i],
+    description: "A roll to hit. Roll a d20, add your attack bonus, and beat the target's Armor Class.",
+  },
+  {
+    id: "critical",
+    phrase: "critical hit",
+    patterns: [/\bcritical hits?\b/i, /\bcritical\b/i],
+    description: "Rolling a natural 20 on an attack. Your damage dice are all doubled - it never doubles the modifier.",
+  },
+  {
+    id: "hitPoints",
+    phrase: "hit points",
+    patterns: [/\bhit points\b/i],
+    description: "How much damage you can take before going to 0. Roll your hit die plus your Constitution modifier for each level.",
+  },
+  {
+    id: "disadvantage",
+    phrase: "disadvantage",
+    patterns: [/\bdisadvantage\b/i],
+    description: "Roll two d20 and take the lower. You get it when something says so; you can never choose it.",
+  },
+  {
+    id: "advantage",
+    phrase: "advantage",
+    patterns: [/\badvantage\b/i],
+    description: "Roll two d20 and take the higher. You get it when something says so; you can never choose it.",
+  },
+  {
+    id: "initiative",
+    phrase: "initiative",
+    patterns: [/\binitiative\b/i],
+    description: "The roll that sets turn order. Roll a d20, add your Dexterity modifier, and higher acts first.",
+  },
+  {
+    id: "concentration",
+    phrase: "concentration",
+    patterns: [/\bconcentrat(?:e|ion|ing)\b/i],
+    description: "Holding a spell in mind. You can hold one thing at a time, and taking damage can force you to drop it - see the concentration rules for your spellcasting ability.",
+  },
+  {
+    id: "expertise",
+    phrase: "expertise",
+    patterns: [/\bexpertise\b/i],
+    description: "Doubling your proficiency bonus on a particular skill or tool. Added on top of proficiency, not instead of it.",
+  },
+  {
+    id: "proficient",
+    phrase: "proficient",
+    patterns: [/\bproficient\b/i],
+    description: "Trained in something, so your rolls with it add your proficiency bonus. The opposite of untrained.",
+  },
+  {
+    id: "trainedIn",
+    phrase: "trained in",
+    patterns: [/\btrained in\b/i],
+    description: "Practice at something. You add your proficiency bonus to rolls that use it.",
+  },
+  {
+    id: "training",
+    phrase: "training",
+    patterns: [/\btraining\b/i],
+    description: "Practice at something. You add your proficiency bonus to rolls that use it.",
+  },
+  {
+    id: "proficiency",
+    phrase: "proficiency",
+    patterns: [/\bproficienc(?:y|ies)\b/i],
+    description: "Being trained in something. You add your proficiency bonus to rolls that use it - attacks, saving throws, checks - and it is the reason a wizard's cantrip hits harder than a fighter's.",
+  },
+  {
+    id: "modifier",
+    phrase: "modifier",
+    patterns: [/\bmodifier\b/i],
+    description: "The number you add to a roll for one ability, worked out from its score: 10-11 is +0, 12-13 is +1, 14-15 is +2, and so on down and up. You never set it yourself.",
+  },
+  {
+    id: "darkvision",
+    phrase: "darkvision",
+    patterns: [/\bdarkvision\b/i],
+    description: "You see in dim light as if it were bright light, and in darkness out to the given range as if it were dim light. Colours are dim and you cannot make out fine detail.",
+  },
+  {
+    id: "resistance",
+    phrase: "resistance",
+    patterns: [/\bresistances?\b/i],
+    description: "You take half damage from this, rounded down. Resistance and immunity never stack - take the one that halves it most.",
+  },
+  {
+    id: "immunity",
+    phrase: "immunity",
+    patterns: [/\bimmunities\b/i, /\bimmunity\b/i],
+    description: "You take no damage from this at all. Immunity beats resistance.",
+  },
+  {
+    id: "exhaustion",
+    phrase: "exhaustion",
+    patterns: [/\bexhaustion\b/i],
+    description: "Six levels of weariness, each worse than the last. A character drops to 6 hit points at levels 2 and 5, and their speed is halved.",
+  },
+
+  // --- Conditions ------------------------------------------------------------
+  ...[
+    ["incapacitated", "You cannot take actions or reactions, and cannot concentrate or speak. An incapacitated creature is still conscious."],
+    ["paralyzed", "You cannot move or speak, fail every STR and DEX saving throw, and take advantage on attack rolls against you. Hits land within 5 feet as critical hits."],
+    ["unconscious", "You are incapacitated, unaware, and prone, and you cannot move or speak. Hits against you within 5 feet are critical hits."],
+    ["invisible", "You cannot be seen without magic. Attack rolls against you have disadvantage, and your attacks have advantage."],
+    ["petrified", "You are a statue, unconscious, and cannot be harmed or healed. Any damage to the petrified creature breaks it."],
+    ["restrained", "Your speed is 0, your attacks and Dexterity saving throws have disadvantage, and your attacks against anyone other than the restrainer have disadvantage."],
+    ["frightened", "A frightened creature has disadvantage on checks and rolls while the source is in sight, and cannot willingly move closer to it."],
+    ["grappled", "A grappled creature has speed 0, cannot benefit from any bonus to speed, and has disadvantage on attack rolls against anything but the grappler."],
+    ["poisoned", "You have disadvantage on attack rolls and ability checks. Being poisoned by a substance is a separate thing from this condition."],
+    ["deafened", "You cannot hear and fail any check that needs hearing. Deafened creatures are unaffected by ordinary sound."],
+    ["blinded", "You cannot see, and automatically fail any check that needs sight. Blinded creatures are unaffected by ordinary light and cannot be targeted by spells that require a clear path to you."],
+    ["charmed", "A charmed creature treats the charmer as a friendly ally and cannot willingly attack them. It has advantage on saving throws against being charmed."],
+    ["stunned", "You are incapacitated, cannot move, and speak only falteringly. Attack rolls against you have advantage, and melee attacks against you within 5 feet are critical hits."],
+    ["prone", "You can only crawl or stand up on your turn, and your attacks have disadvantage while prone. Ranged attacks against you have advantage."],
+  ].map(([id, description]) => ({
+    id,
+    // Longest form this condition is written in, for the ordering below.
+    phrase: id,
+    patterns: [new RegExp(`\\b${id}\\b`, "i")],
+    description,
+  })),
+
+  // --- Damage types ----------------------------------------------------------
+  // Capitalised on its own, or lowercase immediately before "damage".
+  ...[
+    ["acid", "Corrosive damage. Often ignores armour, and often leaves lingering acid behind."],
+    ["bludgeoning", "Damage from being hit by something blunt - a club, a falling rock. Half damage while you wear heavy armour, if you have any."],
+    ["cold", "Freezing damage. Often costs hit points on a failed save and leaves you slowed."],
+    ["fire", "Burning damage. Often ignites things, and often hurts you for being close to it."],
+    ["force", "Damage from pure magical pressure - a thunderwave, a magical push. Nothing to grab hold of and no resistance from armour."],
+    ["lightning", "Electric shock. Often knocks you out of your reaction and leaves you stunned on a failed save."],
+    ["necrotic", "Draining, withering damage that saps life away. Often drains hit points on a failed save rather than dealing them outright."],
+    ["piercing", "Damage from something sharp and thin - a dagger, a spear, a arrow."],
+    ["poison", "Poisoned damage. Often from a poisoned weapon or a venomous creature, and often has a lingering effect."],
+    ["psychic", "Damage to the mind. Some forms blind, deafen, or confuse rather than wound, and often ignores Resistance."],
+    ["radiant", "Glowing, searing damage. Usually light or fire in nature, and is what radiant defences such as Halfling resistance are for."],
+    ["slashing", "Damage from something drawn across you - a blade, claws, a falling blade."],
+    ["thunder", "Loud, concussive damage. Often knocks you prone and deafens you on a failed save."],
+  ].map(([id, description]) => ({
+    id: `${id}Damage`,
+    // "necrotic damage" is the longer surface form and sorts first.
+    phrase: `${id} damage`,
+    patterns: [
+      new RegExp(`\\b${id} damage\\b`, "i"),
+      new RegExp(`\\b${id.charAt(0).toUpperCase()}${id.slice(1)}\\b(?!\\s+[A-Z])`),
+    ],
+    description,
+  })),
+];
+
+/** `{ [id]: { id, description } }` — the glossary keyed the way the DOM
+ *  layer looks terms up. */
+export const GAMEPLAY_TERM_GLOSSARY = Object.fromEntries(
+  GAMEPLAY_TERMS.map((entry) => [entry.id, entry])
+);
+
+/** One combined matcher, longest phrase first. Each alternative becomes
+ *  exactly one capture group (the patterns themselves use only
+ *  non-capturing groups), which is how a match maps back to a glossary id.
+ *
+ *  The sort key is the entry's declared `phrase`, NOT the pattern source:
+ *  regex length and match length disagree constantly
+ *  (`proficienc(?:y|ies)` is longer than `proficiency bonus` and matches
+ *  less), and sorting on the source silently let the short patterns win. */
+const GAMEPLAY_TERM_INDEX = (() => {
+  const alts = [];
+  const ids = [];
+  const weights = [];
+  GAMEPLAY_TERMS.forEach((entry) => {
+    entry.patterns.forEach((pattern) => {
+      alts.push(pattern.source);
+      ids.push(entry.id);
+      weights.push(String(entry.phrase || entry.id).length);
+    });
+  });
+  const order = alts
+    .map((source, i) => [source, i])
+    .sort((a, b) => weights[b[1]] - weights[a[1]] || a[1] - b[1]);
+  return {
+    re: new RegExp(order.map(([source]) => `(${source})`).join("|"), "gi"),
+    ids: order.map(([, i]) => ids[i]),
+  };
+})();
+
+/** Tooltip text for a gameplay-term id, or null when unknown. Pure. */
+export function gameplayTermTooltip(id) {
+  const entry = GAMEPLAY_TERM_GLOSSARY[id];
+  return entry ? entry.description : null;
+}
+
+/** Splits display text into plain runs and glossary runs for tooltips:
+ *  `[{ text } | { term, id, description }]`. The same shape
+ *  splitAbilityTokens produces, so a caller building rich text handles
+ *  both the same way. Matches word-boundary and never inside a longer
+ *  word, so "forceful" is not a Force damage type. Pure. */
+export function splitGameplayTerms(text) {
+  const src = String(text ?? "");
+  const out = [];
+  let last = 0;
+  GAMEPLAY_TERM_INDEX.re.lastIndex = 0;
+  let m;
+  while ((m = GAMEPLAY_TERM_INDEX.re.exec(src)) !== null) {
+    // Which alternative matched? Exactly one group participates, and the
+    // index of that group is its position in the alternation.
+    let picked = null;
+    for (let g = 1; g < m.length; g += 1) {
+      if (m[g] === undefined) continue;
+      picked = GAMEPLAY_TERM_INDEX.ids[g - 1];
+      break;
+    }
+    if (!picked) continue;
+    if (m.index > last) out.push({ text: src.slice(last, m.index) });
+    out.push({ term: m[0], id: picked, description: GAMEPLAY_TERM_GLOSSARY[picked].description });
     last = m.index + m[0].length;
   }
   if (last < src.length) out.push({ text: src.slice(last) });
@@ -638,6 +910,34 @@ const SCORE_DISPLAY_ORDER = ["str", "dex", "con", "int", "wis", "cha"];
  *  Returns [{ title, items: [string] }]. Only grants at or below
  *  `level` are listed (default Infinity = everything, for contexts
  *  with no level yet); label and detail always join with a colon. */
+/** One section's display lines, with anything that only arrives above
+ *  level 1 labelled "(Level N)" and moved below the lines a character
+ *  starts with, lowest level first.
+ *
+ *  This used to be left unsaid. A level-20 character's race row listed a
+ *  Darkvision that improves at 5 and a speed bump at 6 right among the
+ *  things it has had since character creation, with nothing to say which
+ *  was which - so a player could not tell what their character starts
+ *  with from what it grew into. Labelling them and stacking them lowest
+ *  first makes the upgrades read as the ladder they are.
+ *
+ *  A level-1 character is unaffected: `atLevel` has already dropped
+ *  everything above 1, so there is nothing left to label. Plain strings
+ *  are accepted and pass through unchanged. Pure. */
+export function leveledOrder(rows = []) {
+  const atStart = [];
+  const later = [];
+  (rows || []).forEach((row) => {
+    const isRow = row && typeof row === "object";
+    const text = isRow ? row.text : row;
+    const minLevel = isRow ? row.minLevel : null;
+    if (Number.isFinite(minLevel) && minLevel > 1) later.push({ text, minLevel });
+    else atStart.push(text);
+  });
+  later.sort((a, b) => a.minLevel - b.minLevel);
+  return [...atStart, ...later.map((row) => `(Level ${row.minLevel}) ${row.text}`)];
+}
+
 export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   if (!bundle) return [];
   const { abilityIds = [], abilities = [], skills = [], resolveLabel = null, backgroundDisplay = false, classDisplay = false, subclassDisplay = false, includedPacks = null } = deps;
@@ -645,12 +945,20 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   const tagLabel = (fieldId) => TAG_FIELD_LABELS[fieldId]
     || (typeof resolveLabel === "function" && resolveLabel(fieldId))
     || fieldId;
-  // No "at level N" annotations anywhere: grants above the passed
-  // level never reach the bullets at all (atLevel below), and grants
-  // at or below it simply apply — players care what they get, not
-  // when each piece kicked in. Pack-gated optional grants (Tasha's)
-  // likewise never reach bullets when their source book is excluded.
+  // No "at level N" annotation on anything above the passed level: those
+  // grants never reach the bullets at all (atLevel below), because a
+  // character cannot use what it has not reached yet. What DOES get
+  // annotated is a grant the character has already unlocked - see
+  // leveledOrder, which labels it and sinks it below the level-1 lines.
+  // Pack-gated optional grants (Tasha's) likewise never reach bullets when
+  // their source book is excluded.
   const atLevel = (item) => (!item.minLevel || item.minLevel <= level) && packAllowsLocal(item, includedPacks);
+
+  // Every display line carries the level it unlocks at, or null for one
+  // you start with. That is what lets leveledOrder label the late ones
+  // and sink them below the rest instead of leaving a level-9 feature
+  // sitting indistinguishable among the ones a level-1 character has.
+  const line = (text, minLevel) => ({ text, minLevel: Number.isFinite(minLevel) ? minLevel : null });
 
   const otherTraits = [];
   const hitBits = [];
@@ -661,7 +969,7 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   const profs = [];
   const innate = [];
   // Class/background/subclass buckets (race path keeps the legacy buckets above).
-  const saveNames = [];
+  const saveRows = [];
   const classFeatures = [];
   const classProfLines = [];
   const bgProfLines = [];
@@ -700,13 +1008,13 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   for (const mod of (bundle.statModifiers || []).filter(atLevel)) {
     if (mod.op === "grantTag") {
       if (!tagsByField.has(mod.targetFieldId)) tagsByField.set(mod.targetFieldId, []);
-      if (mod.value) tagsByField.get(mod.targetFieldId).push(mod.value);
+      if (mod.value) tagsByField.get(mod.targetFieldId).push(mod.value, mod.minLevel);
     } else if (abilityIdFor(mod, abilityIds)) {
       scoreMods.push(mod);
     } else if (isSaveGrant(mod)) {
-      saveNames.push(saveAbilityName(mod.targetFieldId, abilities));
+      saveRows.push(line(saveAbilityName(mod.targetFieldId, abilities), mod.minLevel));
     } else if (isProfGrant(mod)) {
-      profs.push(summarize(mod));
+      profs.push(line(summarize(mod), mod.minLevel));
     } else if (mod.op === "addItem") {
       // Class rows skip spell access entirely (see classDisplay) —
       // the Spells step, not the picker row, covers it. Subclass rows
@@ -719,30 +1027,36 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
       if (subclassDisplay && mod.targetFieldId === "spellsKnown") {
         // Covered by the computed auto-spell line; nothing to add.
       } else if (subclassDisplay) {
-        subFeatures.push(`Learn the ${mod.value} ${tagLabel(mod.targetFieldId)}`);
+        subFeatures.push(line(`Learn the ${mod.value} ${tagLabel(mod.targetFieldId)}`, mod.minLevel));
       } else if (!classDisplay) {
         const spellName = String(mod.value || "").trim().toLowerCase();
         const described = (bundle.featureGrants || []).some((g) =>
           String(g?.description || "").toLowerCase().includes(spellName) && spellName
         );
-        if (!described) innate.push(`Learn the ${mod.value} spell`);
+        if (!described) innate.push(line(`Learn the ${mod.value} spell`, mod.minLevel));
       }
     } else if (["add", "subtract", "multiply", "set"].includes(mod.op)) {
-      if (subclassDisplay) subFeatures.push(summarize(mod));
-      else otherTraits.push(summarize(mod));
+      if (subclassDisplay) subFeatures.push(line(summarize(mod), mod.minLevel));
+      else otherTraits.push(line(summarize(mod), mod.minLevel));
     }
   }
   for (const [fieldId, values] of tagsByField) {
-    const unique = [...new Set(values)];
+    const unique = [...new Set(values.filter((v, i) => i % 2 === 0))];
     if (!unique.length) continue;
-    const line = `${tagLabel(fieldId)}: ${unique.join(", ")}`;
+    const line_ = `${tagLabel(fieldId)}: ${unique.join(", ")}`;
+    // The line stands for every grant folded into it, so it unlocks at
+    // the EARLIEST of them - a languages line that arrives partly at 3
+    // still reads as something a level-1 character has.
+    const firstLevel = values.filter((v, i) => i % 2 === 1)
+      .filter((v) => Number.isFinite(v) && v > 1);
+    const minLevel = firstLevel.length ? Math.min(...firstLevel) : null;
     // Class/background/subclass rows shelve tag proficiencies into
     // their own proficiency sections (see the assembly below); race
     // rows keep the legacy behavior of listing them among the traits.
-    if (classDisplay) classProfLines.push(line);
-    else if (backgroundDisplay) bgProfLines.push(line);
-    else if (subclassDisplay) subProfLines.push(line);
-    else otherTraits.push(line);
+    if (classDisplay) classProfLines.push(line(line_, minLevel));
+    else if (backgroundDisplay) bgProfLines.push(line(line_, minLevel));
+    else if (subclassDisplay) subProfLines.push(line(line_, minLevel));
+    else otherTraits.push(line(line_, minLevel));
   }
   for (const grant of (bundle.featureGrants || []).filter(atLevel)) {
     const name = (grant.name || "").trim();
@@ -764,22 +1078,22 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     // rows; race rows keep the legacy single-list behavior.
     if ((classDisplay || backgroundDisplay) && isProficiencyNote(grant)) {
       const why = detailFor(grant.description, grant.caveat);
-      const line = `${name}${why ? `: ${why}` : ""}`;
-      if (classDisplay) classProfLines.push(line);
-      else bgProfLines.push(line);
+      const note = `${name}${why ? `: ${why}` : ""}`;
+      if (classDisplay) classProfLines.push(line(note, grant.minLevel));
+      else bgProfLines.push(line(note, grant.minLevel));
       continue;
     }
     if (backgroundDisplay && isEquipmentGrant(grant)) {
       // Structured items, not one long sentence: the compiled text
       // joins pieces with semicolons, so split them back apart.
       const pieces = String(description).split(";").map((s) => s.trim()).filter(Boolean);
-      if (pieces.length) bgEquipment.push(...pieces);
-      else bgEquipment.push(String(description).trim());
+      if (pieces.length) pieces.forEach((piece) => bgEquipment.push(line(piece, grant.minLevel)));
+      else bgEquipment.push(line(String(description).trim(), grant.minLevel));
       continue;
     }
     if (backgroundDisplay) {
       const why = detailFor(grant.description, grant.caveat);
-      bgFeatures.push(`${name}${why ? `: ${why}` : ""}`);
+      bgFeatures.push(line(`${name}${why ? `: ${why}` : ""}`, grant.minLevel));
       continue;
     }
     if (subclassDisplay) {
@@ -788,29 +1102,29 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
       // Proficiency notes still read as proficiencies.
       if (isProficiencyNote(grant)) {
         const why = detailFor(grant.description, grant.caveat);
-        subProfLines.push(`${name}${why ? `: ${why}` : ""}`);
+        subProfLines.push(line(`${name}${why ? `: ${why}` : ""}`, grant.minLevel));
       } else if (isAutoSpellGrant(grant)) {
-        subFeatures.push(resolveSpellSummary(description, bundle, level));
+        subFeatures.push(line(resolveSpellSummary(description, bundle, level), grant.minLevel));
       } else {
         const why = detailFor(grant.description, grant.caveat);
-        subFeatures.push(`${name}${why ? `: ${why}` : ""}`);
+        subFeatures.push(line(`${name}${why ? `: ${why}` : ""}`, grant.minLevel));
       }
       continue;
     }
     if (/^speed$/i.test(name)) {
-      speedBits.push(featureBit(grant));
+      speedBits.push(line(featureBit(grant), grant.minLevel));
     } else if (isDarkvisionGrant(grant)) {
-      darkvisionBits.push(featureBit(grant));
+      darkvisionBits.push(line(featureBit(grant), grant.minLevel));
     } else if (isResistanceGrant(grant)) {
       const why = briefDescription(description, 120);
-      resistanceBits.push(`${name}${why ? `: ${why}` : ""}`);
+      resistanceBits.push(line(`${name}${why ? `: ${why}` : ""}`, grant.minLevel));
     } else if (classDisplay && /^hit (die|points)/i.test(name)) {
       const why = detailFor(grant.description, grant.caveat);
-      hitBits.push(`${name}${why ? `: ${why}` : ""}`);
+      hitBits.push(line(`${name}${why ? `: ${why}` : ""}`, grant.minLevel));
     } else {
       const why = detailFor(grant.description, grant.caveat);
-      if (classDisplay) classFeatures.push(`${name}${why ? `: ${why}` : ""}`);
-      else innate.push(`${name}${why ? `: ${why}` : ""}`);
+      if (classDisplay) classFeatures.push(line(`${name}${why ? `: ${why}` : ""}`, grant.minLevel));
+      else innate.push(line(`${name}${why ? `: ${why}` : ""}`, grant.minLevel));
     }
   }
   // A PARENT race - one that owns a `subrace` picker, so its subraces
@@ -836,9 +1150,9 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   // above); background rows omit the whole section (backgrounds have
   // no speed/senses of their own).
   if (!classDisplay && !backgroundDisplay && !isParentRace) {
-    if (speedBits.length === 0) speedBits.push("Speed: 30 feet");
-    if (darkvisionBits.length === 0) darkvisionBits.push("Darkvision: none");
-    if (resistanceBits.length === 0) resistanceBits.push("Resistances: none");
+    if (speedBits.length === 0) speedBits.push(line("Speed: 30 feet"));
+    if (darkvisionBits.length === 0) darkvisionBits.push(line("Darkvision: none"));
+    if (resistanceBits.length === 0) resistanceBits.push(line("Resistances: none"));
   }
   const traits = [
     ...hitBits,
@@ -849,7 +1163,7 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   ];
   // Last, so it reads as the answer to everything above it rather than as one
   // more trait among them.
-  if (isParentRace) traits.push("Traits, speed and senses come from your subrace.");
+  if (isParentRace) traits.push(line("Traits, speed and senses come from your subrace."));
 
   const scoreRank = (mod) => {
     const id = abilityIdFor(mod, abilityIds);
@@ -863,12 +1177,16 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   const scores = scoreMods
     .map((mod, i) => ({ mod, i }))
     .sort((a, b) => scoreRank(a.mod) - scoreRank(b.mod) || a.i - b.i)
-    .map(({ mod }) => summarize(mod));
+    .map(({ mod }) => line(summarize(mod), mod.minLevel));
 
   // Full-name saving-throw line, in bundle order without duplicates —
-  // shared by every display below that has save grants to show.
-  const savesLine = [...new Set(saveNames)].length
-    ? `Saving Throws: ${[...new Set(saveNames)].join(", ")}`
+  // shared by every display below that has save grants to show. One line
+  // standing for several grants unlocks at the earliest of them.
+  const saveNames = [...new Set(saveRows.map((row) => row.text))];
+  const saveLine = saveNames.length
+    ? line(`Saving Throws: ${saveNames.join(", ")}`,
+      saveRows.filter((row) => saveNames.includes(row.text)).map((row) => row.minLevel)
+        .filter((v) => Number.isFinite(v) && v > 1).sort((a, b) => a - b)[0])
     : null;
   // The spells this bundle grants, filtered to `level`. Null when it
   // grants none, so a race with no innate spellcasting shows no Spells
@@ -878,38 +1196,44 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   const out = [];
   if (classDisplay) {
     const features = [...hitBits, ...otherTraits, ...classFeatures];
-    if (features.length) out.push({ title: MECHANICS_TITLES.classFeatures, items: features });
-    const classProfs = [...(savesLine ? [savesLine] : []), ...(profs.length ? [profs.join(", ")] : []), ...classProfLines];
-    if (classProfs.length) out.push({ title: MECHANICS_TITLES.classProficiencies, items: classProfs });
-    if (scores.length) out.push({ title: "Ability Score Increases", items: scores });
+    if (features.length) out.push({ title: MECHANICS_TITLES.classFeatures, items: leveledOrder(features) });
+    const classProfs = [...(saveLine ? [saveLine] : []), ...(profs.length ? [line(`Proficiencies: ${profs.map((r) => r.text).join(", ")}`)] : []), ...classProfLines];
+    if (classProfs.length) out.push({ title: MECHANICS_TITLES.classProficiencies, items: leveledOrder(classProfs) });
+    if (scores.length) out.push({ title: MECHANICS_TITLES.scores, items: leveledOrder(scores) });
   } else if (backgroundDisplay) {
-    const bgProfs = [...(profs.length ? [profs.join(", ")] : []), ...bgProfLines];
-    if (bgProfs.length) out.push({ title: MECHANICS_TITLES.bgProficiencies, items: bgProfs });
-    if (bgEquipment.length) out.push({ title: MECHANICS_TITLES.bgEquipment, items: bgEquipment });
-    if (bgFeatures.length) out.push({ title: MECHANICS_TITLES.bgFeature, items: bgFeatures });
-    if (scores.length) out.push({ title: "Ability Score Increases", items: scores });
+    const bgProfs = [...(profs.length ? [line(`Proficiencies: ${profs.map((r) => r.text).join(", ")}`)] : []), ...bgProfLines];
+    if (bgProfs.length) out.push({ title: MECHANICS_TITLES.bgProficiencies, items: leveledOrder(bgProfs) });
+    if (bgEquipment.length) out.push({ title: MECHANICS_TITLES.bgEquipment, items: leveledOrder(bgEquipment) });
+    if (bgFeatures.length) out.push({ title: MECHANICS_TITLES.bgFeature, items: leveledOrder(bgFeatures) });
+    if (scores.length) out.push({ title: MECHANICS_TITLES.scores, items: leveledOrder(scores) });
   } else if (subclassDisplay) {
     // Subclass rows: one concise summary per current sourced feature
     // under the single "Subclass Features" heading (audit display
     // rules 1-2, 5); unsourced grants were filtered above. Longer
     // reference text, if any, lives in the row's expandable details
     // alongside these bullets.
-    if (subFeatures.length) out.push({ title: MECHANICS_TITLES.subclassFeatures, items: subFeatures });
-    const subProfs = [...(savesLine ? [savesLine] : []), ...(profs.length ? [profs.join(", ")] : []), ...subProfLines];
-    if (subProfs.length) out.push({ title: MECHANICS_TITLES.proficiencies, items: subProfs });
-    if (scores.length) out.push({ title: "Ability Score Increases", items: scores });
+    if (subFeatures.length) out.push({ title: MECHANICS_TITLES.subclassFeatures, items: leveledOrder(subFeatures) });
+    const subProfs = [...(saveLine ? [saveLine] : []), ...(profs.length ? [line(`Proficiencies: ${profs.map((r) => r.text).join(", ")}`)] : []), ...subProfLines];
+    if (subProfs.length) out.push({ title: MECHANICS_TITLES.proficiencies, items: leveledOrder(subProfs) });
+    if (scores.length) out.push({ title: MECHANICS_TITLES.scores, items: leveledOrder(scores) });
   } else {
-    // Races (and any display without a context flag) keep the legacy
-    // section order: traits → scores → proficiencies → innate. Stray
-    // save grants, if any, read as a traits line.
-    const raceTraits = [...traits, ...(savesLine ? [savesLine] : [])];
-    if (raceTraits.length) out.push({ title: MECHANICS_TITLES.traits, items: raceTraits });
-    if (scores.length) out.push({ title: "Ability Score Increases", items: scores });
-    if (profs.length) out.push({ title: MECHANICS_TITLES.proficiencies, items: [profs.join(", ")] });
-    if (innate.length) out.push({ title: MECHANICS_TITLES.innate, items: innate });
-    // The spells this race grants, at the level in hand. Last so it reads
-    // as a summary of the trait above it rather than part of it.
-    if (spellsLine) out.push({ title: MECHANICS_TITLES.spells, items: [spellsLine] });
+    // Races (and any display without a context flag): traits → scores →
+    // innate. Stray save grants, if any, read as a traits line.
+    //
+    // Proficiencies and granted spells are NOT sections of their own here.
+    // They were, and a Half-Elf made the player hunt across three headings
+    // ("Racial Traits", "Proficiencies", "Spells") for one trait; they read
+    // as lines of the same list everything else is in, which is also what
+    // the class, background and subclass paths already do.
+    const raceTraits = [...traits, ...(saveLine ? [saveLine] : [])];
+    if (raceTraits.length) out.push({ title: MECHANICS_TITLES.traits, items: leveledOrder(raceTraits) });
+    if (scores.length) out.push({ title: MECHANICS_TITLES.scores, items: leveledOrder(scores) });
+    const innateAll = [
+      ...innate,
+      ...(profs.length ? [line(`Proficiencies: ${profs.map((r) => r.text).join(", ")}`)] : []),
+      ...(spellsLine ? [line(spellsLine)] : []),
+    ];
+    if (innateAll.length) out.push({ title: MECHANICS_TITLES.innate, items: leveledOrder(innateAll) });
   }
   return out;
 }

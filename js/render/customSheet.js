@@ -4028,10 +4028,33 @@ const closeDialog = () => {
    *  Background, one section per source, for the automatic-grants
    *  reference step. Picks made on other pages are decisions, not
    *  automatic grants, so only fixed grants appear here. */
+  /** The four fixed picks a creation wizard makes, in the positional
+   *  order creationFixedBundles returns them. Their categories are part
+   *  of the picks-store key (see keyFor), so anything reading a staged
+   *  bundle's own choice groups needs them alongside the name. */
+  const STAGED_CATEGORIES = ["Race", "Class", "Subclass", "Background"];
+
+  /** Ability-score bonuses every staged pick contributes, broken out by
+   *  source. Shared by the Starting Conditions step and the Review page:
+   *  the two used to disagree, because Review read the stored base scores
+   *  while the sheet applied the racial points on top at render time. */
+  function stagedAbilityBonuses() {
+    const names = [state.species, state.className, state.subclass, state.background];
+    return abilityScoreBonusesFrom(
+      creationFixedBundles(state).map((bundle, i) => ({
+        source: names[i],
+        category: STAGED_CATEGORIES[i],
+        bundle,
+      })),
+      ABILITY_IDS,
+      character.rules.choices || {}
+    );
+  }
+
   function innateAbilitySections(state) {
     const bundles = creationFixedBundles(state);
     const names = [state.species, state.className, state.subclass, state.background];
-    const labels = ["Race", "Class", "Subclass", "Background"];
+    const labels = STAGED_CATEGORIES;
     const level = Number.isFinite(state.level) ? state.level : Infinity;
     const packs = includedRulesetIds(state);
     return labels
@@ -5981,15 +6004,6 @@ const closeDialog = () => {
       {
         id: "rules",
         title: "Rules & Sources",
-        // Was "Rules" + "Pick your sources and how hit points work on
-        // level-up." Neither half said why this page exists or what it
-        // affects. It is the page that decides what every LATER page can
-        // offer, so it needs to say so before the player picks anything.
-        descriptionItems: [
-          "Two things to set up first: which books to build your character from, and how you want hit points worked out when you level up.",
-          "Tick the books you have and every page after this offers only what comes from them — classes, species, backgrounds, feats, and spells. You can add or remove books later; anything you have already picked that only existed in a removed book will be cleared, so we will ask you first.",
-          "Nothing to do here if you are just picking from the books already ticked.",
-        ],
         isComplete: () => {
           if (includedRulesetIds(state).length === 0 || !primaryRulesetId(state)) return false;
           return Boolean(character.rules.hpMethod);
@@ -6090,7 +6104,6 @@ const closeDialog = () => {
       {
         id: "identity",
         title: "Identity",
-        description: "Name your character, set starting level, and choose a species — its granted choices (languages, traits, subrace) appear right below it.",
         isComplete: () => {
           if (!((character.name || "").trim()) || !state.species) return false;
           if (!raceChoiceSettled(state.species)) return false;
@@ -6223,19 +6236,6 @@ const closeDialog = () => {
       {
         id: "class",
         title: "Class",
-        // Used to end "... Spells have their own page." That was true when
-        // the Spells tab existed; spells moved back into this row in 0d0de51,
-        // so the sentence described a page that is no longer there and read
-        // as a dead end to anyone who had followed it once. Spells are now
-        // part of the class row like every other choice the class makes.
-        descriptionItems: [
-          "Pick what your character does best — the class sets hit points, attacks, and features.",
-          "If a subclass is available at your level, pick it under your class, then make that class's choices in its row.",
-          "Cantrips and spells are picks here too, when your class has them: they open the same spell list as everything else, and they land on your sheet's Spells Known.",
-          "Spell lines work differently by class. A class that knows its spells has one list and nothing to prepare. A class that prepares spells has a line for that instead — a Cleric picks prepared spells straight from what the class can cast. A Wizard has both: a spellbook to fill in, and prepared spells chosen from it.",
-          "How many you can pick is a total across spell levels, not a number per level. Cantrips are counted on their own.",
-          "Only classes from the source books you ticked on the Rules page are offered.",
-        ],
         isComplete: () => {
           if (!state.className) return false;
           const subs = liveSubclassData(state.className);
@@ -6298,7 +6298,6 @@ const closeDialog = () => {
       {
         id: "background",
         title: "Background",
-        description: "Pick where your character comes from. It grants skill and tool proficiencies (bonuses on those rolls) plus starting gear — its granted choices appear right below it.",
         isComplete: () => {
           if (!state.background) return false;
           return choicesComplete(backgroundChoiceGroups);
@@ -6345,11 +6344,6 @@ const closeDialog = () => {
         // playing with a backstory worked out in the first session. Gating
         // here would block Finish Setup on two boxes that have no right
         // answer, which is the same trap the spell picks nearly shipped.
-        descriptionItems: [
-          "Two free-text boxes, and nothing else. Write as much or as little as you like — you can fill them in later on the sheet.",
-          "Both land on your sheet's Story block, next to Personality Traits, Ideals, Bonds, and Flaws, and you can edit them there at any time.",
-          "Nothing here is checked against anything. It is not part of your character’s mechanics.",
-        ],
         render(container) {
           // Read the values back off the sheet rather than keeping wizard
           // state for them: these ARE the sheet's fields, and a second
@@ -6379,15 +6373,7 @@ const closeDialog = () => {
         // tabs (both live in the catalogs now), so this is the last step
         // before Review and the name has to say more than "scores".
         title: "Starting Conditions",
-        descriptionItems: [
-          "Set your six ability scores, then pick your starting equipment. Both apply when you finish setup.",
-          "Each ability has a score (raw talent) and a modifier beside it — the modifier is the number you actually add to attack rolls, saves, and checks at the table.",
-          "Modifiers come from scores automatically (10–11 is +0, 12–13 is +1, 8–9 is −1, and so on) — you never set them by hand.",
-          "Point Buy spends 27 points across all six (fair, no luck). Random Roll rolls dice for each. Manual Entry types in rolls from the table.",
-        ],
         render(container) {
-          const stagedBundles = creationFixedBundles(state);
-          const stagedNames = [state.species, state.className, state.subclass, state.background];
           renderAbilitiesStepInto(container, {
             abilityIds: ABILITY_IDS,
             descriptions: ABILITY_DESCRIPTIONS,
@@ -6404,16 +6390,13 @@ const closeDialog = () => {
             // Under the scores, not above them: it explains what the race
             // and class add to the numbers just typed, so it reads as a
             // footnote to them rather than as an introduction to them.
-            footnote: "Bonuses from your race and other picks apply on top of these scores and show under each one (e.g. +2 from Elf → 17 total) — set the base here, the sheet adds the rest.",
+            footnote: "Bonuses from your race, subrace, and other picks apply on top of these scores and are listed under each one (e.g. +2 from Half-Orc) — set the base here, the sheet adds the rest.",
             saveFn: () => saveRules(),
             onMethodChange: (method) => {
               character.rules.abilityScoreMethod = method;
               saveRules();
             },
-            bonuses: abilityScoreBonusesFrom(
-              stagedBundles.map((bundle, i) => ({ source: stagedNames[i], bundle })),
-              ABILITY_IDS
-            ),
+            bonuses: stagedAbilityBonuses(),
             // Feats the player has already picked (or is looking at) that
             // want a higher score than they've set, so the Abilities tab
             // can say which ones are still short and by how much.
@@ -6510,17 +6493,6 @@ const closeDialog = () => {
       {
         id: "review",
         title: "Review",
-        // "Check your three picks below" counted the three TOP-LEVEL picks
-        // (race, class, background) and then said "three" to someone staring
-        // at a page of sub-picks — proficiencies, skills, languages, a feat,
-        // cantrips, spells — of which there can be thirty. The count was
-        // never about what the page holds; it described the three
-        // headliners and let the rest pass as included.
-        descriptionItems: [
-          "Check everything you picked, then Finish Setup. Nothing here is final — every choice stays editable from the dropdowns below, and you can walk back through the pages with the dots or Back.",
-          "If anything is still outstanding, the list under this heading names it and links to the page that needs it.",
-          "What You Get Automatically at the bottom is the roll-up of every race, class, subclass, and background grant at your current level — read-only, nothing to fill in.",
-        ],
         // The same predicate the Identity page gates on, not just "a race
         // is named": a container race (Elf, Dwarf, Gnome, Halfling,
         // Genasi) has to have a subrace chosen before the character counts
@@ -6550,6 +6522,7 @@ const closeDialog = () => {
             spellLimit: resolved.derived.spellLimit,
             resources: resolved.derived.resources,
             abilityScores: character.rules.abilityScores,
+            abilityBonuses: stagedAbilityBonuses(),
             abilityMethod: character.rules.abilityScoreMethod,
             hpMethod: null,
             choiceLines: [],
@@ -6964,7 +6937,6 @@ const closeDialog = () => {
       steps.push({
         id: "levelclass",
         title: "Class",
-        description: "Which class gains this level? Taking a level in a new class starts multiclassing — it needs 13+ in the right abilities (checked below) and can't start before level 2.",
         isComplete: () => Boolean(levelClass) && (!takingNewClass || Boolean(pending.newClassName)),
         render(container) {
           renderGuideLevelClassStepInto(container, pending, {
@@ -7006,7 +6978,6 @@ const closeDialog = () => {
       steps.push({
         id: "subclass",
         title: "Subclass",
-        description: `${levelClass} chooses a subclass at this level. Pick one below — this can't easily be undone once you apply this level's changes, so make sure it's the one you want.`,
         isComplete: () => Boolean(pending.subclass),
         render(container) {
           renderGuideSubclassStepInto(container, pending, plan.subclassChoices, {
@@ -7038,7 +7009,6 @@ const closeDialog = () => {
       steps.push({
         id: "asi",
         title: "Ability Score Improvement",
-        description: `${levelClass} gets an Ability Score Improvement at this level. Increase one ability score by 2, two ability scores by 1 each, or take a feat instead.`,
         isComplete: () => {
           if (pending.asiMode === "feat") return Boolean((pending.featChoice || "").trim());
           if (pending.asiMode === "single") return Boolean(pending.asiAbility1);
@@ -7066,7 +7036,6 @@ const closeDialog = () => {
       steps.push({
         id: "features",
         title: "New Features",
-        description: `${levelClass} gains new features at this level — just informational, nothing to fill in here. Read them over, then move on to the next step.`,
         render(container) {
           renderGuideFeaturesStepInto(container, newFeatures);
         },
@@ -7077,7 +7046,6 @@ const closeDialog = () => {
       steps.push({
         id: "choices",
         title: "Choices",
-        description: "This level offers you a choice — pick from the options below. Check how many selections each group wants; you won't be able to apply this level until they're all satisfied.",
         isComplete: () => contentGroups.every((g) => groupPicksSatisfied(g, pending.choices[g.key], alreadyOwnedSkillIds(g.key))),
         render(container) {
           renderChoiceGroups(container, contentGroups, pending.choices, "rule-choice", () => refreshWizardNav(), alreadyOwnedSkillIds);
@@ -7123,7 +7091,6 @@ const closeDialog = () => {
       steps.push({
         id: "spells",
         title: "Spells",
-        description: "Your spellcasting improves at this level. Pick what this level ADDS — everything else you already have is untouched.",
         // Multiclass levels enforce this class's own caps against this
         // class's spells only, so another class's spells in the shared
         // Spells Known list can neither satisfy nor block them.
@@ -7240,7 +7207,6 @@ const closeDialog = () => {
     steps.push({
       id: "hp",
       title: "Hit Points",
-      description: "Record the hit points you gained this level. It's pre-filled based on your preferred method from Character Setup, but you can always edit it by hand.",
       isComplete: () => {
         const gain = Number.parseInt(pending.hp, 10);
         return Number.isFinite(gain) && gain >= 1;
@@ -7257,7 +7223,6 @@ const closeDialog = () => {
     steps.push({
       id: "notes",
       title: "Notes",
-      description: "Anything else worth recording from your source book — invocations, extra proficiencies, a spell your book lists but this page doesn't ask for. Leave it blank if there's nothing; you can always come back and add it later.",
       render(container) {
         renderGuideNotesStepInto(container, pending);
       },
@@ -7266,7 +7231,6 @@ const closeDialog = () => {
     steps.push({
       id: "review",
       title: "Review & Apply",
-      description: "Here's everything this level will change on your sheet. Check it over, then hit Apply to write it in. If you'd rather not keep it, there's a Revert button on this tab afterwards.",
       render(container) {
         // Full creator-style review: one line per fact (class, race,
         // background, HP, subclass, ASI/feat, slots) plus every

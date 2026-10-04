@@ -151,12 +151,13 @@ export function toolGroupsForLabel(label) {
 // immediately with no import step. The Bundle Library/Catalog import
 // UI still exists in the code but is hidden from the toolbar for now
 // (see customSheet.js) — homebrew-via-import is a later project.
-const byName = (a, b) => a.localeCompare(b);
-// Starter dropdowns read alphabetically — the wizard falls back to
-// these same orders, so pickers are alphabetical everywhere.
-const STARTER_RACES = FIXED_RACE_ENTRIES.map((r) => r.name).sort(byName);
-const STARTER_CLASSES = FIXED_CLASS_ENTRIES.map((c) => c.name).sort(byName);
-const STARTER_BACKGROUNDS = FIXED_BG_ENTRIES.map((b) => b.name).sort(byName);
+// Starter dropdowns keep the content's own order. Sorting them
+// alphabetically looked tidy and cost more than it gave: a row that asks
+// you to choose from two or more dropdowns stopped reading as a set, and
+// the wizard falls back to these same orders, so pickers followed suit.
+const STARTER_RACES = FIXED_RACE_ENTRIES.map((r) => r.name);
+const STARTER_CLASSES = FIXED_CLASS_ENTRIES.map((c) => c.name);
+const STARTER_BACKGROUNDS = FIXED_BG_ENTRIES.map((b) => b.name);
 
 const RACE_BUNDLE_ENTRIES = FIXED_RACE_ENTRIES;
 const CLASS_BUNDLE_ENTRIES = FIXED_CLASS_ENTRIES;

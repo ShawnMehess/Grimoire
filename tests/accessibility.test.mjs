@@ -240,7 +240,7 @@ describe("dyslexia-friendly text", () => {
     const applied = [...tokens.matchAll(/:root\[data-dyslexia="1"\]\s+([^{]+)\{/g)].map((m) => m[1].trim());
     const joined = applied.join(" ");
     assert.ok(/choice-row__description/.test(joined), "choice rows");
-    assert.ok(/wizard__step-description/.test(joined), "the wizard's explanation paragraphs");
+    assert.ok(/leveling-tab__intro/.test(joined), "the level-up guide's lead-ins");
     assert.ok(/sheet-intro__list/.test(joined), "the orientation panel");
     assert.ok(/textarea/.test(joined), "textareas, where a player types for a long time");
     // Nothing here may move a field: a reader who needs this still has to be

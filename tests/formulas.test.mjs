@@ -36,11 +36,15 @@ import {
   capitalizeFirst,
   statModifierSummary,
   mechanicsBulletsFor,
+  leveledOrder,
   levelGatedText,
   ABILITY_GLOSSARY,
   abilityTooltip,
   humanizeGameText,
   splitAbilityTokens,
+  splitGameplayTerms,
+  gameplayTermTooltip,
+  GAMEPLAY_TERM_GLOSSARY,
 } from "../js/render/sheet/sheetMechanics.js";
 import {
   levelReviewSectionsFor,
@@ -56,6 +60,7 @@ import { FIXED_RACE_ENTRIES, FIXED_CLASS_ENTRIES } from "../js/data/contentFixup
 // The tiefling is the probe for the spell-grant line: it splits its
 // legacy across three levels, so it shows whether the filter works.
 const tieflingBundle = FIXED_RACE_ENTRIES.find((e) => e.name === "Tiefling").bundle;
+const fighterBundle = FIXED_CLASS_ENTRIES.find((e) => e.name === "Fighter").bundle;
 
 describe("formula engine", () => {
   it("evaluates arithmetic with precedence", () => {
@@ -212,13 +217,13 @@ describe("mechanics previews", () => {
     assert.ok(traits && traits.items.join(" ").includes("Speed: 30 feet"), "races keep standard defaults");
   });
 
-  it("lists a race's granted spells, filtered to the level in hand", () => {
+  it("lists a race's granted spells under Innate Abilities, filtered to the level in hand", () => {
     // The data splits these by level; the trait's prose only names the
     // cantrip, so this is the only place a level-5 tiefling sees the
     // two spells their legacy actually grants.
     const spellsAt = (level) => {
-      const section = mechanicsBulletsFor(tieflingBundle, level).find((s) => s.title === "Spells");
-      return section ? section.items[0] : null;
+      const section = mechanicsBulletsFor(tieflingBundle, level).find((s) => s.title === "Innate Abilities");
+      return section ? section.items.find((i) => i.startsWith("Spells:")) || null : null;
     };
     assert.equal(spellsAt(1), "Spells: Thaumaturgy");
     assert.equal(spellsAt(2), "Spells: Thaumaturgy", "nothing new between 1 and 3");
@@ -226,9 +231,25 @@ describe("mechanics previews", () => {
     assert.equal(spellsAt(5), "Spells: Thaumaturgy, Hellish Rebuke, Darkness");
   });
 
-  it("omits the Spells section for a race that grants no spells", () => {
+  it("gives a race no standalone Proficiencies or Spells section", () => {
+    // Both used to be their own headings, so one Half-Elf trait was spread
+    // across three lists. They are lines of Innate Abilities now.
+    const sections = mechanicsBulletsFor(tieflingBundle, 5);
+    assert.ok(!sections.some((s) => s.title === "Spells"), "no Spells section on a race row");
+    assert.ok(!sections.some((s) => s.title === "Proficiencies"), "no Proficiencies section on a race row");
+    const halfOrc = mechanicsBulletsFor(
+      FIXED_RACE_ENTRIES.find((e) => e.name === "Half-Orc").bundle, 1
+    );
+    assert.ok(!halfOrc.some((s) => s.title === "Proficiencies"), "nor on a Half-Orc row");
+  });
+
+  it("omits any spell line for a race that grants no spells", () => {
     const sections = mechanicsBulletsFor({ statModifiers: [], featureGrants: [] }, 20, {});
     assert.ok(!sections.some((s) => s.title === "Spells"), "no empty Spells section");
+    assert.ok(
+      !sections.flatMap((s) => s.items).some((i) => i.startsWith("Spells:")),
+      "and no empty spell line under Innate Abilities either"
+    );
     assert.equal(grantedSpellsLine({ statModifiers: [], featureGrants: [] }, 20), null);
   });
 
@@ -253,6 +274,57 @@ describe("mechanics previews", () => {
       featureGrants: [],
     };
     assert.equal(grantedSpellsLine(bundle, 5), "Spells: Fireball");
+  });
+
+  it("labels a later-unlocking line and sinks it below the ones you start with", () => {
+    // "(Level 5) Darkvision 60 ft." rather than the old behaviour, which
+    // listed a level-5 upgrade indistinguishable from a level-1 trait and
+    // left the player unable to tell what their character starts with.
+    const at20 = mechanicsBulletsFor(fighterBundle, 20, {
+      abilityIds: ["str", "dex", "con", "int", "wis", "cha"],
+      classDisplay: true,
+    }).find((s) => s.title === "Level 1 Class Features");
+    const labeled = at20.items.filter((i) => i.startsWith("(Level "));
+    assert.ok(labeled.length > 0, "a level-20 fighter has labeled upgrades");
+    // Lowest level first, and every label is in the order it unlocks.
+    const levels = labeled.map((i) => Number(/^\(Level (\d+)\)/.exec(i)[1]));
+    assert.deepEqual(levels, [...levels].sort((a, b) => a - b), "leveled lines run lowest first");
+    // Nothing above level 1 appears before them.
+    const firstLabeled = at20.items.findIndex((i) => i.startsWith("(Level "));
+    const lastPlain = at20.items.map((i) => !i.startsWith("(Level ")).lastIndexOf(true);
+    assert.ok(lastPlain < firstLabeled, "the level-1 lines all come first");
+    assert.ok(labeled[0].startsWith("(Level 2) Action Surge"), "Action Surge is a level 2 unlock");
+  });
+
+  it("leaves a level-1 character nothing to label", () => {
+    // Grants above the level in hand were already filtered out, so a
+    // level-1 row must contain no "(Level N)" annotation at all.
+    for (const section of mechanicsBulletsFor(fighterBundle, 1, {
+      abilityIds: ["str", "dex", "con", "int", "wis", "cha"],
+      classDisplay: true,
+    })) {
+      assert.ok(
+        !section.items.some((i) => i.startsWith("(Level ")),
+        `no level annotation on ${section.title}`
+      );
+    }
+  });
+
+  it("orders leveled lines without touching the ones you start with", () => {
+    assert.deepEqual(leveledOrder([
+      { text: "Trance", minLevel: null },
+      { text: "Darkvision 60 ft.", minLevel: 5 },
+      { text: "Fey Ancestry", minLevel: 1 },
+      { text: "Relentless Endurance", minLevel: 3 },
+    ]), [
+      "Trance",
+      "Fey Ancestry",
+      "(Level 3) Relentless Endurance",
+      "(Level 5) Darkvision 60 ft.",
+    ]);
+    // Plain strings pass through untouched.
+    assert.deepEqual(leveledOrder(["a", "b"]), ["a", "b"]);
+    assert.deepEqual(leveledOrder([]), []);
   });
 
   it("never contradicts a subrace on its own parent row", () => {
@@ -307,7 +379,8 @@ describe("mechanics previews", () => {
       "and the base is still recognised as a parent");
   });
 
-  it("splits ability tokens for tooltips", () => {    assert.deepEqual(splitAbilityTokens("No abilities here."), [{ text: "No abilities here." }]);
+  it("splits ability tokens for tooltips", () => {
+    assert.deepEqual(splitAbilityTokens("No abilities here."), [{ text: "No abilities here." }]);
     assert.deepEqual(splitAbilityTokens("+2 DEX"), [{ text: "+2 " }, { abbr: "DEX", id: "dex", name: "Dexterity" }]);
     assert.deepEqual(splitAbilityTokens("Wizards cast with Intelligence."),
       [{ text: "Wizards cast with " }, { abbr: "INT", id: "int", name: "Intelligence" }, { text: "." }]);
@@ -315,6 +388,94 @@ describe("mechanics previews", () => {
     assert.ok(abilityTooltip("str").startsWith("Strength — "));
     assert.equal(abilityTooltip("nope"), null);
     assert.equal(ABILITY_GLOSSARY.cha.abbr, "CHA");
+  });
+});
+
+describe("the gameplay glossary", () => {
+  const idsIn = (text) => splitGameplayTerms(text).filter((r) => r.id).map((r) => r.id);
+
+  it("covers every group the sheet needs explained", () => {
+    // The five the request named: proficiencies, conditions, kinds of roll,
+    // damage types, and the terms the sheet itself is built from.
+    assert.ok(GAMEPLAY_TERM_GLOSSARY.proficiency, "proficiencies");
+    assert.ok(GAMEPLAY_TERM_GLOSSARY.blinded, "conditions");
+    assert.ok(GAMEPLAY_TERM_GLOSSARY.savingThrow, "kinds of roll");
+    assert.ok(GAMEPLAY_TERM_GLOSSARY.necroticDamage, "damage types");
+    assert.ok(GAMEPLAY_TERM_GLOSSARY.proficiencyBonus, "sheet terms");
+    assert.ok(GAMEPLAY_TERM_GLOSSARY.modifier, "modifier");
+    // All thirteen damage types, not just the two that prompted this.
+    const damage = Object.keys(GAMEPLAY_TERM_GLOSSARY).filter((id) => id.endsWith("Damage"));
+    assert.equal(damage.length, 13, `every damage type (${damage.join(", ")})`);
+  });
+
+  it("gives every term a real explanation", () => {
+    for (const [id, entry] of Object.entries(GAMEPLAY_TERM_GLOSSARY)) {
+      assert.ok(entry.description && entry.description.length > 40, `${id} explains itself`);
+    }
+  });
+
+  it("finds terms in ordinary prose", () => {
+    assert.deepEqual(idsIn("Roll a saving throw for advantage."), ["savingThrow", "advantage"]);
+    assert.deepEqual(idsIn("While frightened or prone."), ["frightened", "prone"]);
+    assert.deepEqual(idsIn("Your proficiency bonus and modifier."), ["proficiencyBonus", "modifier"]);
+    assert.deepEqual(idsIn("Weapon proficiencies."), ["proficiency"]);
+  });
+
+  it("takes a damage type capitalised on its own or in front of 'damage'", () => {
+    assert.deepEqual(idsIn("Necrotic damage."), ["necroticDamage"]);
+    assert.deepEqual(idsIn("deals necrotic damage"), ["necroticDamage"]);
+    assert.deepEqual(idsIn("takes radiant damage each round"), ["radiantDamage"]);
+  });
+
+  it("does not mistake an ordinary word or a proper noun for a damage type", () => {
+    // The reason capitalised-alone matching carries a lookahead: without
+    // it "Cold Storage" and "Fire Bolt" both annotate as damage types.
+    assert.deepEqual(idsIn("a forceful personality"), [], "forceful is not Force");
+    assert.deepEqual(idsIn("the Cold Storage device"), [], "a proper noun is not Cold damage");
+    assert.deepEqual(idsIn("Fire Bolt"), [], "a spell name is not Fire damage");
+  });
+
+  it("does not match inside a longer word", () => {
+    assert.deepEqual(idsIn("blinded"), ["blinded"]);
+    assert.deepEqual(idsIn("Blindness/Deafness"), [], "Blindness is not the Blinded condition");
+    assert.deepEqual(idsIn("prone"), ["prone"]);
+    assert.deepEqual(idsIn("pronen"), []);
+  });
+
+  it("splits prose into text and term runs", () => {
+    assert.deepEqual(splitGameplayTerms("no terms here"), [{ text: "no terms here" }]);
+    assert.deepEqual(splitGameplayTerms(""), []);
+    const runs = splitGameplayTerms("Darkvision 60 ft.");
+    assert.equal(runs.length, 2);
+    assert.equal(runs[0].id, "darkvision");
+    assert.equal(runs[0].term, "Darkvision");
+    assert.ok(runs[0].description.length > 40, "the run carries the explanation");
+    assert.equal(runs[1].text, " 60 ft.");
+  });
+
+  it("keeps the text around the terms intact", () => {
+    // Reassembling the runs must give back the original string exactly, or
+    // the renderer is dropping or duplicating prose.
+    const samples = [
+      "Necrotic damage. You have disadvantage on attack rolls while poisoned.",
+      "Weapon and armor proficiencies. Your proficiency bonus applies.",
+      "Roll a saving throw, then an ability check. Advantage, not disadvantage.",
+      "At exhaustion 2 and exhaustion 5 you drop to 6 hit points.",
+      "",
+      "nothing here at all",
+    ];
+    for (const sample of samples) {
+      assert.equal(
+        splitGameplayTerms(sample).map((r) => (r.text !== undefined ? r.text : r.term)).join(""),
+        sample,
+        `round-trips: ${JSON.stringify(sample)}`
+      );
+    }
+  });
+
+  it("looks a term up by id for the tooltip body", () => {
+    assert.equal(gameplayTermTooltip("prone"), GAMEPLAY_TERM_GLOSSARY.prone.description);
+    assert.equal(gameplayTermTooltip("nope"), null);
   });
 });
 

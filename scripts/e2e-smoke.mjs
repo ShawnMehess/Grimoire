@@ -1470,8 +1470,14 @@ async function runViewportTests(viewport) {
       return page.evaluate((rowSel) => {
         const row = document.querySelector(rowSel);
         const heads = [...(row?.querySelectorAll(".choice-row__mechanics-title") || [])];
-        const idx = heads.findIndex((h) => h.textContent === "Spells");
-        return idx === -1 ? null : (heads[idx].nextElementSibling?.textContent || "").trim();
+        // Granted spells are a LINE of the Innate Abilities list, not a
+        // heading of their own any more: a race that granted Perception
+        // and Misty Step was making the player hunt across three headings
+        // for one trait. So read the bullet out of that list.
+        const idx = heads.findIndex((h) => h.textContent === "Innate Abilities");
+        if (idx === -1) return null;
+        const items = [...(heads[idx].nextElementSibling?.querySelectorAll("li") || [])];
+        return (items.find((li) => li.textContent.startsWith("Spells"))?.textContent || "").trim();
       }, tieflingRow);
     };
     check(await spellsOnTiefling() === "Spells — Thaumaturgy", "a level-1 tiefling sees only its cantrip");

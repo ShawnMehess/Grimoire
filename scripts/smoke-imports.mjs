@@ -342,9 +342,9 @@ assert(wizardMod.canLearnMore(0, { cantrips: 2, spells: 5 }, 2, 0) === false, "c
 const wizardStepsMod = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(wizardStepsMod.clampScoreToRange("99", 8, 8, 15) === 15, "clampScoreToRange max");
   assert(wizardStepsMod.pointBuyNoteText(10, 27) === "Points spent: 10/27", "pointBuyNoteText");
-  assert(wizardStepsMod.abilityBonusNoteText(15, 2, ["Elf"]) === "+2 from Elf → 17 total", "abilityBonusNoteText basic");
-  assert(wizardStepsMod.abilityBonusNoteText(10, 0, []) === "", "abilityBonusNoteText no bonus");
-  assert(wizardStepsMod.abilityBonusNoteText(10, 1, []) === "+1 → 11 total", "abilityBonusNoteText sourceless");
+  assert(wizardStepsMod.abilityBonusNoteLines([{ label: "Elf", value: 2 }]).join("|") === "+2 from Elf", "abilityBonusNoteLines basic");
+  assert(wizardStepsMod.abilityBonusNoteLines([]).length === 0, "abilityBonusNoteLines no bonus");
+  assert(wizardStepsMod.abilityBonusNoteLines([{ label: "", value: 1 }]).join("|") === "+1", "abilityBonusNoteLines sourceless");
 assert(wizardStepsMod.wizardUnavailableMessageFor({ level: 1, species: "", className: "", subclass: "" }).includes("level 1"), "wizardUnavailableMessageFor");
 assert(wizardStepsMod.reviewLinesFor({ characterName: "N", level: 1, resources: [] }).includes("Name: N"), "reviewLinesFor");
 {
@@ -671,15 +671,15 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
     ],
   }, 1, { abilityIds: ["dex"] });
   const titles = sections.map((s) => s.title);
-  // "Spells" trails the four legacy sections: it's a summary of the trait
-  // above it, not part of it, and it only appears when the bundle actually
-  // grants a spell (this fixture does, at spellsKnown above).
-  assert(JSON.stringify(titles) === JSON.stringify(["Racial Traits", "Ability Score Increases", "Proficiencies", "Innate Abilities", "Spells"]), "mechanicsBullets order");
-  assert(sections[4].items[0] === "Spells: Misty Step", "mechanicsBullets lists granted spells");
+  // A race is traits → scores → innate. Proficiencies and granted spells
+  // are lines OF that last list, not headings of their own: they used to
+  // be, and one Half-Elf trait was spread across three lists to read.
+  assert(JSON.stringify(titles) === JSON.stringify(["Racial Traits", "Ability Score Increases", "Innate Abilities"]), "mechanicsBullets order");
+  assert(sections[2].items.includes("Spells: Misty Step"), "mechanicsBullets lists granted spells under innate");
   assert(sections[0].items.some((i) => i.startsWith("Languages: Common, Elvish")), "mechanicsBullets tags grouped");
   assert(sections[1].items[0] === "+2 DEX", "mechanicsBullets score");
-  assert(sections[2].items[0] === "perceptionProf", "mechanicsBullets prof fallback without vocab");
-  assert(sections[3].items.some((i) => i.startsWith("Trance")), "mechanicsBullets innate");
+  assert(sections[2].items.includes("Proficiencies: perceptionProf"), "mechanicsBullets prof fallback without vocab");
+  assert(sections[2].items.some((i) => i.startsWith("Trance")), "mechanicsBullets innate");
   assert(mechanics.featureBit({ name: "Senses", description: "Darkvision 60 ft." }) === "Darkvision: 60 feet", "featureBit senses spelling");
   assert(mechanics.featureBit({ name: "Darkvision", description: "You can see in dim light within 60 feet as if it were bright light." }) === "Darkvision: 60 feet", "featureBit feet wording");
   // Darkvision + resistances land in Racial Traits (both spellings),
@@ -996,7 +996,7 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
         { source: "", bundle: null },
       ];
       const bonuses = wizard.abilityScoreBonusesFrom(entries, ["str", "dex", "con"]);
-      assert(bonuses.dex.bonus === 2 && bonuses.dex.sources.join() === "Elf", "abilityScoreBonusesFrom dex");
+      assert(bonuses.dex.bonus === 2 && bonuses.dex.sources[0]?.label === "Elf" && bonuses.dex.sources[0]?.value === 2, "abilityScoreBonusesFrom dex");
       assert(bonuses.str.bonus === 1 && bonuses.con.bonus === 0 && bonuses.con.sources.length === 0, "abilityScoreBonusesFrom str/con");
     }
     // Source defaults: usable only when the system still exists with at least one known book.

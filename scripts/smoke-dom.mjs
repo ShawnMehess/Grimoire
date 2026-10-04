@@ -106,6 +106,13 @@ function makeNode(tag) {
       }
     },
     getAttribute(k) { return this.attrs[k] ?? null; },
+    removeAttribute(k) {
+      delete this.attrs[k];
+      if (k.startsWith("data-")) {
+        const prop = k.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+        delete this.dataset[prop];
+      }
+    },
     addEventListener(t, f) { (this.listeners[t] ||= []).push(f); },
     append(...kids) {
       for (let k of kids.flat()) {
@@ -1285,9 +1292,10 @@ function openTestDialog(host, overrides = {}) {
 }
 
 // --- Abilities step: the race/class bonus note belongs UNDER the scores ---
-// It led the step as a bullet in descriptionItems, above the very scores it
-// describes, so the player read about modifiers and racial bonuses before
-// either was on screen. It is a footnote now.
+// It led the step as a paragraph above the very scores it describes, so the
+// player read about modifiers and racial bonuses before either was on screen.
+// It is a footnote now, and each ability's own bonus lines sit directly
+// beneath that ability's description.
 {
   const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   const box = document.createElement("div");
@@ -1305,7 +1313,7 @@ function openTestDialog(host, overrides = {}) {
     formatFn: (m) => (m >= 0 ? `+${m}` : `${m}`),
     saveFn: () => {},
     onMethodChange: () => {},
-    bonuses: { str: { bonus: 2, sources: ["Elf"] } },
+    bonuses: { str: { bonus: 2, sources: [{ label: "Elf", value: 2 }] } },
     footnote: "Bonuses from your race and other picks apply on top of these scores.",
   });
   const kids = (box.children || []).map((k) => String(k.className || ""));
@@ -1314,9 +1322,11 @@ function openTestDialog(host, overrides = {}) {
   assert(scoreIdx >= 0, "abilities step renders the scores");
   assert(footIdx > scoreIdx, "the race/class bonus note comes after the scores, not before");
   assert(box.textContent.includes("Bonuses from your race"), "and the note is still there at all");
-  // Per-row bonus text still works, and still sits under its own score.
-  assert(box.textContent.includes("Elf"), "the per-row bonus still names its source");
+  // Per-row bonus text still works, still names its source, and states no total.
+  assert(box.textContent.includes("+2 from Elf"), "the per-row bonus still names its source");
+  assert(!box.textContent.includes("total"), "and states no total beside it");
   assert(box.querySelector(".wizard__ability-bonus"), "the per-row bonus node renders");
+  assert(box.querySelector(".wizard__ability-bonus-line"), "the per-source line renders");
 }
 
 // --- Review step: the summary box leads, the Finish button trails ---
@@ -1382,6 +1392,146 @@ function openTestDialog(host, overrides = {}) {
   assert(oneRows[0].className.includes("choice-row--selected"), "and it renders as selected");
   assert(detailsOf(oneRows[0]), "and it still expands, so it reads as it did where it was picked");
   assert(one.textContent.includes("Speed 30 feet"), "and still carries its mechanics");
+}
+
+// --- Gameplay glossary: terms render, and spell names survive them -----
+// A term and a spell name can be the same words ("Blindness/Deafness",
+// "Fire Bolt"). Without the overlap guard in richText.js the glossary wins
+// and the spell stops being a link, so the guard is checked here rather
+// than trusted.
+{
+  const { richGameTextNodes } = await import("../js/render/sheet/richText.js");
+  const termIds = (box) => box.querySelectorAll(".game-term").map((n) => n.dataset.termId);
+  const box = document.createElement("div");
+  box.append(...richGameTextNodes("Roll a saving throw while frightened."));
+  const terms = box.querySelectorAll(".game-term");
+  assert(terms.length === 2, `both terms render as spans (${terms.length})`);
+  assert(terms[0].className.includes("game-term"), "and carry the term class");
+  assert(terms[0].dataset.termId === "savingThrow", "with the id the tooltip reads back");
+  assert(terms[0].title.length > 40, "and a real explanation on the title, for a mouse");
+  assert(box.textContent === "Roll a saving throw while frightened.",
+    `and the prose is untouched (${box.textContent})`);
+
+  // Ten shipped spell names contain a glossary word ("Cone of Cold",
+  // "Wall of Fire", "Darkvision"). Where the text really is naming the
+  // spell, the spell wins; where it is naming the thing, the glossary wins.
+  const spellBox = document.createElement("div");
+  spellBox.append(...richGameTextNodes("Cone of Cold hits, then take necrotic damage."));
+  assert(spellBox.querySelectorAll(".spell-link").length >= 1, "a spell name is still a spell link");
+  assert(!termIds(spellBox).includes("coldDamage"),
+    `and was not swallowed as the Cold damage type (${termIds(spellBox).join(",")})`);
+  assert(termIds(spellBox).includes("necroticDamage"),
+    "while a real damage type beside it still annotates");
+  assert(spellBox.textContent === "Cone of Cold hits, then take necrotic damage.",
+    "with the prose still intact");
+
+  // The other direction: "Darkvision" is a spell name too, but here it is
+  // naming the sense, and findSpellMentions correctly finds no spell in it.
+  const sensesBox = document.createElement("div");
+  sensesBox.append(...richGameTextNodes("You have Darkvision 60 ft."));
+  assert(termIds(sensesBox).includes("darkvision"),
+    "a term that merely shares a spell's name still annotates");
+  assert(!sensesBox.querySelector(".spell-link"), "and is not turned into a spell link");
+  assert(sensesBox.textContent === "You have Darkvision 60 ft.", "with the prose intact");
+
+  const abbrBox = document.createElement("div");
+  abbrBox.append(...richGameTextNodes("Wizards cast with INT."));
+  assert(abbrBox.querySelector(".ability-abbr"), "ability abbrs still render");
+  assert(!abbrBox.querySelector(".game-term"), "and the plain words are not terms");
+
+  // Long press is wired once, from the document, on first use.
+  assert(document.listeners.pointerdown && document.listeners.pointerdown.length >= 1,
+    "a touch pointerdown handler is installed for the long press");
+  assert(document.listeners.contextmenu && document.listeners.contextmenu.length >= 1,
+    "and one to swallow the magnifier a long press would otherwise raise");
+}
+
+// --- Class page lays out as a gallery -----------------------------------
+// Thirteen collapsed full-width rows left the Class page mostly empty, so
+// it asks for the card grid. The nested subclass list below it must NOT: it
+// has to line up under the class it belongs to, which a grid would break.
+{
+  const { renderClassStepInto } = await import("../js/render/sheet/sheetWizardSteps.js");
+  const { renderPickerTableInto } = await import("../js/render/sheet/sheetWizard.js");
+  let galleryOpts = null;
+  let nestedOpts = null;
+  const box = document.createElement("div");
+  renderClassStepInto(box, { className: "Fighter", level: 3, subclass: "", rulesetId: "dnd5e-2014" }, {
+    optionNamesFn: () => ["Fighter", "Wizard"],
+    catalogInfoFn: () => null,
+    subclassDataFn: () => ({ subclasses: ["Champion"], subclassLevel: 3 }),
+    updateFn: () => {},
+    selectableRowsFn: (container, names, opts) => {
+      if (opts.nested) nestedOpts = opts;
+      else galleryOpts = opts;
+      renderPickerTableInto(container, names, opts);
+    },
+  });
+  assert(galleryOpts && galleryOpts.gallery === true, "the class list asks for the gallery layout");
+  const lists = box.querySelectorAll(".choice-row-list");
+  assert(lists.some((l) => l.className.includes("choice-row-list--gallery")),
+    "and the rendered list carries the gallery class");
+  assert(nestedOpts && nestedOpts.gallery !== true,
+    "but the nested subclass list does not - it must stay under its class");
+  assert(!lists.some((l) => l.className.includes("choice-row-list--gallery")
+    && l.className.includes("choice-row-list--nested")),
+    "so no nested list ended up on the card grid");
+}
+
+// --- Long press opens the tooltip on a device that cannot hover ---------
+// Real timers, because the whole feature is a timer: a synthetic event
+// alone would pass whether or not the wait was ever armed.
+{
+  const { richGameTextNodes } = await import("../js/render/sheet/richText.js");
+  const fire = (type, extra = {}) => {
+    const evt = { target: null, pointerType: "touch", clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {}, ...extra };
+    (document.listeners[type] || []).forEach((f) => f(evt));
+    return evt;
+  };
+  const box = document.createElement("div");
+  box.append(...richGameTextNodes("You are frightened."));
+  document.body.append(box);
+  const term = box.querySelector(".game-term");
+  const openTooltips = () => document.querySelectorAll(".game-tooltip");
+
+  // A mouse already has the native title; arming on one would fight
+  // ordinary clicking.
+  fire("pointerdown", { target: term, pointerType: "mouse" });
+  await new Promise((r) => setTimeout(r, 700));
+  assert(openTooltips().length === 0, "a mouse pointerdown opens nothing");
+
+  fire("pointerdown", { target: term });
+  await new Promise((r) => setTimeout(r, 700));
+  const tips = openTooltips();
+  assert(tips.length === 1, `a held finger opens exactly one tooltip (${tips.length})`);
+  assert(tips[0].getAttribute("role") === "tooltip", "announced as a tooltip");
+  assert(tips[0].textContent === term.title && tips[0].textContent.length > 40,
+    "carrying the same explanation the title had");
+  assert(term.getAttribute("aria-describedby") === tips[0].id,
+    "and the term points at it while it is open");
+
+  // The click a long press always ends with must not also select the row.
+  let stopped = 0;
+  const click = fire("click", { target: term, preventDefault() { stopped += 1; } });
+  assert(stopped === 1, "the trailing click is swallowed, not delivered to the row");
+  void click;
+  fire("pointerup", { target: term });
+
+  fire("pointerdown", { target: term });
+  await new Promise((r) => setTimeout(r, 700));
+  assert(openTooltips().length === 2, "and a later press opens another");
+  assert(term.getAttribute("aria-describedby") === openTooltips()[1].id,
+    "pointing the term at the newer one");
+
+  // Scrolling away from the finger cancels it: the player was reading down
+  // the page, not asking about a word. The open tooltip goes with it.
+  fire("pointerdown", { target: term });
+  fire("pointermove", { target: term, clientX: 0, clientY: 60 });
+  await new Promise((r) => setTimeout(r, 700));
+  assert(openTooltips().length === 1,
+    `a press that turns into a scroll opens nothing and closes what was open (${openTooltips().length})`);
+  assert(!term.getAttribute("aria-describedby"),
+    "and leaves no stale aria-describedby behind");
 }
 
 if (failures) {

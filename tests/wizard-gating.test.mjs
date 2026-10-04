@@ -59,7 +59,7 @@ import {
 import {
   clampScoreToRange,
   pointBuyNoteText,
-  abilityBonusNoteText,
+  abilityBonusNoteLines,
   reviewLinesFor,
   resolvePrimaryRuleset,
   HP_METHOD_OPTIONS,
@@ -170,20 +170,118 @@ describe("Your choices sections", () => {
 });
 
 describe("staged ability bonuses", () => {
-  it("sums add-ops to score fields with sources", () => {
+  it("sums add-ops to score fields, one entry per source", () => {
     const out = abilityScoreBonusesFrom([
       { source: "Elf", bundle: { statModifiers: [{ op: "add", targetFieldId: "dexScore", value: 2 }] } },
       { source: "Fighter", bundle: { statModifiers: [{ op: "add", targetFieldId: "strScore", value: 1 }, { op: "add", targetFieldId: "other", value: 5 }] } },
       { source: "", bundle: null },
     ], ["str", "dex", "con"]);
-    assert.deepEqual(out.dex, { bonus: 2, sources: ["Elf"] });
-    assert.deepEqual(out.str, { bonus: 1, sources: ["Fighter"] });
+    assert.deepEqual(out.dex, { bonus: 2, sources: [{ label: "Elf", value: 2 }] });
+    assert.deepEqual(out.str, { bonus: 1, sources: [{ label: "Fighter", value: 1 }] });
     assert.deepEqual(out.con, { bonus: 0, sources: [] });
   });
 
-  it("formats the per-row bonus note", () => {
-    assert.equal(abilityBonusNoteText(15, 2, ["Elf"]), "+2 from Elf → 17 total");
-    assert.equal(abilityBonusNoteText(10, 0, []), "");
+  it("counts a bonus the player picked out of a race's own choice groups", () => {
+    // A subrace: the +2 DEX lives on the chosen option, not on the race.
+    const bundle = {
+      statModifiers: [],
+      choiceGroups: [{
+        id: "elf-subrace",
+        options: [{ id: "elf-subrace-high", name: "High Elf", statModifiers: [{ op: "add", targetFieldId: "dexScore", value: 2 }] }],
+      }],
+    };
+    const out = abilityScoreBonusesFrom(
+      [{ source: "Elf", category: "Race", bundle }],
+      ["str", "dex"],
+      { "creation:Race:Elf:elf-subrace": ["elf-subrace-high"] }
+    );
+    assert.deepEqual(out.dex, { bonus: 2, sources: [{ label: "High Elf", value: 2 }] });
+  });
+
+  it("counts a free-form flexible ASI, whose stored pick carries its own modifiers", () => {
+    // Custom Lineage's Variable ASI: the group has no options to match, so
+    // the store holds an object holding the modifiers outright.
+    const bundle = {
+      statModifiers: [],
+      choiceGroups: [{ id: "custom-lineage-flexible-asi", options: [{ pattern: "2-1" }, { pattern: "1-1-1" }] }],
+    };
+    const out = abilityScoreBonusesFrom(
+      [{ source: "Custom Lineage", category: "Race", bundle }],
+      ["str", "dex"],
+      {
+        "creation:Race:Custom Lineage:custom-lineage-flexible-asi": [{
+          id: "flexible-asi-2-1-str-dex",
+          statModifiers: [
+            { op: "add", targetFieldId: "strScore", value: 2 },
+            { op: "add", targetFieldId: "dexScore", value: 1 },
+          ],
+        }],
+      }
+    );
+    assert.deepEqual(out.str, { bonus: 2, sources: [{ label: "Custom Lineage", value: 2 }] });
+    assert.deepEqual(out.dex, { bonus: 1, sources: [{ label: "Custom Lineage", value: 1 }] });
+  });
+
+  it("labels an ASI slot by its source, not by the ability it names", () => {
+    const bundle = {
+      statModifiers: [],
+      choiceGroups: [{
+        id: "half-elf-asi-1",
+        options: [{ id: "half-elf-asi-1-str", name: "STR", statModifiers: [{ op: "add", targetFieldId: "strScore", value: 1 }] }],
+      }],
+    };
+    const out = abilityScoreBonusesFrom(
+      [{ source: "Half-Elf", category: "Race", bundle }],
+      ["str"],
+      { "creation:Race:Half-Elf:half-elf-asi-1": ["half-elf-asi-1-str"] }
+    );
+    assert.deepEqual(out.str.sources, [{ label: "Half-Elf", value: 1 }]);
+  });
+
+  it("keeps a race bonus and a subrace bonus on separate rows", () => {
+    const bundle = {
+      statModifiers: [{ op: "add", targetFieldId: "strScore", value: 2 }],
+      choiceGroups: [{
+        id: "duergar",
+        options: [{ id: "duergar", name: "Duergar", statModifiers: [{ op: "add", targetFieldId: "strScore", value: 1 }] }],
+      }],
+    };
+    const out = abilityScoreBonusesFrom(
+      [{ source: "Dwarf", category: "Race", bundle }],
+      ["str"],
+      { "creation:Race:Dwarf:duergar": ["duergar"] }
+    );
+    assert.deepEqual(out.str, {
+      bonus: 3,
+      sources: [{ label: "Dwarf", value: 2 }, { label: "Duergar", value: 1 }],
+    });
+  });
+
+  it("merges two picks that share a source into one row", () => {
+    const bundle = {
+      statModifiers: [],
+      choiceGroups: [{
+        id: "half-elf-asi-1",
+        options: [{ id: "half-elf-asi-1-str", name: "STR", statModifiers: [{ op: "add", targetFieldId: "strScore", value: 1 }] }],
+      }],
+    };
+    const out = abilityScoreBonusesFrom(
+      [{ source: "Half-Elf", category: "Race", bundle }],
+      ["str"],
+      { "creation:Race:Half-Elf:half-elf-asi-1": ["half-elf-asi-1-str"] }
+    );
+    assert.deepEqual(out.str.sources, [{ label: "Half-Elf", value: 1 }]);
+    assert.deepEqual(abilityBonusNoteLines(out.str.sources), ["+1 from Half-Elf"]);
+  });
+
+  it("formats one bonus line per source and never states a total", () => {
+    assert.deepEqual(
+      abilityBonusNoteLines([{ label: "Half-Orc", value: 2 }, { label: "Duergar", value: 1 }]),
+      ["+2 from Half-Orc", "+1 from Duergar"]
+    );
+    assert.deepEqual(abilityBonusNoteLines([{ label: "Elf", value: -1 }]), ["-1 from Elf"]);
+    assert.deepEqual(abilityBonusNoteLines([{ label: "Elf", value: 0 }]), []);
+    assert.deepEqual(abilityBonusNoteLines([]), []);
   });
 });
 
@@ -513,6 +611,29 @@ describe("library option names and review lines", () => {
     assert.ok(reviewLinesFor({ characterName: "N", level: 1, resources: [] }).includes("Name: N"));
     assert.equal(clampScoreToRange("99", 8, 8, 15), 15);
     assert.equal(pointBuyNoteText(10, 27), "Points spent: 10/27");
+  });
+
+  it("reviews the ability scores the sheet will carry, not the base that was typed", () => {
+    // The stored scores are pre-bonus; the sheet applies the racial points
+    // on top at render time. Review used to print the base, so it disagreed
+    // with the sheet's own STR field by the whole racial bonus.
+    const scores = { str: 14, dex: 14 };
+    const bonuses = {
+      str: { bonus: 2, sources: [{ label: "Half-Orc", value: 2 }] },
+      dex: { bonus: 1, sources: [{ label: "High Elf", value: 1 }] },
+    };
+    const line = reviewLinesFor({ characterName: "N", level: 1, resources: [], abilityScores: scores, abilityBonuses: bonuses })
+      .find((l) => l.startsWith("Ability Scores"));
+    assert.ok(line.includes("STR 16"), "STR shows the applied total");
+    assert.ok(line.includes("DEX 15"), "DEX shows the applied total");
+    assert.ok(line.includes("+2 from Half-Orc"), "and names where the points came from");
+  });
+
+  it("still reviews bare base scores when nothing is staged", () => {
+    const line = reviewLinesFor({ characterName: "N", level: 1, resources: [], abilityScores: { str: 14 } })
+      .find((l) => l.startsWith("Ability Scores"));
+    assert.ok(line.includes("STR 14"));
+    assert.ok(!line.includes("+"), "with no bonus to report");
   });
 });
 

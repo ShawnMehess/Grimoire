@@ -4,7 +4,8 @@
 // DOM rendering stays in customSheet.js for now; all list math,
 // step navigation, and spell-catalog lookups live here testably.
 
-import { briefDescription, capitalizeFirst, splitAbilityTokens, abilityTooltip, humanizeGameText, categorizeChoiceGroup } from "./sheetMechanics.js";
+import { richGameTextNodes } from "./richText.js";
+import { briefDescription, capitalizeFirst, splitAbilityTokens, abilityTooltip, humanizeGameText, categorizeChoiceGroup, ABILITY_GLOSSARY } from "./sheetMechanics.js";
 import { spellGist, spellHasMoreThanGist } from "../../data/spellGists.js";
 import { el } from "./sheetHelpers.js";
 import { spellLinkNodes } from "./spellLinks.js";
@@ -371,7 +372,11 @@ export function reconcileDropdownChoices(choices, selectedId, canonicalEntries, 
     }
   }
   if (!changed) return { choices, selectedId, changed: false };
-  kept.sort((a, b) => String(a.text).localeCompare(String(b.text)));
+  // New entries were appended in content order above; leave them there.
+  // Re-sorting here undid that on every heal, which reordered a row's
+  // dropdowns behind the player's back and broke up rows that read as a
+  // set. Per-field alphabetizing is still available as an explicit opt-in
+  // (see sortChoicesAlpha); it just isn't the default any more.
   const nextSelected = kept.some((c) => c.id === selectedId) ? selectedId : null;
   return { choices: kept, selectedId: nextSelected, changed: true };
 }
@@ -471,24 +476,61 @@ export function setChoiceSectionCollapsed(key, collapsed) {
   else collapsedChoiceSections.delete(key || "");
 }
 
-/** Ability-score bonuses granted by staged picks (race bonuses
- *  chief among them), for display on the Ability Scores step so the
- *  applied total never surprises. `entries` is
- *  `[{ source, bundle }]` (e.g. Race/Class/Subclass/Background with
- *  their staged bundles); only `add`-op modifiers targeting
- *  `${abilityId}Score` count. Returns
- *  `{ [abilityId]: { bonus, sources } }` — zero-bonus abilities map
- *  to `{ bonus: 0, sources: [] }`. Pure. */
-export function abilityScoreBonusesFrom(entries = [], abilityIds = []) {
+/** A picked option's own name is the better label when it names
+ *  something ("High Elf"), but an ASI slot names an ability instead
+ *  ("STR"), where repeating the source reads better than the player
+ *  seeing "+1 from STR". */
+function pickSourceLabel(source, option) {
+  const name = String(option?.name || "").trim();
+  if (!name) return source;
+  const isAbilityAbbr = Object.values(ABILITY_GLOSSARY).some((entry) => entry.abbr === name.toUpperCase());
+  return isAbilityAbbr ? source : name;
+}
+
+/** Ability-score bonuses granted by staged picks, broken out by where
+ *  each point came from. `entries` is
+ *  `[{ source, category, bundle }]` (Race/Class/Subclass/Background with
+ *  their staged bundles) and `choices` is the picks store, because a
+ *  racial bonus is as often on the subrace or ASI option the player
+ *  CHOSE as on the race itself - and the free-form flexible-ASI groups
+ *  carry their points on the stored pick, which matches no option at
+ *  all. Only `add`-op modifiers targeting `${abilityId}Score` count.
+ *
+ *  Returns `{ [abilityId]: { bonus, sources: [{ label, value }] } }`,
+ *  one `sources` entry per distinct contributor so the step can list a
+ *  race bonus and a subrace bonus on their own lines. Points sharing a
+ *  label are summed, so two picks off one source read as one line.
+ *  Zero-bonus abilities map to `{ bonus: 0, sources: [] }`. Pure. */
+export function abilityScoreBonusesFrom(entries = [], abilityIds = [], choices = {}) {
   const out = {};
   (abilityIds || []).forEach((id) => { out[id] = { bonus: 0, sources: [] }; });
-  (entries || []).forEach(({ source, bundle }) => {
-    (bundle?.statModifiers || []).forEach((mod) => {
+  const addFrom = (mods, label) => {
+    if (!label) return;
+    (mods || []).forEach((mod) => {
       if (mod?.op !== "add" || !Number.isFinite(mod.value) || !mod.value) return;
       const id = (abilityIds || []).find((aid) => mod.targetFieldId === `${aid}Score`);
       if (!id) return;
+      const line = out[id].sources.find((s) => s.label === label);
+      if (line) line.value += mod.value;
+      else out[id].sources.push({ label, value: mod.value });
       out[id].bonus += mod.value;
-      if (source && !out[id].sources.includes(source)) out[id].sources.push(source);
+    });
+  };
+  (entries || []).forEach(({ source, category, bundle }) => {
+    if (!source || !bundle) return;
+    addFrom(bundle.statModifiers, source);
+    (bundle.choiceGroups || []).forEach((group) => {
+      const picked = choices[keyFor(group, category, source)];
+      if (!Array.isArray(picked) || !picked.length) return;
+      const chosen = new Set(picked.filter((value) => typeof value === "string"));
+      groupOptionsOf(group).forEach((option) => {
+        if (chosen.has(option.id)) addFrom(option.statModifiers, pickSourceLabel(source, option));
+      });
+      // The flexible-ASI store is an object holding its own modifiers,
+      // not an option id, so nothing above can match it.
+      picked.forEach((value) => {
+        if (value && typeof value === "object") addFrom(value.statModifiers, source);
+      });
     });
   });
   return out;
@@ -1606,8 +1648,10 @@ export function availableSpellLevels(plan) {
 // Migration of renderStepWizard / rulesetOptionNames from customSheet.js.
 // Minimal step-wizard shell shared by character creation and leveling.
 // `steps` is an ordered array of {id, title, isApplicable(),
-// render(container), description?, descriptionItems?,
-// unavailableMessage?}. isApplicable is re-checked on every render.
+// render(container), unavailableMessage?}. isApplicable is re-checked
+// on every render. Steps carry no lead-in copy: the screen states its
+// own question through its headings and fields, and a paragraph
+// explaining the obvious sat above every page.
 // `stepState` is a small {index, stepId?} object the caller keeps so
 // the step survives full re-renders — and, when the caller persists
 // stepId (see creationStepId/levelingStepId), across sessions too: a
@@ -1854,21 +1898,6 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
   wrap.append(progress);
 
   const currentStep = applicableSteps[stepState.index];
-  if (currentStep.descriptionItems && currentStep.descriptionItems.length) {
-    const list = document.createElement("ul");
-    list.className = "leveling-tab__intro wizard__step-description wizard__step-description--list";
-    currentStep.descriptionItems.forEach((item) => {
-      const li = document.createElement("li");
-      li.textContent = item;
-      list.append(li);
-    });
-    wrap.append(list);
-  } else if (currentStep.description) {
-    const description = document.createElement("p");
-    description.className = "leveling-tab__intro wizard__step-description";
-    description.textContent = currentStep.description;
-    wrap.append(description);
-  }
 
   // Built fresh each call (rather than reused) since a DOM node can
   // only live in one place at a time, and this is placed both above
@@ -2784,30 +2813,17 @@ export function renderSelectableRowsInto(container, names, opts = {}) {
 }
 
 /** Display text as DOM with ability abbreviations wrapped in tooltip
- *  abbrs ("STR" hovers "Strength — …"). Used everywhere rich picker
- *  text renders (bullets, flavor lines, spell effects); plain-text
- *  paths (review lines, option values, aria labels) keep the bare
- *  strings. `<option>` elements can't contain markup, so dropdowns
- *  get `title` attributes instead — see the call sites. */
+ *  abbrs ("STR" hovers "Strength — …") and gameplay vocabulary wrapped in
+ *  long-pressable glossary terms. Used everywhere rich picker text
+ *  renders (bullets, flavor lines, spell effects); plain-text paths
+ *  (review lines, option values, aria labels) keep the bare strings.
+ *  `<option>` elements can't contain markup, so dropdowns get `title`
+ *  attributes instead — see the call sites.
+ *
+ *  The assembly itself lives in richText.js, which sheetFields.js and
+ *  catalogBrowser.js share: it used to be copied into all three and drift. */
 export function richAbilityNodes(text) {
-  const out = [];
-  for (const run of splitAbilityTokens(text)) {
-    // Plain runs get spell linking as well as the raw text: the two
-    // tokenizers are independent, so a sentence can carry an ability
-    // abbreviation and a spell name at once ("Darkvision 60 ft. lets you
-    // cast Darkness without a slot").
-    if (run.text !== undefined) {
-      out.push(...spellLinkNodes(run.text));
-      continue;
-    }
-    const tip = abilityTooltip(run.id);
-    const abbr = document.createElement("abbr");
-    abbr.className = "ability-abbr";
-    abbr.textContent = run.abbr;
-    if (tip) abbr.title = tip;
-    out.push(abbr);
-  }
-  return out;
+  return richGameTextNodes(text);
 }
 
 /** One profile bullet with embedded dropdowns ("Languages — Common,
@@ -3052,9 +3068,17 @@ function renderSinglePickerRows(container, names, {
   // pass `showControls: false` for those while leaving collapsible true.
   // Row click alone toggles expand/collapse — no per-row Collapse button.
   collapsible = true, showControls = collapsible,
+  // `gallery` lays the rows out as a responsive card grid instead of one
+  // full-width row each. For the Class page, where thirteen collapsed rows
+  // of a 96px portrait and two lines of flavour left most of the screen
+  // empty. Off by default: a list this shape is wrong for a short list, and
+  // a nested list has to stay aligned with the row it belongs to.
+  gallery = false,
 } = {}) {
   const list = document.createElement("div");
-  list.className = "choice-row-list" + (nested ? " choice-row-list--nested" : "");
+  list.className = "choice-row-list"
+    + (nested ? " choice-row-list--nested" : "")
+    + (gallery ? " choice-row-list--gallery" : "");
   if (showControls && names.length) {
     const controls = el("div", { class: "choice-row-list__collapse-controls" },
       el("button", {

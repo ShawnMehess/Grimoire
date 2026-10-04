@@ -258,6 +258,11 @@ describe("a spell name is never a fragment of a longer name", () => {
 describe("mentions in the assembled picker bullets", () => {
   const deps = { abilityIds: [], abilities: [], skills: [] };
   const bullets = [];
+  // "(Level 5) " is display annotation that leveledOrder puts in front of a
+  // late-unlocking line. It is not part of the grant's own name, so the
+  // name-half checks below strip it first - otherwise every leveled feature
+  // reads as an unknown name.
+  const stripLevel = (text) => String(text).replace(/^\(Level \d+\) /, "");
   const add = (where, bundle) => {
     if (!bundle) return;
     // Three levels, not one: some of these grants only appear later (the
@@ -302,7 +307,7 @@ describe("mentions in the assembled picker bullets", () => {
       if (cut <= 0) continue;
       checked += 1;
       for (const hit of findSpellMentions(text)) {
-        assert.ok(hit.start >= cut, `${where} linked ${hit.name} out of the grant's own name "${text.slice(0, cut)}": ${text}`);
+        assert.ok(hit.start >= cut, `${where} linked ${hit.name} out of the grant's own name "${stripLevel(text).slice(0, cut)}": ${text}`);
       }
     }
     assert.ok(checked > 100, `the name half of bullets is actually covered (${checked})`);
@@ -319,7 +324,7 @@ describe("mentions in the assembled picker bullets", () => {
       if (cut <= 0) continue;
       // The compiled data writes some of these with a trailing qualifier
       // ("Magical Guidance (Optional)"), so match on the stem.
-      const name = text.slice(0, cut);
+      const name = stripLevel(text).slice(0, cut);
       const stem = reported.find((r) => name.startsWith(r));
       if (!stem) continue;
       if (!found.has(stem)) found.set(stem, []);

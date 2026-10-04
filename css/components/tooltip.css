@@ -1,0 +1,41 @@
+/* Gameplay glossary terms and their long-press tooltip.
+ *
+ * A term looks like the ability abbrs next to it - dotted underline, help
+ * cursor - so the two read as the same kind of thing rather than one of
+ * them being decoration. No `touch-action` here: setting it would stop the
+ * page scrolling when a finger rests on a term, which is the opposite of
+ * what long-hold needs. */
+
+.game-term {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: help;
+}
+
+/* The long-press tooltip. Fixed to the viewport because a term can sit
+ * inside a scrolling panel, where an absolutely-positioned tip would travel
+ * with the text and can end up off the bottom of the screen. Sits above
+ * the sheet's own popovers (60) and toasts (200) so a term inside either
+ * is still readable. */
+.game-tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: min(22rem, calc(100vw - 1.5rem));
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-raised);
+  color: var(--color-text);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  text-align: left;
+}
+
+/* Same treatment the ability abbrs get from the dyslexia preference: these
+ * are explanations a player reads rather than scans, so the open leading
+ * does the most good here. */
+:root[data-dyslexia="1"] .game-tooltip {
+  line-height: var(--a11y-line-height);
+  letter-spacing: var(--a11y-letter-spacing);
+}

@@ -23,4 +23,7 @@
 @import url("components/custom-sheet-catalog.css");
 @import url("components/custom-sheet-bundles.css");
 @import url("components/custom-sheet-shared.css");
+/* Glossary terms + the long-press tooltip. Before print.css so the print
+ * rules can hide the tooltip, which has no meaning on paper. */
+@import url("components/tooltip.css");
 @import url("components/print.css");

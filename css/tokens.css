@@ -740,12 +740,11 @@
 }
 
 /* Prose the player actually READS rather than scans - choice rows,
- * mechanics bullets, the wizard's explanation paragraphs. These are the
+ * mechanics bullets, the level-up guide's lead-ins. These are the
  * blocks where the extra leading does the most good and the least harm. */
 :root[data-dyslexia="1"] .choice-row__description,
 :root[data-dyslexia="1"] .choice-row__mechanics-meta,
 :root[data-dyslexia="1"] .leveling-tab__intro,
-:root[data-dyslexia="1"] .wizard__step-description,
 :root[data-dyslexia="1"] .wizard__field-help,
 :root[data-dyslexia="1"] .wizard__review-row,
 :root[data-dyslexia="1"] .sheet-intro__list,

@@ -10,7 +10,8 @@
 // interface," matching the request that prompted this.
 
 import { ensureCatalogShape, effectiveSectionRows } from "./catalogLibraryEditor.js";
-import { humanizeGameText, splitAbilityTokens, abilityTooltip } from "./sheet/sheetMechanics.js";
+import { humanizeGameText } from "./sheet/sheetMechanics.js";
+import { richGameTextNodes } from "./sheet/richText.js";
 
 function fmtCost(n) {
   return Number.isFinite(n) ? n : 0;
@@ -206,20 +207,12 @@ export function openCatalogBrowser({ catalog, getMoney, spendMoney, moneyLabel }
     nameEl.textContent = entry.name || "Unnamed item";
     const descEl = document.createElement("div");
     descEl.className = "catalog-browser__entry-desc";
-    // Same ability tooltips as the picker bullets (local construction —
-    // this module doesn't import the wizard).
-    for (const run of splitAbilityTokens(humanizeGameText(entry.description || ""))) {
-      if (run.text !== undefined) {
-        descEl.append(document.createTextNode(run.text));
-        continue;
-      }
-      const abbr = document.createElement("abbr");
-      abbr.className = "ability-abbr";
-      abbr.textContent = run.abbr;
-      const tip = abilityTooltip(run.id);
-      if (tip) abbr.title = tip;
-      descEl.append(abbr);
-    }
+    // Same ability tooltips and gameplay glossary as the picker bullets.
+    // Spell links are off here: the browser has no spell dialog to open
+    // them in, so a link would swallow the click and go nowhere. (Shared
+    // builder rather than a local loop — this module doesn't import the
+    // wizard.)
+    descEl.append(...richGameTextNodes(humanizeGameText(entry.description || ""), { spellLinks: false }));
     info.append(nameEl, descEl);
     if (entryTags(entry).length) {
       const tagsEl = document.createElement("div");

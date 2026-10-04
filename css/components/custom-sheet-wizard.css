@@ -95,16 +95,6 @@
   display: inline-block;
 }
 
-.wizard__step-description--list {
-  margin: 0 0 var(--space-2);
-  padding-left: 1.25em;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
 .wizard__section-label {
   margin: 0 0 var(--space-1);
   color: var(--color-text-muted);
@@ -205,6 +195,19 @@
 }
 .wizard__ability-need::before {
   content: "\26A0\FE0E ";
+}
+
+/* What the character's own picks add to this ability, one line per
+   source, directly under the ability's description. Never states a
+   total - the score box already carries the applied number. */
+.wizard__ability-bonus {
+  flex-basis: 100%;
+}
+.wizard__ability-bonus-line {
+  margin: 0;
+}
+.wizard__ability-bonus-line + .wizard__ability-bonus-line {
+  margin-top: 2px;
 }
 
 /* The race/class bonus note, rendered under the six scores. */
@@ -1043,6 +1046,110 @@
 }
 .choice-row__more[open] .choice-row__mechanics-effect {
   margin-top: var(--space-1);
+}
+
+/* --- Class page: the picker as a gallery of cards ------------------------
+   The Class step is the one picker long enough to read as sparse: thirteen
+   collapsed rows, each a full-width band holding a 96px portrait and two
+   lines of flavour, left most of a wide screen empty. Laid out as cards it
+   uses the page, and the portrait - which is already an AI-generated bust
+   for every class - becomes the thing you pick from rather than a thumbnail
+   beside a name.
+
+   No new assets: the decoration is a double rule and an accent bar drawn
+   from tokens already in the palette, so it re-themes with everything else
+   instead of arriving as one more fixed-colour picture. */
+.choice-row-list--gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.choice-row-list--gallery .choice-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  /* The double rule is the whole decorative gesture: an outer border and a
+     hairline inside it, the way a framed plate is ruled. */
+  border: var(--border-width) solid var(--color-border-strong);
+  box-shadow:
+    inset 0 0 0 1px var(--color-accent-muted),
+    var(--shadow-sm);
+}
+
+.choice-row-list--gallery .choice-row__portrait {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  align-self: center;
+  max-width: 9rem;
+  border-radius: var(--radius-sm);
+}
+
+/* A short accent bar under the portrait, tying the card together. Hidden
+   when a class has no portrait and falls back to its initial letter - the
+   bar would then sit under a letter, which reads as an error. */
+.choice-row-list--gallery .choice-row__portrait + .choice-row__body::before {
+  content: "";
+  display: block;
+  height: 2px;
+  margin-bottom: var(--space-2);
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--color-accent) 20%,
+    var(--color-accent) 80%,
+    transparent
+  );
+}
+
+.choice-row-list--gallery .choice-row__label {
+  text-align: center;
+  font-size: var(--text-lg);
+}
+
+.choice-row-list--gallery .choice-row__description {
+  text-align: center;
+}
+
+/* Open one card and it takes the whole row: the mechanics list underneath
+   is a bulleted column and has nowhere useful to go in a third of the
+   width. The portrait returns to the horizontal arrangement at that size. */
+.choice-row-list--gallery .choice-row--expanded {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: flex-start;
+}
+.choice-row-list--gallery .choice-row--expanded .choice-row__portrait {
+  width: 160px;
+  height: 160px;
+  flex: 0 0 auto;
+}
+.choice-row-list--gallery .choice-row--expanded .choice-row__label,
+.choice-row-list--gallery .choice-row--expanded .choice-row__description {
+  text-align: left;
+}
+
+/* Phones keep one card per row; two 15rem columns do not fit, and a
+   half-width card with a portrait in it is worse than one full-width row. */
+@media (max-width: 720px) {
+  .choice-row-list--gallery {
+    grid-template-columns: 1fr;
+  }
+  .choice-row-list--gallery .choice-row--expanded {
+    flex-direction: column;
+  }
+  .choice-row-list--gallery .choice-row--expanded .choice-row__portrait {
+    align-self: center;
+  }
+  .choice-row-list--gallery .choice-row--expanded .choice-row__label,
+  .choice-row-list--gallery .choice-row--expanded .choice-row__description {
+    text-align: center;
+  }
 }
 
 /* Spell picker lists flow across the width in responsive columns

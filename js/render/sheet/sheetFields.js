@@ -5,8 +5,8 @@
 // here so the rules live in one testable place with no DOM dependency.
 
 import { hideToggleBtnInto, labelToggleBtnInto } from "./sheetStyles.js";
-import { humanizeGameText, splitAbilityTokens, abilityTooltip } from "./sheetMechanics.js";
-import { spellLinkNodes } from "./spellLinks.js";
+import { humanizeGameText } from "./sheetMechanics.js";
+import { richGameTextNodes } from "./richText.js";
 
 // --- Field node DOM ---------------------------------------------------------
 //
@@ -778,23 +778,13 @@ export function buildFeatureListValueInto(features) {
     if (feature.description) {
       const desc = document.createElement("div");
       desc.className = "featurelist-row__description";
-      // Same ability tooltips as the picker bullets, plus spell links:
-      // this is where a character actually reads "you know the Dancing
-      // Lights cantrip", so it's the mention that most needs to be
-      // clickable. (Local construction - this leaf module doesn't import
-      // the wizard; spellLinks is a data-only dependency.)
-      for (const run of splitAbilityTokens(humanizeGameText(feature.description))) {
-        if (run.text !== undefined) {
-          desc.append(...spellLinkNodes(run.text));
-          continue;
-        }
-        const abbr = document.createElement("abbr");
-        abbr.className = "ability-abbr";
-        abbr.textContent = run.abbr;
-        const tip = abilityTooltip(run.id);
-        if (tip) abbr.title = tip;
-        desc.append(abbr);
-      }
+      // Same ability tooltips as the picker bullets, plus the gameplay
+      // glossary and spell links: this is where a character actually reads
+      // "you know the Dancing Lights cantrip", so it's the mention that most
+      // needs to be clickable, and "while blinded" that most needs
+      // explaining. Shared with the picker and the catalog browser rather
+      // than rebuilt here - this leaf module doesn't import the wizard.
+      desc.append(...richGameTextNodes(humanizeGameText(feature.description)));
       row.append(desc);
     }
 

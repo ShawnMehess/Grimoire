@@ -562,12 +562,25 @@ export function prepareRenderState(allFields, fns) {
 // level, precomputed choice groups, choices map, feat list, and a
 // bundle lookup. The renderer supplies character.rules + bundleFor.
 
+/** Choice picks arrive in two shapes. Most groups store the chosen
+ *  option's `id`, which is then matched against the group's options.
+ *  The free-form `flexibleAbilityBonus` groups - Custom Lineage's
+ *  Variable ASI and its relatives - have no options to match, because
+ *  their entries are pattern descriptions ("+2/+1", "+1/+1/+1") rather
+ *  than picks; the store therefore holds an OBJECT carrying its own
+ *  `statModifiers`. Both shapes have to reach the applier, or a +2 STR
+ *  chosen through two dropdowns applies nothing at all. */
 export function selectedRuleOptionsIn(groups, choicesMap = {}) {
   return groups.flatMap((group) => {
-    const selected = new Set(Array.isArray(choicesMap[group.key]) ? choicesMap[group.key] : []);
-    return groupOptionsOf(group)
+    const picked = Array.isArray(choicesMap[group.key]) ? choicesMap[group.key] : [];
+    const selected = new Set(picked.filter((value) => typeof value === "string"));
+    const byId = groupOptionsOf(group)
       .filter((option) => selected.has(option.id))
       .map((option) => ({ option, group }));
+    const carried = picked
+      .filter((value) => value && typeof value === "object" && Array.isArray(value.statModifiers))
+      .map((option) => ({ option, group }));
+    return [...byId, ...carried];
   });
 }
 

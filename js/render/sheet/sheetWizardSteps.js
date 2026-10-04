@@ -256,6 +256,11 @@ export function renderClassStepInto(container, state, deps) {
   const liveNames = optionNamesFn(state.rulesetId, "Class");
   selectableRowsFn(container, liveNames, {
     selectedName: state.className,
+    // The class page is the one picker long enough to look sparse as a
+    // single column of full-width rows, so it lays out as a card grid.
+    // Nested subclass lists below stay single-column: they have to line up
+    // under the class they belong to.
+    gallery: true,
     getInfo: (name) => catalogInfoFn(["class"], name),
     getMechanicsList: (name) => (mechanicsListFn ? mechanicsListFn("Class", name) : null),
     onSelect: (name) => updateFn("className", name),
@@ -463,7 +468,7 @@ export function renderInnateAbilitiesStepInto(container, sections) {
 // Migration of the renderRulesTab "review" step: summary rows plus the
 // Finish Setup button that syncs wizard answers onto the sheet.
 
-export function reviewLinesFor({ characterName, rulesetName, species, className, subclass, background, level, spellLimit, resources = [], abilityScores = null, abilityMethod = null, hpMethod = null, choiceLines = [], spellsPicked = [], equipmentLine = null, featNames = [] }) {
+export function reviewLinesFor({ characterName, rulesetName, species, className, subclass, background, level, spellLimit, resources = [], abilityScores = null, abilityBonuses = null, abilityMethod = null, hpMethod = null, choiceLines = [], spellsPicked = [], equipmentLine = null, featNames = [] }) {
   const ABILITY_METHOD_NAMES = { pointbuy: "Point Buy", roll: "Random Roll", manual: "Manual Entry" };
   const HP_METHOD_NAMES = { average: "Fixed Average", roll: "Roll In-Browser", manual: "Roll at the Table" };
   const noteLines = [
@@ -475,8 +480,18 @@ export function reviewLinesFor({ characterName, rulesetName, species, className,
     `Level ${level}`,
   ].filter(Boolean);
   if (abilityScores) {
+    // What the sheet will actually carry, not the base the player typed:
+    // the stored scores are pre-bonus, and the racial/subracial points are
+    // applied later at sheet-render time. Showing the base here made this
+    // page disagree with the sheet's own STR field by the whole racial
+    // bonus. Sources are named so a total that looks wrong is traceable.
     const scores = Object.entries(abilityScores)
-      .map(([id, value]) => `${String(id).toUpperCase()} ${value}`)
+      .map(([id, value]) => {
+        const bonus = Number(abilityBonuses?.[id]?.bonus) || 0;
+        const total = Number(value) + bonus;
+        const from = abilityBonusNoteLines(abilityBonuses?.[id]?.sources || []);
+        return `${String(id).toUpperCase()} ${total}${from.length ? ` (${from.join(", ")})` : ""}`;
+      })
       .join(" · ");
     noteLines.push(`Ability Scores${abilityMethod ? ` (${ABILITY_METHOD_NAMES[abilityMethod] || abilityMethod})` : ""}: ${scores}`);
   }
@@ -506,7 +521,7 @@ export function reviewLinesFor({ characterName, rulesetName, species, className,
  *  are one bordered panel and detaching the name from them would leave a
  *  heading floating above a separate panel. */
 export function reviewSummaryBoxInto(container, state, deps) {
-  const { characterName, rulesetName, spellLimit, resources, abilityScores, abilityMethod, hpMethod, choiceLines, spellsPicked, equipmentLine, featNames } = deps;
+  const { characterName, rulesetName, spellLimit, resources, abilityScores, abilityBonuses, abilityMethod, hpMethod, choiceLines, spellsPicked, equipmentLine, featNames } = deps;
   const rows = el("div", { class: "wizard__review-rows" });
   const noteLines = reviewLinesFor({
     characterName,
@@ -519,6 +534,7 @@ export function reviewSummaryBoxInto(container, state, deps) {
     spellLimit,
     resources,
     abilityScores: abilityScores || null,
+    abilityBonuses: abilityBonuses || null,
     abilityMethod: abilityMethod || null,
     hpMethod: hpMethod || null,
     choiceLines: choiceLines || [],
@@ -631,15 +647,20 @@ export function pointBuyNoteText(spent, budget) {
   return `Points spent: ${spent}/${budget}`;
 }
 
-/** One ability's staged bonus as a display line, e.g. base 15 + 2
- *  from Elf → "+2 from Elf → 17 total". Empty string when there is
- *  no bonus (the row then shows nothing extra). Pure. */
-export function abilityBonusNoteText(base, bonus, sources = []) {
-  if (!bonus) return "";
-  const total = (Number(base) || 0) + bonus;
-  const sign = bonus > 0 ? `+${bonus}` : `${bonus}`;
-  const who = (sources || []).length ? ` from ${(sources || []).join(", ")}` : "";
-  return `${sign}${who} → ${total} total`;
+/** One ability's staged bonus as display lines, one per source: a race
+ *  that grants +2 and a subrace that grants another +1 read as two
+ *  separate lines rather than one "+3, and sometimes these" summary, so
+ *  a player can see which pick is responsible for which points. No total
+ *  is shown: the score box already carries the applied number, and
+ *  repeating it here invited disagreement the moment the two drifted.
+ *  Returns an empty array when there is no bonus. Pure. */
+export function abilityBonusNoteLines(sources = []) {
+  return (sources || [])
+    .filter((entry) => entry && Number.isFinite(entry.value) && entry.value)
+    .map((entry) => {
+      const sign = entry.value > 0 ? `+${entry.value}` : `${entry.value}`;
+      return entry.label ? `${sign} from ${entry.label}` : sign;
+    });
 }
 
 function flashBonusNote(bonusNote) {
@@ -653,9 +674,13 @@ function flashBonusNote(bonusNote) {
   }, 1500);
 }
 
-export function abilityRowInto(scoresWrap, id, control, description, modifierFn, formatFn, bonusTextFn = null, bonus = 0, needTextFn = null) {
+export function abilityRowInto(scoresWrap, id, control, description, modifierFn, formatFn, bonusLinesFn = null, bonus = 0, needTextFn = null) {
   const modValue = el("div", { class: "input-group__control wizard__ability-modifier-value" });
-  const bonusNote = bonusTextFn ? el("p", { class: "wizard__ability-row-description wizard__ability-bonus" }) : null;
+  // One line per bonus source, rebuilt whenever the score changes. It
+  // sits directly under the ability's description because that is what
+  // it qualifies: "physical power" is the ability, "+2 from Half-Orc" is
+  // what this particular character starts with.
+  const bonusNote = bonusLinesFn ? el("div", { class: "wizard__ability-row-description wizard__ability-bonus" }) : null;
   // Feat prerequisites the current scores don't meet yet (see
   // featRequirementStatus). Shown on the score they'd have to reach, which
   // is the one place the player can actually fix them.
@@ -678,8 +703,10 @@ export function abilityRowInto(scoresWrap, id, control, description, modifierFn,
     const base = Number.isFinite(score) ? score : 10;
     modValue.textContent = formatFn(modifierFn(base));
     if (bonusNote) {
-      bonusNote.textContent = bonusTextFn(id, base);
-      bonusNote.hidden = !bonusNote.textContent;
+      const lines = abilityBonusLineNodes(bonusLinesFn(id, base));
+      bonusNote.innerHTML = "";
+      bonusNote.append(...lines);
+      bonusNote.hidden = !lines.length;
     }
     if (needNote) {
       needNote.textContent = needTextFn(id, base);
@@ -688,6 +715,14 @@ export function abilityRowInto(scoresWrap, id, control, description, modifierFn,
   };
   updateModifier();
   return { updateModifier, bonus, bonusNote };
+}
+
+/** The per-source bonus rows for one ability, as nodes. Kept beside
+ *  abilityRowInto because it is the only place they are built. */
+function abilityBonusLineNodes(lines) {
+  return (lines || [])
+    .filter(Boolean)
+    .map((line) => el("p", { class: "wizard__ability-bonus-line", text: line }));
 }
 
 export function renderAbilitiesStepInto(container, deps) {
@@ -719,8 +754,8 @@ export function renderAbilitiesStepInto(container, deps) {
   // onto the method controls themselves (see renderAbilityScoresInto's method
   // row) where it is read at the moment it applies rather than once at the
   // top of a long page.
-  const bonusTextFn = bonuses
-    ? (id, base) => abilityBonusNoteText(base, bonuses[id]?.bonus || 0, bonuses[id]?.sources || [])
+  const bonusLinesFn = bonuses
+    ? (id) => abilityBonusNoteLines(bonuses[id]?.sources || [])
     : null;
   const needTextFn = featNeeds
     ? (id, base) => {
@@ -800,7 +835,7 @@ export function renderAbilitiesStepInto(container, deps) {
           updateNote();
           updateModifier();
         }, displayValue);
-        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn, bonus, needTextFn);
+        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusLinesFn, bonus, needTextFn);
         input.addEventListener("keydown", (e) => {
           if ((e.key === "ArrowDown" || e.key === "-") && Number(input.value) <= effectiveMin) {
             e.preventDefault();
@@ -836,7 +871,7 @@ export function renderAbilitiesStepInto(container, deps) {
         const bonus = bonusMap[id]?.bonus || 0;
         const effectiveMin = 8 + bonus;
         const input = scoreInput(id, effectiveMin, 18 + bonus, (target) => { scores[id] = Math.max(effectiveMin, Number(target.value) || effectiveMin) - bonus; saveFn(); modifierUpdaters[id].updateModifier(); }, scores[id] + bonus);
-        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn, bonus, needTextFn);
+        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusLinesFn, bonus, needTextFn);
         input.addEventListener("keydown", (e) => {
           if ((e.key === "ArrowDown" || e.key === "-") && Number(input.value) <= effectiveMin) {
             e.preventDefault();
@@ -857,7 +892,7 @@ export function renderAbilitiesStepInto(container, deps) {
         const bonus = bonusMap[id]?.bonus || 0;
         const effectiveMin = 8 + bonus;
         const input = scoreInput(id, effectiveMin, 30 + bonus, (target) => { scores[id] = Math.max(effectiveMin, Number(target.value) || effectiveMin) - bonus; saveFn(); updateModifier(); }, scores[id] + bonus);
-        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusTextFn, bonus, needTextFn);
+        const { updateModifier, bonusNote } = abilityRowInto(scoresWrap, id, input, descriptions[id], modifierFn, formatFn, bonusLinesFn, bonus, needTextFn);
         input.addEventListener("keydown", (e) => {
           if ((e.key === "ArrowDown" || e.key === "-") && Number(input.value) <= effectiveMin) {
             e.preventDefault();
