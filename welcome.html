@@ -5,31 +5,45 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Welcome - Character Vault</title>
   <meta name="robots" content="noindex" />
-  <meta name="description" content="A private place to build and run D&amp;D 5e characters. Start here if the Character Vault is new to you." />
+  <meta name="description" content="The Character Vault sign-in page." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314110f'/%3E%3Cpath d='M16 5l3.5 7.2L27 13l-5.7 5.1L22.8 27 16 22.9 9.2 27l1.5-8.9L5 13l7.5-.8z' fill='%23b3492b'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 
-  <!-- Colours and fonts below are copies of the values in css/tokens.css,
-       not a link to it. This page is standalone on purpose: it has to render
-       even when the app's stylesheet is not here. They will drift if the
-       app's theme changes; nothing on this page breaks when they do. -->
+  <!-- Tokens below are copied from css/tokens.css, not linked. This page is
+       standalone on purpose: it has to render even when the app's stylesheet
+       is not here. Values checked against the default dark theme -
+       --color-bg #14110f, --color-bg-raised #1d1a16, --color-bg-inset #0f0d0b,
+       --color-border #3a332a, --color-text #e8e0d0, --color-text-muted #a89a82,
+       --color-accent #b3492b, --color-accent-hover #d4602f,
+       --color-accent-text #d4602f, --color-arcane #5b7f9e. They will drift if
+       the app's theme changes; nothing on this page breaks when they do. -->
   <style>
     :root {
       --bg: #14110f;
       --raised: #1d1a16;
+      --inset: #0f0d0b;
+      /* A shade above --raised, for a lit object sitting on the card. The
+         die cannot use --inset: that is darker than the card behind it, so
+         the solid vanished and only its edges showed. */
+      --die: #262019;
       --border: #3a332a;
       --text: #e8e0d0;
       --muted: #a89a82;
       --accent: #b3492b;
       --accent-hover: #d4602f;
-      /* Text colour for the big button. Swaps per state: white on the
-         darker accent is 5.4:1, but only 3.8:1 on the lighter hover, so the
-         hover state flips to dark ink (4.9:1) rather than ship a fail. */
+      --accent-text: #d4602f;
+      --arcane: #5b7f9e;
+      /* Text colour for the button. Swaps per state: white on the darker
+         accent is 5.4:1, but only 3.8:1 on the lighter hover, so the hover
+         state flips to dark ink (4.9:1) rather than ship a fail. */
       --on-accent: #ffffff;
-      --display: "Cinzel", Georgia, "Times New Roman", serif;
-      --body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --radius-sm: 3px;
+      --radius-md: 6px;
+      --radius-lg: 10px;
+      --display: "Cinzel", Georgia, serif;
+      --body: "Inter", system-ui, sans-serif;
     }
 
     *,
@@ -39,14 +53,18 @@
     }
 
     html {
-      /* Nothing on this page is a fixed-width canvas, so the viewport is
-         never allowed to scroll sideways at any width. */
+      /* Nothing here is a fixed-width canvas, so the viewport never scrolls
+         sideways at any width. */
       overflow-x: hidden;
     }
 
     body {
       margin: 0;
-      padding: 1.75rem 1.25rem 2.5rem;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1.25rem;
       background: var(--bg);
       color: var(--text);
       font-family: var(--body);
@@ -56,54 +74,139 @@
       overflow-wrap: break-word;
     }
 
-    .wrap {
-      max-width: 42rem;
-      margin: 0 auto;
+    /* A faint wash of warmth behind the card, so the page reads as lit
+       rather than as a flat rectangle on a flat field. A linear wash rather
+       than a pool: it needs no markup, and it cannot leave a hard edge if a
+       gradient is unsupported. */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background: linear-gradient(155deg, rgba(179, 73, 43, 0.14), rgba(179, 73, 43, 0) 55%);
     }
 
-    /* --- Header --- */
-
-    .page-header {
-      padding-bottom: 1.5rem;
-      border-bottom: 1px solid var(--border);
+    .card {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 50rem;
+      display: grid;
+      grid-template-columns: minmax(0, 19rem) minmax(0, 1fr);
+      align-items: center;
+      gap: 2.25rem;
+      padding: 2.25rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--raised);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
     }
 
-    .page-header h1 {
-      margin: 0 0 0.5rem;
+    /* --- The art ---------------------------------------------------------
+       Inline SVG rather than a file: this page loads nothing external, and
+       an illustration that inherits the palette re-themes with the page
+       instead of arriving as one more fixed-colour picture. */
+
+    .art {
+      display: flex;
+      justify-content: center;
+    }
+
+    .art__frame {
+      width: 100%;
+      max-width: 20rem;
+      aspect-ratio: 1;
+      display: block;
+    }
+
+    .art__halo {
+      fill: var(--accent);
+    }
+
+    .art__ring {
+      fill: none;
+      stroke: var(--border);
+      stroke-width: 1.5;
+    }
+
+    .art__ring--inner {
+      stroke: var(--accent);
+      stroke-width: 1;
+      opacity: 0.5;
+    }
+
+    /* Every edge of the die is the same weight. When the outline was heavier
+       than the inner lines it stopped reading as a solid with facets cut into
+       it and started reading as a triangle with a mark inside it. */
+    .art__edge {
+      fill: none;
+      stroke: var(--muted);
+      stroke-width: 1.75;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+    }
+
+    /* Facet washes, not outlines: they give each plane its own value so the
+       solid reads as turned rather than drawn. */
+    .art__face {
+      fill: var(--accent);
+      opacity: 0.13;
+    }
+
+    .art__face--deep {
+      fill: var(--die);
+    }
+
+    .art__spark {
+      fill: var(--arcane);
+    }
+
+    /* --- The message ------------------------------------------------------ */
+
+    .intro h1 {
+      margin: 0 0 0.75rem;
       font-family: var(--display);
-      font-size: clamp(1.75rem, 6vw, 2.5rem);
+      font-size: clamp(1.875rem, 5vw, 2.75rem);
       font-weight: 700;
-      line-height: 1.2;
+      line-height: 1.15;
       letter-spacing: 0.01em;
     }
 
-    .page-header p {
-      margin: 0;
-      font-size: 1.0625rem;
+    .intro p {
+      margin: 0 0 1.75rem;
+      max-width: 26rem;
       color: var(--muted);
-    }
-
-    /* --- Main button --- */
-
-    .cta-row {
-      margin: 2rem 0 0;
+      font-size: 1.0625rem;
     }
 
     .cta {
-      display: block;
-      width: 100%;
-      padding: 1rem 1.25rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.7rem;
+      padding: 0.8rem 1.4rem;
       border: 1px solid var(--accent);
-      border-radius: 6px;
+      border-radius: var(--radius-md);
       background: var(--accent);
       color: var(--on-accent);
       font-family: var(--body);
       font-size: 1.0625rem;
       font-weight: 600;
       line-height: 1.3;
-      text-align: center;
       text-decoration: none;
       cursor: pointer;
+    }
+
+    /* The mark sits on its own white plate, which is what makes it read as
+       "Google" at a glance - the four brand colours have no contrast against
+       the accent, and dropping them straight on loses the recognition. */
+    .cta__mark {
+      flex: 0 0 auto;
+      width: 1.15rem;
+      height: 1.15rem;
+      padding: 0.15rem;
+      border-radius: var(--radius-sm);
+      background: #ffffff;
     }
 
     @media (prefers-reduced-motion: no-preference) {
@@ -119,109 +222,52 @@
       color: var(--bg);
     }
 
-    /* --- Sections --- */
-
-    section {
-      margin-top: 2rem;
-    }
-
-    h2 {
-      margin: 0 0 0.6rem;
-      font-family: var(--display);
-      font-size: 1.25rem;
-      font-weight: 600;
-      line-height: 1.3;
-    }
-
-    p {
-      margin: 0 0 1rem;
-    }
-
-    section > p:last-child,
-    ol:last-child {
-      margin-bottom: 0;
-    }
-
-    /* Numbered and bulleted lists share the type scale with body text so
-       the page reads as one thing. */
-    ol,
-    ul {
-      margin: 0;
-      padding-left: 1.35rem;
-    }
-
-    li {
-      margin-bottom: 0.5rem;
-    }
-
-    li:last-child {
-      margin-bottom: 0;
-    }
-
-    /* A step name from the wizard, set apart from its own description
-       without shouting it. */
-    .step-name {
-      font-weight: 600;
-      color: var(--text);
-    }
-
-    /* Callout for the "ask your DM first" advice. */
-    .note {
-      padding: 1rem 1.15rem;
-      border: 1px solid var(--border);
-      border-left: 3px solid var(--accent);
-      border-radius: 4px;
-      background: var(--raised);
-    }
-
-    .note p:last-child {
-      margin-bottom: 0;
-    }
-
-    .note strong {
-      color: var(--text);
-    }
-
-    /* --- Footer --- */
-
-    .page-footer {
-      margin-top: 2.5rem;
-      padding-top: 1.5rem;
-      border-top: 1px solid var(--border);
-      color: var(--muted);
-      font-size: 0.9375rem;
-    }
-
-    .page-footer p:last-child {
-      margin-bottom: 0;
-    }
-
-    /* --- Focus --- */
-
-    a:focus-visible {
-      outline: 3px solid var(--text);
-      outline-offset: 3px;
-      border-radius: 3px;
-    }
-
     .cta:focus-visible {
       outline: 3px solid var(--text);
       outline-offset: 3px;
     }
 
-    /* --- Print: black on white, and drop the chrome that means nothing
-       on paper. The button becomes a plain line of text so it does not
-       print as a filled block. --- */
+    /* --- Narrow screens ---------------------------------------------------
+       Art above the message, and the button goes full width so it is an easy
+       target rather than a short one. */
+
+    @media (max-width: 46rem) {
+      .card {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 1.75rem;
+        padding: 2rem 1.5rem;
+      }
+
+      .art__frame {
+        max-width: 15rem;
+      }
+
+      .intro p {
+        margin-bottom: 1.5rem;
+      }
+
+      .cta {
+        width: 100%;
+        justify-content: center;
+      }
+    }
+
+    /* --- Print: black on white. The art is decoration and has no meaning on
+       paper, so it goes; the button becomes a plain line of text rather
+       than a filled block. --- */
 
     @media print {
       :root {
         --bg: #ffffff;
         --raised: #ffffff;
+        --inset: #ffffff;
         --border: #999999;
         --text: #000000;
         --muted: #333333;
         --accent: #000000;
         --accent-hover: #000000;
+        --accent-text: #000000;
+        --arcane: #000000;
         --on-accent: #000000;
       }
 
@@ -232,76 +278,90 @@
         font-size: 11pt;
       }
 
+      body::before,
+      .art {
+        display: none;
+      }
+
+      .card {
+        max-width: none;
+        padding: 0;
+        border: 0;
+        box-shadow: none;
+      }
+
       .cta {
-        border: 1px solid #000000;
+        width: auto;
+        padding: 0;
+        border: 0;
         background: transparent;
         color: #000000;
       }
 
-      a {
-        color: #000000;
+      .cta__mark {
+        display: none;
       }
     }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <header class="page-header">
-      <h1>Character Vault</h1>
-      <p>A private place to build and run your D&amp;D 5e characters.</p>
-    </header>
+  <main class="card">
+    <!-- An engraved d20 inside a double rule, the same double-rule framing
+         the app's cards use. Decorative, so it is hidden from assistive
+         technology rather than read out as "image". -->
+    <div class="art" aria-hidden="true">
+      <svg class="art__frame" viewBox="0 0 320 320" focusable="false">
+        <!-- The pool of light behind the medallion. A blurred disc rather
+             than stacked translucent ones: the stack drew its own edges,
+             which read as concentric rings rather than as glow. -->
+        <defs>
+          <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="24" />
+          </filter>
+        </defs>
+        <circle class="art__halo" cx="160" cy="152" r="96" filter="url(#soft)" opacity="0.4" />
 
-    <main>
-      <p class="cta-row">
-        <a class="cta" href="./">Open the Character Vault</a>
-      </p>
+        <circle class="art__ring" cx="160" cy="152" r="128" />
+        <circle class="art__ring art__ring--inner" cx="160" cy="152" r="118" />
 
-      <section aria-labelledby="start-heading">
-        <h2 id="start-heading">Getting started</h2>
-        <ol>
-          <li>Sign in with your Google account, using the sign-in button in the top corner of the vault page.</li>
-          <li>Click <strong>+ New Character</strong> at the top of your list of characters.</li>
-          <li>Work through the creation wizard, then finish setup.</li>
-        </ol>
-      </section>
+        <!-- The die. Facets first as filled planes, then every edge at one
+             weight on top, which is what makes the outer triangle read as
+             the near face of a solid rather than as a border.
+             Corners: top (160,58), lower-left (74,224), lower-right (246,224).
+             Inner inverted triangle: left (114,146), right (206,146),
+             bottom (160,205). -->
+        <path class="art__face--deep" d="M160 58 L246 224 L74 224 Z" />
+        <path class="art__face" d="M160 58 L206 146 L114 146 Z" />
+        <path class="art__face" d="M160 58 L114 146 L74 224 Z" opacity="0.07" />
+        <path class="art__face" d="M160 58 L206 146 L246 224 Z" opacity="0.07" />
+        <path class="art__face" d="M114 146 L206 146 L160 205 Z" opacity="0.2" />
+        <path class="art__edge" d="M160 58 L246 224 L74 224 Z" />
+        <path class="art__edge" d="M114 146 L206 146 L160 205 Z" />
+        <path class="art__edge" d="M160 58 L160 205" />
+        <path class="art__edge" d="M74 224 L206 146" />
+        <path class="art__edge" d="M246 224 L114 146" />
 
-      <section aria-labelledby="dm-heading">
-        <h2 id="dm-heading">Before you start: ask your DM</h2>
-        <div class="note">
-          <p><strong>Ask your DM what rules they want before you pick, because everything after that depends on it.</strong></p>
-          <p>The first wizard step is where you choose which books your character is built from, and that limits what the later steps can offer you. You can change the books later, but anything you picked that only existed in a removed book gets cleared, so it asks you first.</p>
-        </div>
-      </section>
+        <!-- Three sparks in the arcane blue - the one cool colour the palette
+             has, against a solid that is otherwise all warm. -->
+        <path class="art__spark" d="M160 20 l3.4 8.6 8.6 3.4 -8.6 3.4 -3.4 8.6 -3.4 -8.6 -8.6 -3.4 8.6 -3.4 z" />
+        <path class="art__spark" d="M264 80 l2.2 5.6 5.6 2.2 -5.6 2.2 -2.2 5.6 -2.2 -5.6 -5.6 -2.2 5.6 -2.2 z" opacity="0.7" />
+        <path class="art__spark" d="M56 80 l2.2 5.6 5.6 2.2 -5.6 2.2 -2.2 5.6 -2.2 -5.6 -5.6 -2.2 5.6 -2.2 z" opacity="0.7" />
+      </svg>
+    </div>
 
-      <section aria-labelledby="wizard-heading">
-        <h2 id="wizard-heading">What the wizard asks you</h2>
-        <ol>
-          <li><span class="step-name">Rules &amp; Sources.</span> Pick your books, and how hit points get worked out.</li>
-          <li><span class="step-name">Identity.</span> Name, starting level, and species, plus whatever that species grants.</li>
-          <li><span class="step-name">Class.</span> What your character does best. Sets hit points, attacks and features.</li>
-          <li><span class="step-name">Background.</span> Where they come from. Grants proficiencies and starting gear.</li>
-          <li><span class="step-name">Story.</span> Two free-text boxes for appearance and backstory. Both optional, editable later.</li>
-          <li><span class="step-name">Starting Conditions.</span> Your six ability scores, and your starting equipment.</li>
-          <li><span class="step-name">Review.</span> Check what you picked, then finish setup. Nothing is locked in; every choice stays editable.</li>
-        </ol>
-      </section>
-
-      <section aria-labelledby="after-heading">
-        <h2 id="after-heading">After you finish setup</h2>
-        <p>You get a character sheet you can rearrange as you like, split across tabs: Main, Character, and Leveling. Come back to the Leveling tab when your character levels up.</p>
-        <p>There are display options too: Simple View stacks every block full width in reading order, and there are theme choices if you want a different look.</p>
-      </section>
-
-      <section aria-labelledby="devices-heading">
-        <h2 id="devices-heading">Using it on different devices</h2>
-        <p>It works on a laptop, a tablet and a phone, and the page adapts to whichever screen you are on. There is a print stylesheet too, so a printed sheet comes out black on white rather than as a dark screen.</p>
-      </section>
-    </main>
-
-    <footer class="page-footer">
-      <p>Found a bug or have an idea? Tell Shawn.</p>
-      <p>It is a hobby project and still changing, so things will move around a bit.</p>
-    </footer>
-  </div>
+    <div class="intro">
+      <h1>Welcome</h1>
+      <p>Your characters, kept in one place.</p>
+      <a class="cta" href="./">
+        <svg class="cta__mark" viewBox="0 0 18 18" focusable="false" aria-hidden="true">
+          <path fill="#4285F4" d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.258h2.909c1.702-1.567 2.684-3.875 2.684-6.614z" />
+          <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.181l-2.909-2.258c-.806.54-1.836.859-3.047.859-2.344 0-4.328-1.585-5.036-3.714H.954v2.332A9 9 0 0 0 9 18z" />
+          <path fill="#FBBC05" d="M3.964 10.712A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.712V4.956H.954A9 9 0 0 0 0 9c0 1.452.347 2.827.954 4.044l3.01-2.332z" />
+          <path fill="#EA4335" d="M9 3.58c1.322 0 2.508.454 3.441 1.346l2.581-2.581C13.463.892 11.426 0 9 0A9 9 0 0 0 .954 4.956l3.01 2.332C4.672 5.165 6.656 3.58 9 3.58z" />
+        </svg>
+        Sign in with Google
+      </a>
+    </div>
+  </main>
 </body>
 </html>
