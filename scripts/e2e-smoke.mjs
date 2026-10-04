@@ -268,7 +268,7 @@ const settled = async (page, selector, what) => {
 };
 
 const READY_SHEET = ".sheet-toolbar";
-const READY_VAULT = "button:has-text('+ New Character')";
+const READY_VAULT = ".vault-new__go";
 const READY_WIZARD = ".wizard";
 
 // Wait for a debounced PERSIST to land in localStorage.
@@ -845,11 +845,33 @@ async function runViewportTests(viewport) {
   // creation (insertBefore against the wrong toolbar parent).
   await page.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
   await settled(page, READY_VAULT, `page vault`);
-  const newBtn = await page.$("button:has-text('+ New Character')");
+  const newBtn = await page.$(".vault-new__go");
   check(!!newBtn && (await newBtn.isVisible()), "vault + New Character button visible");
+  // The new-character control is a name box with placeholder text, so the
+  // name is typed here rather than on the wizard's first page - and it has
+  // to survive the trip, or the box is decorative.
+  const nameBox = await page.$(".vault-new__input");
+  check(!!nameBox, "the vault's new-character name box is there");
+  if (nameBox) {
+    check((await nameBox.getAttribute("placeholder")) === "New Character",
+      "and carries New Character as placeholder text");
+    await nameBox.fill("Cinderhold");
+    check((await nameBox.inputValue()) === "Cinderhold",
+      "which the typed name replaces");
+  }
   if (newBtn) await newBtn.click();
   await quiet(page);
   check(await page.$(".wizard"), "creator wizard renders after + New Character");
+  // The typed name reached the character, so the wizard's name box opens
+  // with it already filled rather than empty. That box is the sheet
+  // toolbar's own input (buildNameInput), which the Identity step drives -
+  // it is not inside .wizard, so it is found by its own placeholder.
+  const nameOnWizard = await page.evaluate(() => {
+    const box = document.querySelector('input[placeholder="Character name"]');
+    return box ? box.value : "";
+  });
+  check(nameOnWizard === "Cinderhold",
+    `the name typed on the vault is the character's name (got "${nameOnWizard}")`);
   // The one-time orientation panel is for a FINISHED character, so it must
   // NOT appear while the creation wizard is running - the wizard is itself
   // the guided first run, and a panel about display modes sitting on top of
@@ -3636,7 +3658,7 @@ if (inArea("swipe-arrow")) {
   t.on("pageerror", (e) => problems.push(`PAGEERROR [swipe]: ${e.message}`));
   await t.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
   await settled(t, READY_VAULT, `t vault`);
-  const newBtn = await t.$("button:has-text('+ New Character')");
+  const newBtn = await t.$(".vault-new__go");
   await newBtn.click();
   await quiet(t);
 
@@ -3805,7 +3827,7 @@ const vaultCheck = (cond, msg) => {
 
 await vaultPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
 await settled(vaultPage, READY_VAULT, `vaultPage vault`);
-const newBtn = await vaultPage.$("button:has-text('+ New Character')");
+const newBtn = await vaultPage.$(".vault-new__go");
 vaultCheck(!!newBtn && (await newBtn.isVisible()), "vault + New Character button visible");
 if (newBtn) await newBtn.click();
 await quiet(vaultPage);

@@ -281,7 +281,10 @@ async function stepLabel() {
 // ---------- Phase A: full wizard walk ----------
 await page.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
 await page.waitForTimeout(1200);
-await act("vault", "open + New Character", () => click("button:has-text('+ New Character')"));
+// The create control is a name box with placeholder text plus a "+" button
+// (see vaultNewCharacterField in js/main.js), not a button labelled
+// "+ New Character". Click the box's sibling button by class.
+await act("vault", "open + New Character", () => click(".vault-new__go"));
 await page.waitForTimeout(1500);
 
 const visits = {};

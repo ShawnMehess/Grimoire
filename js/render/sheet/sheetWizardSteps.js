@@ -256,11 +256,6 @@ export function renderClassStepInto(container, state, deps) {
   const liveNames = optionNamesFn(state.rulesetId, "Class");
   selectableRowsFn(container, liveNames, {
     selectedName: state.className,
-    // The class page is the one picker long enough to look sparse as a
-    // single column of full-width rows, so it lays out as a card grid.
-    // Nested subclass lists below stay single-column: they have to line up
-    // under the class they belong to.
-    gallery: true,
     getInfo: (name) => catalogInfoFn(["class"], name),
     getMechanicsList: (name) => (mechanicsListFn ? mechanicsListFn("Class", name) : null),
     onSelect: (name) => updateFn("className", name),

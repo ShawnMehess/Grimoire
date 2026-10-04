@@ -1446,14 +1446,14 @@ function openTestDialog(host, overrides = {}) {
     "and one to swallow the magnifier a long press would otherwise raise");
 }
 
-// --- Class page lays out as a gallery -----------------------------------
-// Thirteen collapsed full-width rows left the Class page mostly empty, so
-// it asks for the card grid. The nested subclass list below it must NOT: it
-// has to line up under the class it belongs to, which a grid would break.
+// --- Every picker list is one row per option ----------------------------
+// Race, Class and Background all render as a plain single-column list, and
+// the nested subclass list has to stay aligned under the class it belongs
+// to. This catches a layout variant being applied to one of them.
 {
   const { renderClassStepInto } = await import("../js/render/sheet/sheetWizardSteps.js");
   const { renderPickerTableInto } = await import("../js/render/sheet/sheetWizard.js");
-  let galleryOpts = null;
+  let topOpts = null;
   let nestedOpts = null;
   const box = document.createElement("div");
   renderClassStepInto(box, { className: "Fighter", level: 3, subclass: "", rulesetId: "dnd5e-2014" }, {
@@ -1463,19 +1463,21 @@ function openTestDialog(host, overrides = {}) {
     updateFn: () => {},
     selectableRowsFn: (container, names, opts) => {
       if (opts.nested) nestedOpts = opts;
-      else galleryOpts = opts;
+      else topOpts = opts;
       renderPickerTableInto(container, names, opts);
     },
   });
-  assert(galleryOpts && galleryOpts.gallery === true, "the class list asks for the gallery layout");
+  assert(topOpts && !topOpts.gallery, "the class list asks for the plain one-per-row layout");
   const lists = box.querySelectorAll(".choice-row-list");
-  assert(lists.some((l) => l.className.includes("choice-row-list--gallery")),
-    "and the rendered list carries the gallery class");
-  assert(nestedOpts && nestedOpts.gallery !== true,
-    "but the nested subclass list does not - it must stay under its class");
-  assert(!lists.some((l) => l.className.includes("choice-row-list--gallery")
-    && l.className.includes("choice-row-list--nested")),
-    "so no nested list ended up on the card grid");
+  assert(lists.length >= 2, "and both the class list and its nested subclass list rendered");
+  assert(nestedOpts && nestedOpts.nested === true, "the subclass list is marked nested");
+  // One option per row, not a grid of cards. Matched on the class LIST, not
+  // a substring: the controls bar's own class contains "choice-row".
+  const rows = lists.filter((l) => !l.className.includes("choice-row-list--nested"));
+  const countRows = (l) => l.children
+    .filter((c) => String(c.className || "").split(/\s+/).includes("choice-row")).length;
+  assert(rows.every((l) => countRows(l) === 2),
+    `the top list has one row per class (${rows.map(countRows).join(",")})`);
 }
 
 // --- Long press opens the tooltip on a device that cannot hover ---------

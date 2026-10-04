@@ -293,6 +293,7 @@ import {
   findSpellCatalog,
   renderStepWizardInto,
   rulesetOptionNamesIn,
+  sortByName,
   renderPickerTableInto,
   renderChoiceGroupsInto,
   renderCrossCategoryChoiceInto,
@@ -3645,8 +3646,8 @@ const closeDialog = () => {
       bundleSubs = bundleSubs.filter((name) => gated.has(name));
     }
     const seen = new Set();
-    const subclasses = [...bundleSubs, ...across.subclasses]
-      .filter((name) => (seen.has(name) ? false : (seen.add(name), true)));
+    const subclasses = sortByName([...bundleSubs, ...across.subclasses]
+      .filter((name) => (seen.has(name) ? false : (seen.add(name), true))));
     const levels = [fromBundle?.subclassLevel, across.subclassLevel].filter(Number.isFinite);
     if (!subclasses.length) return { subclasses: [], subclassLevel: Infinity };
     return { subclasses, subclassLevel: levels.length ? Math.min(...levels) : Infinity };
@@ -5571,6 +5572,14 @@ const closeDialog = () => {
               title: group.label || "Choose a spell",
               multi: group.maxSelections !== 1,
               maxSelections: group.maxSelections ?? 1,
+              // The spell list is the longest list in the app and every row
+              // carries a school/level line as well as a name, so it gets the
+              // wide layout - 94vw, two columns at 1100px and three at 1700px
+              // - and a taller list to use it. It was sharing the 560px
+              // single-column dialog with the short pickers, which meant
+              // scrolling a 537-spell list a screenful at a time.
+              wide: true,
+              listMaxHeight: "62vh",
               options: spellList,
               initialSelected: storedSpells,
               onAccept: (ids) => {
@@ -6159,7 +6168,11 @@ const closeDialog = () => {
               // with no subrace to pick, such a race could be chosen and
               // never finished. A container that cannot be completed is
               // worse than no container at all.
-              const options = groupOptionsOf(group);
+              //
+              // Alphabetical, matching the race and class lists around it:
+              // Elf's subraces read Drow, High Elf, Wood Elf rather than
+              // the order the fixups happened to append them in.
+              const options = sortByName(groupOptionsOf(group));
               if (!options.length) return null;
               return { group, options, pickedIds: state.choices?.[group.key] || [] };
             },

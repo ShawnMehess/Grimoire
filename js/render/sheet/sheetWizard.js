@@ -2102,10 +2102,16 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
 }
 
 /** Bundle-library class/race/background names tagged to one or more
- *  content packs (or whole rulesets) — unions across every included
- *  id (first-seen order), falling back to the hardcoded list (Class
- *  only) when nothing is imported yet. Accepts a single id or an
- *  array; legacy tags ("homebrew") match their new pack ("phb"). */
+ *  content packs (or whole rulesets), alphabetically, falling back to the
+ *  hardcoded list when nothing is imported yet. Accepts a single id or an
+ *  array; legacy tags ("homebrew") match their new pack ("phb").
+ *
+ *  Sorted by name rather than left in bundle-import order: a library built
+ *  by importing six books in six different sessions lists classes and races
+ *  in whatever order they happened to arrive, so the same vault could show
+ *  two different orderings. `localeCompare` with numeric handling so
+ *  "Thief" lands between "Thief" and "Thug" and not after every "T..."
+ *  neighbour by codepoint. */
 export function rulesetOptionNamesIn(libraryCache, rulesetIdOrIds, category, fallback = []) {
   const ids = (Array.isArray(rulesetIdOrIds) ? rulesetIdOrIds : [rulesetIdOrIds]).filter(Boolean);
   const seen = new Set();
@@ -2121,7 +2127,17 @@ export function rulesetOptionNamesIn(libraryCache, rulesetIdOrIds, category, fal
         }
       });
   });
-  return fromBundles.length ? fromBundles : fallback;
+  return sortByName(fromBundles.length ? fromBundles : fallback);
+}
+
+/** Alphabetical by display name, case-insensitively, so "elf" and "Elf"
+ *  cannot end up on either side of each other. Shared by every list the
+ *  player picks a race, class, background, subrace or subclass from, so
+ *  they all read as one set. Pure; returns a new array. */
+export function sortByName(names) {
+  return [...(names || [])].sort((a, b) =>
+    String(a).localeCompare(String(b), undefined, { sensitivity: "base", numeric: true })
+  );
 }
 
 // --- Spell picker ----------------------------------------------------------------------
@@ -3068,17 +3084,9 @@ function renderSinglePickerRows(container, names, {
   // pass `showControls: false` for those while leaving collapsible true.
   // Row click alone toggles expand/collapse — no per-row Collapse button.
   collapsible = true, showControls = collapsible,
-  // `gallery` lays the rows out as a responsive card grid instead of one
-  // full-width row each. For the Class page, where thirteen collapsed rows
-  // of a 96px portrait and two lines of flavour left most of the screen
-  // empty. Off by default: a list this shape is wrong for a short list, and
-  // a nested list has to stay aligned with the row it belongs to.
-  gallery = false,
 } = {}) {
   const list = document.createElement("div");
-  list.className = "choice-row-list"
-    + (nested ? " choice-row-list--nested" : "")
-    + (gallery ? " choice-row-list--gallery" : "");
+  list.className = "choice-row-list" + (nested ? " choice-row-list--nested" : "");
   if (showControls && names.length) {
     const controls = el("div", { class: "choice-row-list__collapse-controls" },
       el("button", {
@@ -3455,6 +3463,11 @@ export function openChoiceDialog({
   onAccept,
   host = null,
   wide = false,
+  // How tall the scrolling list may get. The dialog box itself is capped
+  // at 80vh, so this is what decides how much of the list is on screen at
+  // once. A list with a name and a sentence per row wants more than the
+  // short pickers do.
+  listMaxHeight = "50vh",
 }) {
   const mount = host || document.body;
   // Singleton: opening a second dialog replaces the first, so there is
@@ -3473,7 +3486,7 @@ export function openChoiceDialog({
   const locked = new Set(lockedIds || []);
   const usable = (options || []).filter((o) => o && o.name);
   const countNote = el("p", { class: "leveling-tab__intro" });
-  const listWrap = el("div", { class: "choice-dialog-list", style: "max-height: 50vh; overflow-y: auto;" });
+  const listWrap = el("div", { class: "choice-dialog-list", style: `max-height: ${listMaxHeight}; overflow-y: auto;` });
   const updateCount = () => {
     const counted = [...selected].filter((id) => !locked.has(id)).length;
     countNote.textContent = multi ? `${counted}/${maxSelections} picked` : (counted ? "Picked" : "Nothing picked yet");

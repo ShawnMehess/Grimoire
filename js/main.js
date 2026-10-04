@@ -270,6 +270,47 @@ function findSubraceName(character, allFields) {
   return names.length ? names.join(" · ") : null;
 }
 
+/** The vault's "new character" control: a name box plus a create button.
+ *
+ *  It was a button labelled "+ New Character" that opened a wizard whose
+ *  first page asks for a name. That asked for the same word twice, at two
+ *  different moments, and the button's label stood in for something the
+ *  page could have asked for up front. So the label became placeholder
+ *  text - grey, and gone the moment anything is typed - and whatever is
+ *  typed is the character's name.
+ *
+ *  The button stays. An input that only acts on Enter is a hidden gesture,
+ *  and this is the one control on the page that creates something.
+ *
+ *  Naming here is a convenience, not a requirement: an empty box opens the
+ *  same wizard as before and the character is called "Unnamed" until the
+ *  Identity page says otherwise. So neither control can trap anyone. */
+function vaultNewCharacterField() {
+  const input = el("input", {
+    type: "text",
+    class: "input-group__control vault-new__input",
+    placeholder: "New Character",
+    // Not a label: the heading beside it is "Your Characters", which is
+    // about the list, not about this box.
+    "aria-label": "Name your new character",
+    autocomplete: "off",
+  });
+  const button = el("button", {
+    class: "btn btn--primary vault-new__go",
+    type: "button",
+    title: "New Character",
+    "aria-label": "New Character",
+    text: "+",
+    onclick: () => createNewBlankCharacter(input.value),
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    createNewBlankCharacter(input.value);
+  });
+  return el("div", { class: "vault-new" }, input, button);
+}
+
 async function renderCharacterList() {
   // Sheets apply their own theme on open and leave it on the root —
   // reset to the default (Standard/dark, the blue theme new sheets
@@ -286,7 +327,7 @@ async function renderCharacterList() {
 
   appRoot.append(el("div", { class: "page-header" },
     el("h2", { text: "Your Characters" }),
-    el("button", { class: "btn btn--primary", text: "+ New Character", onclick: createNewBlankCharacter })));
+    vaultNewCharacterField()));
 
   if (characterStore.isLocal) {
     appRoot.append(el("p", { class: "leveling-tab__intro", text: "Offline mode — Characters save in this browser only. Drop ?offline=1 (with a connection) to use the shared backend." }));
@@ -348,7 +389,7 @@ async function renderCharacterList() {
       // situations — don't tell someone with zero characters that
       // "no characters match that search".
       emptyState.textContent = characters.length === 0
-        ? "You don't have any characters yet — click + New Character above to create your first one."
+        ? "You don't have any characters yet — put a name in the box above and press Enter to create your first one."
         : "No characters match that search.";
       appRoot.append(emptyState);
       return;
@@ -472,8 +513,8 @@ async function duplicateCharacter(character) {
   return newId;
 }
 
-async function createNewBlankCharacter() {
-  // No `layout` key here on purpose — renderCustomSheet seeds a
+async function createNewBlankCharacter(name) {
+  // No `layout` key here on purpose - renderCustomSheet seeds a
   // fresh one (createStarterLayout(), now a real D&D core stat
   // block) the first time a character has none. Explicitly setting
   // layout: [] here used to defeat that check (an empty array is
@@ -482,6 +523,12 @@ async function createNewBlankCharacter() {
   // toolbar.
   const data = createBlankCharacter(currentUserId());
   data.sheetMode = "screen";
+  // A name typed on the vault, if there was one. Trimmed, and dropped
+  // entirely when it is blank so an untouched placeholder cannot land as
+  // a name made of nothing. The Identity page still asks, so this only
+  // ever saves a step.
+  const trimmed = String(name || "").trim();
+  if (trimmed) data.name = trimmed;
   // Guarded like an open, because it is one: a create that fails used to
   // reject into nothing at all, leaving a "+ New Character" button that
   // silently does not work.
@@ -489,7 +536,7 @@ async function createNewBlankCharacter() {
   try {
     id = await createCharacter(data);
   } catch (err) {
-    renderOpenFailure(appRoot, err, () => createNewBlankCharacter());
+    renderOpenFailure(appRoot, err, () => createNewBlankCharacter(name));
     return;
   }
   openCharacter(id);

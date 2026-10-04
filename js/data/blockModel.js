@@ -151,13 +151,15 @@ export function toolGroupsForLabel(label) {
 // immediately with no import step. The Bundle Library/Catalog import
 // UI still exists in the code but is hidden from the toolbar for now
 // (see customSheet.js) — homebrew-via-import is a later project.
-// Starter dropdowns keep the content's own order. Sorting them
-// alphabetically looked tidy and cost more than it gave: a row that asks
-// you to choose from two or more dropdowns stopped reading as a set, and
-// the wizard falls back to these same orders, so pickers followed suit.
-const STARTER_RACES = FIXED_RACE_ENTRIES.map((r) => r.name);
-const STARTER_CLASSES = FIXED_CLASS_ENTRIES.map((c) => c.name);
-const STARTER_BACKGROUNDS = FIXED_BG_ENTRIES.map((b) => b.name);
+// Starter dropdowns read alphabetically, and so does every picker that
+// falls back to these same orders — one helper, so the sheet's dropdown
+// and the wizard's row list can never disagree about the order.
+// (A row that makes you choose from two or more dropdowns is NOT one of
+// these: ability pickers are left in their own order on purpose.)
+const byName = (a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: "base", numeric: true });
+const STARTER_RACES = FIXED_RACE_ENTRIES.map((r) => r.name).sort(byName);
+const STARTER_CLASSES = FIXED_CLASS_ENTRIES.map((c) => c.name).sort(byName);
+const STARTER_BACKGROUNDS = FIXED_BG_ENTRIES.map((b) => b.name).sort(byName);
 
 const RACE_BUNDLE_ENTRIES = FIXED_RACE_ENTRIES;
 const CLASS_BUNDLE_ENTRIES = FIXED_CLASS_ENTRIES;

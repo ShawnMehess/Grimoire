@@ -299,6 +299,35 @@
   }
 }
 
+/* --- The new-character control -------------------------------------------
+ * A name box with grey placeholder text and a create button. The input is
+ * the thing you read first, so it comes first and carries the width; the
+ * button is the fallback for anyone who would rather not press Enter. */
+
+.vault-new {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.vault-new__input {
+  width: 14rem;
+  max-width: 100%;
+}
+
+.vault-new__go {
+  flex: 0 0 auto;
+  min-width: 2.5rem;
+  font-size: var(--text-lg);
+  line-height: 1;
+}
+
+@media (max-width: 600px) {
+  .vault-new__input {
+    width: 100%;
+  }
+}
+
 /* --- Character Vault search --------------------------------------------- */
 
 .character-vault__search-row {

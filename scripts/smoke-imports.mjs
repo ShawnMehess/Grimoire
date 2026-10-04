@@ -1176,8 +1176,11 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
     const libWithSystemTag = [...lib, { rulesetId: "dnd5e-2014", category: "Race", name: "Aasimar" }];
     assert(wizardMod.rulesetOptionNamesIn(lib, ["phb", "xanathar"], "Race", []).join() === "Human,Tabaxi", "rulesetOptionNamesIn canonicalizes legacy tags");
     assert(wizardMod.rulesetOptionNamesIn(lib, "phb", "Race", ["Fallback"]).join() === "Human", "rulesetOptionNamesIn single pack still works");
-    assert(wizardMod.rulesetOptionNamesIn(libWithSystemTag, ["dnd5e-2014"], "Race", []).join() === "Human,Tabaxi,Aasimar", "rulesetOptionNamesIn expands a system to its packs");
-    assert(wizardMod.rulesetOptionNamesIn(libWithSystemTag, "phb", "Race", []).join() === "Human,Aasimar", "whole-system bundle matches any single book");
+    // Alphabetical, not library-import order: "Human,Tabaxi,Aasimar" was the
+    // union in the order three books happened to be imported. Sorted, the
+    // system expands to Aasimar,Human,Tabaxi and a single book to Aasimar,Human.
+    assert(wizardMod.rulesetOptionNamesIn(libWithSystemTag, ["dnd5e-2014"], "Race", []).join() === "Aasimar,Human,Tabaxi", "rulesetOptionNamesIn expands a system to its packs");
+    assert(wizardMod.rulesetOptionNamesIn(libWithSystemTag, "phb", "Race", []).join() === "Aasimar,Human", "whole-system bundle matches any single book");
   }  const w3 = dnd.multiclassSlotsFor([{ caster: "full", levels: 3 }]);
   assert(w3[0].fieldId === "slots1" && w3[0].options === 4 && w3[1].options === 2, "multiclassSlotsFor full-3");
   assert(dnd.multiclassSlotsFor([{ caster: null, levels: 5 }]).length === 0, "multiclassSlotsFor martial none");

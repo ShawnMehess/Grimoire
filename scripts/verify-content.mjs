@@ -672,15 +672,12 @@ function featListWith(namesAndLevels) {
   const layout = createStarterLayout();
   const fields = flatten(layout);
   const byLabel = (label) => fields.find((f) => f.label === label);
-  // Starter dropdowns keep the content's own order. They used to be forced
-  // alphabetical, which reordered a row's dropdowns behind the player's back
-  // and broke up rows that read as a set.
-  for (const [label, entries] of [["Race", FIXED_RACE_ENTRIES], ["Class", FIXED_CLASS_ENTRIES], ["Background", FIXED_BG_ENTRIES]]) {
+  // Starter dropdowns read alphabetically, matching the wizard's pickers.
+  for (const label of ["Race", "Class", "Background"]) {
     const names = ((byLabel(label)?.choices) || []).map((c) => c.text);
-    const contentOrder = entries.map((e) => e.name);
-    if (JSON.stringify(names) !== JSON.stringify(contentOrder)) {
-      fail(`starter ${label} dropdown does not follow content order`);
-    }
+    const sorted = [...names].sort((a, b) =>
+      String(a).localeCompare(String(b), undefined, { sensitivity: "base", numeric: true }));
+    if (JSON.stringify(names) !== JSON.stringify(sorted)) fail(`starter ${label} dropdown is not alphabetical`);
   }
   // Subclass sits beside Class in the same block (Identity).
   const blockOf = (label) => layout.find((b) => (b.children || []).some((f) => f.label === label));
@@ -731,7 +728,7 @@ function featListWith(namesAndLevels) {
       if ((f.y || 0) + (f.h || 1) > (b.h || 0)) fail(`${b.name}: ${f.label} overflows the block (y${f.y}+h${f.h} > h${b.h})`);
     }
   }
-  console.log(`sheet: dropdowns in content order, subclass beside class, columns even (${ends[0]}), vehicle field present, Appearance + Backstory on Story`);
+  console.log(`sheet: dropdowns alphabetical, subclass beside class, columns even (${ends[0]}), vehicle field present, Appearance + Backstory on Story`);
 }
 
 // --- 6d. Starting equipment data ---------------------------------------------

@@ -984,6 +984,21 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
   const isProficiencyNote = (grant) => /proficienc/i.test(grant?.name || "");
   const isEquipmentGrant = (grant) => /^starting equipment$/i.test((grant?.name || "").trim());
 
+  /** A grant's display name with the internal "(note)" marker removed.
+   *
+   *  "(note)" is a data convention that says "this grant is a note about
+   *  proficiencies, route it to the proficiencies list" - it is how
+   *  isProficiencyNote above recognises these without a separate flag. It
+   *  is not part of the name, and a player should never see it: it was
+   *  reaching them as "Tool Proficiencies (note): Vehicles (land)", which
+   *  reads as a placeholder that was never filled in. The note itself is
+   *  real and stays - Folk Hero's vehicles (land) and Sailor's vehicles
+   *  (water) are genuine grants, not stand-ins.
+   *
+   *  Matching is on the raw name, so nothing about the routing changes;
+   *  only the label the player reads is cleaned. */
+  const displayGrantName = (raw) => String(raw || "").replace(/\s*\(\s*note\s*\)\s*$/i, "").trim();
+
   // Class/background/subclass rows show the whole current
   // description: their texts are concise replacements written to be
   // read whole (audit systemic fixes), so sentence-snipping them
@@ -1078,7 +1093,7 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     // rows; race rows keep the legacy single-list behavior.
     if ((classDisplay || backgroundDisplay) && isProficiencyNote(grant)) {
       const why = detailFor(grant.description, grant.caveat);
-      const note = `${name}${why ? `: ${why}` : ""}`;
+      const note = `${displayGrantName(name)}${why ? `: ${why}` : ""}`;
       if (classDisplay) classProfLines.push(line(note, grant.minLevel));
       else bgProfLines.push(line(note, grant.minLevel));
       continue;
@@ -1093,7 +1108,7 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     }
     if (backgroundDisplay) {
       const why = detailFor(grant.description, grant.caveat);
-      bgFeatures.push(line(`${name}${why ? `: ${why}` : ""}`, grant.minLevel));
+      bgFeatures.push(line(`${displayGrantName(name)}${why ? `: ${why}` : ""}`, grant.minLevel));
       continue;
     }
     if (subclassDisplay) {
@@ -1102,12 +1117,12 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
       // Proficiency notes still read as proficiencies.
       if (isProficiencyNote(grant)) {
         const why = detailFor(grant.description, grant.caveat);
-        subProfLines.push(line(`${name}${why ? `: ${why}` : ""}`, grant.minLevel));
+        subProfLines.push(line(`${displayGrantName(name)}${why ? `: ${why}` : ""}`, grant.minLevel));
       } else if (isAutoSpellGrant(grant)) {
         subFeatures.push(line(resolveSpellSummary(description, bundle, level), grant.minLevel));
       } else {
         const why = detailFor(grant.description, grant.caveat);
-        subFeatures.push(line(`${name}${why ? `: ${why}` : ""}`, grant.minLevel));
+        subFeatures.push(line(`${displayGrantName(name)}${why ? `: ${why}` : ""}`, grant.minLevel));
       }
       continue;
     }
@@ -1117,14 +1132,14 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
       darkvisionBits.push(line(featureBit(grant), grant.minLevel));
     } else if (isResistanceGrant(grant)) {
       const why = briefDescription(description, 120);
-      resistanceBits.push(line(`${name}${why ? `: ${why}` : ""}`, grant.minLevel));
+      resistanceBits.push(line(`${displayGrantName(name)}${why ? `: ${why}` : ""}`, grant.minLevel));
     } else if (classDisplay && /^hit (die|points)/i.test(name)) {
       const why = detailFor(grant.description, grant.caveat);
-      hitBits.push(line(`${name}${why ? `: ${why}` : ""}`, grant.minLevel));
+      hitBits.push(line(`${displayGrantName(name)}${why ? `: ${why}` : ""}`, grant.minLevel));
     } else {
       const why = detailFor(grant.description, grant.caveat);
-      if (classDisplay) classFeatures.push(line(`${name}${why ? `: ${why}` : ""}`, grant.minLevel));
-      else innate.push(line(`${name}${why ? `: ${why}` : ""}`, grant.minLevel));
+      if (classDisplay) classFeatures.push(line(`${displayGrantName(name)}${why ? `: ${why}` : ""}`, grant.minLevel));
+      else innate.push(line(`${displayGrantName(name)}${why ? `: ${why}` : ""}`, grant.minLevel));
     }
   }
   // A PARENT race - one that owns a `subrace` picker, so its subraces
