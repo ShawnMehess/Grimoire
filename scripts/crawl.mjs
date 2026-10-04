@@ -15,25 +15,39 @@
 //
 // Run: npm run test:crawl
 //
-// KNOWN HANG (pre-existing, not a crawler bug)
+// KNOWN SLOWNESS (pre-existing, and it is the HARNESS, not the app)
 //
-// The crawl does not currently finish. It stops during the Identity step,
-// in fillStep()'s FIRST select round - the page.evaluate that assigns a
-// <select>'s value and dispatches a `change`. That call never returns, so the
-// page's JavaScript is spinning, and every later Playwright call queues behind
-// it. Verified on 3aa084e (main, before the hybrid branch) with this exact
-// instrumentation, so it is not something that branch introduced.
+// The crawl does not hang, and it does not wedge the app. It is slow: it
+// settles at roughly one Playwright renderer call every few seconds, which at
+// its size (a 22-iteration step loop, each step sweeping every row and then
+// running several 16-round completion passes) adds up to tens of minutes. It
+// looks like a hang because it narrates almost nothing between steps.
 //
-// Which makes it possibly a real user-facing freeze rather than a test
-// problem: a <select> inside a picked race row on the Identity step appears
-// to wedge the app when its value is changed. The sweep reaches it after
-// selecting a race and opening its inline choice links, which is why it looks
-// like a crawler-only path. That has not been confirmed by hand in a browser,
-// so treat it as the strong hypothesis, not a finding.
+// What was ruled out, so nobody repeats it:
 //
-// What the instrumentation below is for: making the next occurrence name
-// itself. Previously a hang was two lines of output and no information, which
-// cost a bisect to place and a second bisect to attribute.
+//  - Not an app freeze. Every Chrome process sits at 0-2% CPU while it is
+//    "stuck". A spinning renderer would peg a core.
+//  - Not a render loop. A tripwire counting renderPageGrid() calls to 40 never
+//    fired.
+//  - Not an event-dispatch storm or re-entrancy. A probe counting dispatches
+//    (total and depth) past 3000/60 never fired.
+//  - Not reachable by hand. Driving the real app through the same sequence -
+//    Identity, sweep all 15 rows, open the 3 inline choice links, stamp the
+//    text inputs, then fire `change` on each of the three selects in the
+//    picked row - leaves the page responsive every time.
+//  - Not new. Identical behaviour on 3aa084e (main, before the hybrid branch).
+//
+// So the cost is Playwright round-trips, and the fix is to make the wait
+// bounded and visible rather than to change app behaviour:
+//
+//  - every call that waits on the renderer is wrapped once, with a timeout, so
+//    no code path can wait forever (patched at the `page` object, so a new
+//    call site cannot reintroduce an unbounded wait)
+//  - each step announces itself and a heartbeat reports the last thing that
+//    started, so a stall names itself instead of costing a bisect
+//  - a counter reports renderer calls, so slowness is visibly slowness
+//  - the browser job in CI has timeout-minutes, so the worst case is 20
+//    minutes instead of GitHub's 6-hour default
 import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
@@ -102,16 +116,10 @@ page.on("console", (m) => { if (m.type() === "error") errorLog.push(`CONSOLE: ${
 
 // --- Watchdog ---------------------------------------------------------------
 //
-// Most Playwright calls here are bounded: click() takes an explicit timeout,
-// and sweep() swallows timeouts so an unclickable row is skipped. The ones
-// that are NOT bounded are page.evaluate, page.$$eval, and
-// page.keyboard.press - and any of them waits on the renderer. If a click
-// leaves the page's JS spinning, those wait forever, silently, and the crawl
-// looks like slowness rather than a hang.
-//
-// So every phase announces itself, and a heartbeat reports the last thing
-// that started. A hang then names itself in the log instead of costing
-// someone twenty-five minutes of watching a cursor.
+// Most Playwright calls here are bounded by an explicit timeout, and sweep()
+// swallows timeouts so an unclickable row is skipped. The four that are not
+// are wrapped below. Both exist because a stall that reports nothing costs a
+// bisect to place and a second bisect to attribute.
 let currentMark = "starting up";
 let markClock = Date.now();
 const mark = (label) => { currentMark = label; markClock = Date.now(); };
@@ -126,6 +134,47 @@ const heartbeat = setInterval(() => {
   }
 }, HEARTBEAT_MS);
 heartbeat.unref?.();
+
+// --- Bound every call that waits on the renderer -----------------------------
+//
+// click() and friends take an explicit timeout; these four do not. Each waits
+// on the page's main thread, so if the renderer stops servicing tasks they
+// wait forever - which is how this script used to die silently. Patched once
+// here rather than at ~40 call sites, so a new call cannot reintroduce an
+// unbounded wait. The originals are captured first.
+//
+// A timeout REJECTS, so the existing `.catch(...)` and act() handling still
+// applies and the stall is attributed like any other failure - but it now
+// carries the mark that was running, which is the information that was
+// missing.
+const RENDERER_TIMEOUT_MS = 15000;
+const originals = {
+  evaluate: page.evaluate.bind(page),
+  $$eval: page.$$eval.bind(page),
+  $eval: page.$eval.bind(page),
+  press: page.keyboard.press.bind(page.keyboard),
+};
+let rendererCalls = 0;
+function bounded(name, invoke) {
+  rendererCalls++;
+  if (rendererCalls % 250 === 0) {
+    console.log(`[progress] ${rendererCalls} renderer calls, running: "${currentMark}"`);
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`TIMEOUT after ${RENDERER_TIMEOUT_MS}ms waiting on the renderer in ${name} (running: "${currentMark}")`)),
+      RENDERER_TIMEOUT_MS
+    );
+    Promise.resolve().then(invoke).then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+page.evaluate = (fn, arg) => bounded("page.evaluate", () => originals.evaluate(fn, arg));
+page.$$eval = (sel, fn, arg) => bounded("page.$$eval", () => originals.$$eval(sel, fn, arg));
+page.$eval = (sel, fn, arg) => bounded("page.$eval", () => originals.$eval(sel, fn, arg));
+page.keyboard.press = (key, opts) => bounded("page.keyboard.press", () => originals.press(key, opts));
 
 async function act(phase, action, fn, opts = {}) {
   const before = errorLog.length;
