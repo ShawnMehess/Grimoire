@@ -18,6 +18,7 @@ jobs:
       - run: node scripts/smoke-imports.mjs
       - run: node scripts/smoke-dom.mjs
       - run: node scripts/verify-content.mjs
+      - run: node scripts/verify-generated.mjs
 
   browser:
     runs-on: ubuntu-latest
