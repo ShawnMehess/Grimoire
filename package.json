@@ -15,6 +15,7 @@
     "test:e2e:smoke": "node scripts/e2e-smoke.mjs --smoke",
     "test:e2e:areas": "node scripts/e2e-smoke.mjs --list",
     "test:crawl": "node scripts/crawl.mjs",
+    "test:crawl:fast": "node scripts/crawl.mjs --fast",
     "gate": "node scripts/gate-fast.mjs",
     "verify": "npm run gate && npm run test:e2e"
   },

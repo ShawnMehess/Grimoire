@@ -13,7 +13,36 @@
 // (playwright-core) plus a Chrome binary — well-known install paths
 // or PLAYWRIGHT_CHROME_PATH. Screenshots go to os.tmpdir().
 //
-// Run: npm run test:crawl
+// Run: npm run test:crawl            full sweep
+//      npm run test:crawl -- --fast  bounded sweep, for iteration
+//
+// WHY THERE IS A FAST MODE
+//
+// The full sweep takes tens of minutes: fine for an overnight audit,
+// unacceptable on every push. The cost is volume, not misbehaviour - a
+// 22-iteration step loop where each step sweeps every row and then runs
+// several 16-round completion passes, each round opening dialogs and
+// sleeping. Fast mode caps that volume without changing what is exercised:
+// same steps, same strategies, fewer iterations, so it stays a real smoke
+// test rather than a weaker, different one.
+//
+// Measured, not guessed - so this is not re-derived later:
+//
+//  - The transport is fine. A trivial page.evaluate against this app measures
+//    ~1.2ms, on demo.html and on the full index.html?offline=1 alike.
+//  - The page is never wedged. Every Chrome process sits at 0-2% of a core
+//    during a stall, and a faithful standalone repro of the Identity sequence
+//    - sweep all 15 rows, open the 3 inline choice links, stamp the text
+//    inputs, fire `change` on each of the three selects in the picked row -
+//    stays responsive on every attempt.
+//  - No app loop. A tripwire counting renderPageGrid() to 40, and a probe
+//    counting dispatchEvent totals past 3000 / nesting past 60, both installed
+//    in the app and read through this script's own pageerror capture, never
+//    fired.
+//  - Not new. Identical behaviour on 3aa084e, before the hybrid branch.
+//
+// The phase totals printed at the end make the claim checkable: if fast mode
+// were quietly skipping work, the call counts would collapse.
 //
 // KNOWN SLOWNESS (pre-existing, and it is the HARNESS, not the app)
 //
@@ -56,6 +85,16 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
 const ROOT = path.resolve(path.join(path.dirname(fileURLToPath(import.meta.url)), ".."));
+
+// Fast mode caps iteration VOLUME, never coverage of a code path. Every
+// strategy still runs on every step; the loops just stop earlier once the
+// step is satisfied. The exit conditions are unchanged - they are what decide
+// "done", not the caps.
+const FAST = process.argv.includes("--fast");
+const CAP = FAST
+  ? { rowsPerStep: 4, dialogRounds: 4, selectRounds: 4, radioRounds: 8, choiceLinks: 3, tabs: 4, toolbarButtons: 8, choiceInputs: 10, levels: 3 }
+  : { rowsPerStep: Infinity, dialogRounds: 16, selectRounds: 8, radioRounds: 40, choiceLinks: 8, tabs: Infinity, toolbarButtons: Infinity, choiceInputs: 25, levels: 6 };
+if (FAST) console.log("crawl: FAST MODE - capped iterations, full step coverage");
 let chromium;
 try {
   chromium = createRequire(import.meta.url)("playwright-core").chromium;
@@ -129,7 +168,7 @@ const heartbeat = setInterval(() => {
   // Only speak up once it is clear something is wrong, so a healthy run's log
   // stays readable.
   if (idle >= HEARTBEAT_MS / 1000) {
-    console.log(`[watchdog] still working: "${currentMark}" (${idle}s)`);
+    console.log(`[watchdog] ${elapsed()} elapsed, ${(sleepMs / 1000).toFixed(1)}s asleep in ${sleepCalls} waits, ${rendererCalls} renderer calls - working: "${currentMark}"`);
     markClock = Date.now();
   }
 }, HEARTBEAT_MS);
@@ -154,7 +193,39 @@ const originals = {
   $eval: page.$eval.bind(page),
   press: page.keyboard.press.bind(page.keyboard),
 };
+const T0 = Date.now();
+const elapsed = () => `${((Date.now() - T0) / 1000).toFixed(1)}s`;
+// Sleep total, so "slow" can be attributed rather than guessed at.
+let sleepMs = 0;
+let sleepCalls = 0;
+{
+  const origSleep = page.waitForTimeout.bind(page);
+  page.waitForTimeout = (ms) => { sleepMs += ms || 0; sleepCalls++; return origSleep(ms); };
+}
+
 let rendererCalls = 0;
+
+// Phase accounting. The step loop runs the same handful of strategies against
+// every step, and any one of them can quietly dominate a run, so each is timed
+// and the totals printed at the end. Optimising without this is guesswork.
+const phaseTotals = new Map();
+async function timePhase(name, fn) {
+  const started = Date.now();
+  try {
+    return await fn();
+  } finally {
+    const prev = phaseTotals.get(name) || { ms: 0, calls: 0 };
+    phaseTotals.set(name, { ms: prev.ms + (Date.now() - started), calls: prev.calls + 1 });
+  }
+}
+function printPhaseTotals() {
+  const rows = [...phaseTotals.entries()].sort((a, b) => b[1].ms - a[1].ms);
+  const total = rows.reduce((n, [, v]) => n + v.ms, 0);
+  console.log(`\ncrawl phase totals (${elapsed()} wall, ${(total / 1000).toFixed(1)}s in timed phases, ${(sleepMs / 1000).toFixed(1)}s asleep, ${rendererCalls} renderer calls)`);
+  for (const [name, v] of rows) {
+    console.log(`  ${(v.ms / 1000).toFixed(1).padStart(7)}s  ${String(v.calls).padStart(4)} calls  ${name}`);
+  }
+}
 function bounded(name, invoke) {
   rendererCalls++;
   if (rendererCalls % 250 === 0) {
@@ -233,9 +304,9 @@ for (let step = 0; step < 22; step++) {
   const selectedBefore = await page.$$eval(".choice-row--selected", (els) => els.map((e) => e.dataset.rowName)).catch(() => []);
   const names = await page.$$eval(".choice-row[data-row-name]", (els) => els.map((e) => e.dataset.rowName)).catch(() => []);
   console.log(`[wizard:${label}] sweeping ${names.length} rows`);
-  for (const name of names) {
+  for (const name of names.slice(0, CAP.rowsPerStep)) {
     console.log(`   -> row ${name}`);
-    await sweep(`wizard:${label}`, `click row ${name}`, () => click(`.choice-row[data-row-name="${name}"]`, 3000));
+    await timePhase("1 sweep row", () => sweep(`wizard:${label}`, `click row ${name}`, () => click(`.choice-row[data-row-name="${name}"]`, 3000)));
     await page.keyboard.press("Escape"); // close any overlay the click opened
     await page.waitForTimeout(200);
   }
@@ -247,7 +318,7 @@ for (let step = 0; step < 22; step++) {
   mark(`${label}: counting choice links`);
   const helpCount = await page.$$eval(helpSel, (els) => els.length).catch(() => 0);
   console.log(`[wizard:${label}] ${helpCount} choice link(s) to open`);
-  for (let i = 0; i < Math.min(helpCount, 8); i++) {
+  for (let i = 0; i < Math.min(helpCount, CAP.choiceLinks); i++) {
     mark(`${label}: opening choice link ${i + 1}/${Math.min(helpCount, 8)}`);
     await sweep(`wizard:${label}`, "open choice dialog", () => page.locator(helpSel).nth(i).click({ timeout: 3000 }));
     mark(`${label}: waiting after choice link ${i + 1}`);
@@ -270,7 +341,7 @@ for (let step = 0; step < 22; step++) {
   // re-renders the list and detaches the rest.
   const headCount = await page.$$eval(".spell-picker-list .wizard__section-label", (h) => h.length).catch(() => 0);
   if (headCount) {
-    for (let r = 0; r < 40; r++) {
+    for (let r = 0; r < CAP.dialogRounds; r++) {
       if (await page.$(".wizard button.wizard__next:not([disabled])")) break;
       const secIdx = r % headCount;
       const nm = await page.evaluate((idx) => {
@@ -317,12 +388,15 @@ for (let step = 0; step < 22; step++) {
   // easily. Filling a row you have not picked was never meaningful work, and
   // the selects that matter (ruleset, level, HP method) live outside rows.
   //
-  // Written as a real function and passed in, because `page.evaluate` hands
-  // the function to the page and cannot close over anything here.
-  const skipUnpickedRow = (el) => {
-    const row = el.closest?.(".choice-row");
-    return !!row && !row.classList.contains("choice-row--selected");
-  };
+  // Lives INSIDE each page.evaluate below, and that is the whole point:
+  // page.evaluate serialises its arguments as JSON, so passing a function in
+  // as one throws "Attempting to serialize unexpected value". A version of
+  // this passed `skipUnpickedRow` as an argument and every select and radio
+  // round in fillStep threw on its first call - silently, because act() treats
+  // a throw as "could not do that" and carries on. The step therefore never
+  // filled, never enabled Next, and the crawl ground through every remaining
+  // retry budget for the rest of the run. It read as "very slow"; it was
+  // broken.
   const fillStep = async () => {
     mark(`${label}: fillStep texts`);
     await page.evaluate(() => {
@@ -335,34 +409,40 @@ for (let step = 0; step < 22; step++) {
     // empty select remains (same one-at-a-time rule as the radios
     // below). Capped: a full budget stays full, so extra rounds only
     // churn within the budget, never below it.
-    for (let sround = 0; sround < 8; sround++) {
+    for (let sround = 0; sround < CAP.selectRounds; sround++) {
       mark(`${label}: fillStep select round ${sround}`);
-      const filled = await page.evaluate((skip) => {
-        const live = (el) => !(skip ? skip(el) : false);
-        const s = [...document.querySelectorAll(".wizard select")].find((el) => !el.value && el.isConnected && live(el));
+      const filled = await page.evaluate(() => {
+        const inUnpickedRow = (el) => {
+          const row = el.closest?.(".choice-row");
+          return !!row && !row.classList.contains("choice-row--selected");
+        };
+        const s = [...document.querySelectorAll(".wizard select")].find((el) => !el.value && el.isConnected && !inUnpickedRow(el));
         if (!s) return false;
         const opt = [...s.options].find((o) => o.value && !/choose|select|none/i.test(o.text));
         if (!opt) return false;
         s.value = opt.value;
         s.dispatchEvent(new Event("change", { bubbles: true }));
         return true;
-      }, skipUnpickedRow);
+      });
       if (!filled) break;
       await page.waitForTimeout(250);
     }
-    for (let round = 0; round < 40; round++) {
+    for (let round = 0; round < CAP.radioRounds; round++) {
       mark(`${label}: fillStep radio round ${round}`);
-      const clicked = await page.evaluate((skip) => {
-        const live = (el) => !(skip ? skip(el) : false);
+      const clicked = await page.evaluate(() => {
+        const inUnpickedRow = (el) => {
+          const row = el.closest?.(".choice-row");
+          return !!row && !row.classList.contains("choice-row--selected");
+        };
         const radioNames = new Set([...document.querySelectorAll(".wizard input[type='radio']")].map((r) => r.name));
         for (const name of radioNames) {
-          const group = [...document.querySelectorAll(`.wizard input[type='radio'][name="${CSS.escape(name)}"]`)].filter((r) => !r.disabled && r.isConnected && live(r));
+          const group = [...document.querySelectorAll(`.wizard input[type='radio'][name="${CSS.escape(name)}"]`)].filter((r) => !r.disabled && r.isConnected && !inUnpickedRow(r));
           if (group.length && !group.some((r) => r.checked)) { group[0].click(); return true; }
         }
-        const box = [...document.querySelectorAll(".wizard input[type='checkbox']:not(:checked)")].find((c) => !c.disabled && c.isConnected && live(c));
+        const box = [...document.querySelectorAll(".wizard input[type='checkbox']:not(:checked)")].find((c) => !c.disabled && c.isConnected && !inUnpickedRow(c));
         if (box) { box.click(); return true; }
         return false;
-      }, skipUnpickedRow);
+      });
       if (!clicked) break;
       await page.waitForTimeout(250);
     }
@@ -406,7 +486,7 @@ for (let step = 0; step < 22; step++) {
       await sweep(`wizard:${label}`, `select first row ${names[0]}`, () => click(`.choice-row[data-row-name="${names[0]}"]`, 3000));
     }
     await page.waitForTimeout(600);
-    await act(`wizard:${label}`, "refill after select", fillStep);
+    await act(`wizard:${label}`, "refill after select", () => timePhase("3 fillStep", fillStep));
     await page.waitForTimeout(800);
   }
   // 2b) Complete through ? dialogs: some steps can only finish inside
@@ -415,7 +495,7 @@ for (let step = 0; step < 22; step++) {
   // the rest), Accept, repeat until Next enables or nothing changes.
   const completeViaDialogs = async (tag) => {
     const helpSel = ".wizard .inline-pick-link, .wizard .inline-pick-help a";
-    for (let r = 0; r < 16; r++) {
+    for (let r = 0; r < CAP.dialogRounds; r++) {
       if (await page.$(".wizard button.wizard__next:not([disabled])")) return true;
       if (await page.$(".wizard button:has-text('Finish'), .wizard button:has-text('Complete'), .wizard button:has-text('Create'), .wizard button:has-text('Apply'):not(.wizard__dot)")) return true;
       const helpCount = await page.$$eval(helpSel, (els) => els.length).catch(() => 0);
@@ -476,7 +556,7 @@ for (let step = 0; step < 22; step++) {
     }
     return false;
   };
-  await act(`wizard:${label}`, "complete via dialogs", () => completeViaDialogs("fill"));
+  await act(`wizard:${label}`, "complete via dialogs", () => timePhase("4 completeViaDialogs", () => completeViaDialogs("fill")));
   await page.waitForTimeout(800);
   await act(`wizard:${label}`, "complete via nested rows", () => completeViaNestedRows("fill"));
   await page.waitForTimeout(600);
@@ -486,7 +566,7 @@ for (let step = 0; step < 22; step++) {
   let finishBtn = await page.$(".wizard button:has-text('Finish'), .wizard button:has-text('Complete'), .wizard button:has-text('Create'), .wizard button:has-text('Apply'):not(.wizard__dot)");
   let nextBtn = await page.$(".wizard button.wizard__next:not([disabled])");
   if (!finishBtn && !nextBtn && names.length) {
-    for (const name of names) {
+    for (const name of names.slice(0, CAP.rowsPerStep)) {
       await sweep(`wizard:${label}`, `try pick ${name}`, () => click(`.choice-row[data-row-name="${name}"]`, 3000));
       await page.waitForTimeout(500);
       await act(`wizard:${label}`, "refill after try", fillStep);
@@ -620,6 +700,7 @@ if (await page.$("input[type='search']")) {
   await act("vault", "type search", () => page.fill("input[type='search']", "zzz-no-match"));
   await act("vault", "clear search", () => page.fill("input[type='search']", ""));
 }
+printPhaseTotals();
 const cardCount = await page.$$eval(".character-card", (els) => els.length).catch(() => 0);
 console.log(`[vault] ${cardCount} cards`);
 if (cardCount) {

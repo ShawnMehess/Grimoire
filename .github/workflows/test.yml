@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The exhaustive crawl runs nightly and on demand, not on every push. See the
+  # crawl job for why.
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
 
 jobs:
   static-and-unit:
@@ -24,14 +29,10 @@ jobs:
       - run: node scripts/verify-content.mjs
       - run: node scripts/verify-generated.mjs
 
-  browser:
+  e2e:
     runs-on: ubuntu-latest
-    # e2e takes ~4 minutes locally across three viewports, and the crawl is a
-    # far bigger sweep - every row of every race, class and background. 20
-    # minutes is generous for both. It was previously unset, so a hang sat
-    # there for the default 6 hours; that is exactly how a stuck crawl went
-    # unnoticed long enough to look like "still running".
-    timeout-minutes: 20
+    # ~4 minutes locally across desktop, tablet and mobile.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -45,6 +46,31 @@ jobs:
       - run: npm run test:e2e
         env:
           PLAYWRIGHT_CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+
+  crawl:
+    # Nightly and on demand only. This is the exhaustive audit - every row of
+    # every race, class and background, every wizard step, every dialog - and
+    # it takes tens of minutes, which is the wrong price for every push.
+    #
+    # It is a different KIND of check from e2e, not a weaker one. e2e walks the
+    # real user flows and asserts on them; the crawl clicks everything and
+    # attributes any page error to the action that caused it. Nothing e2e does
+    # is removed from the push path to make room for this - the push gate is
+    # the static checks plus e2e, and it stays under ~6 minutes.
+    #
+    # `--fast` is available and takes about 4 minutes with full step coverage
+    # and capped iteration counts; the full sweep below is the nightly one.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm i --no-audit --no-fund
+      - id: setup-chrome
+        uses: browser-actions/setup-chrome@latest
       - run: npm run test:crawl
         env:
           PLAYWRIGHT_CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
