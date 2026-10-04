@@ -4024,10 +4024,6 @@ const closeDialog = () => {
     return groupPicksSatisfied(group, character.rules?.choices?.[group.key], owned);
   }
 
-  /** Fixed feature grants from the staged Race/Class/Subclass/
-   *  Background, one section per source, for the automatic-grants
-   *  reference step. Picks made on other pages are decisions, not
-   *  automatic grants, so only fixed grants appear here. */
   /** The four fixed picks a creation wizard makes, in the positional
    *  order creationFixedBundles returns them. Their categories are part
    *  of the picks-store key (see keyFor), so anything reading a staged
@@ -4037,8 +4033,12 @@ const closeDialog = () => {
   /** Ability-score bonuses every staged pick contributes, broken out by
    *  source. Shared by the Starting Conditions step and the Review page:
    *  the two used to disagree, because Review read the stored base scores
-   *  while the sheet applied the racial points on top at render time. */
-  function stagedAbilityBonuses() {
+   *  while the sheet applied the racial points on top at render time.
+   *
+   *  Takes `state` as a parameter for the same reason its neighbours do:
+   *  there is no `state` in this scope, only the one renderRulesTab
+   *  declares inside itself. */
+  function stagedAbilityBonuses(state) {
     const names = [state.species, state.className, state.subclass, state.background];
     return abilityScoreBonusesFrom(
       creationFixedBundles(state).map((bundle, i) => ({
@@ -4051,6 +4051,10 @@ const closeDialog = () => {
     );
   }
 
+  /** Fixed feature grants from the staged Race/Class/Subclass/
+   *  Background, one section per source, for the automatic-grants
+   *  reference step. Picks made on other pages are decisions, not
+   *  automatic grants, so only fixed grants appear here. */
   function innateAbilitySections(state) {
     const bundles = creationFixedBundles(state);
     const names = [state.species, state.className, state.subclass, state.background];
@@ -6396,7 +6400,7 @@ const closeDialog = () => {
               character.rules.abilityScoreMethod = method;
               saveRules();
             },
-            bonuses: stagedAbilityBonuses(),
+            bonuses: stagedAbilityBonuses(state),
             // Feats the player has already picked (or is looking at) that
             // want a higher score than they've set, so the Abilities tab
             // can say which ones are still short and by how much.
@@ -6522,7 +6526,7 @@ const closeDialog = () => {
             spellLimit: resolved.derived.spellLimit,
             resources: resolved.derived.resources,
             abilityScores: character.rules.abilityScores,
-            abilityBonuses: stagedAbilityBonuses(),
+            abilityBonuses: stagedAbilityBonuses(state),
             abilityMethod: character.rules.abilityScoreMethod,
             hpMethod: null,
             choiceLines: [],
