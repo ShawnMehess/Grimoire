@@ -104,15 +104,47 @@ onAuthChange(async (user) => {
  *  buildAvatarPlaceholderSvg in customSheet.js) — duplicated rather
  *  than imported since it's a few lines of inline SVG and pulling in
  *  all of customSheet.js here just for this would be overkill. */
-function buildPlaceholderPortraitSvg() {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
+/** The card art for a character who has not set an avatar: their initial
+ *  on a themed panel.
+ *
+ *  It used to be the same generic head-and-shoulders silhouette on every
+ *  card, which made a vault of eight read as eight copies of one thing
+ *  and wasted the largest element on the card. A monogram gives each card
+ *  its own mark and says something about who it belongs to. Colours come
+ *  from CSS classes rather than fills, so it re-themes with everything
+ *  else instead of being one more fixed-colour picture.
+ *
+ *  Only used by the vault card, so this is free to be card-specific. */
+function buildPlaceholderPortraitSvg(name) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 100 100");
   svg.setAttribute("preserveAspectRatio", "xMidYMid slice");
-  svg.innerHTML = `
-    <rect width="24" height="24" fill="#2a2520"/>
-    <circle cx="12" cy="9.5" r="4" fill="#4a4038"/>
-    <path d="M12 14.6c-4.8 0-8.2 3.2-8.2 7.7v1.7h16.4v-1.7c0-4.5-3.4-7.7-8.2-7.7z" fill="#4a4038"/>
-  `;
+
+  const bg = document.createElementNS(NS, "rect");
+  bg.setAttribute("class", "character-card__placeholder-bg");
+  bg.setAttribute("width", "100");
+  bg.setAttribute("height", "100");
+
+  const ring = document.createElementNS(NS, "circle");
+  ring.setAttribute("class", "character-card__placeholder-ring");
+  ring.setAttribute("cx", "50");
+  ring.setAttribute("cy", "50");
+  ring.setAttribute("r", "25");
+
+  const label = document.createElementNS(NS, "text");
+  label.setAttribute("class", "character-card__placeholder-initial");
+  label.setAttribute("x", "50");
+  label.setAttribute("y", "50");
+  label.setAttribute("text-anchor", "middle");
+  label.setAttribute("dominant-baseline", "central");
+  // textContent, never an interpolated innerHTML: a character called
+  // "<img onerror=...>" would otherwise reach the DOM as markup. The
+  // markup gate in check-imports.mjs exists for exactly this and caught
+  // the first version of this function.
+  label.textContent = String(name || "").trim().charAt(0).toUpperCase() || "?";
+
+  svg.append(bg, ring, label);
   return svg;
 }
 
@@ -378,7 +410,7 @@ async function renderCharacterList() {
         onclick: () => openCharacter(c.id),
       },
         el("div", { class: "character-card__portrait" },
-          avatarData ? el("img", { src: avatarData, alt: "" }) : buildPlaceholderPortraitSvg()),
+          avatarData ? el("img", { src: avatarData, alt: "" }) : buildPlaceholderPortraitSvg(c.name)),
         el("div", { class: "character-card__actions" }, duplicateBtn, deleteBtn),
         el("div", { class: "character-card__info" },
           el("div", { class: "character-card__name", text: c.name || "Unnamed" }),

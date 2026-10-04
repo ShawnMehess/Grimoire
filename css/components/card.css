@@ -6,7 +6,7 @@
 
 .character-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: var(--space-4);
 }
 
@@ -28,9 +28,32 @@
   transform: translateY(-1px);
 }
 
+/* A card that is not selected should not look selected. The inner hairline
+   is the same double rule the class gallery and the welcome medallion use,
+   so the vault reads as the same object as everything else. */
+.character-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--color-accent-muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-normal);
+}
+.character-card:hover::after {
+  opacity: 1;
+}
+
 .character-card__portrait {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  /* Taller than square: these are bust portraits, and the 4/5 frame gives
+     the artwork somewhere to be. Capped, because the tablet breakpoint
+     below forces a two-up layout and an uncapped 4/5 frame turns a 378px
+     card into a 470px one - the art crops to a banner instead, which
+     suits a bust better than losing most of it. */
+  aspect-ratio: 4 / 5;
+  max-height: 15rem;
   background: var(--color-bg-inset);
   overflow: hidden;
 }
@@ -40,6 +63,27 @@
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+/* --- The no-avatar mark (see buildPlaceholderPortraitSvg) ---------------- */
+
+.character-card__placeholder-bg {
+  fill: var(--color-bg-inset);
+}
+.character-card__placeholder-ring {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 1;
+  opacity: 0.35;
+}
+/* Kept small on purpose. The monogram is a mark, not a logo: at 44 units in
+   a 100-unit frame it filled the card and every portrait competed with the
+   name underneath it. */
+.character-card__placeholder-initial {
+  fill: var(--color-text-muted);
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 600;
 }
 
 .character-card__info {
@@ -58,16 +102,34 @@
   white-space: nowrap;
 }
 
+/* An accent hairline under the name, so the card has a head and a body
+   rather than being one undifferentiated block of text. */
+.character-card__name::after {
+  content: "";
+  display: block;
+  margin-top: var(--space-2);
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    var(--color-accent),
+    var(--color-accent-muted) 55%,
+    transparent
+  );
+}
+
 /* One fact per line (Level / Race / subrace / Class / subclass).
- * The block always reserves five lines so every card is the same
- * height whether or not a subrace/subclass is picked, and fewer
- * lines sit vertically centered in the reserved space. */
+ *
+ * It used to reserve five lines' worth of height and centre the real
+ * lines in the middle of it, so a card with the usual three facts had an
+ * empty band above AND below them - which is most of what made the vault
+ * read as sparse. Equal card heights do not need it: grid stretches every
+ * item in a row to the tallest one already, so the reservation was buying
+ * the same result twice and charging a gap for it. */
 .character-card__meta-lines {
   display: flex;
   flex-direction: column;
-  justify-content: center;
   flex: 1;
-  min-height: calc(5 * 1.4em);
+  margin-top: var(--space-2);
 }
 
 .character-card__meta-line {
@@ -145,9 +207,9 @@
 
    The meta lines (Level / Race / Class) were display:none here, so a phone
    showed a portrait and a name and nothing else - you had to open a
-   character to find out what it was. They are shown, compressed to two lines
-   with the rest elided, because on a card this size the level and the class
-   are the two facts that tell you whether you opened the right one. */
+   character to find out what it was. They are shown because on a card this
+   size the level and the class are the two facts that tell you whether you
+   opened the right one. */
 @media (max-width: 600px) {
   /* 80px, not 85: the vault's own padding leaves ~341px on a 390px screen,
      and four tracks need 4*80 + 3*gap to fit inside that. At 85 it lays out
@@ -171,13 +233,46 @@
     margin-bottom: 0;
   }
 
-  /* Two lines reserved rather than five: subrace and subclass are the rows
-     that get elided first, and reserving their space would leave a gap where
-     text should be on a card 85px wide. */
+  /* The hairline already separates the name from the facts, so the margins
+     that space it out on a desktop card are more gap than an 83px card can
+     spare - and the phone card has a height budget to stay inside (see the
+     four-across density check in scripts/e2e-smoke.mjs). The divider plus
+     the name's own 2px reads as separated at this size. */
+  .character-card__name::after {
+    margin-top: 4px;
+  }
+
+  /* Three whole lines, which is Level / Race / Class - the three facts
+     that tell you whether you opened the right character. A fourth row
+     appears once a subrace or subclass is picked, and the fade below is
+     what makes that cut read as "more below".
+
+     The 1.25 here is the same line-height the rows below use, and the
+     --text-xs is their font-size: the container's own font-size is 1rem,
+     so an `em` figure would size the box against the wrong thing and the
+     cut would land part-way through a line.
+
+     This used to be `min-height: calc(2 * 1.25em)`, which reserved room
+     for two lines and clipped nothing - the comment above claimed the
+     rest was "elided" and it never was, so nothing here is a change
+     anyone has seen. */
   .character-card__meta-lines {
-    min-height: calc(2 * 1.25em);
-    justify-content: flex-start;
+    margin-top: 0;
+    max-height: calc(3 * var(--text-xs) * 1.25);
     overflow: hidden;
+  }
+
+  /* Fade only when a fourth row actually exists, so the three-line case -
+     which is nearly all of them - is never dimmed for no reason.
+
+     `:has()` is cosmetic-only here and the project keeps it that way
+     (see the note in custom-sheet-grid.css): the clip above is what
+     bounds the card and it stands on its own. Where `:has()` is missing,
+     this whole rule is dropped and you get a clean cut on a line
+     boundary instead of a fade. */
+  .character-card__meta-lines:has(.character-card__meta-line:nth-child(4)) {
+    -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
   }
 
   .character-card__meta-line {
