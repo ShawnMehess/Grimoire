@@ -90,7 +90,14 @@ export function checkSubclassSourcing(rootDir = ROOT) {
   }
   if (output) {
     const known = new Set(Object.values(summaries).map((e) => e.summary));
-    const m = output.match(/export const SUBCLASS_SUPPLEMENT = ([\s\S]*?);\n\nexport const SUBCLASS_CHOICE_NAMES/);
+    // \r? on both newlines, not a bare \n: .gitattributes says `* text=auto`
+    // and core.autocrlf is true on Windows, so a fresh clone here has this
+    // file with CRLF and the bare-\n pattern silently stopped matching -
+    // reporting missing compiled output that was sitting right there. The
+    // rest of the suite already tolerates both (see check-imports.mjs and
+    // verify-generated.mjs); this was the one place that did not, and CI
+    // never saw it because it checks out on Linux.
+    const m = output.match(/export const SUBCLASS_SUPPLEMENT = ([\s\S]*?);\r?\n\r?\nexport const SUBCLASS_CHOICE_NAMES/);
     if (!m) {
       fail("cannot locate SUBCLASS_SUPPLEMENT in compiled output");
     } else {
