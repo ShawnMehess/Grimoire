@@ -1,0 +1,37 @@
+name: crawl
+
+# The exhaustive audit, nightly and on demand.
+#
+# This is the long one: it clicks every row of every race, class and
+# background, every wizard step, every dialog, every toolbar control, and
+# attributes any page error to the action that caused it. Tens of minutes.
+# The push gate runs a bounded version of it (crawl-fast in test.yml) plus
+# e2e, so nothing is uncovered - this simply does more.
+#
+# It was a job inside test.yml until it turned out to have no timeout and had
+# been silently broken for eleven commits, which meant every push showed a
+# job sitting at "Skipped". Separate file: this one runs when it says it will.
+on:
+  schedule:
+    # 04:17 UTC nightly. Off the hour on purpose - scheduled workflows queue
+    # behind the busiest minute and 04:00 is the most contended one there is.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  crawl-full:
+    runs-on: ubuntu-latest
+    # Generous, because this legitimately runs long - but bounded, so a genuine
+    # stall is a red X in 90 minutes rather than a job open for six hours.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm i --no-audit --no-fund
+      - id: setup-chrome
+        uses: browser-actions/setup-chrome@latest
+      - run: npm run test:crawl
+        env:
+          PLAYWRIGHT_CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}

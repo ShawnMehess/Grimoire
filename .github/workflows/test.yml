@@ -1,14 +1,17 @@
 name: test
 
+# Push gate. Two jobs, about nine minutes total.
+#
+# The exhaustive crawl lives in crawl.yml rather than here. It used to be a
+# third job in this workflow, but it had no timeout and had been silently
+# broken for eleven commits, so on every push it showed as "Skipped" - which
+# reads like something went wrong and tells you nothing about whether the app
+# is covered. Splitting it out means this file contains only jobs that
+# actually ran, and the crawl's absence from a push is just a push being fast.
 on:
   push:
     branches: [main]
   pull_request:
-  # The exhaustive crawl runs nightly and on demand, not on every push. See the
-  # crawl job for why.
-  schedule:
-    - cron: "17 4 * * *"
-  workflow_dispatch:
 
 jobs:
   static-and-unit:
@@ -47,22 +50,15 @@ jobs:
         env:
           PLAYWRIGHT_CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
 
-  crawl:
-    # Nightly and on demand only. This is the exhaustive audit - every row of
-    # every race, class and background, every wizard step, every dialog - and
-    # it takes tens of minutes, which is the wrong price for every push.
-    #
-    # It is a different KIND of check from e2e, not a weaker one. e2e walks the
-    # real user flows and asserts on them; the crawl clicks everything and
-    # attributes any page error to the action that caused it. Nothing e2e does
-    # is removed from the push path to make room for this - the push gate is
-    # the static checks plus e2e, and it stays under ~6 minutes.
-    #
-    # `--fast` is available and takes about 4 minutes with full step coverage
-    # and capped iteration counts; the full sweep below is the nightly one.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+  crawl-fast:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # ~4.5 minutes. Bounded iteration counts, full step coverage: it walks
+    # every wizard step and every completion strategy, and stops early once a
+    # step is satisfied. This is the only check that clicks EVERY control and
+    # attributes a page error to the action that caused it, so it earns its
+    # place on the push path - e2e walks real flows and asserts on them, which
+    # is a different kind of coverage, not a substitute.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -71,6 +67,6 @@ jobs:
       - run: npm i --no-audit --no-fund
       - id: setup-chrome
         uses: browser-actions/setup-chrome@latest
-      - run: npm run test:crawl
+      - run: npm run test:crawl:fast
         env:
           PLAYWRIGHT_CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
