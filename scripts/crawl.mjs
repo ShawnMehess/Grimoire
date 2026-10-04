@@ -14,6 +14,26 @@
 // or PLAYWRIGHT_CHROME_PATH. Screenshots go to os.tmpdir().
 //
 // Run: npm run test:crawl
+//
+// KNOWN HANG (pre-existing, not a crawler bug)
+//
+// The crawl does not currently finish. It stops during the Identity step,
+// in fillStep()'s FIRST select round - the page.evaluate that assigns a
+// <select>'s value and dispatches a `change`. That call never returns, so the
+// page's JavaScript is spinning, and every later Playwright call queues behind
+// it. Verified on 3aa084e (main, before the hybrid branch) with this exact
+// instrumentation, so it is not something that branch introduced.
+//
+// Which makes it possibly a real user-facing freeze rather than a test
+// problem: a <select> inside a picked race row on the Identity step appears
+// to wedge the app when its value is changed. The sweep reaches it after
+// selecting a race and opening its inline choice links, which is why it looks
+// like a crawler-only path. That has not been confirmed by hand in a browser,
+// so treat it as the strong hypothesis, not a finding.
+//
+// What the instrumentation below is for: making the next occurrence name
+// itself. Previously a hang was two lines of output and no information, which
+// cost a bisect to place and a second bisect to attribute.
 import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
@@ -80,6 +100,33 @@ page.on("pageerror", (e) => {
 });
 page.on("console", (m) => { if (m.type() === "error") errorLog.push(`CONSOLE: ${m.text().split("\n")[0]}`); });
 
+// --- Watchdog ---------------------------------------------------------------
+//
+// Most Playwright calls here are bounded: click() takes an explicit timeout,
+// and sweep() swallows timeouts so an unclickable row is skipped. The ones
+// that are NOT bounded are page.evaluate, page.$$eval, and
+// page.keyboard.press - and any of them waits on the renderer. If a click
+// leaves the page's JS spinning, those wait forever, silently, and the crawl
+// looks like slowness rather than a hang.
+//
+// So every phase announces itself, and a heartbeat reports the last thing
+// that started. A hang then names itself in the log instead of costing
+// someone twenty-five minutes of watching a cursor.
+let currentMark = "starting up";
+let markClock = Date.now();
+const mark = (label) => { currentMark = label; markClock = Date.now(); };
+const HEARTBEAT_MS = 5000;
+const heartbeat = setInterval(() => {
+  const idle = Math.round((Date.now() - markClock) / 1000);
+  // Only speak up once it is clear something is wrong, so a healthy run's log
+  // stays readable.
+  if (idle >= HEARTBEAT_MS / 1000) {
+    console.log(`[watchdog] still working: "${currentMark}" (${idle}s)`);
+    markClock = Date.now();
+  }
+}, HEARTBEAT_MS);
+heartbeat.unref?.();
+
 async function act(phase, action, fn, opts = {}) {
   const before = errorLog.length;
   try {
@@ -138,6 +185,7 @@ for (let step = 0; step < 22; step++) {
   const names = await page.$$eval(".choice-row[data-row-name]", (els) => els.map((e) => e.dataset.rowName)).catch(() => []);
   console.log(`[wizard:${label}] sweeping ${names.length} rows`);
   for (const name of names) {
+    console.log(`   -> row ${name}`);
     await sweep(`wizard:${label}`, `click row ${name}`, () => click(`.choice-row[data-row-name="${name}"]`, 3000));
     await page.keyboard.press("Escape"); // close any overlay the click opened
     await page.waitForTimeout(200);
@@ -147,17 +195,25 @@ for (let step = 0; step < 22; step++) {
   // error-free, then close without picking (Escape, else its Cancel
   // button) so state is untouched.
   const helpSel = ".wizard .inline-pick-link, .wizard .inline-pick-help a";
+  mark(`${label}: counting choice links`);
   const helpCount = await page.$$eval(helpSel, (els) => els.length).catch(() => 0);
+  console.log(`[wizard:${label}] ${helpCount} choice link(s) to open`);
   for (let i = 0; i < Math.min(helpCount, 8); i++) {
+    mark(`${label}: opening choice link ${i + 1}/${Math.min(helpCount, 8)}`);
     await sweep(`wizard:${label}`, "open choice dialog", () => page.locator(helpSel).nth(i).click({ timeout: 3000 }));
+    mark(`${label}: waiting after choice link ${i + 1}`);
     await page.waitForTimeout(400);
+    mark(`${label}: Escape after choice link ${i + 1}`);
     await page.keyboard.press("Escape");
+    mark(`${label}: settling after choice link ${i + 1}`);
     await page.waitForTimeout(200);
+    mark(`${label}: checking for leftover overlay ${i + 1}`);
     if (await page.$(".modal-overlay")) {
       await sweep(`wizard:${label}`, "cancel dialog", () => click(".modal-overlay .btn:not(.btn--primary)", 3000));
       await page.waitForTimeout(200);
     }
   }
+  mark(`${label}: choice links done`);
   // Spell-picker cards (Spells step): click-to-learn rows, capped per
   // level — cantrips list first, so burn rounds round-robin across the
   // level sections (else capped cantrips eat the whole budget and the
@@ -219,6 +275,7 @@ for (let step = 0; step < 22; step++) {
     return !!row && !row.classList.contains("choice-row--selected");
   };
   const fillStep = async () => {
+    mark(`${label}: fillStep texts`);
     await page.evaluate(() => {
       document.querySelectorAll(".wizard input[type='text'], .wizard input:not([type])").forEach((i) => { if (!i.value) { i.value = "Crawl"; i.dispatchEvent(new Event("input", { bubbles: true })); } });
     });
@@ -230,6 +287,7 @@ for (let step = 0; step < 22; step++) {
     // below). Capped: a full budget stays full, so extra rounds only
     // churn within the budget, never below it.
     for (let sround = 0; sround < 8; sround++) {
+      mark(`${label}: fillStep select round ${sround}`);
       const filled = await page.evaluate((skip) => {
         const live = (el) => !(skip ? skip(el) : false);
         const s = [...document.querySelectorAll(".wizard select")].find((el) => !el.value && el.isConnected && live(el));
@@ -244,6 +302,7 @@ for (let step = 0; step < 22; step++) {
       await page.waitForTimeout(250);
     }
     for (let round = 0; round < 40; round++) {
+      mark(`${label}: fillStep radio round ${round}`);
       const clicked = await page.evaluate((skip) => {
         const live = (el) => !(skip ? skip(el) : false);
         const radioNames = new Set([...document.querySelectorAll(".wizard input[type='radio']")].map((r) => r.name));

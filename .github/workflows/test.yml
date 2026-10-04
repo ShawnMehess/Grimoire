@@ -8,6 +8,10 @@ on:
 jobs:
   static-and-unit:
     runs-on: ubuntu-latest
+    # These are all pure computation; 5 minutes is roughly 40x the local
+    # total. Without this, a genuine hang (or an accidental infinite loop in a
+    # compiler) burns GitHub's 6-hour default before anyone hears about it.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,6 +26,12 @@ jobs:
 
   browser:
     runs-on: ubuntu-latest
+    # e2e takes ~4 minutes locally across three viewports, and the crawl is a
+    # far bigger sweep - every row of every race, class and background. 20
+    # minutes is generous for both. It was previously unset, so a hang sat
+    # there for the default 6 hours; that is exactly how a stuck crawl went
+    # unnoticed long enough to look like "still running".
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
