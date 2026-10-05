@@ -24,7 +24,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spellLimitFor } from "../js/data/rulesEngine.js";
 import { getLevelUpPlan, getSpellcastingInfo } from "../js/data/dnd5e.js";
-import { spellcastingModelFor, UNLIMITED_SPELL_CAP } from "../js/data/spellcastingModels.js";
+import { spellcastingModelFor } from "../js/data/spellcastingModels.js";
 import {
   creationSpellPickGroups,
   spellPickDialogOptions,
@@ -103,6 +103,10 @@ const modelFor = (className, rulesetId = "dnd5e-2014") =>
 
 function groupsFor(className, level, {
   choices = {}, knownItems = [], bundles = [], abilityScores = SCORES, rulesetId = "dnd5e-2014",
+  // How many spells the class can cast across the levels in question - the
+  // spellbook's real ceiling. Defaults to counting the stand-in catalog, which
+  // is the same set the picker offers, so the two agree by construction.
+  spellbookCapFor = null,
 } = {}) {
   return creationSpellPickGroups({
     className,
@@ -114,9 +118,17 @@ function groupsFor(className, level, {
     limitFor: spellLimitFor,
     availableLevelsFor: (n, l) => availableLevelsFor(n, l, rulesetId),
     levelByNameFn: levelByName,
+    spellbookCapFor: spellbookCapFor || ((n, l, levels) => levels.reduce(
+      (total, lvl) => total + spellsForLevel(lvl, n).length, 0)),
     model: modelFor(className, rulesetId),
   });
 }
+
+/** What the spellbook ceiling SHOULD be for this class at this level: every
+ *  spell the class list offers across the levels it has slots for. */
+const spellbookCeiling = (className, level, rulesetId = "dnd5e-2014") =>
+  availableLevelsFor(className, level, rulesetId)
+    .reduce((total, lvl) => total + spellsForLevel(lvl, className).length, 0);
 
 const cantripsOf = (groups) => groups.find((g) => g.spellPick.level === 0);
 const leveledOf = (groups) => groups.find((g) => g.spellPick.part === "spells");
@@ -180,18 +192,50 @@ describe("spell pick counts are TOTALS, not per level", () => {
     }
   }
 
-  it("a spellbook is uncapped, and the number it does cap is the prepared one", () => {
+  it("a spellbook has no fixed quota, and the number it does cap is the prepared one", () => {
     // 5e gives a Wizard no spellbook quota. Borrowing `limit.spells` for the
     // book would cap it at six while allowing six more to sit prepared -
-    // the number belongs to the prepared line alone.
+    // the number belongs to the prepared line alone. So the book takes the
+    // countable ceiling instead: every spell the class can cast at these
+    // levels. It is NOT a stand-in number, which is what used to reach the
+    // player as a button reading "Choose 9999".
     for (const level of LEVELS) {
       const groups = groupsFor("Wizard", level);
       const limit = spellLimitFor("Wizard", level, SCORES);
-      assert.equal(leveledOf(groups).maxSelections, UNLIMITED_SPELL_CAP, `L${level} spellbook has no quota`);
+      assert.equal(leveledOf(groups).maxSelections, spellbookCeiling("Wizard", level),
+        `L${level} spellbook caps at the spells there are to choose from`);
+      assert.ok(leveledOf(groups).maxSelections <= allNames.length,
+        `L${level} ceiling cannot exceed the whole catalog`);
       assert.equal(leveledOf(groups).minSelections, 0, "and so never blocks completeness");
+      assert.equal(leveledOf(groups).uncapped, true, "and the summary is told not to print a cap");
       assert.equal(preparedOf(groups).maxSelections, limit.spells, `L${level} prepared count is the limit`);
       assert.equal(preparedOf(groups).minSelections, limit.spells, "and it is required");
     }
+  });
+
+  it("no line ever carries a stand-in cap, at any class or level", () => {
+    // The regression this whole change exists for: a sentinel big enough never
+    // to bind is indistinguishable from "no ceiling" everywhere downstream,
+    // and it renders. So sweep every caster and level the app knows.
+    for (const className of ["Sorcerer", "Bard", "Warlock", "Ranger", "Cleric", "Druid", "Wizard", "Paladin", "Artificer"]) {
+      for (let level = 1; level <= 20; level += 1) {
+        for (const g of groupsFor(className, level)) {
+          assert.ok(Number.isFinite(g.maxSelections) && g.maxSelections >= 0 && g.maxSelections <= 100,
+            `${className} L${level} ${g.spellPick.part}: maxSelections ${g.maxSelections} is a real number`);
+        }
+      }
+    }
+  });
+
+  it("offers no spell picker at all when the ceiling cannot be worked out", () => {
+    // "When no limit is known, show no picker" - a picker with an unknown
+    // ceiling is the thing being replaced, not a lesser version of it. Zero
+    // spells importable is the case that produces no ceiling.
+    const groups = groupsFor("Wizard", 5, { spellbookCapFor: () => 0 });
+    assert.ok(!groups.some((g) => g.spellPick.part === "spells"),
+      "the spellbook line is gone");
+    assert.equal(preparedOf(groups).maxSelections, spellLimitFor("Wizard", 5, SCORES).spells,
+      "the prepared line, which has a real limit, stays");
   });
 
   it("never offers more than the total, summed across every spell level", () => {
@@ -976,6 +1020,8 @@ describe("levelUpSpellPickGroups", () => {
       limitFor: spellLimitFor,
       availableLevelsFor: (n, l) => availableLevelsFor(n, l, rulesetId),
       levelByNameFn: levelByName,
+      spellbookCapFor: (n, l, levels) => levels.reduce(
+        (total, lvl) => total + spellsForLevel(lvl, n).length, 0),
       model: modelFor(className, rulesetId),
     });
   const leveledOf = (groups) => groups.find((g) => g.spellPick.part === "spells");
@@ -1019,10 +1065,10 @@ describe("levelUpSpellPickGroups", () => {
       "one prepared: owes one less");
   });
 
-  it("a spellbook gets both lines, still uncapped for the book", () => {
+  it("a spellbook gets both lines, the book free-form within a real ceiling", () => {
     const groups = groupsFor("Wizard", 5);
     assert.deepEqual(groups.map((g) => g.spellPick.part), ["spells", "prepared"]);
-    assert.equal(leveledOf(groups).maxSelections, UNLIMITED_SPELL_CAP, "the book is free-form");
+    assert.equal(leveledOf(groups).maxSelections, spellbookCeiling("Wizard", 5), "the book holds what there is to hold");
     assert.equal(leveledOf(groups).minSelections, 0, "and does not block");
     assert.equal(preparedOf(groups).maxSelections, spellLimitFor("Wizard", 5, SCORES).spells);
   });
@@ -1044,9 +1090,15 @@ describe("levelUpSpellPickGroups", () => {
   });
 
   it("uses the same line shape as creation, so one renderer serves both", () => {
+    // Wired through groupsFor's own cap so this compares like with like: the
+    // point of the assertion is that the two wizards agree, and a caller that
+    // omits `spellbookCapFor` is a caller that has been told no spellbook is
+    // knowable.
     const created = creationSpellPickGroups({
       className: "Wizard", level: 5, abilityScores: SCORES, choices: {},
       limitFor: spellLimitFor, availableLevelsFor, levelByNameFn: levelByName,
+      spellbookCapFor: (n, l, levels) => levels.reduce(
+        (total, lvl) => total + spellsForLevel(lvl, n).length, 0),
       model: modelFor("Wizard"),
     });
     const leveled = groupsFor("Wizard", 5);
@@ -1060,6 +1112,10 @@ describe("levelUpSpellPickGroups", () => {
     const leveledOnly = (gs) => gs.filter((g) => g.spellPick.level > 0).map((g) => g.spellPick.part);
     assert.deepEqual(leveledOnly(created), leveledOnly(leveled),
       "the same leveled parts, in the same order");
+    // And the same ceiling for the one line that has no rules limit, which is
+    // the number most likely to drift between two builders.
+    assert.equal(leveledOf(created).maxSelections, leveledOf(leveled).maxSelections,
+      "both wizards cap the spellbook at the same real number");
     assert.equal(created.find((g) => g.spellPick.level === 0) !== undefined, true,
       "creation always shows the cantrips line");
     assert.equal(groupsFor("Sorcerer", 4).some((g) => g.spellPick.level === 0), true,

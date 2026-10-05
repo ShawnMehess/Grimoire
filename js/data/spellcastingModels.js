@@ -55,10 +55,21 @@
  *           never prepared.
  */
 
-/** The cap a group takes when the model says the list is uncapped. Large
- *  enough to never bind, small enough to stay a JSON-safe integer. The
- *  dialog uses it only as "no limit here". */
-export const UNLIMITED_SPELL_CAP = 9999;
+/* There used to be a `UNLIMITED_SPELL_CAP = 9999` here, used as the cap for
+ * any line whose model said `knownCap: "unlimited"`. It was how a Wizard's
+ * spellbook was made not to bind - and it reached the player as a button
+ * reading "Choose 9999", which reads as a bug in the number, not as a fact
+ * about spellbooks.
+ *
+ * "Uncapped" never needed a stand-in number. A spellbook can hold every spell
+ * the class can cast at the levels in question, and that set is countable, so
+ * the line now takes that count as its cap (see creationSpellPickGroups' 
+ * `spellbookCapFor`). Where it cannot be counted - no Spell List imported - the
+ * line is not offered at all, because a picker whose ceiling is unknown is the
+ * thing this replaces.
+ *
+ * The rules fact itself is unchanged and still lives in `knownCap`: 5e caps a
+ * Wizard's PREPARED subset, not the book. */
 
 /** The models that are not derivable from `style`, keyed ruleset -> class. */
 const MODELS = {

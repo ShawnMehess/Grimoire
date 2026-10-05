@@ -10,7 +10,6 @@ import { spellGist, spellHasMoreThanGist } from "../../data/spellGists.js";
 import { el } from "./sheetHelpers.js";
 import { spellLinkNodes } from "./spellLinks.js";
 import { contentIdMatches } from "../../data/dnd5e.js";
-import { UNLIMITED_SPELL_CAP } from "../../data/spellcastingModels.js";
 
 export function isStepApplicable(step) {
   return !step.isApplicable || step.isApplicable();
@@ -967,10 +966,16 @@ export function applySpellPickWrite({
  *  level - a half-caster at level 1 has cantrips: 0 and no slot levels, and
  *  should show nothing rather than an empty picker.
  *
- * `preparedItems` is accepted but not consulted for the cap: an over-limit
- * prepared list is a WARNING, never a reason to refuse or delete, and that
- * check belongs where the limit can change under the player (the wizard's
- * score step) rather than in the group builder.
+*  `spellbookCapFor(className, level, levels)` is the ceiling for a line whose
+ *  model says `knownCap: "unlimited"` (the Wizard's spellbook): how many spells
+ *  the class can cast across `levels`, which is exactly the list the picker
+ *  offers. Return 0 for "cannot tell" and the line is not offered at all - a
+ *  picker with an unknown ceiling is worse than no picker. Pure.
+ *
+ *  `preparedItems` is accepted but not consulted for the cap: an over-limit
+ *  prepared list is a WARNING, never a reason to refuse or delete, and that
+ *  check belongs where the limit can change under the player (the wizard's
+ *  score step) rather than in the group builder.
  *
  *  Pure. */
 export function creationSpellPickGroups({
@@ -984,6 +989,7 @@ export function creationSpellPickGroups({
   limitFor = () => null,
   availableLevelsFor = () => [],
   levelByNameFn = () => null,
+  spellbookCapFor = () => 0,
   model = null,
 } = {}) {
   if (!className) return [];
@@ -1005,12 +1011,33 @@ export function creationSpellPickGroups({
       // A spellbook has no quota, so it does not take `limit.spells` as a
       // cap - that number is the Wizard's PREPARED count and borrowing it
       // would cap the book at six while letting six more sit prepared.
-      const uncapped = model?.knownCap === "unlimited";
-      lines.add("spells", model?.knownLabel || "Spells", uncapped ? UNLIMITED_SPELL_CAP : limit.spells, 1, topLevel);
-      // And an uncapped line never blocks completeness - for a Wizard it is
-      // the PREPARED line that has a required number, and requiring a
-      // spellbook quota would invent a rule that does not exist.
-      if (uncapped) lines.groups[lines.groups.length - 1].minSelections = 0;
+      //
+      // It does take a REAL one. The book can hold every spell the class can
+      // cast at these levels, and `spellbookCapFor` counts exactly the set
+      // the picker offers, so the ceiling and the list can never disagree.
+      // This used to be a 9999 sentinel, which surfaced to the player as a
+      // button reading "Choose 9999".
+      //
+      // When that count cannot be had - no Spell List imported, so nothing to
+      // offer - there is no line at all. A picker with an unknown ceiling is
+      // the thing being replaced, not a lesser version of it.
+      const bookCap = model?.knownCap === "unlimited"
+        ? Math.max(0, Number(spellbookCapFor(className, level, levels)) || 0)
+        : limit.spells;
+      if (bookCap > 0) {
+        lines.add("spells", model?.knownLabel || "Spells", bookCap, 1, topLevel);
+        if (model?.knownCap === "unlimited") {
+          const line = lines.groups[lines.groups.length - 1];
+          // An uncapped line never blocks completeness - for a Wizard it is
+          // the PREPARED line that has a required number, and requiring a
+          // spellbook quota would invent a rule that does not exist.
+          line.minSelections = 0;
+          // So the summary can say something true. The number here is "how
+          // many there are to choose from", which is not an allowance, and
+          // printing it as one is what read as nonsense.
+          line.uncapped = true;
+        }
+      }
     }
     if (model?.hasPreparedList) {
       lines.add("prepared", model?.preparedLabel || "Prepared Spells", limit.spells, 1, topLevel);
@@ -1162,6 +1189,7 @@ export function levelUpSpellPickGroups({
   limitFor = () => null,
   availableLevelsFor = () => [],
   levelByNameFn = () => null,
+  spellbookCapFor = () => 0,
   model = null,
 } = {}) {
   if (!className) return [];
@@ -1190,12 +1218,22 @@ export function levelUpSpellPickGroups({
     lines.add("cantrips", "New cantrips", gain.cantripGain, 0, 0);
   }
   if (model?.hasKnownList !== false) {
-    const uncapped = model?.knownCap === "unlimited";
     // For a spellbook the book is still free-form: this level does not cap
-    // what you copy into it.
-    lines.add("spells", uncapped ? (model?.knownLabel || "Spellbook") : "New spells",
-      uncapped ? UNLIMITED_SPELL_CAP : gain.spellGain, 1, topLevel);
-    if (uncapped) lines.groups[lines.groups.length - 1].minSelections = 0;
+    // what you copy into it. It does get a real ceiling, the same countable
+    // one creation uses, so the summary cannot print a number that is not an
+    // allowance - and no line at all when there is nothing to choose from.
+    const bookCap = model?.knownCap === "unlimited"
+      ? Math.max(0, Number(spellbookCapFor(className, level, available)) || 0)
+      : gain.spellGain;
+    if (bookCap > 0) {
+      lines.add("spells", model?.knownCap === "unlimited" ? (model?.knownLabel || "Spellbook") : "New spells",
+        bookCap, 1, topLevel);
+      if (model?.knownCap === "unlimited") {
+        const line = lines.groups[lines.groups.length - 1];
+        line.minSelections = 0;
+        line.uncapped = true;
+      }
+    }
   }
   if (model?.hasPreparedList) {
     lines.add("prepared", model?.preparedLabel || "Prepared Spells", gain.limit.spells, 1, topLevel);

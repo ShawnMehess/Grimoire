@@ -5452,7 +5452,13 @@ const closeDialog = () => {
             };
           }
 
-          const summary = storedSpells.length ? storedSpells.join(", ") : `Choose ${group.maxSelections}`;
+          // A spellbook line carries `uncapped`: its `maxSelections` is how many spells
+          // there ARE to choose from, not an allowance, so printing it as
+          // "Choose 537" (or, before the cap was made real, "Choose 9999")
+          // states a limit the rules do not have. Say what the control does.
+          const summary = storedSpells.length
+            ? storedSpells.join(", ")
+            : group.uncapped ? "Choose spells" : `Choose ${group.maxSelections}`;
 
           // Over the limit, warn - never delete. The prepared count is level
           // plus an ability modifier, and the wizard takes ability scores
@@ -5708,6 +5714,34 @@ const closeDialog = () => {
     ].filter(Boolean);
   }
 
+  /** How many spells the class list offers across these spell levels. This is
+   *  the ceiling for a line whose model says the list is free-form (the
+   *  Wizard's spellbook: 5e caps the PREPARED subset, not the book). It used
+   *  to be a 9999 sentinel instead, which reached the player as a button
+   *  reading "Choose 9999".
+   *
+   *  Counted from the same catalog the picker reads, so the ceiling and the
+   *  list are one source. Counting the raw entries rather than the dialog's
+   *  options is deliberate and lands on the safe side: the dialog also drops
+   *  always-prepared spells, so this number is never below what it offers and
+   *  can never truncate the list.
+   *
+   *  Zero means no Spell List is imported, and the caller then offers no line
+   *  at all rather than one with no ceiling.
+   *
+   *  One function for both wizards, so creation and level-up cannot answer
+   *  this differently. */
+  function spellOptionsAcrossLevels(className, levels) {
+    const seen = new Set();
+    for (const levelNum of levels || []) {
+      for (const spell of spellsForLevel(levelNum, className) || []) {
+        const name = typeof spell === "string" ? spell : spell?.name;
+        if (name) seen.add(name);
+      }
+    }
+    return seen.size;
+  }
+
   function inlineSpellPickGroups() {
     const bundles = spellBundles();
     const model = spellcastingModelFor(state.className, state.rulesetId, {
@@ -5735,6 +5769,11 @@ const closeDialog = () => {
         getLevelUpPlan(state.rulesetId, name, lvl)
       ),
       levelByNameFn: (name) => spellLevelByName(name),
+      // The spellbook's ceiling is the number of spells the class can cast at
+      // these levels - which is exactly what its picker offers, so the two can
+      // never disagree. Zero means "nothing to choose from" (no Spell List
+      // imported) and the line is not offered at all.
+      spellbookCapFor: (name, lvl, levels) => spellOptionsAcrossLevels(name, levels),
       model,
     });
   }
@@ -7025,6 +7064,11 @@ const closeDialog = () => {
           limitFor: (name, lvl, scores) => spellLimitFor(name, lvl, scores),
           availableLevelsFor: (name, lvl) => sharedAvailableSpellLevels(getLevelUpPlan(levelRulesetId, name, lvl)),
           levelByNameFn: (name) => spellLevelByName(name),
+          // The same countable ceiling creation uses (see
+          // spellOptionsAcrossLevels): how many spells the class can cast
+          // across this level's available spell levels, which is exactly the
+          // set its picker offers. Zero means the line is not offered.
+          spellbookCapFor: (name, lvl, levels) => spellOptionsAcrossLevels(name, levels),
           model: levelModel,
         });
       };

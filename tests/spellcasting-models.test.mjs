@@ -19,12 +19,14 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { getSpellcastingInfo, listRulesets } from "../js/data/dnd5e.js";
-import {
-  spellcastingModelFor,
-  deriveSpellcastingModel,
-  rulesetsWithSpellcastingModels,
-  UNLIMITED_SPELL_CAP,
-} from "../js/data/spellcastingModels.js";
+import * as SPELLCASTING_MODELS from "../js/data/spellcastingModels.js";
+import { spellcastingModelFor, deriveSpellcastingModel, rulesetsWithSpellcastingModels } from "../js/data/spellcastingModels.js";
+
+// Read through the namespace rather than importing the name, so the assertion
+// below about the stand-in cap being GONE survives as a test instead of
+// breaking the whole file's imports when it is (which is how a removed
+// export should be noticed).
+const UNLIMITED_SPELL_CAP = SPELLCASTING_MODELS.UNLIMITED_SPELL_CAP;
 
 const infoFor = (name) => getSpellcastingInfo(name);
 const model = (className, rulesetId = "dnd5e-2014") => spellcastingModelFor(className, rulesetId, { infoFor });
@@ -80,8 +82,14 @@ describe("spellbook casters", () => {
     assert.equal(m.knownLabel, "Spellbook");
     // 5e caps the PREPARED subset, not the book. Capping the book with
     // limit.spells would cap it at six while allowing six more prepared.
+    //
+    // "unlimited" now means "no fixed quota", and the caller supplies a real
+    // ceiling - how many spells the class can cast (see the spellbook tests
+    // in inline-spell-picks.test.mjs). It used to mean a 9999 sentinel, which
+    // reached the player as a button reading "Choose 9999"; there is no
+    // sentinel constant left to import, and nothing left to render.
     assert.equal(m.knownCap, "unlimited");
-    assert.ok(UNLIMITED_SPELL_CAP > 1000, "the sentinel never binds");
+    assert.equal(UNLIMITED_SPELL_CAP, undefined, "the stand-in cap is gone");
   });
 
   it("the prepared line is still called Prepared Spells", () => {
