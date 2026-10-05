@@ -56,7 +56,7 @@
 //     compresses/resizes them yet. Offline keeps data URLs (with the
 //     old oversize warning, since the cap still applies there).
 
-import { createStarterLayout, createBlock, createField, findNode, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS, ARMOR_PROFICIENCIES, WEAPON_PROFICIENCIES, TOOL_PROFICIENCIES, toolGroupsForLabel, TOOL_DESCRIPTIONS, VEHICLE_PROFICIENCIES } from "../data/blockModel.js";
+import { createStarterLayout, createBlock, createField, findNode, findParentArray, syncOptionWidth, LABEL_POSITIONS, BLOCK_HEADER_ROWS, ARMOR_PROFICIENCIES, WEAPON_PROFICIENCIES, TOOL_PROFICIENCIES, TOOL_DESCRIPTIONS, VEHICLE_PROFICIENCIES } from "../data/blockModel.js";
 import { calculatePrintScale, getTabsToPrint, buildPrintCss, cloneForPrint } from "./print-helpers.js";
 import { contentHeight } from "./gridEngine.js";
 import { computeAllFormulas, evaluateFormulaNode, formatComputedValue } from "../data/formula.js";
@@ -237,8 +237,7 @@ import {
   racePickSatisfied as sharedRacePickSatisfied,
   nestedChoiceGroupsFor,
   slotLabelFor,
-  isAsiSlotGroup,
-  isFeaturePickGroup,
+  partitionChoiceGroupsByRenderTarget,
   assignFeatureSlot,
   withLiveBullets,
   languageSlotsFor,
@@ -4931,30 +4930,18 @@ const closeDialog = () => {
     const raceChoiceGroups = pickGroupsFor(state.species);
     const classChoiceGroups = pickGroupsFor(state.className, state.subclass);
     const backgroundChoiceGroups = pickGroupsFor(state.background);
-    // Groups rendered inline in the picker tables (not in the generic
-    // "Your choices" sections): language groups and ASI slot groups
-    // nested under their race/background rows. Class tables render no
-    // inline rows (no class grants languages or slot ASIs), so class
-    // language groups — should any ever appear — keep the generic
-    // rendering rather than vanishing.
-    const isInlineLangGroup = (g) => categorizeChoiceGroup(g) === "languages";
-    // Feature-pick dropdowns yield to the shared dialog: a feat group
-    // that happens to match the single-pick shape still opens the
-    // feats picker link (see inlineChoiceBullets), never a dropdown.
-    const isInlineFeatDropdown = (g) => isFeaturePickGroup(g) && !choiceDialogKindFor(g);
-    const raceInlineLang = raceChoiceGroups.filter(isInlineLangGroup);
-    const raceInlineAsi = raceChoiceGroups.filter(isAsiSlotGroup);
-    const raceInlineFeat = raceChoiceGroups.filter(isInlineFeatDropdown);
-    // Whatever is left over renders in the row itself through the
-    // shared choice dialog (see inlineChoiceBullets) — the bottom
-    // "Your choices" sections below are now permanently empty, so
-    // their render calls are gone and only the lists remain for
-    // gating/hints, which count picks wherever they render.
-    const raceSectionGroups = raceChoiceGroups.filter((g) => !isInlineLangGroup(g) && !isAsiSlotGroup(g) && !isFeaturePickGroup(g) && !choiceDialogKindFor(g));
-    const bgInlineLang = backgroundChoiceGroups.filter(isInlineLangGroup);
-    const bgInlineTool = backgroundChoiceGroups.filter((g) => g.fieldId === "toolProf");
-    const bgInlineFeat = backgroundChoiceGroups.filter(isInlineFeatDropdown);
-    const bgSectionGroups = backgroundChoiceGroups.filter((g) => !isInlineLangGroup(g) && g.fieldId !== "toolProf" && !isFeaturePickGroup(g) && !choiceDialogKindFor(g));
+    // Groups with no inline rendering in the picker table. Read from the
+    // SAME partition profileSectionsFor uses (choiceGroupRenderTarget), so
+    // this can never again be a shorter list than the one the row renders —
+    // which is how Sage came to block Next on two languages it never showed.
+    // These render in the generic "Your choices" sections below; for every
+    // baked-in race/background that list is empty, and the call stays as a
+    // safety net for a homebrew group neither end has a renderer for.
+    const sectionOnly = (groups) => partitionChoiceGroupsByRenderTarget(
+      groups, { categorize: categorizeChoiceGroup }
+    ).section;
+    const raceSectionGroups = sectionOnly(raceChoiceGroups);
+    const bgSectionGroups = sectionOnly(backgroundChoiceGroups);
     // The race bundle's pick-1 subrace group (Elf/Dwarf) renders nested
     // under its race — the same pattern as subclasses under their
     // class — never as a standalone choice page, so it stays out of
@@ -5236,116 +5223,6 @@ const closeDialog = () => {
     };
   }
 
-  /** Live Tool Proficiencies bullet model ("Tool Proficiencies: [▾], [▾]"):
-   *  one dropdown per tool slot group, with a superscript ? button
-   *  that opens a dialog with all tools grouped by category. */
-  function liveToolBullet(toolGroups, fixedBundle, saveRules) {
-    if (!toolGroups.length) return null;
-    const store = character.rules.choices || {};
-    const slotModels = languageSlotsFor(toolGroups, store);
-    const owned = ownedSkillIdsFrom(creationFixedBundles(state), creationChoiceGroupsFor(state), toolGroups[0]?.key);
-    const ownedNames = new Set(owned);
-    const lead = TOOL_PROFICIENCIES.filter((t) => ownedNames.has(t.toLowerCase())).map((name) => ({ text: name, title: "Granted — already known" }));
-    const allValues = slotModels.flatMap((m) => m.values).filter(Boolean).map((n) => n.toLowerCase());
-    const openDialog = (slotKey) => {
-      const overlay = el("div", { class: "modal-overlay" });
-      const box = el("div", { class: "modal-box tool-picker-dialog", onclick: (e) => e.stopPropagation() });
-      const heading = el("h3", { text: "Choose Tool Proficiencies" });
-      // Which tools to offer. The group's OWN options are authoritative
-      // when it has any — an Entertainer group carries its ten musical
-      // instruments, and a Folk Hero its seventeen artisan's tools, so
-      // there is no reason to re-derive that from prose. Groups that ship
-      // no options (a "choose 2 tool proficiencies" with no enumerated
-      // list) fall back to the label, which decides whether the wording
-      // means one kind of tool or any of them.
-      //
-      // Before this, the dialog listed the whole TOOL_PROFICIENCIES
-      // vocabulary for every slot, so a background reading "one artisan's
-      // tool of your choice" also offered a lute.
-      const groups = toolGroups.flatMap((g) => {
-        const named = (g.options || []).map((o) => o.name).filter(Boolean);
-        if (named.length) return [{ label: g.label, options: named }];
-        return toolGroupsForLabel(g.label);
-      });
-      const checked = new Set(store[toolGroups[0].key] || []);
-      groups.forEach((g) => {
-        const optgroup = el("div", { class: "tool-picker-group" },
-          el("h4", { text: g.label }),
-          ...g.options.map((tool) => {
-            const id = `tool-${tool.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-            const isChecked = checked.has(tool.toLowerCase());
-            const label = el("label", { class: "tool-picker-option" },
-              el("input", { type: "checkbox", checked: isChecked, value: tool, onchange: (e) => {
-                const newChecked = new Set(checked);
-                if (e.target.checked) newChecked.add(tool.toLowerCase());
-                else newChecked.delete(tool.toLowerCase());
-                const max = toolGroups[0]?.maxSelections || toolGroups[0]?.options?.length || 2;
-                if (newChecked.size > max) {
-                  e.target.checked = !e.target.checked;
-                  return;
-                }
-                checked.clear();
-                newChecked.forEach((v) => checked.add(v));
-              }}),
-              el("span", { text: tool }));
-            return label;
-          }));
-        box.append(optgroup);
-      });
-      const actions = el("div", { class: "modal-actions" });
-      const accept = el("button", { type: "button", class: "btn btn--primary", text: "Accept", onclick: () => {
-        const picks = [...checked].sort();
-        const patch = assignLanguageSlot(toolGroups, toolGroups[0].key, 0, picks[0] || null, store);
-        character.rules.choices = { ...(character.rules.choices || {}), ...patch };
-        saveRules();
-        renderPageGrid();
-        overlay.remove();
-      }});
-      const cancel = el("button", { type: "button", class: "btn", text: "Cancel", onclick: () => overlay.remove() });
-      actions.append(cancel, accept);
-      box.append(heading, actions);
-      overlay.append(box);
-      document.body.append(overlay);
-    };
-    return {
-      live: true,
-      topic: "Tool Proficiencies",
-      lead,
-      slots: slotModels.flatMap((m) => {
-        const group = toolGroups.find((g) => g.key === m.groupKey);
-        const offered = groupOptionsOf(group).filter((o) => o.name);
-        return m.values.map((value, i) => {
-          const own = (value || "").toLowerCase();
-          const siblings = new Set(allValues.filter((n) => n !== own));
-          return {
-            key: `${m.groupKey}#${i}`,
-            value: value || "",
-            placeholder: "Choose…",
-            options: offered.map((o) => {
-              const lower = o.name.toLowerCase();
-              const locked = ownedNames.has(lower);
-              const taken = !locked && siblings.has(lower);
-              return {
-                value: o.name,
-                label: o.name,
-                disabled: locked || taken,
-                title: locked ? "Already granted — pick something else" : taken ? "Picked in the other dropdown" : null,
-              };
-            }),
-            dialogOpener: () => openDialog(`${m.groupKey}#${i}`),
-          };
-        });
-      }),
-      onPick: (slotKey, name, info) => {
-        const hash = slotKey.lastIndexOf("#");
-        const patch = assignLanguageSlot(toolGroups, slotKey.slice(0, hash), Number(slotKey.slice(hash + 1)), name || null, character.rules.choices || {});
-        character.rules.choices = { ...(character.rules.choices || {}), ...patch };
-        saveRules();
-        renderPageGrid();
-        refocusInlineSlot(slotKey, info);
-      },
-    };
-  }
 
   /** Live Ability Scores bullet model: one dropdown per +1/+2 slot group.
    *  Duplicates stack across slots because each slot is its own group.
@@ -5757,20 +5634,28 @@ const closeDialog = () => {
     // becomes live, and still there, if the player goes on to pick that
     // race rather than silently losing it.
     const rowGroups = choiceGroupsForRow(category, name, state);
-    const langGroups = isRace ? rowGroups.filter(isInlineLangGroup) : [];
-    const toolGroups = isBg ? rowGroups.filter((g) => g.fieldId === "toolProf") : [];
-    const asiGroups = isRace ? rowGroups.filter(isAsiSlotGroup) : [];
-    const featGroups = rowGroups.filter((g) => isFeaturePickGroup(g) && !choiceDialogKindFor(g));
-    // Dialog-pick leftovers (skills, tools, fighting styles, expertise,
-    // feats) count here too — otherwise a row whose ONLY groups take
-    // the dialog returns the static preview and its choices vanish.
-    const dialogGroups = rowGroups.filter((g) => choiceDialogKindFor(g));
+    // ONE partition, read by both ends. The previous code hand-filtered
+    // the same list four times and got it wrong: language groups were
+    // rendered for races only (`isRace ? ... : []`), and the tool filter
+    // keyed on `fieldId === "toolProf"`, which no compiled background
+    // bundle sets (they are categorised as "tools" by label instead). So
+    // Sage, Acolyte, Guild Artisan, Noble and Outlander each blocked Next
+    // on language picks that were never rendered anywhere on the page,
+    // and the tool list that filter named was always empty — which is why
+    // its own renderer below had quietly stopped running for everyone.
+    // Anything the partition calls "section" falls through to the bottom
+    // "Your choices" block below, which reads the same partition.
+    const byTarget = partitionChoiceGroupsByRenderTarget(rowGroups, { categorize: categorizeChoiceGroup });
+    const langGroups = byTarget.languages;
+    const asiGroups = byTarget.asiSlots;
+    const featGroups = byTarget.features;
+    const dialogGroups = byTarget.dialog;
     // A race-granted feat (Custom Lineage's "Feat" trait) renders as a
     // link opening the feats picker dialog instead of a static note. It
     // reads the staged lineage's own state, so it only describes the race
     // actually in progress — never a row being previewed.
     const lineageFeat = isRace && name === state.species ? liveLineageFeatBullet(saveRules) : null;
-    if (!langGroups.length && !toolGroups.length && !asiGroups.length && !featGroups.length && !dialogGroups.length && !lineageFeat) return statik;
+    if (!langGroups.length && !asiGroups.length && !featGroups.length && !dialogGroups.length && !lineageFeat) return statik;
     const full = bundleFor(category, name, includedRulesetIds(state));
     if (!full) return statik;
     const liveFeatLabels = new Set(featGroups.map((g) => (g.label || "").trim()));
@@ -5790,9 +5675,6 @@ const closeDialog = () => {
     return withLiveBullets(sections, [
       langGroups.length
         ? { section: isRace ? SHARED_MECHANICS_TITLES.traits : SHARED_MECHANICS_TITLES.innate, bullet: liveLanguageBullet(langGroups, fixedBundle, saveRules) }
-        : null,
-      toolGroups.length
-        ? { section: SHARED_MECHANICS_TITLES.innate, bullet: liveToolBullet(toolGroups, fixedBundle, saveRules) }
         : null,
       asiGroups.length
         ? { section: SHARED_MECHANICS_TITLES.scores, bullet: liveAsiBullet(asiGroups, saveRules), after: SHARED_MECHANICS_TITLES.traits }

@@ -94,6 +94,7 @@ const AREAS = {
   "spell-rows": "spell picker row shape: facts, gist, disclosure",
   "swipe-arrow": "edge arrow and swipe between steps on a touch viewport",
   "load-failure": "a blocked entry script produces a failure page",
+  "background-gate": "every background: Next is blocked only on a visible pick",
 };
 
 // The areas the smoke preset drops. Written as an explicit drop list so a new
@@ -4489,6 +4490,220 @@ if (inArea("load-failure")) {
   vaultCheck(broke.noscriptHidden, "the no-JavaScript panel stays out of the way when JS is merely failing");
   await brokenPage.screenshot({ path: path.join(shotDir, "load-failure.png") });
   await brokenPage.close();
+}
+
+// --- Every background agrees with itself ------------------------------------
+//
+// "Choices remain" with nothing to click is the worst state this wizard has:
+// the page says the player owes a decision and offers no way to make it, so
+// Next stays disabled forever. Sage hit it outright (two languages, no
+// picker) and Acolyte hit the same bug one step removed (a Prayer Focus
+// picker on screen, and its two languages still invisible underneath).
+//
+// The fix was at the source: profileSectionsFor and the bottom "Your choices"
+// sections now read ONE partition (choiceGroupRenderTarget) instead of two
+// hand-written filter lists that had drifted apart. What makes this worth a
+// whole area rather than a single assertion on Sage is that nothing stops the
+// lists drifting again - a new group shape is invisible and counted at the
+// same time by construction. So this walks EVERY background and asserts the
+// invariant both ways:
+//
+//   1. blocked  <=>  a visible unfilled pick is on screen, and
+//   2. fill every visible pick and Next becomes enabled.
+//
+// (2) is the one that catches the subtle half: a background can show a pick
+// for one group and hide another, so (1) alone passes while the page is still
+// impossible to complete.
+//
+// Sailor is the control: no choices at all, so it must never block. It is
+// named in the check rather than left to the loop, because "every background
+// happens to agree" reads as vacuous until you see the one that has nothing
+// to do and still passes.
+if (inArea("background-gate")) {
+  const bgPage = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
+  bgPage.on("pageerror", (e) => problems.push(`PAGEERROR [bg-gate]: ${e.message}`));
+  bgPage.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [bg-gate]: ${m.text()}`); });
+  const bgCheck = (cond, msg) => {
+    if (!cond) failures.push(`[bg-gate] ${msg}`);
+    console.log(`${cond ? "ok" : "FAIL"} [bg-gate]: ${msg}`);
+  };
+
+  const bgStep = () => bgPage.evaluate(() =>
+    document.querySelector(".wizard__dot--active")?.dataset.stepId || null);
+  const bgNext = () => bgPage.evaluate(() => {
+    const b = document.querySelector(".wizard__next:not([disabled])");
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  // Pickers and dialogs are siblings of the app root; anything left open
+  // swallows the next click, and a swallowed click reads as a broken wizard.
+  const bgClearOverlays = () => bgPage.evaluate(() => {
+    for (const o of document.querySelectorAll("body > .modal-overlay, body > .choice-dialog-overlay")) o.remove();
+  });
+
+  /** Take one unfilled pick on the CURRENT step. Returns whether anything
+   *  changed, so a caller can tell "one more to go" from "nothing left".
+   *
+   *  Two scopes, and only these two: the SELECTED picker row, and any open
+   *  "Your choices" section body. A collapsed row keeps its dropdowns in the
+   *  DOM, and driving one of those writes a pick for a race/class/background
+   *  the player has NOT chosen and re-renders the page underneath the loop -
+   *  which is how a step ends up reporting picks the player never made.
+   *
+   *  Slot values are set to the first ENABLED non-empty option rather than to
+   *  index 1: a sibling slot's pick disables that option, and a browser
+   *  silently refuses to select a disabled one, so the value never sticks. */
+  const bgTakePick = async () => {
+    const moved = await bgPage.evaluate(() => {
+      const scopes = [];
+      const sel = document.querySelector(".choice-row--selected");
+      if (sel) scopes.push(sel);
+      for (const b of document.querySelectorAll(".wizard__section-body")) {
+        if (!b.hidden && !scopes.includes(b)) scopes.push(b);
+      }
+      if (!scopes.length) return null;
+      const inScopes = (sel2) => scopes.some((s) => s.contains(sel2));
+      const shown = (e) => e.getClientRects().length > 0;
+      for (const scope of scopes) {
+        for (const s of scope.querySelectorAll("select[data-inline-slot]")) {
+          if (s.selectedIndex > 0) continue;
+          const opt = [...s.options].find((o) => !o.disabled && o.value !== "");
+          if (!opt) continue;
+          s.value = opt.value;
+          s.dispatchEvent(new Event("change", { bubbles: true }));
+          return "slot";
+        }
+      }
+      for (const l of document.querySelectorAll(".inline-pick-link")) {
+        if (!inScopes(l) || !shown(l)) continue;
+        const t = (l.textContent || "").trim();
+        if (/^choose\b/i.test(t) || /\bchoose \d/i.test(t)) { l.click(); return "dialog"; }
+      }
+      for (const t of document.querySelectorAll(".wizard__section-toggle")) {
+        if (/needs picks/i.test(t.textContent || "") && shown(t)) { t.click(); return "section"; }
+      }
+      return null;
+    });
+    if (!moved) return false;
+    await bgPage.waitForTimeout(450);
+    if (!(await bgPage.$(".choice-dialog-overlay"))) {
+      await bgClearOverlays();
+      await bgPage.waitForTimeout(150);
+      return true;
+    }
+    await bgPage.evaluate(() => {
+      const dlg = document.querySelector(".choice-dialog-overlay");
+      const cap = Number((dlg.textContent.match(/\/\s*(\d+)\s*picked/) || [])[1] || 1);
+      // Both kinds, because openChoiceDialog picks between them by
+      // `maxSelections`: a one-pick group (a fighting style, a tool) opens
+      // RADIOS. Querying checkboxes only left every single-pick group
+      // untaken, and the harness then reported it as "an invisible pick".
+      const boxes = [...dlg.querySelectorAll("input[type=checkbox]:not(:disabled), input[type=radio]:not(:disabled)")];
+      let n = 0;
+      for (const b of boxes) {
+        if (n >= cap) break;
+        if (!b.checked) { b.click(); n++; }
+      }
+      [...dlg.querySelectorAll("button")].find((x) => /accept/i.test(x.textContent))?.click();
+    });
+    await bgPage.waitForTimeout(450);
+    return true;
+  };
+  const bgFillPicks = async () => {
+    let changed = false;
+    for (let i = 0; i < 16; i++) {
+      if (!(await bgTakePick())) break;
+      changed = true;
+    }
+    return changed;
+  };
+
+  await bgPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+  await settled(bgPage, READY_VAULT, "bg-gate vault");
+  await bgPage.click(READY_VAULT);
+  await settled(bgPage, READY_WIZARD, "bg-gate wizard");
+
+  // Reach the Background step. Half-Orc and Fighter are the cheapest way
+  // through: neither offers a pick the harness cannot take from a dropdown or
+  // the shared dialog, so every later step is the Background step's business.
+  await bgPage.waitForTimeout(600);
+  await bgPage.evaluate(() => {
+    for (const b of document.querySelectorAll(".wizard input[type=checkbox]")) {
+      if (!b.checked) { b.click(); return; }
+    }
+  });
+  await bgPage.waitForTimeout(300);
+  await bgNext();
+  await bgPage.waitForTimeout(500);
+  await bgPage.evaluate(() => {
+    const n = document.querySelector(".wizard input[type=text]");
+    if (n) {
+      n.value = "Gate Tester";
+      n.dispatchEvent(new Event("input", { bubbles: true }));
+      n.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+  await bgPage.waitForTimeout(300);
+  await bgPage.click('.choice-row[data-row-name="Half-Orc"] .choice-row__label');
+  await bgPage.waitForTimeout(500);
+  await bgNext();
+  await bgPage.waitForTimeout(600);
+  // Barbarian, not Fighter: the class step's own picks have to be takeable
+  // too (see bgFillPicks) and a Fighter also offers a fighting style, which
+  // is one more dialog shape for the scaffolding to get right before it
+  // reaches the step under test.
+  await bgPage.click('.choice-row[data-row-name="Barbarian"] .choice-row__label');
+  await bgPage.waitForTimeout(600);
+  await bgFillPicks();
+  for (let i = 0; i < 4 && (await bgStep()) !== "background"; i++) {
+    await bgFillPicks();
+    await bgNext();
+    await bgPage.waitForTimeout(600);
+  }
+  bgCheck((await bgStep()) === "background",
+    `the walkthrough reaches the Background step (at ${await bgStep()})`);
+  if ((await bgStep()) === "background") {
+    const names = await bgPage.evaluate(() =>
+      [...document.querySelectorAll(".choice-row[data-row-name]")].map((r) => r.dataset.rowName));
+    bgCheck(names.length > 1, `the Background step lists the backgrounds (${names.length})`);
+    for (const bg of names) {
+      await bgClearOverlays();
+      // Click the LABEL, not the row: a selected row's centre is prose, and
+      // the label is the smallest thing that reliably selects and expands.
+      await bgPage.click(`.choice-row[data-row-name="${bg}"] .choice-row__label`);
+      await bgPage.waitForTimeout(600);
+      const before = await bgPage.evaluate(() => {
+        const row = document.querySelector(".choice-row--selected");
+        const body = document.querySelector(".wizard__body") || document.body;
+        const shown = (e) => e.getClientRects().length > 0;
+        const controls = [...body.querySelectorAll(".inline-pick-link, select[data-inline-slot], .wizard__section-toggle")]
+          .filter(shown);
+        const unfilled = controls.filter((e) => {
+          if (e.tagName === "SELECT") return e.selectedIndex <= 0;
+          const t = (e.textContent || "").trim();
+          return /^choose\b/i.test(t) || /\bchoose \d/i.test(t) || /needs picks/i.test(t);
+        });
+        return {
+          selected: row?.dataset.rowName || null,
+          blocked: !document.querySelector(".wizard__next:not([disabled])"),
+          unfilled: unfilled.length,
+        };
+      });
+      bgCheck(before.selected === bg, `${bg} selects`);
+      bgCheck(before.blocked === (before.unfilled > 0),
+        `${bg}: Next is blocked (${before.blocked}) exactly when a visible pick is unfilled (${before.unfilled})`);
+      if (before.blocked) {
+        await bgFillPicks();
+        const stillBlocked = await bgPage.evaluate(() =>
+          !document.querySelector(".wizard__next:not([disabled])"));
+        bgCheck(!stillBlocked,
+          `${bg}: filling every visible pick lets Next through${stillBlocked ? " (still blocked - a pick is invisible)" : ""}`);
+      }
+    }
+    await bgPage.screenshot({ path: path.join(shotDir, "background-gate.png") });
+  }
+  await bgPage.close();
 }
 
 await browser.close();

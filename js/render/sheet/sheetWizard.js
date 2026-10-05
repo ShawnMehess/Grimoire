@@ -1399,6 +1399,65 @@ export function migrateAsiComboPicks(choices = {}, defs = [], abilityIds = ["str
   return { choices: out, migrated };
 }
 
+/** The one place that decides WHERE a choice group is rendered.
+ *
+ *  Every group gets exactly one answer, and both the picker row
+ *  (`profileSectionsFor`) and the bottom "Your choices" sections
+ *  (`raceSectionGroups` / `bgSectionGroups`) read it. Before this
+ *  existed the two kept their own hand-written filters, and they
+ *  disagreed: `profileSectionsFor` rendered language picks only for
+ *  RACES while gating counted them for every pick, so Sage (two
+ *  languages), Acolyte, Guild Artisan, Noble and Outlander all blocked
+ *  Next on a picker that was never rendered. That is the whole bug
+ *  class — a filter list that names some of the shapes and not the
+ *  rest, so every unlisted shape is silently invisible while still
+ *  being counted.
+ *
+ *  Returned values, in the order the row builder wants them:
+ *
+ *    "languages" - one dropdown per slot, Common locked in.
+ *    "asiSlots"  - one ability dropdown per slot.
+ *    "features"  - a one-sentence dropdown in the profile line.
+ *    "dialog"    - the shared choice dialog: skills, tools, fighting
+ *                  styles, expertise, feats and spell picks all open
+ *                  the same one, so one bucket covers them.
+ *    "section"   - nothing inline; render it as a bottom section.
+ *
+ *  NO CATEGORY IS PART OF THE ANSWER. A group renders the same way
+ *  whether it came from a race, a class or a background: the shapes
+ *  above are what the data looks like, and the one thing that must
+ *  never vary by category is exactly the thing that produced the
+ *  mismatch above. (The `fieldId: "toolProf"` fallback stays for the
+ *  synthetic Equipment Proficiencies groups, which are built by
+ *  hand and do set it.)
+ *
+ *  `categorizeChoiceGroup` is injected rather than imported so this
+ *  stays a pure function of its argument — the same arrangement
+ *  `choiceDialogKindFor` uses, and the reason this module can be
+ *  unit-tested without a DOM. */
+export function choiceGroupRenderTarget(group, { categorize = null } = {}) {
+  if (!group) return "section";
+  const categorizeFn = typeof categorize === "function" ? categorize : categorizeChoiceGroup;
+  const category = typeof categorizeFn === "function" ? categorizeFn(group) : null;
+  if (category === "languages") return "languages";
+  if (isAsiSlotGroup(group)) return "asiSlots";
+  if (choiceDialogKindFor(group)) return "dialog";
+  if (isFeaturePickGroup(group)) return "features";
+  return "section";
+}
+
+/** Split a pick's groups by where they render, so a caller cannot
+ *  pick-and-choose between the two ends. Returns every bucket as an
+ *  array (possibly empty) plus `section`, the only groups with no
+ *  inline rendering. Pure; `categorize` is threaded as above. */
+export function partitionChoiceGroupsByRenderTarget(groups = [], opts = {}) {
+  const buckets = { languages: [], asiSlots: [], features: [], dialog: [], section: [] };
+  for (const group of groups || []) {
+    buckets[choiceGroupRenderTarget(group, opts)].push(group);
+  }
+  return buckets;
+}
+
 /** Whether a group is a feature pick (single-pick, every option
  *  named and carrying no stat modifiers — e.g. Custom Lineage's
  *  Variable Trait, Draconic Ancestry): these render as one inline
