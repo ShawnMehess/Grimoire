@@ -200,6 +200,11 @@ function showTooltipFor(doc, term) {
  *  it - but on prose there is no row behind it, and eating the click there
  *  would break the page for no reason. */
 function toggleTooltipFor(doc, term) {
+  // A tooltip whose word has been re-rendered out from under it is not "the
+  // same word tapped again" - it is an orphan pointing at a detached node,
+  // and toggling against it would open a SECOND tooltip instead of closing
+  // the first. Treated as closed, which is also what the player sees.
+  if (openTip && describedTerm && describedTerm.isConnected === false) hideTooltip();
   if (openTip && describedTerm === term) { hideTooltip(); return false; }
   if (openTip) hideTooltip();
   showTooltipFor(doc, term);

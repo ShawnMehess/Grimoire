@@ -629,7 +629,7 @@ export function renderReviewStepInto(container, state, deps) {
 //   renderAbilitiesStepInto(container, {
 //     abilityIds, descriptions, scores, method, budget, min, max,
 //     costFn, affordableFn, rollFn, modifierFn, formatFn, saveFn,
-//     onMethodChange,
+//     onMethodChange, rememberedScores,
 //   })
 
 export function clampScoreToRange(value, fallback, min, max) {
@@ -725,6 +725,11 @@ export function renderAbilitiesStepInto(container, deps) {
     abilityIds, descriptions, scores, method, budget, min, max,
     costFn, affordableFn, rollFn, modifierFn, formatFn, saveFn,
     onMethodChange,
+    // Per-method score memory, `{ pointbuy: {str: 15, ...}, roll: {...} }`.
+    // Session-only and owned by the caller, so one character's wizard run
+    // cannot see another's. Optional: without it the step behaves as it did
+    // before, which is what every other caller still does.
+    rememberedScores = null,
     // Optional text rendered UNDER the six scores. The race/class bonus
     // note reads as a footnote to the scores it modifies; when it led the
     // step it was a paragraph about modifiers before the modifiers were on
@@ -776,10 +781,36 @@ export function renderAbilitiesStepInto(container, deps) {
   // is a consequence that destroys typed work, so it has to be visible before
   // the switch, not recalled afterwards - and a player reads the label on the
   // dropdown they are about to touch, not a sentence several rows above it.
+  //
+  // Still true, and worth saying why it did not get softer: a method you have
+  // never used has no numbers to restore, so those six scores DO become
+  // whatever that method starts from. What changed is that a method you HAVE
+  // used gives its own six back instead of taking the last method's - see
+  // `remembered` below.
   container.append(el("p", {
     class: "leveling-tab__intro wizard__ability-note wizard__method-warning",
-    text: "Changing this method resets the six scores above.",
+    text: "Changing this method sets the six scores to that method's starting point.",
   }));
+
+  // Per-method memory, for the length of this wizard session.
+  //
+  // Switching method used to be a one-way door: the six scores were whatever
+  // the method you were leaving had put there, so a player who tried Point
+  // Buy, went back to typing their own numbers, then returned to Point Buy
+  // had lost the spread they had spent their 27 points on. Each method gets
+  // its own six numbers and switching restores the ones that method had.
+  //
+  // Session-only, and deliberately NOT on character.rules: it is a scratch
+  // pad for trying methods out, not part of the character, and `rules` is
+  // what Finish Setup persists - anything added there would change the saved
+  // data shape. The caller owns the object so the memory is scoped to one
+  // character's wizard run rather than shared across every character this
+  // page has ever opened.
+  const remembered = rememberedScores || {};
+  let activeMethod = method || "manual";
+  // Seed the method we are already on, so the first switch away has something
+  // to come back to even if the player never touched a score.
+  if (!remembered[activeMethod]) remembered[activeMethod] = { ...scores };
 
   const scoresWrap = el("div", { class: "wizard__ability-scores" });
   container.append(scoresWrap);
@@ -794,16 +825,27 @@ export function renderAbilitiesStepInto(container, deps) {
     container.append(el("p", { class: "leveling-tab__intro wizard__ability-footnote", text: footnote }));
   }
 
+  // One score box. `onchange` hands the box itself to the caller's handler,
+  // which needs it to write a clamped value back into the field it came from.
+  //
+  // It used to close over a bare `input`, which is not a name in scope here -
+  // so every edit threw "input is not defined", the number never reached
+  // `scores`, and a player could not type an ability score at all. Caught by
+  // watching for page errors while checking item 6, not by a test, because
+  // nothing failed visibly: the box just ignored you.
+  function scoreInput(id, minVal, maxVal, onChange, displayValue) {
+    const box = el("input", {
+      type: "number", min: String(minVal), max: String(maxVal),
+      class: "input-group__control", value: String(displayValue),
+    });
+    box.addEventListener("change", () => onChange(box));
+    return box;
+  }
+
   function renderScores() {
     scoresWrap.innerHTML = "";
     const current = methodSelect.value;
     const bonusMap = bonuses || {};
-    const scoreInput = (id, minVal, maxVal, onChange, displayValue) => el("input", {
-      type: "number", min: String(minVal), max: String(maxVal),
-      class: "input-group__control", value: String(displayValue),
-      onchange: () => onChange(input),
-    });
-
     if (current === "pointbuy") {
       const note = el("p", { class: "leveling-tab__intro wizard__ability-note" });
       scoresWrap.append(note);
@@ -904,7 +946,20 @@ export function renderAbilitiesStepInto(container, deps) {
     }
   }
   methodSelect.addEventListener("change", () => {
-    onMethodChange(methodSelect.value);
+    const next = methodSelect.value;
+    if (next !== activeMethod) {
+      // What the method we are leaving had, so coming back finds it.
+      remembered[activeMethod] = { ...scores };
+      // And what the method we are going to had, if we have been here before.
+      // A method we have NOT used keeps its own defaults, which is the one
+      // case where the six scores really are replaced.
+      const back = remembered[next];
+      if (back) abilityIds.forEach((id) => {
+        if (Number.isFinite(back[id])) scores[id] = back[id];
+      });
+      activeMethod = next;
+    }
+    onMethodChange(next);
     renderScores();
   });
   renderScores();

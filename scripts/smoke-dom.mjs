@@ -1329,6 +1329,108 @@ function openTestDialog(host, overrides = {}) {
   assert(box.querySelector(".wizard__ability-bonus-line"), "the per-source line renders");
 }
 
+// --- Abilities step: typing a score, and each method keeping its own ---
+//
+// Two things, and the first one had never been tested. The score box's
+// change handler closed over a bare `input`, which is not a name in scope,
+// so every edit THREW "input is not defined" and the typed number never
+// reached `scores`: a player could not type an ability score at all, and
+// nothing about it looked broken - the box just ignored you. Found by
+// watching for page errors while checking item 6.
+//
+// The second is item 6 itself: each method remembers the six numbers it had,
+// so a player who tried Point Buy, typed their own spread, and came back
+// finds the spread they spent their 27 points on.
+{
+  const steps = await import("../js/render/sheet/sheetWizardSteps.js");
+  const IDS = ["str", "dex", "con", "int", "wis", "cha"];
+  const scores = { str: 15, dex: 14, con: 13, int: 12, wis: 10, cha: 8 };
+  const memory = {};
+  const box = document.createElement("div");
+  const fire = (node, type) => {
+    (node.listeners?.[type] || []).forEach((f) => f({
+      target: node, preventDefault() {}, stopPropagation() {},
+      key: type === "keydown" ? "x" : undefined,
+    }));
+  };
+  steps.renderAbilitiesStepInto(box, {
+    abilityIds: IDS,
+    descriptions: Object.fromEntries(IDS.map((id) => [id, `${id}.`])),
+    scores,
+    method: "pointbuy",
+    budget: 27, min: 8, max: 15,
+    costFn: (s) => Math.max(0, s - 8),
+    affordableFn: () => 15,
+    rollFn: () => 11,
+    modifierFn: (s) => Math.floor((Number(s) - 10) / 2),
+    formatFn: (m) => `${m}`,
+    saveFn: () => {},
+    rememberedScores: memory,
+    onMethodChange: () => {},
+  });
+  // The DOM stub here cannot answer a descendant selector, so the method
+  // select is reached through its label - which is also the shape a reader
+  // meets it in.
+  const methodLabel = box.querySelector(".wizard__ability-method");
+  const methodSelect = (methodLabel?.children || []).find((k) => String(k.tag).toLowerCase() === "select");
+  assert(!!methodSelect, "the abilities step renders a method picker");
+  // The stub cannot answer an attribute selector either, so the score boxes
+  // are collected by walking to them.
+  const walk = (node, out = []) => {
+    for (const kid of node.children || []) {
+      if (String(kid.tag || "").toLowerCase() === "input") out.push(kid);
+      walk(kid, out);
+    }
+    return out;
+  };
+  const boxes = () => walk(box);
+
+  // Typing a score actually reaches `scores`. 14 rather than 16 because the
+  // Point Buy box's own maximum is 15 and it clamps what it is given - which
+  // is the point-buy budget working, not the handler failing.
+  const strBox = () => boxes()[0];
+  strBox().value = "14";
+  fire(strBox(), "change");
+  assert(scores.str === 14, `typing a score writes it (str=${scores.str})`);
+
+  // Give Point Buy a distinctive spread, then move to Manual and give that a
+  // different one, then come back.
+  scores.str = 15; scores.dex = 14;
+  methodSelect.value = "manual";
+  fire(methodSelect, "change");
+  scores.str = 12; scores.dex = 11;
+  assert(scores.str === 12, `Manual Entry takes its own numbers (str=${scores.str})`);
+
+  methodSelect.value = "pointbuy";
+  fire(methodSelect, "change");
+  assert(scores.str === 15 && scores.dex === 14,
+    `coming back to Point Buy restores its own spread (str=${scores.str}, dex=${scores.dex})`);
+
+  methodSelect.value = "manual";
+  fire(methodSelect, "change");
+  assert(scores.str === 12 && scores.dex === 11,
+    `and coming back to Manual Entry restores THAT one (str=${scores.str}, dex=${scores.dex})`);
+
+  // A method being used for the first time has nothing to restore, so it
+  // really does replace the six scores - which is why the warning still says
+  // so, in the new words.
+  methodSelect.value = "roll";
+  fire(methodSelect, "change");
+  const atRoll = { str: scores.str, dex: scores.dex };
+  assert(!memory.roll, "a method being used for the first time has nothing to restore");
+  assert(!/resets the six scores/.test(box.textContent || ""),
+    "and the warning no longer claims a method you have used is reset");
+  methodSelect.value = "pointbuy";
+  fire(methodSelect, "change");
+  methodSelect.value = "roll";
+  fire(methodSelect, "change");
+  assert(!!memory.roll, "leaving a method remembers the six numbers it had");
+  assert(scores.str === atRoll.str && scores.dex === atRoll.dex,
+    `a second visit to Roll restores it (str=${scores.str} vs ${atRoll.str})`);
+  assert(Object.keys(memory).length >= 3,
+    `one set of numbers kept per method (${Object.keys(memory).join(", ")})`);
+}
+
 // --- Review step: the summary box leads, the Finish button trails ---
 // The name box was appended after the three picker tables, so the name you
 // came to check was the last thing on the page. The whole box moves, not

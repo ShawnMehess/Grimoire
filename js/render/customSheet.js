@@ -4843,6 +4843,12 @@ const closeDialog = () => {
       liveSubclassData(state.className)
     );
     const saveRules = debounce(() => saveWithStatus("rules", character.rules), 400);
+    // The six ability scores each method has used during THIS wizard run.
+    // Session-only: it is a scratch pad for trying Point Buy against a typed
+    // spread and back again, not part of the character, so it is deliberately
+    // not on `character.rules` (which is what Finish Setup persists). Declared
+    // beside saveRules so it lives and dies with the wizard, not the page.
+    const wizardAbilityMethodMemory = {};
     // One ruleset means no choice to make — select it silently so
     // every downstream picker works on first paint.
     if (!state.rulesetId) {
@@ -6432,6 +6438,11 @@ const closeDialog = () => {
             // footnote to them rather than as an introduction to them.
             footnote: "Bonuses from your race, subrace, and other picks apply on top of these scores and are listed under each one (e.g. +2 from Half-Orc) — set the base here, the sheet adds the rest.",
             saveFn: () => saveRules(),
+            // One scratch pad per wizard session, so switching methods
+            // gives each method's own six scores back instead of taking the
+            // last one's. Created here rather than module-level so opening a
+            // second character does not inherit the first one's numbers.
+            rememberedScores: wizardAbilityMethodMemory,
             onMethodChange: (method) => {
               character.rules.abilityScoreMethod = method;
               saveRules();
