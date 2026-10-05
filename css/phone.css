@@ -336,6 +336,78 @@
   display: none;
 }
 
+/* --- 3. Picker rows (species, class, subclass, background) ---------------
+   ---------------------------------------------------------------------------
+   One component, four pickers: renderChoiceRowsInto in customSheet.js
+   builds `.choice-row` for Race, Subrace, Class, Subclass and Background,
+   so one rule here reaches all of them.
+
+   At 390x844 each row measured 286x207 - not the 330px the review
+   estimated, but the shape is the complaint: a 96px square portrait, then
+   the name, then a description of any length, so the Identity step is
+   twenty screens of scrolling to look at forty species. print.css's own
+   `max-width: 600px` block stacks the portrait ABOVE the text, which makes
+   it worse still (207px at 390 wide, 225px at 360), so this section
+   deliberately reverses that: the thumbnail goes BESIDE the name.
+   ------------------------------------------------------------------------ */
+
+@media screen and (max-width: 720px) {
+  /* Row, not column. This is the one rule that matters: the thumbnail is
+     beside the name rather than above it, so the name and the first lines
+     of the description are above the fold for EVERY option instead of only
+     for the first. */
+  .choice-row {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: var(--space-2);
+    min-height: 44px;
+  }
+  .choice-row:not(.choice-row--expanded) .choice-row__portrait {
+    width: 56px;
+    height: 56px;
+  }
+  /* Expanded rows earn their height back: the portrait goes to a size you
+     can actually look at, which is what opening one is for. */
+  .choice-row--expanded .choice-row__portrait {
+    width: 96px;
+    height: 96px;
+  }
+
+  /* Two lines of description, then a clamp. The full text is already one
+     tap away - the row expands, and so does the `.choice-row__details`
+     disclosure inside it, which is what Expand All / Collapse All drive.
+     A description of any length is what made the list endless. */
+  .choice-row__description {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .choice-row--expanded .choice-row__description {
+    display: block;
+    overflow: visible;
+  }
+}
+
+/* Landscape: two columns of rows. There is width to spare on a phone held
+   sideways - 796px of it - and no height at all, so a list that is one
+   option per row is one option per screen. Same component, same gate,
+   same Expand All; only the number of columns changes. */
+@media screen and (min-width: 620px) and (max-height: 480px) {
+  .choice-row-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+    align-items: start;
+  }
+  /* Nested lists (a subrace under its race) stay full width: they are
+     indented children of the row above, and a column of their own would
+     break that relationship. */
+  .choice-row-list--nested {
+    grid-column: 1 / -1;
+  }
+}
+
 /* Why Next is refusing, on the page.
    It sits under the buttons on a full-width line rather than beside them:
    the sentences are whole ("No species picked yet.") and squeezing one

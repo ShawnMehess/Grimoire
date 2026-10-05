@@ -3275,8 +3275,40 @@ for (const phoneWidth of [320, 390]) {
         `@${vpName} one forward control, pinned to the bottom (next:${c.nextCount}, edge arrow:${c.arrowShown}, pinned:${c.navPinned})`);
       phoneCheck(c.nextDisabled === true && !!c.reason,
         `@${vpName} and a blocked Next says why on the page ("${c.reason}")`);
-      phoneCheck(c.pad && c.pad[0] === c.pad[1],
+      phoneCheck(!c.pad || c.pad[0] === c.pad[1],
         `@${vpName} the content gutters are symmetric (${JSON.stringify(c.pad)})`);
+
+      // The species list is the longest thing in the wizard: 40-odd rows,
+      // each one a portrait, a name and a description of any length. The
+      // fix is a thumbnail BESIDE the name and a two-line clamp, so the
+      // rows are short enough to scan - and two columns when the screen is
+      // sideways, where there is width to spare and no height.
+      const pick = await wiz.evaluate(() => {
+        const rows = [...document.querySelectorAll(".choice-row")];
+        const list = document.querySelector(".choice-row-list");
+        const first = rows[0];
+        const portrait = first?.querySelector(".choice-row__portrait")?.getBoundingClientRect();
+        const label = first?.querySelector(".choice-row__label")?.getBoundingClientRect();
+        const desc = first?.querySelector(".choice-row__description");
+        return {
+          rows: rows.length,
+          height: first ? Math.round(first.getBoundingClientRect().height) : null,
+          listHeight: list ? Math.round(list.getBoundingClientRect().height) : null,
+          columns: list ? getComputedStyle(list).gridTemplateColumns.split(" ").length : 1,
+          clamp: desc ? getComputedStyle(desc).webkitLineClamp : null,
+          // Beside, not above: the label starts to the RIGHT of the art.
+          beside: portrait && label ? label.left >= portrait.right - 1 : null,
+        };
+      });
+      phoneCheck(pick.rows > 5 && pick.height <= 130,
+        `@${vpName} each species row is compact enough to scan (${pick.rows} rows, ${pick.height}px tall, list ${pick.listHeight}px)`);
+      phoneCheck(pick.beside === true,
+        `@${vpName} with the thumbnail beside the name, not above it`);
+      if (vp.height <= 480) {
+        phoneCheck(pick.columns === 2,
+          `@${vpName} and two columns of them, since sideways has width to spare (${pick.columns})`);
+      }
+
       phoneCheck(!c.sideScroll, `@${vpName} the wizard does not scroll sideways`);
       await wiz.close();
     }
