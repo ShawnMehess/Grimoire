@@ -1491,47 +1491,84 @@ function openTestDialog(host, overrides = {}) {
     return evt;
   };
   const box = document.createElement("div");
-  box.append(...richGameTextNodes("You are frightened."));
+  box.append(...richGameTextNodes("You are frightened. You are blinded."));
   document.body.append(box);
   const term = box.querySelector(".game-term");
+  const otherTerm = box.querySelectorAll(".game-term")[1];
+  assert(!!otherTerm, "two terms to test the one-at-a-time rule with");
   const openTooltips = () => document.querySelectorAll(".game-tooltip");
 
   // A mouse already has the native title; arming on one would fight
   // ordinary clicking.
   fire("pointerdown", { target: term, pointerType: "mouse" });
+  fire("pointerup", { target: term, pointerType: "mouse" });
   await new Promise((r) => setTimeout(r, 700));
   assert(openTooltips().length === 0, "a mouse pointerdown opens nothing");
 
+  // Opens on a TAP, not a hold. Used to need 500ms of finger-down first,
+  // which asked the player to learn a gesture nobody had told them about.
   fire("pointerdown", { target: term });
-  await new Promise((r) => setTimeout(r, 700));
+  assert(openTooltips().length === 0, "nothing opens while the finger is still down");
+  fire("pointerup", { target: term });
   const tips = openTooltips();
-  assert(tips.length === 1, `a held finger opens exactly one tooltip (${tips.length})`);
+  assert(tips.length === 1, `a tap opens exactly one tooltip (${tips.length})`);
   assert(tips[0].getAttribute("role") === "tooltip", "announced as a tooltip");
   assert(tips[0].textContent === term.title && tips[0].textContent.length > 40,
     "carrying the same explanation the title had");
   assert(term.getAttribute("aria-describedby") === tips[0].id,
     "and the term points at it while it is open");
+  assert(term.tabIndex === 0, "the trigger is focusable, so the explanation is reachable without a pointer");
 
-  // The click a long press always ends with must not also select the row.
-  let stopped = 0;
-  const click = fire("click", { target: term, preventDefault() { stopped += 1; } });
-  assert(stopped === 1, "the trailing click is swallowed, not delivered to the row");
-  void click;
+  // Tapping the SAME word again closes it, and never stacks a second one.
+  fire("pointerdown", { target: term });
   fire("pointerup", { target: term });
+  assert(openTooltips().length === 0, "tapping the word again closes it");
+  assert(!term.getAttribute("aria-describedby"), "and leaves no stale aria-describedby behind");
+
+  // Only one at a time: a second word replaces the first rather than joining it.
+  fire("pointerdown", { target: term });
+  fire("pointerup", { target: term });
+  const before = openTooltips()[0];
+  fire("pointerdown", { target: otherTerm });
+  fire("pointerup", { target: otherTerm });
+  assert(openTooltips().length === 1, `still exactly one tooltip (${openTooltips().length})`);
+  assert(openTooltips()[0] !== before, "and it is the newer one");
+  assert(otherTerm.getAttribute("aria-describedby") === openTooltips()[0].id,
+    "with the description following the word that is now open");
+  assert(!term.getAttribute("aria-describedby"), "and the first word no longer claims it");
+
+  // Escape closes, whatever opened it.
+  fire("keydown", { key: "Escape", target: document.body });
+  assert(openTooltips().length === 0, "Escape closes it");
+
+  // Keyboard opens it too, so the explanation is not touch-only.
+  fire("keydown", { key: "Enter", target: { closest: () => term } });
+  assert(openTooltips().length === 1, "Enter on a focused term opens it");
+  fire("keydown", { key: "Escape", target: document.body });
+  assert(openTooltips().length === 0, "and Escape closes it again");
+
+  // A tap anywhere that is not a term closes it - including on the tooltip
+  // itself, which is a sibling of the app rather than a term.
+  fire("pointerdown", { target: term });
+  fire("pointerup", { target: term });
+  const tipEl = openTooltips()[0];
+  fire("pointerdown", { target: tipEl });
+  assert(openTooltips().length === 0, "tapping the tooltip itself closes it");
 
   fire("pointerdown", { target: term });
-  await new Promise((r) => setTimeout(r, 700));
-  assert(openTooltips().length === 2, "and a later press opens another");
-  assert(term.getAttribute("aria-describedby") === openTooltips()[1].id,
-    "pointing the term at the newer one");
+  fire("pointerup", { target: term });
+  assert(openTooltips().length === 1, "open again for the outside-tap check");
+  fire("pointerdown", { target: document.body, closest: () => null });
+  assert(openTooltips().length === 0, "tapping elsewhere on the screen closes it");
+  assert(!term.getAttribute("aria-describedby"), "and leaves no stale aria-describedby behind");
 
-  // Scrolling away from the finger cancels it: the player was reading down
-  // the page, not asking about a word. The open tooltip goes with it.
+  // Scrolling out from under the finger cancels it: the player was reading
+  // down the page, not asking about a word. The open tooltip goes with it.
   fire("pointerdown", { target: term });
   fire("pointermove", { target: term, clientX: 0, clientY: 60 });
-  await new Promise((r) => setTimeout(r, 700));
-  assert(openTooltips().length === 1,
-    `a press that turns into a scroll opens nothing and closes what was open (${openTooltips().length})`);
+  fire("pointerup", { target: term, clientX: 0, clientY: 60 });
+  assert(openTooltips().length === 0,
+    `a tap that turns into a scroll opens nothing (${openTooltips().length})`);
   assert(!term.getAttribute("aria-describedby"),
     "and leaves no stale aria-describedby behind");
 }

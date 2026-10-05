@@ -13,27 +13,31 @@
 // Touch is the reason this is a component and not just a `title`
 // attribute. A native tooltip needs a hover, a phone has none, and the
 // words a new player most needs explained are exactly the ones they are
-// reading on a tablet. So a long press opens the same text in a real
-// element that can be positioned, announced, and closed.
+// reading on a tablet.
+//
+// It opens on a TAP, not a long press. A long press asks the player to learn
+// a gesture nobody told them about, needs half a second of patience, and
+// suppresses the click that follows it - so on a phone it was the slowest
+// possible route to the explanation sitting right there. Opening on the
+// touch's own end event is both faster and impossible to trigger by accident
+// during a scroll, because a scroll either moves the pointer past the
+// tolerance or cancels the pointer outright.
 
 import { splitAbilityTokens, abilityTooltip, splitGameplayTerms } from "./sheetMechanics.js";
 import { spellLinkNodes } from "./spellLinks.js";
 import { findSpellMentions } from "../../data/spellIndex.js";
 
-/** How long a finger has to rest before it counts as asking rather than
- *  scrolling. Long enough not to fire on a tap, short enough that nobody
- *  thinks it is broken. */
-const LONG_PRESS_MS = 500;
+/** Movement, in px, between a touch going down and coming up that means the
+ *  player was SCROLLING, not tapping. Generous enough to survive a shaky
+ *  thumb, tight enough that a scroll is never mistaken for a tap. */
+const MOVE_TOLERANCE = 10;
 
-/** Movement, in px, that turns a long press into a scroll. Small, so a
- *  finger resting on a word does not drift off it. */
-const MOVE_TOLERANCE = 8;
-
-/** How long after a long press the trailing click stays suppressed. */
+/** How long after a tooltip opens the trailing click stays suppressed.
+ *  Only armed when the term sits inside something clickable - see
+ *  toggleTooltipFor. */
 const CLICK_SUPPRESS_MS = 700;
 
 let touchInstalled = false;
-let pressTimer = null;
 let pressOrigin = null;
 let pressTarget = null;
 let suppressClickUntil = 0;
@@ -46,13 +50,19 @@ let describedTerm = null;
 
 /** One glossary term: a span carrying the term's own text and the
  *  explanation, as a native `title` for pointer-fine devices and as the
- *  content of the long-press tooltip for the rest. */
+ *  content of the tap tooltip for the rest.
+ *
+ *  Focusable, deliberately. Without a focusable trigger the explanation is
+ *  unreachable by keyboard and only half-reachable by a screen reader, and
+ *  the tab stop is the honest cost of that: the text is already a `title`,
+ *  so focusing it announces the explanation with no extra machinery. */
 function termNode(run) {
   const span = document.createElement("span");
   span.className = "game-term";
   span.dataset.termId = run.id;
   span.textContent = run.term;
   span.title = run.description;
+  span.tabIndex = 0;
   return span;
 }
 
@@ -114,7 +124,7 @@ export function richGameTextNodes(text, { spellLinks = true } = {}) {
   return out;
 }
 
-// --- Long press ------------------------------------------------------------
+// --- The tooltip ------------------------------------------------------------
 //
 // Delegated from the document rather than bound per span. Terms are
 // regenerated on every re-render of every picker row, so per-node
@@ -129,7 +139,6 @@ function termAt(target) {
 }
 
 function clearPress() {
-  if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
   pressOrigin = null;
   pressTarget = null;
 }
@@ -142,6 +151,16 @@ function hideTooltip() {
     describedTerm.dataset.termDescribed = "";
     describedTerm = null;
   }
+}
+
+/** Whether tapping this term would also hit something clickable behind it -
+ *  a picker row, a button, a label wrapping a control. Only those need the
+ *  trailing click swallowed; on ordinary prose there is nothing to swallow,
+ *  and swallowing it would be the bug rather than the fix. */
+function termSitsInSomethingClickable(term) {
+  const host = term?.parentElement?.closest?.(
+    "a, button, label, .choice-row, [role=button], .vault-card, .modal-box");
+  return Boolean(host);
 }
 
 function showTooltipFor(doc, term) {
@@ -168,50 +187,99 @@ function showTooltipFor(doc, term) {
   term.setAttribute("aria-describedby", tip.id);
   term.dataset.termDescribed = "1";
   describedTerm = term;
-  // A long press always ends in a click. Swallow it, or resting on a term
-  // inside a picker row also selects the row behind it.
-  suppressClickUntil = Date.now() + CLICK_SUPPRESS_MS;
+}
+
+/** Open this term's tooltip, or close it if this term is the open one.
+ *
+ *  Toggling is what makes "tap the word again to dismiss" true without a
+ *  separate rule for it: one open at a time is enforced by hiding whatever
+ *  was open first, so there is never a second tooltip to stack.
+ *
+ *  The click suppression is armed ONLY when the term is inside something
+ *  clickable. Opening a tooltip must not also select the picker row behind
+ *  it - but on prose there is no row behind it, and eating the click there
+ *  would break the page for no reason. */
+function toggleTooltipFor(doc, term) {
+  if (openTip && describedTerm === term) { hideTooltip(); return false; }
+  if (openTip) hideTooltip();
+  showTooltipFor(doc, term);
+  if (termSitsInSomethingClickable(term)) suppressClickUntil = Date.now() + CLICK_SUPPRESS_MS;
+  return true;
 }
 
 function onPointerDown(e, doc) {
   clearPress();
   const term = termAt(e.target);
+  // Tapping anywhere that is not a term closes whatever is open. The tooltip
+  // itself is not a term, so a tap on the tooltip lands here too - which is
+  // the item's "closes when they tap the tooltip itself".
   if (!term) { hideTooltip(); return; }
   // A mouse already has the native title. Arming this on one would fight
   // ordinary clicking, and `pointerType` is absent on synthetic events.
   if (e.pointerType && e.pointerType !== "touch") return;
   pressOrigin = { x: e.clientX, y: e.clientY };
   pressTarget = term;
-  pressTimer = setTimeout(() => {
-    pressTimer = null;
-    if (pressTarget) showTooltipFor(doc, pressTarget);
-  }, LONG_PRESS_MS);
 }
 
-function onPointerMove(e, doc) {
-  if (!pressOrigin) return;
-  const dx = Math.abs(e.clientX - pressOrigin.x);
-  const dy = Math.abs(e.clientY - pressOrigin.y);
-  // Scrolling out from under the finger cancels it: the player was reading
-  // down the page, not asking about a word.
-  if (dx > MOVE_TOLERANCE || dy > MOVE_TOLERANCE) {
-    clearPress();
-    hideTooltip();
-  }
+/** The touch's own end: a tap here is a tap, not a long press. Anything that
+ *  moved past the tolerance was a scroll, and there is nothing to ask about. */
+function onPointerUp(e, doc) {
+  const term = pressTarget;
+  const origin = pressOrigin;
+  clearPress();
+  if (!term || !origin) return;
+  const dx = Math.abs(e.clientX - origin.x);
+  const dy = Math.abs(e.clientY - origin.y);
+  if (dx > MOVE_TOLERANCE || dy > MOVE_TOLERANCE) { hideTooltip(); return; }
+  toggleTooltipFor(doc, term);
 }
 
-/** Installs the delegated long-press handlers once, on first use. Called
+/** Installs the delegated handlers once, on first use. Called
  *  from richGameTextNodes so no page has to remember to wire it up, and
- *  guarded because the DOM stubs under scripts/ are not full documents. */
+ *  guarded because the DOM stubs under scripts/ are not full documents.
+ *
+ *  CAPTURE phase for the pointer and key handlers, and that is not a detail.
+ *  Every field on the sheet wraps its control in a `pointerdown` handler that
+ *  calls stopPropagation() so that clicking into it to type does not also
+ *  trigger the sheet's own selection (see the note on the capture-phase
+ *  listener in customSheet.js). In the bubble phase that meant this module
+ *  never saw a pointerdown whose target was a glossary term - which is to
+ *  say, never saw one anywhere on the character sheet, where all sixteen
+ *  terms live inside fields. Measured: on the demo sheet, bubble-phase
+ *  `onPointerDown` fired for a tap on a field and never for a tap on a term.
+ *  Capture runs on the way DOWN to the target, before any of those
+ *  stopPropagation() calls, so a term is reachable wherever it is.
+ *
+ *  The handlers never stop propagation themselves - they only ever call
+ *  preventDefault, and only for the key that would otherwise activate the
+ *  thing the term sits inside - so capturing costs the page nothing. */
 function installTouchTooltips(doc) {
   if (touchInstalled || !doc || typeof doc.addEventListener !== "function") return;
   touchInstalled = true;
-  doc.addEventListener("pointerdown", (e) => onPointerDown(e, doc));
-  doc.addEventListener("pointermove", (e) => onPointerMove(e, doc));
-  const end = () => clearPress();
-  doc.addEventListener("pointerup", end);
-  doc.addEventListener("pointercancel", end);
+  doc.addEventListener("pointerdown", (e) => onPointerDown(e, doc), true);
+  doc.addEventListener("pointermove", (e) => {
+    // Scrolling out from under the finger cancels it: the player was reading
+    // down the page, not asking about a word.
+    if (!pressOrigin) return;
+    const dx = Math.abs(e.clientX - pressOrigin.x);
+    const dy = Math.abs(e.clientY - pressOrigin.y);
+    if (dx > MOVE_TOLERANCE || dy > MOVE_TOLERANCE) hideTooltip();
+  }, { passive: true, capture: true });
+  doc.addEventListener("pointerup", (e) => onPointerUp(e, doc), { passive: true, capture: true });
+  doc.addEventListener("pointercancel", () => clearPress(), { passive: true, capture: true });
   doc.addEventListener("scroll", () => hideTooltip(), true);
+  // Escape closes, whatever opened it. Keyboard and touch share one tooltip,
+  // so they share one way out.
+  doc.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && openTip) { hideTooltip(); return; }
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const term = termAt(e.target);
+    if (!term) return;
+    // Space would otherwise scroll the page; Enter would activate whatever
+    // the term happens to sit inside.
+    e.preventDefault();
+    toggleTooltipFor(doc, term);
+  }, true);
   // A long press on a phone otherwise raises the magnifier or the callout
   // menu over the tooltip that just opened.
   doc.addEventListener("contextmenu", (e) => {

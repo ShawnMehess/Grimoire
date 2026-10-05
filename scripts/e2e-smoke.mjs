@@ -448,11 +448,106 @@ async function runViewportTests(viewport) {
   await settled(page, READY_SHEET, `${viewport.name} demo sheet`);
   check(await page.$(READY_SHEET), "demo sheet toolbar renders (no aborted render)");
 
-  // Editing anything re-renders the whole grid, and the grid is emptied
+// Editing anything re-renders the whole grid, and the grid is emptied
   // before it is refilled - at which point the document is one screen tall
   // and the browser clamps the scroll to the top. This checks the invariant
   // at depth, which is where the clamp bites, and at three depths so a fix
   // that only holds near the top cannot pass.
+  {
+    // The glossary tooltip, driven by a real tap. Two things are under test
+    // and the second is the one that was broken: it opens on a TAP rather
+    // than a half-second hold, and it works ON THE SHEET at all. Every
+    // sheet field wraps its control in a pointerdown handler that calls
+    // stopPropagation so clicking into a field does not also trigger
+    // selection - which meant a bubble-phase listener never saw a tap on any
+    // of the sheet's sixteen terms. Capture phase fixes it, and this is what
+    // would notice if that regressed.
+    const tipTerm = await page.evaluate(() => {
+      const any = [...document.querySelectorAll(".game-term")].find((x) => (x.title || "").length > 20);
+      if (!any) return null;
+      any.scrollIntoView({ block: "center" });
+      const t = [...document.querySelectorAll(".game-term")]
+        .find((x) => {
+          const r = x.getBoundingClientRect();
+          return (x.title || "").length > 20 && r.top > 60 && r.bottom < window.innerHeight - 60 && r.width > 4;
+        });
+      if (!t) return null;
+      const r = t.getBoundingClientRect();
+      return {
+        x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2),
+        word: t.textContent, title: t.title, tabIndex: t.tabIndex,
+      };
+    });
+    check(!!tipTerm, `the sheet offers a glossary term with an explanation (${await page.evaluate(() => document.querySelectorAll(".game-term").length)} terms)`);
+    if (tipTerm) {
+      check(tipTerm.tabIndex === 0, `and its trigger is focusable (tabIndex ${tipTerm.tabIndex})`);
+      // A touch-typed pointer pair, dispatched in the page. A real mouse
+      // deliberately opens nothing - it has the native `title` - so the tap
+      // path cannot be driven with page.mouse here, and a desktop viewport's
+      // page has no touchscreen either. Synthetic events with pointerType
+      // "touch" are what a phone actually sends down this path.
+      // The tap and the reading happen in ONE page call, deliberately. The
+      // tooltip is closed again by any scroll event, and the sheet is still
+      // settling after a reload, so reading it a polling-interval later
+      // measures the harness rather than the handler.
+      //
+      // And the TERM is re-found inside that same call rather than being
+      // tapped at coordinates read earlier. The three viewport passes run
+      // concurrently and a re-render can move a term between reading a
+      // coordinate and using it, which showed up as exactly one flaky
+      // failure in a mobile pass. Nothing here needs a coordinate at all.
+      const tapAndRead = async (title) => page.evaluate((want) => {
+        const find = () => [...document.querySelectorAll(".game-term")]
+          .find((x) => x.title === want && x.getClientRects().length > 0);
+        const el = find();
+        if (!el) return { count: 0, missing: true };
+        const base = {
+          bubbles: true, cancelable: true, pointerType: "touch", pointerId: 7,
+          clientX: Math.round(el.getBoundingClientRect().left),
+          clientY: Math.round(el.getBoundingClientRect().top),
+        };
+        el.dispatchEvent(new PointerEvent("pointerdown", base));
+        el.dispatchEvent(new PointerEvent("pointerup", base));
+        const t = document.querySelector(".game-tooltip");
+        return {
+          count: document.querySelectorAll(".game-tooltip").length,
+          role: t ? t.getAttribute("role") : null,
+          text: t ? t.textContent : null,
+        };
+      }, title);
+      // And one tap somewhere that is definitely not a term.
+      const tapAwayAndRead = async () => page.evaluate(() => {
+        const el = document.body;
+        const base = { bubbles: true, cancelable: true, pointerType: "touch", pointerId: 8, clientX: 4, clientY: 4 };
+        el.dispatchEvent(new PointerEvent("pointerdown", base));
+        el.dispatchEvent(new PointerEvent("pointerup", base));
+        return document.querySelectorAll(".game-tooltip").length;
+      });
+
+      const opened = await tapAndRead(tipTerm.title);
+      check(opened.count === 1, `a plain tap opens the tooltip on the sheet (${opened.count})`);
+      check(opened.role === "tooltip" && opened.text === tipTerm.title,
+        "carrying the term's own explanation, announced as a tooltip");
+      const again = await tapAndRead(tipTerm.title);
+      check(again.count === 0, `and tapping the same word again closes it (${again.count})`);
+      const reopened = await tapAndRead(tipTerm.title);
+      check(reopened.count === 1, `it reopens for the next check (${reopened.count})`);
+      const outside = await tapAwayAndRead();
+      check(outside === 0, `tapping somewhere else on the screen closes it (${outside})`);
+      // Escape is a real key press, so it cannot share the synchronous
+      // reading above - but by now the sheet has settled and no scroll event
+      // is going to close it underneath the assertion.
+      await tapAndRead(tipTerm.title);
+      await quiet(page);
+      const beforeEscape = await page.evaluate(() => document.querySelectorAll(".game-tooltip").length);
+      await page.keyboard.press("Escape");
+      await quiet(page);
+      const afterEscape = await page.evaluate(() => document.querySelectorAll(".game-tooltip").length);
+      check(beforeEscape === 1 && afterEscape === 0,
+        `and Escape closes it (${beforeEscape} -> ${afterEscape})`);
+    }
+  }
+
   {
     const deepEnough = await page.evaluate(() =>
       document.documentElement.scrollHeight - window.innerHeight > 1200);
