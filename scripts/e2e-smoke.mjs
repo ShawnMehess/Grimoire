@@ -4674,6 +4674,105 @@ if (inArea("load-failure")) {
 // named in the check rather than left to the loop, because "every background
 // happens to agree" reads as vacuous until you see the one that has nothing
 // to do and still passes.
+// --- A refresh resumes the wizard where it was left -------------------------
+//
+// Refreshing mid-creation must land on the same page with the same answers.
+// The answers already worked - they are saved through their own paths - so
+// what is under test here is the PAGE, and specifically that a saved step id
+// which no longer exists falls back to the beginning rather than to whatever
+// now sits at that position.
+if (inArea("background-gate")) {
+  const resumePage = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
+  resumePage.on("pageerror", (e) => problems.push(`PAGEERROR [resume]: ${e.message}`));
+  const resumeCheck = (cond, msg) => {
+    if (!cond) failures.push(`[resume] ${msg}`);
+    console.log(`${cond ? "ok" : "FAIL"} [resume]: ${msg}`);
+  };
+  const stepIdOf = (p) => p.evaluate(() =>
+    document.querySelector(".wizard__dot--active")?.dataset.stepId || null);
+  const clickNext = (p) => p.evaluate(() => {
+    const b = document.querySelector(".wizard__next:not([disabled])");
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+
+  await resumePage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+  await settled(resumePage, READY_VAULT, "resume vault");
+  await resumePage.click(READY_VAULT);
+  await settled(resumePage, READY_WIZARD, "resume wizard");
+  await resumePage.waitForTimeout(700);
+  await resumePage.evaluate(() => {
+    for (const b of document.querySelectorAll(".wizard input[type=checkbox]")) {
+      if (!b.checked) { b.click(); return; }
+    }
+  });
+  await resumePage.waitForTimeout(300);
+  await clickNext(resumePage);
+  await resumePage.waitForTimeout(500);
+  await resumePage.evaluate(() => {
+    const n = document.querySelector(".wizard input[type=text]");
+    if (n) {
+      n.value = "Resume Tester";
+      n.dispatchEvent(new Event("input", { bubbles: true }));
+      n.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+  await resumePage.waitForTimeout(300);
+  await resumePage.click('.choice-row[data-row-name="Half-Orc"] .choice-row__label');
+  await resumePage.waitForTimeout(600);
+  await clickNext(resumePage);
+  await resumePage.waitForTimeout(700);
+  await resumePage.click('.choice-row[data-row-name="Barbarian"] .choice-row__label');
+  await resumePage.waitForTimeout(700);
+  const stepBefore = await stepIdOf(resumePage);
+  resumeCheck(stepBefore === "class", `the walkthrough is on the Class step before the refresh (${stepBefore})`);
+  // The progress write is debounced; give it room rather than guessing.
+  await resumePage.waitForTimeout(2500);
+
+  await resumePage.reload({ waitUntil: "networkidle" });
+  await settled(resumePage, READY_VAULT, "resume vault after reload");
+  await resumePage.waitForTimeout(800);
+  const onVault = !(await resumePage.$(".wizard"));
+  resumeCheck(onVault, "a refresh goes back to the vault, which is where a browser refresh has to land");
+  if (onVault) {
+    const cardText = await resumePage.evaluate(() =>
+      (document.querySelector(".character-card")?.textContent || "").replace(/\s+/g, " ").trim());
+    resumeCheck(/Resume Tester/.test(cardText) && /Half-Orc/.test(cardText),
+      `and the unfinished character is still there with its answers (${JSON.stringify(cardText.slice(0, 70))})`);
+    await resumePage.click(".character-card");
+    await settled(resumePage, READY_WIZARD, "resume wizard after reload");
+    await resumePage.waitForTimeout(900);
+    const stepAfter = await stepIdOf(resumePage);
+    const pickedAfter = await resumePage.evaluate(() =>
+      document.querySelector(".choice-row--selected")?.dataset.rowName || null);
+    resumeCheck(stepAfter === stepBefore,
+      `reopening lands on the same step (${stepBefore} -> ${stepAfter})`);
+    resumeCheck(pickedAfter === "Barbarian",
+      `and the class picked before the refresh is still picked (${pickedAfter})`);
+  }
+
+  // A saved step that no longer exists must not be trusted. Written straight
+  // into storage so the app reads it the way it would read its own save.
+  await resumePage.evaluate(() => {
+    const map = JSON.parse(localStorage.getItem("grimoire.local.characters.v1") || "{}");
+    for (const doc of Object.values(map)) {
+      if (doc.creationStepId) doc.creationStepId = "a-step-that-was-removed";
+    }
+    localStorage.setItem("grimoire.local.characters.v1", JSON.stringify(map));
+  });
+  await resumePage.reload({ waitUntil: "networkidle" });
+  await settled(resumePage, READY_VAULT, "resume vault with a stale step");
+  await resumePage.waitForTimeout(700);
+  await resumePage.click(".character-card");
+  await settled(resumePage, READY_WIZARD, "resume wizard with a stale step");
+  await resumePage.waitForTimeout(900);
+  const staleStep = await stepIdOf(resumePage);
+  resumeCheck(staleStep === "rules" || staleStep === "identity",
+    `a step id that no longer exists opens the wizard at its beginning, not in the middle (${staleStep})`);
+  await resumePage.close();
+}
+
 if (inArea("background-gate")) {
   const bgPage = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
   bgPage.on("pageerror", (e) => problems.push(`PAGEERROR [bg-gate]: ${e.message}`));

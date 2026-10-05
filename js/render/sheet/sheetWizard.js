@@ -1893,14 +1893,37 @@ export function firstIncompleteStep(steps) {
   return -1;
 }
 
+/** Where a wizard should open, given the step id saved by a previous session.
+ *
+ *  Refreshing mid-wizard should put the player back on the page they were on,
+ *  with their answers still there - which is why the step is persisted as a
+ *  stable ID rather than a number: the list of steps changes between sessions
+ *  (a conditional page appears, one is renamed or dropped), and an index saved
+ *  last week can point at a completely different page today.
+ *
+ *  A saved id that no longer matches any applicable step is IGNORED, and the
+ *  wizard opens at its first page. That is the safe direction: the player
+ *  lands on the beginning with nothing lost, rather than on whichever page
+ *  happens to sit at the stale index. An unrecognised id is not an error and
+ *  not worth a message - by the time it is read the step it named is gone.
+ *
+ *  `state` is mutated (its index is set) and returned, because the caller
+ *  holds the live object. Pure otherwise. */
+export function resumeStepIndex(applicableSteps = [], state = {}) {
+  const count = applicableSteps.length;
+  const saved = typeof state.stepId === "string" ? state.stepId : null;
+  const at = saved ? applicableSteps.findIndex((s) => s?.id === saved) : -1;
+  // `at === -1` covers both "nothing saved" and "saved one no longer exists".
+  // Falling through leaves whatever index the state already had, which is
+  // 0 for a fresh wizard.
+  state.index = clampStepIndex(count, at === -1 ? state.index : at);
+  return state.index;
+}
+
 export function renderStepWizardInto(steps, stepState, { title, intro, onNavigate } = {}, gridFn) {
   const applicableSteps = applicableStepsOf(steps);
   if (applicableSteps.length === 0) return null;
-  if (typeof stepState.stepId === "string") {
-    const resumeAt = applicableSteps.findIndex((step) => step.id === stepState.stepId);
-    if (resumeAt !== -1) stepState.index = resumeAt;
-  }
-  stepState.index = clampStepIndex(applicableSteps.length, stepState.index);
+  resumeStepIndex(applicableSteps, stepState);
   // Single choke point for every step change — records the new
   // position (numeric index for this render, stable id for later
   // sessions) and notifies the caller before re-rendering.

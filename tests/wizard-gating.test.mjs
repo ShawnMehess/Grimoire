@@ -58,6 +58,7 @@ import {
   swipeStartsInsideOwnSurface,
   SWIPE_MIN_DISTANCE,
   SWIPE_IGNORED_SURFACES,
+  resumeStepIndex,
 } from "../js/render/sheet/sheetWizard.js";
 import {
   clampScoreToRange,
@@ -1138,5 +1139,47 @@ it("does not claim ordinary page content", () => {
     // and a nudge are both far shorter.
     assert.ok(SWIPE_MIN_DISTANCE >= 40, "a tap is never a swipe");
     assert.ok(SWIPE_MIN_DISTANCE <= 80, "and it is still one thumb movement");
+  });
+});
+
+describe("a wizard resumes where it was left", () => {
+  // Refreshing mid-wizard has to land on the same page, with the answers
+  // intact. The step is persisted as an ID because the step LIST changes
+  // between sessions, which is exactly what the second half of this is about.
+  const STEPS = [{ id: "rules" }, { id: "identity" }, { id: "class" }, { id: "review" }];
+
+  it("opens on the saved step", () => {
+    const state = { index: 0, stepId: "class" };
+    assert.equal(resumeStepIndex(STEPS, state), 2);
+    assert.equal(state.index, 2, "and records it on the live state");
+  });
+
+  it("falls back to the beginning for a step that no longer exists", () => {
+    // A conditional page was added or removed since the save. Landing on the
+    // first page loses nothing; landing on whatever sits at the stale index
+    // would drop the player into the middle of somebody else's wizard.
+    const state = { index: 0, stepId: "abilities" };
+    assert.equal(resumeStepIndex(STEPS, state), 0);
+  });
+
+  it("ignores a saved step that is not applicable right now", () => {
+    // The same id can exist and still not be on the page: a level that grants
+    // no ASI has no ASI step this session.
+    const withoutAsi = [{ id: "rules" }, { id: "review" }];
+    const state = { index: 0, stepId: "abilities" };
+    assert.equal(resumeStepIndex(withoutAsi, state), 0);
+  });
+
+  it("opens at the beginning when nothing was saved", () => {
+    for (const state of [{ index: 0 }, { index: 0, stepId: null }, { index: 0, stepId: 42 }, { index: 0, stepId: "" }]) {
+      assert.equal(resumeStepIndex(STEPS, state), 0, `nothing saved: ${JSON.stringify(state)}`);
+    }
+  });
+
+  it("never lands outside the list", () => {
+    const state = { index: 99, stepId: "nope" };
+    assert.equal(resumeStepIndex(STEPS, state), 3, "clamped to the last step, not past it");
+    const empty = { index: 4, stepId: "class" };
+    assert.equal(resumeStepIndex([], empty), 0, "and 0 when there are no steps at all");
   });
 });
