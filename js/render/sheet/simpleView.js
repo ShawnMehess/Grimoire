@@ -89,6 +89,44 @@ export function narrowScreenNeedsStackedView({ gridWidth, availableWidth } = {})
   return grid > avail + 1;
 }
 
+/** Whether the window is too SHORT for the positioned grid, so the
+ *  sheet has to be stacked instead.
+ *
+ *  The same argument as narrowScreenNeedsStackedView, on the other axis.
+ *  A grid cell's height is derived from its width - gridCanvasSize lays
+ *  the canvas out as `pageCols * cw + gaps` across and `cw + gap` down -
+ *  so once the width stops being the constraint and cw sits on the
+ *  MIN_CELL_PX floor, every field is a 40x40 box. In that box a 22px
+ *  uppercase label leaves about 12px for the value, which is less than the
+ *  value's own minimum height: measured at 844x390, 70 fields were
+ *  clipped, "MOD" labels overlapped their neighbours' boxes, and the
+ *  Adv./Disadvantage pill - which is 103px wide and absolutely positioned
+ *  over the value - hung 63px outside its own cell and over the next two.
+ *
+ *  A landscape phone is 390px tall, and a 16-row sheet in 40px rows needs
+ *  more than that before the chrome is counted. So the fix is not to make
+ *  the rows grow - the canvas is a fixed pixel size and the saved layout's
+ *  coordinates are meaningful - it is to stop using the positioned grid on
+ *  a screen with this little height and use the stacked display, which
+ *  sizes itself to its content.
+ *
+ *  `viewportHeight` is the window's inner height, so this follows a
+ *  rotation the way the width rule follows a resize. A missing or
+ *  unmeasurable height means "not too short": guessing short on a screen
+ *  that has not been measured yet would stack the sheet on every load and
+ *  flicker back, which is the same failure mode as the width rule's. */
+export function shortViewportNeedsStackedView({ viewportHeight } = {}) {
+  // The tallest single row on the canvas is one grid row, and a phone in
+  // its hand has room for a handful. 480px is the same number
+  // css/phone.css uses for its short-viewport rules, so the two agree
+  // about what "short" means: below it the header and the toolbar both
+  // change shape, and the sheet does too.
+  const SHORT_VIEWPORT_CEILING_PX = 480;
+  const n = typeof viewportHeight === "string" ? parseFloat(viewportHeight) : Number(viewportHeight);
+  if (!Number.isFinite(n) || n <= 0) return false;
+  return n <= SHORT_VIEWPORT_CEILING_PX;
+}
+
 /** Whether to show the one-time orientation panel.
  *
  *  Shown once per character and remembered on the character, not in local

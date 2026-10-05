@@ -411,7 +411,7 @@ import {
 } from "./sheet/aspectPresets.js";
 import { confirmDialog, alertDialog, promptDialog, chooseDialog } from "../ui/dialogs.js";
 import { A11Y_OPTIONS, a11yEnabled, applyA11yMode } from "../ui/accessibility.js";
-import { applySimpleViewOrder, narrowScreenNeedsStackedView, shouldShowIntro, INTRO_LINES } from "./sheet/simpleView.js";
+import { applySimpleViewOrder, narrowScreenNeedsStackedView, shortViewportNeedsStackedView, shouldShowIntro, INTRO_LINES } from "./sheet/simpleView.js";
 import { featRowModels, renderFeatListInto } from "./sheet/featList.js";
 import {
 allGrantsIn,
@@ -878,9 +878,10 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // disabled state and the wording of the toggle.
   let forcedStacked = false;
 
-/** How wide the positioned grid actually is right now, and how much room
-   *  it has. Measured rather than guessed, so this follows the column
-   *  count, the cell floor, the sidebar and the window. */
+/** How wide the positioned grid actually is right now, how much room it
+   *  has, and how tall the window is. Measured rather than guessed, so this
+   *  follows the column count, the cell floor, the sidebar and the window -
+   *  and, for the height, a rotation. */
   function gridFitNow() {
     const wrap = scrollWrapper || root;
     const availableWidth = wrap.clientWidth || root.clientWidth || 0;
@@ -896,17 +897,32 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     const declared = parseFloat(pageGrid?.style?.width || "");
     const gridWidth = Number.isFinite(declared) && declared > 0
       ? declared
-      : Math.max(pageGrid?.scrollWidth || 0, pageGrid?.clientWidth || 0);
-    return { gridWidth, availableWidth };
+: Math.max(pageGrid?.scrollWidth || 0, pageGrid?.clientWidth || 0);
+    // window.innerHeight, not the wrapper's: the stacking decision is about
+    // the screen the reader has, not about a box inside it.
+    const viewportHeight = window.innerHeight || 0;
+    return { gridWidth, availableWidth, viewportHeight };
   }
 
-  /** Re-decide whether the stacked layout is being forced by width, and
-   *  apply the result if it changed. Called on load, on the view toggle,
-   *  and on every resize, so rotating a phone or dragging a desktop
-   *  window across the threshold switches the sheet rather than leaving
-   *  it unscrollable. */
+  /** Which rule is forcing the stacked display, or null when neither is.
+   *  Kept as its own value so the toggle can say WHY rather than always
+   *  blaming the width - on a landscape phone the width is fine and the
+   *  height is not, and "off on a screen this narrow" is then a lie about
+   *  the screen it is on. */
+  function forcedStackedReason() {
+    const fit = gridFitNow();
+    if (shortViewportNeedsStackedView(fit)) return "short";
+    if (narrowScreenNeedsStackedView(fit)) return "narrow";
+    return null;
+  }
+
+  /** Re-decide whether the stacked layout is being forced, and apply the
+   *  result if it changed. Called on load, on the view toggle, and on every
+   *  resize, so rotating a phone or dragging a desktop window across either
+   *  threshold switches the sheet rather than leaving it clipped or
+   *  unscrollable. */
   function syncStackedForWidth() {
-    const forced = narrowScreenNeedsStackedView(gridFitNow());
+    const forced = forcedStackedReason() !== null;
     if (forced === forcedStacked) return false;
     forcedStacked = forced;
     const wanted = forced || simpleViewPreferred;
@@ -918,13 +934,16 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   /** The toggle's label/title/disabled state, in one place so the forced
    *  and preferred paths can never leave it describing the wrong thing. */
   function syncViewToggleState() {
+    const reason = forcedStackedReason();
     playViewBtn.textContent = simpleView ? "Sheet View" : "Simple View";
     playViewBtn.disabled = forcedStacked;
-    playViewBtn.title = forcedStacked
-      ? "Sheet View is off on a screen this narrow - the grid needs about 790px and would scroll sideways instead of fitting. Everything is stacked full-width here; Sheet View returns on a wider screen."
-      : (simpleView
-        ? "Switch back to the editable grid - your saved layout is exactly where you left it"
-        : "Switch to Simple View - every block and field stacked full-width (display only; your layout is untouched)");
+    playViewBtn.title = reason === "short"
+      ? "Sheet View is off on a screen this short - the grid's rows are as tall as its columns are wide, so a 40px cell cannot hold a label and a value. Everything is stacked full-width here; Sheet View returns when there is more height."
+      : reason === "narrow"
+        ? "Sheet View is off on a screen this narrow - the grid needs about 790px and would scroll sideways instead of fitting. Everything is stacked full-width here; Sheet View returns on a wider screen."
+        : (simpleView
+          ? "Switch back to the editable grid - your saved layout is exactly where you left it"
+          : "Switch to Simple View - every block and field stacked full-width (display only; your layout is untouched)");
   }
 
   /** Turn Simple View on or off: the grid class, the sort keys, the

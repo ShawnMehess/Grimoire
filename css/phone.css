@@ -990,3 +990,42 @@
     font-size: var(--text-xs);
   }
 }
+/* --- 6. The character sheet on its side -----------------------------------
+   ---------------------------------------------------------------------------
+   The worst of the review, and all of it measured at 844x390 on the same
+   demo sheet.
+
+   Cause one: the positioned grid's cell HEIGHT is derived from its cell
+   WIDTH (gridCanvasSize: `pageCols * cw + gaps` across, `cw + gap` down).
+   At 844px wide the width is not the constraint - cw lands on the
+   40px MIN_CELL_PX floor - so every field is a 40x40 box with a 22px
+   label in it and a value underneath that does not fit. 70 fields
+   measured as clipped, and `.field-roll` sat on top of 63 more.
+
+   The fix is not a CSS one, so it is not in this file. Letting the rows
+   grow would mean letting the fixed canvas grow, which is the saved layout
+   and is not mine to resize. So a short viewport stops using the positioned
+   grid at all: shortViewportNeedsStackedView() in simpleView.js, applied
+   in customSheet.js. On 844x390 the sheet was 70 clipped fields and 6
+   overlapping chips; it is now the same three-column stacked layout a
+   390x844 phone gets, with every label and value inside its own box.
+
+   Cause two: `.field-roll` - the Adv./Disadv. pill - is
+   `position: absolute; right: 2px; bottom: 2px`, and it is 133px wide.
+   In a 40px cell it hangs 63px out over its neighbours, and six of them
+   side by side overlapped into one unreadable strip that also sat on top of
+   the "MOD" labels. `@media (hover: none)` makes it always-on, so this was
+   worse on a phone than on a desktop, which is backwards.
+
+   An absolutely positioned overlay cannot be made not to overlap something
+   when it is wider than the thing it is on, so the pill is un-positioned in
+   the stacked layout - see "The Adv./Disadvantage chips" above, scoped to
+   .page-grid.is-simple, because in the positioned grid it overlays a cell
+   that is already as wide as the layout made it, and that arrangement is
+   what a wide screen is for.
+
+   The e2e-smoke check for this is one assertion: on a short viewport, no
+   visible .field-label, .field-value, .block-name or .field-roll is
+   clipped by its own box or overlapped by another. It runs at 844x390 and
+   667x375 and scans every visible one of them.
+   ------------------------------------------------------------------------ */

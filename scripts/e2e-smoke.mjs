@@ -3258,6 +3258,47 @@ for (const phoneWidth of [320, 390]) {
     }
 
 
+      // Item 6, in one assertion: on a short viewport, no visible field
+      // label or value may be clipped by its own box, and no two of them
+      // may overlap. This is the scan that catches the Adv./Disadvantage
+      // pill sitting on the "MOD" labels and the 40px cells that clipped
+      // seventy values - both of which were real at 844x390 and neither of
+      // which a "does it scroll sideways" check would ever see.
+      if (vp.height <= 480) {
+        const scan = await ph.evaluate(() => {
+          const shown = (el) => {
+            const cs = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            return cs.display !== "none" && cs.visibility !== "hidden" && r.width > 1 && r.height > 1;
+          };
+          const nodes = [...document.querySelectorAll(".field-label, .field-value, .block-name, .field-roll")]
+            .filter(shown)
+            .map((el) => ({ el, r: el.getBoundingClientRect() }));
+          const clipped = nodes
+            .filter(({ el }) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
+            .slice(0, 6)
+            .map(({ el }) => `${el.className}|${(el.textContent || "").trim().slice(0, 20)}`);
+          const overlaps = [];
+          for (let i = 0; i < nodes.length && overlaps.length < 6; i += 1) {
+            for (let j = i + 1; j < nodes.length && overlaps.length < 6; j += 1) {
+              const a = nodes[i];
+              const b = nodes[j];
+              if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
+              const ox = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left);
+              const oy = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top);
+              // 3px of slack: adjacent grid cells and a label sitting
+              // directly on its value's border line are not overlaps.
+              if (ox > 3 && oy > 3) {
+                overlaps.push(`${(a.el.textContent || "").trim().slice(0, 12)} x{(b.el.textContent || "").trim().slice(0, 12)}`);
+              }
+            }
+          }
+          return { clipped, overlaps };
+        });
+        phoneCheck(scan.clipped.length === 0 && scan.overlaps.length === 0,
+          `@${vpName} no field label or value is clipped or overlapped (${scan.clipped.length} clipped ${JSON.stringify(scan.clipped)}, ${scan.overlaps.length} overlapping ${JSON.stringify(scan.overlaps)})`);
+      }
+
     phoneCheck(sh.toolbarHeight <= 200 && !sh.builderVisible && sh.editBtn,
       `@${vpName} the builder chrome is behind one "Edit layout" tap (toolbar ${sh.toolbarHeight}px, builder visible: ${sh.builderVisible})`);
     phoneCheck(sh.hasName && sh.hasLevelUp && sh.hasSaveStatus,
@@ -4338,5 +4379,6 @@ if (failures.length) {
   process.exitCode = 1;
 }
 if (!process.exitCode) console.log("e2e-smoke: all checks passed");
+
 
 
