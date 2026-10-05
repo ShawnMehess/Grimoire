@@ -3315,6 +3315,41 @@ for (const phoneWidth of [320, 390]) {
     phoneCheck(!sh.sideScroll, `@${vpName} the sheet does not scroll sideways`);
     await ph.screenshot({ path: path.join(shotDir, `sheet-phone-${vpName}.png`) });
 
+    // Every visible target on the sheet, not just the ones a given block
+    // happens to use. This is the sweep that found the last three:
+    // ".textlist-add" was 336x22 - 22px tall, which is the height of a line
+    // of text - and it is the only way to add a row to Backstory,
+    // Appearance, the proficiencies and the equipment.
+    //
+    // The same hit-box rule as the level-up check below: a checkbox is
+    // pressed through its <label>, the roll pill is pressed somewhere on the
+    // row, so measuring the <input> or the <button> alone would fail
+    // controls that are properly hittable. 44x44 WITH SPACING, per the brief,
+    // so a row of 44px-tall pills with 2px between them passes.
+    const hits = await ph.evaluate(() => {
+      const shown = (e) => {
+        const cs = getComputedStyle(e);
+        const r = e.getBoundingClientRect();
+        return cs.display !== "none" && cs.visibility !== "hidden" && r.width > 0 && r.height > 0;
+      };
+      const hitBox = (e) => e.closest("label") || e.closest(".field-roll") || e;
+      const small = new Map();
+      let total = 0;
+      for (const e of document.querySelectorAll('button, a[href], input, select, textarea, summary, [role="button"], [onclick]')) {
+        if (!shown(e)) continue;
+        total += 1;
+        const hr = hitBox(e).getBoundingClientRect();
+        if (hr.width >= 44 && hr.height >= 44) continue;
+        const r = e.getBoundingClientRect();
+        const key = `${e.tagName.toLowerCase()}.${(typeof e.className === "string" ? e.className : "").trim().split(/\s+/).slice(0, 2).join(".")}`;
+        small.set(`${key}|${Math.round(r.width)}x${Math.round(r.height)}`,
+          `${key} ${Math.round(r.width)}x${Math.round(r.height)} in ${Math.round(hr.width)}x${Math.round(hr.height)}`);
+      }
+      return { total, small: [...small.values()], count: small.size };
+    });
+    phoneCheck(hits.count === 0,
+      `@${vpName} every visible control on the sheet clears 44x44 (${hits.total} targets, ${hits.count} short ${JSON.stringify(hits.small.slice(0, 5))})`);
+
     // The Leveling tab's walkthrough, on the same demo sheet. Two things
     // this catches, both of which a "does it scroll sideways" check is
     // blind to: the At a Glance / Walkthrough tabs sitting BELOW the fold
@@ -3339,9 +3374,16 @@ for (const phoneWidth of [320, 390]) {
       // A target counts if the thing you actually press clears 44: for a
       // checkbox that is its <label>, not the box inside it.
       const small = [];
+      // What the reader presses is not always the element: a checkbox is
+      // pressed through its <label>, and a row of pill buttons is pressed
+      // somewhere on the row. So the box that has to clear 44 is the
+      // nearest enclosing label, or - for the roll pill - the .field-roll
+      // wrapper around the buttons. Measuring the <input> itself would
+      // fail a control that is properly hittable.
+      const hitBox = (e) => e.closest("label") || e.closest(".field-roll") || e;
       for (const e of panel.querySelectorAll('button, input, select, textarea, [role="button"]')) {
         if (!shown(e)) continue;
-        const hit = e.closest("label") || e;
+        const hit = hitBox(e);
         const hr = hit.getBoundingClientRect();
         const r = e.getBoundingClientRect();
         if (hr.height < 44 || hr.width < 44) {

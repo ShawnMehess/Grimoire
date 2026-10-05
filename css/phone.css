@@ -793,6 +793,21 @@
   .page-grid.is-simple .option-radio {
     min-height: 44px;
   }
+  /* Three of these side by side inside ONE field's value need 132px plus
+     gaps, and a three-across cell is 113. So a field holding THREE OR MORE
+     options takes the whole row on a phone; one or two still fit, and still
+     pack three fields to a row.
+
+     nth-child(n+3) rather than a count of every option type, because the
+     field can mix them, and because a single-checkbox field is the common
+     case - the eighteen proficiency toggles are one field each, and giving
+     THOSE the whole row put the sheet back to one field per row (94 rows
+     for 141 fields, against 75). The only field with three is the death
+     saves, and a row of six ticks is what they are on every other screen. */
+  .page-grid.is-simple
+    .grid-node--field:has(.field-value--options > :nth-child(n + 3)) {
+    grid-column: 1 / -1;
+  }
   .page-grid.is-simple .option-checkbox input,
   .page-grid.is-simple .option-radio input {
     width: 22px;
@@ -981,6 +996,31 @@
     padding-left: var(--space-4);
   }
 }
+
+/* --- The rest of the under-44 list ----------------------------------------
+   A sweep of every visible target on the sheet at all four phone sizes, both
+   themes, found exactly three things left. Same shape as everything above:
+   the thing you press is a row or a cell, and the row or cell is what has
+   to be 44.
+
+   .textlist-add ("+ Add item" under Backstory, Appearance, the proficiencies
+   and the equipment) was 336x22 - 22px tall, which is the same size a line of
+   text is. It is the only way to add a row to any of those lists, so on a
+   phone it was the smallest target on the sheet and the one you need most.
+
+   .taglist-select is the "Add..." dropdown on those same lists, at 36px.
+
+   Both become 44px rows. The taglist ones are inside a field that is already
+   full width, so the row grows down rather than across and nothing is
+   squeezed - which is the difference between these and the option
+   checkboxes above, where the target had to share a cell with two others. */
+  .page-grid.is-simple .textlist-add {
+    min-height: 44px;
+    padding: var(--space-2) var(--space-3);
+  }
+  .page-grid.is-simple .input-group__control.taglist-select {
+    min-height: 44px;
+  }
 
 /* Narrower still: at 320px a three-across cell is 80px and even 14px
      "Investigation" does not fit in it. --text-xs is the floor the CSS
