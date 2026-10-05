@@ -252,6 +252,50 @@
       }
     }
 
+    /* --- Short screens (a phone on its side) ------------------------------
+       Measured at 844x390 and 667x375 before this block existed. The card is
+       378px tall on a 390px screen, starting 32px down, so it runs to 410 -
+       the bottom of it, which is where the button is, was below the fold. The
+       document itself was 442px and 549px against viewports of 390 and 375.
+
+       Nothing here is a change to the page. Same words, same art, same order,
+       same button; on a short screen it is only the air around them: the
+       art's frame is 20rem (and 15rem on a narrow one, which at 844 wide is
+       still 240px) of pure decoration standing between the top of the screen
+       and the sentence the reader came for, and the card's own padding is
+       2.25rem of it.
+
+       So on a short screen the frame comes down to something a thumb-sized
+       ornament rather than the headline, and the padding comes down with it.
+       The card is then 232px on a 390px screen and the button is on it.
+
+       max-height rather than max-width, because the problem is the height:
+       the same card is 481px on a 390x844 phone, where that is fine and
+       desirable. --- */
+
+    @media screen and (max-height: 480px) {
+      body {
+        padding: 1rem 1.25rem;
+      }
+
+      .card {
+        gap: 0.75rem;
+        padding: 0.75rem 1.5rem;
+      }
+
+      .art__frame {
+        max-width: 5.5rem;
+      }
+
+      .intro p {
+        margin-bottom: 0.9rem;
+      }
+
+      .cta {
+        padding: 0.65rem 1.4rem;
+      }
+    }
+
     /* --- Print: black on white. The art is decoration and has no meaning on
        paper, so it goes; the button becomes a plain line of text rather
        than a filled block. --- */

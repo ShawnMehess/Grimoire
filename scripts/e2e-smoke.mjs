@@ -3561,6 +3561,43 @@ for (const phoneWidth of [320, 390]) {
       await wiz.close();
     }
 
+  // --- The welcome screen ---------------------------------------------------
+  // The one file this whole change is not supposed to restyle, so the check
+  // is deliberately narrow: on a phone the card fits and the button is on the
+  // screen. It was 378px tall starting 32px down on a 390px-tall viewport, so
+  // the button - the only thing on the page you can act on - sat below the
+  // fold, and the document was 442px against 390.
+  {
+    for (const [vpName, vp] of Object.entries(PHONE_VIEWPORTS)) {
+      const wc = await browser.newPage({ viewport: vp, hasTouch: true, isMobile: true });
+      wc.on("pageerror", (e) => problems.push(`PAGEERROR [welcome@${vpName}]: ${e.message}`));
+      await wc.route("**/fonts.googleapis.com/**", (r) => r.abort());
+      await wc.goto(`${base}/welcome.html`, { waitUntil: "networkidle" });
+      await wc.waitForSelector(".cta", { state: "attached", timeout: 20000 });
+      await wc.waitForTimeout(250);
+      const w = await wc.evaluate(() => {
+        const cta = document.querySelector(".cta").getBoundingClientRect();
+        const card = document.querySelector("main.card")?.getBoundingClientRect();
+        const de = document.documentElement;
+        return {
+          fits: de.scrollHeight <= de.clientHeight + 1,
+          docH: de.scrollHeight, vh: de.clientHeight,
+          ctaOnScreen: cta.top >= 0 && cta.bottom <= de.clientHeight,
+          ctaH: Math.round(cta.height),
+          cardH: card ? Math.round(card.height) : null,
+          h1: document.querySelector(".intro h1")?.textContent.trim() || null,
+          artVisible: getComputedStyle(document.querySelector(".art")).display !== "none",
+        };
+      });
+      phoneCheck(w.fits && w.ctaOnScreen,
+        `@${vpName} the welcome card fits the screen and its button is on it (${w.docH}/${w.vh}, card ${w.cardH}px, button ${w.ctaH}px at ${w.ctaOnScreen})`);
+      // Nothing about the page changed but the air around it.
+      phoneCheck(w.h1 === "Welcome" && w.artVisible && w.ctaH >= 44,
+        `@${vpName} and it is still the same page - same heading, art still there, button still a target (${JSON.stringify([w.h1, w.artVisible, w.ctaH])})`);
+      await wc.close();
+    }
+  }
+
   // --- The header, at every phone size and both orientations ---------------
   //
   // What the review found was a header that wrapped "Return to Character
