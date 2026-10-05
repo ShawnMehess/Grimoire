@@ -990,42 +990,102 @@
     font-size: var(--text-xs);
   }
 }
-/* --- 6. The character sheet on its side -----------------------------------
+
+/* --- 7. The level-up walkthrough on a phone -------------------------------
    ---------------------------------------------------------------------------
-   The worst of the review, and all of it measured at 844x390 on the same
-   demo sheet.
+   Measured on a fresh level 1 Cleric at all four sizes, with the walkthrough
+   opened. Three things were wrong there, and only the first was in the
+   review.
 
-   Cause one: the positioned grid's cell HEIGHT is derived from its cell
-   WIDTH (gridCanvasSize: `pageCols * cw + gaps` across, `cw + gap` down).
-   At 844px wide the width is not the constraint - cw lands on the
-   40px MIN_CELL_PX floor - so every field is a 40x40 box with a 22px
-   label in it and a value underneath that does not fit. 70 fields
-   measured as clipped, and `.field-roll` sat on top of 63 more.
+   The tabs that say which half of the Leveling tab you are looking at -
+   "At a Glance" and "Walkthrough" - were 37px tall and BELOW THE FOLD at
+   every size but the tallest: y=577 at 844x390, y=594 at 667x375, y=717 at
+   360x640, against viewports of 390, 375 and 640. So on a phone you could
+   not see which one you were in without scrolling to find out.
 
-   The fix is not a CSS one, so it is not in this file. Letting the rows
-   grow would mean letting the fixed canvas grow, which is the saved layout
-   and is not mine to resize. So a short viewport stops using the positioned
-   grid at all: shortViewportNeedsStackedView() in simpleView.js, applied
-   in customSheet.js. On 844x390 the sheet was 70 clipped fields and 6
-   overlapping chips; it is now the same three-column stacked layout a
-   390x844 phone gets, with every label and value inside its own box.
+   Not because the tab bar was long - because the paragraph above it is. The
+   Leveling tab opens with an explanation of what level-ups are, and it runs
+   to four sentences, so it pushed the tabs themselves off the screen. Two
+   fixes, and both are needed: the paragraph is the least useful thing in the
+   first screenful, so on a phone it goes BELOW the tabs rather than above
+   them; and the tab bar sticks to the top of the screen, because it is the
+   one control that has to survive a long scroll.
 
-   Cause two: `.field-roll` - the Adv./Disadv. pill - is
-   `position: absolute; right: 2px; bottom: 2px`, and it is 133px wide.
-   In a 40px cell it hangs 63px out over its neighbours, and six of them
-   side by side overlapped into one unreadable strip that also sat on top of
-   the "MOD" labels. `@media (hover: none)` makes it always-on, so this was
-   worse on a phone than on a desktop, which is backwards.
+   Then the tap targets. Everything a thumb has to hit in this panel was
+   under 44px:
 
-   An absolutely positioned overlay cannot be made not to overlap something
-   when it is wider than the thing it is on, so the pill is un-positioned in
-   the stacked layout - see "The Adv./Disadvantage chips" above, scoped to
-   .page-grid.is-simple, because in the positioned grid it overlays a cell
-   that is already as wide as the layout made it, and that arrangement is
-   what a wide screen is for.
+     .leveling-subtabs__tab        94x37 / 104x37
+     .level-guide__cancel          334x39
+     .leveling-tab__jump           177x39  (now "Edit Level N by hand")
+     .formula-toolbar__btn         20px tall - the rest buttons
+     .rule-resources__value        52x32
+     the walkthrough's own choices 16x16, in a 21px-tall label
 
-   The e2e-smoke check for this is one assertion: on a short viewport, no
-   visible .field-label, .field-value, .block-name or .field-roll is
-   clipped by its own box or overlapped by another. It runs at 844x390 and
-   667x375 and scans every visible one of them.
-   ------------------------------------------------------------------------ */
+   The last one is the same shape as the sheet's proficiency toggles, so it
+   gets the same treatment: the LABEL is the target, so the label is what
+   has to clear 44, and the box grows to 22 - because a 16px box on a 44px
+   row is also just harder to aim at.
+
+   position: fixed, not sticky, for the same reason the wizard's bottom bar
+   is: .page-grid-scroll is an overflow-x:auto ancestor and it does the same
+   thing to a sticky child inside it. Its height is put back in the flow with
+   .leveling-subtabs__bar-spacer, which renderLevelingTabInto appends. */
+.leveling-subtabs__bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 25;
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-bg);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+.leveling-subtabs__bar-spacer {
+  height: 52px;
+}
+/* The paragraph moves below the tabs rather than above them: it is
+   reference text about how level-ups work, and on a phone it is the one
+   thing on this screen that can wait. */
+.leveling-tab__intro {
+  order: 3;
+  margin-top: var(--space-3);
+}
+.leveling-subtabs__tab {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-base);
+}
+.level-guide__cancel,
+.leveling-tab__jump,
+.leveling-revert__btn {
+  min-height: 44px;
+}
+.formula-toolbar__btn {
+  min-height: 44px;
+  padding: var(--space-1) var(--space-3);
+}
+.rule-resources__value {
+  min-height: 44px;
+}
+/* The walkthrough's own choices: History, Insight, Medicine, Persuasion,
+   Religion on a level 1 Cleric. */
+.page-grid--leveling label:has(> input[type="checkbox"]),
+.page-grid--leveling label:has(> input[type="radio"]) {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+.page-grid--leveling label > input[type="checkbox"],
+.page-grid--leveling label > input[type="radio"] {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+/* Room for the fixed tab bar, and for the wizard's fixed Next row. */
+.page-grid--leveling {
+  padding-top: 52px;
+  padding-bottom: 5.5rem;
+}

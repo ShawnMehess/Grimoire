@@ -7647,16 +7647,25 @@ const closeDialog = () => {
    *  worse than a sentence saying why not. */
   function renderRevertControl() {
     const highest = highestRevertableLevel(character.levelUps);
-    // The highest level with ANY entry, record or not — a legacy character
-    // needs the note, which is about their highest recorded level.
-    const highestAny = (() => {
-      const levels = Object.keys(character.levelUps || {})
-        .map(Number)
-        .filter((n) => Number.isFinite(n) && n >= 1);
-      return levels.length ? Math.max(...levels) : null;
-    })();
-    if (highest == null && highestAny == null) return null;
-    const level = highest ?? highestAny;
+    // The highest level that was actually RECORDED - which is not the same
+    // as the highest level with an entry. The history renders a row for
+    // every level 1-20, and those rows are writable, so a row exists for
+    // every level of every character the moment the tab is opened. Reading
+    // "highest level with any entry" therefore always answered 20 on a
+    // level 1 character, and the note below then told a player who had
+    // never applied a level-up that their level was "recorded before
+    // reverting existed".
+    //
+    // `appliedRulesetId` is the marker levelingRecordState already uses for
+    // "this level was applied" - the same one that keeps a hand-filled row
+    // from counting as a recorded level-up. Using it here means the note can
+    // only appear for a level something was actually recorded against.
+    const highestRecorded = levelingRecordState(currentCharacterLevel() ?? 0, {
+      levelUps: character.levelUps,
+      createdAtLevel: character.createdAtLevel,
+    }).highestRecorded;
+    if (highest == null && highestRecorded == null) return null;
+    const level = highest ?? highestRecorded;
     return buildRevertControl({
       level,
       canRevert: highest != null,
@@ -7956,7 +7965,16 @@ const closeDialog = () => {
     // empty, so say what's missing and what still works by hand.
     let emptyGuideNote = null;
     if (!guideEl) {
-      if (!selectedChoiceName("class", "Class")) {
+      // Asked the same question the guide asked, with the same helpers it
+      // used. selectedChoiceName() reads only the Class DROPDOWN, so it said
+      // "no class" for two characters that have one: one whose class name
+      // lives in rules.className (primaryClassName() falls back to it, and
+      // an imported character gets its class that way), and one with only
+      // secondary classes in character.rules.multiclass, which the guide
+      // reads and this never looked at. Both were told to pick a class they
+      // had already picked, and neither could see why the tab was empty.
+      const hasAnyClass = primaryClassName() || multiclassEntries().length > 0;
+      if (!hasAnyClass) {
         emptyGuideNote = "Pick a Class on your sheet (or finish Character Setup) and a step-by-step level-up guide appears here. The per-level rows below always work by hand.";
       } else if (currentLevel == null) {
         emptyGuideNote = "Set your Level on the sheet and the guide appears here. Until then, the per-level rows below work by hand.";

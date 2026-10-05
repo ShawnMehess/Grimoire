@@ -1165,6 +1165,16 @@ export function renderLevelingSubTabsInto(deps) {
     bar.append(btn);
   }
   wrap.append(bar);
+  // A phone takes the bar out of the flow (position: fixed, because
+  // .page-grid-scroll is an overflow-x:auto ancestor and it defeats a
+  // sticky child), so its height has to be put back here or the first panel
+  // starts underneath it. Height only - on a wide screen the bar is in the
+  // flow as usual and this div is an empty unstyled block, which costs
+  // nothing because it has no size of its own there.
+  const spacer = document.createElement("div");
+  spacer.className = "leveling-subtabs__bar-spacer";
+  spacer.setAttribute("aria-hidden", "true");
+  wrap.append(spacer);
   for (const [id, panel] of Object.entries(panels)) {
     if (!panel) continue;
     panel.classList.add("leveling-subtabs__panel");
@@ -1260,7 +1270,13 @@ export function renderLevelingTabInto(pageGrid, deps) {
     const jumpBtn = document.createElement("button");
     jumpBtn.type = "button";
     jumpBtn.className = "btn leveling-tab__jump";
-    jumpBtn.textContent = `↓ Jump to Level ${currentLevel}`;
+    // What it actually does: open the "Level history (edit by hand)"
+    // disclosure and scroll to this level's row. It was "↓ Jump to
+    // Level 1", which on a level 1 character read like a control that takes
+    // you somewhere else on the sheet - and the arrow pointed down at a
+    // panel that was collapsed, so what it meant was "open the thing
+    // below". Same wording the tab's other copy uses for those rows.
+    jumpBtn.textContent = `Edit Level ${currentLevel} by hand`;
     jumpBtn.addEventListener("click", () => {
       // Opening the disclosure is part of arriving at the row: scrolling to
       // something inside a closed <details> scrolls to nothing at all.

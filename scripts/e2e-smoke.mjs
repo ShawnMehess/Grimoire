@@ -2104,7 +2104,10 @@ async function runViewportTests(viewport) {
   check(hist.open === false, `closed by default (open=${hist.open})`);
   check(hist.rowHeights === 0,
     `and none of the twenty rows is on the page while it is closed (${hist.rowHeights} laid out)`);
-  check(hist.jumpBtn === "↓ Jump to Level 5", `with the jump button still offered (got ${JSON.stringify(hist.jumpBtn)})`);
+  // "Edit Level N by hand", not "Jump to Level N": the button opens the
+  // by-hand history and scrolls to the row, and on a level 1 character
+  // "Jump to Level 1" read like it went somewhere else on the sheet.
+  check(hist.jumpBtn === "Edit Level 5 by hand", `with the by-hand button still offered (got ${JSON.stringify(hist.jumpBtn)})`);
 
   // Jump must OPEN the disclosure - scrolling to a row inside a closed
   // <details> scrolls to nothing.
@@ -3311,6 +3314,54 @@ for (const phoneWidth of [320, 390]) {
     }
     phoneCheck(!sh.sideScroll, `@${vpName} the sheet does not scroll sideways`);
     await ph.screenshot({ path: path.join(shotDir, `sheet-phone-${vpName}.png`) });
+
+    // The Leveling tab's walkthrough, on the same demo sheet. Two things
+    // this catches, both of which a "does it scroll sideways" check is
+    // blind to: the At a Glance / Walkthrough tabs sitting BELOW the fold
+    // (they used to land at y=577 on a 390px-tall viewport, behind a
+    // four-sentence paragraph), and every control in the panel being under
+    // 44px - the tabs were 37, the rest buttons 20, the walkthrough's own
+    // choice boxes 16.
+    await ph.evaluate(() => {
+      [...document.querySelectorAll(".sheet-tab")].find((x) => /leveling/i.test(x.textContent))?.click();
+    });
+    await ph.waitForTimeout(700);
+    const lev = await ph.evaluate(() => {
+      const panel = document.querySelector(".page-grid--leveling");
+      const shown = (e) => {
+        const cs = getComputedStyle(e);
+        const r = e.getBoundingClientRect();
+        return cs.display !== "none" && cs.visibility !== "hidden" && r.width > 1 && r.height > 1;
+      };
+      const tabs = [...document.querySelectorAll(".leveling-subtabs__tab")].filter(shown)
+        .map((b) => { const r = b.getBoundingClientRect();
+          return { t: b.textContent.trim(), w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top) }; });
+      // A target counts if the thing you actually press clears 44: for a
+      // checkbox that is its <label>, not the box inside it.
+      const small = [];
+      for (const e of panel.querySelectorAll('button, input, select, textarea, [role="button"]')) {
+        if (!shown(e)) continue;
+        const hit = e.closest("label") || e;
+        const hr = hit.getBoundingClientRect();
+        const r = e.getBoundingClientRect();
+        if (hr.height < 44 || hr.width < 44) {
+          small.push(`${(e.getAttribute("aria-label") || e.textContent || e.tagName).trim().slice(0, 14)} ${Math.round(r.width)}x${Math.round(r.height)} in ${Math.round(hr.width)}x${Math.round(hr.height)}`);
+        }
+      }
+      return { tabs, small: [...new Set(small)].slice(0, 6), smallCount: small.length,
+        // The legacy note must not be there for a character with nothing
+        // recorded - that is the bug this tab had.
+        revert: document.querySelector(".leveling-revert")?.textContent?.trim() || null,
+        sideScroll: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 };
+    });
+    phoneCheck(lev.tabs.length === 2 && lev.tabs.every((t) => t.w >= 44 && t.h >= 44 && t.top < vp.height),
+      `@${vpName} both Leveling tabs are 44px and on screen (${JSON.stringify(lev.tabs)})`);
+    phoneCheck(lev.smallCount === 0,
+      `@${vpName} nothing in the level-up panel is under 44px (${lev.smallCount} ${JSON.stringify(lev.small)})`);
+    phoneCheck(lev.revert === null,
+      `@${vpName} and a character with no level-ups recorded is not told one "was recorded before reverting existed" (${JSON.stringify(lev.revert)})`);
+    phoneCheck(!lev.sideScroll, `@${vpName} the Leveling tab does not scroll sideways`);
+    await ph.screenshot({ path: path.join(shotDir, `leveling-phone-${vpName}.png`) });
     await ph.close();
   }
 
