@@ -3255,11 +3255,18 @@ const closeDialog = () => {
    *  after any action that rebuilds the grid's DOM (a full render)
    *  where we want the same logical node to stay/become selected
    *  rather than losing focus just because its old DOM element was
-   *  torn down and replaced. */
+   *  torn down and replaced.
+   *
+   *  `preventScroll` is not optional here. This runs in the same interaction
+   *  as renderPageGrid's own scroll restore, so a bare `focus()` is a second
+   *  writer racing the first: the browser scrolls the newly focused node into
+   *  view, and a block is several grid rows tall, so "into view" puts its top
+   *  at the top of the screen. That is the reported "the sheet jumps back to
+   *  the top". Focus is the point; moving the page is not. */
   function refocusNodeById(id) {
     if (!id) return;
     const el = pageGrid.querySelector(`[data-node-id="${id}"]`);
-    if (el) el.focus();
+    if (el) el.focus({ preventScroll: true });
   }
 
   function applyRect(el, node, cw) {
@@ -3464,6 +3471,51 @@ const closeDialog = () => {
     return changed;
   }
 
+  /** Put the page back where it was, after a render that tore the grid down.
+   *
+   *  A full render empties `pageGrid` before refilling it, and while it is
+   *  empty the document is one screen tall: the browser clamps the scroll to
+   *  0 the moment it lays that out. Measured on the demo sheet at 390x844,
+   *  at scrollY 2500 with an 8657px document, emptying the grid puts the
+   *  position at 0 immediately.
+   *
+   *  So a single `scrollTo` at the end of the render is not enough, and this
+   *  is the reason: that call runs in the SAME task as the emptying, before
+   *  the browser has laid the rebuilt content out, so it can be judged against
+   *  the collapsed height and clamped to the top as well. The scroll then
+   *  stays at the top because nothing asks again - which is exactly the
+   *  reported "sometimes it jumps back to the top".
+   *
+   *  Three passes, cheapest first:
+   *
+   *    1. immediately, so the ordinary case never waits a frame;
+   *    2. on the next animation frame, once the new content has been laid out;
+   *    3. one more frame later, because one grid pass can grow the document
+   *       again (a block's label wrapping, an expanded row) and the position
+   *       has to be re-asserted against the final height.
+   *
+   *  Each pass re-checks rather than assuming, so a player who has scrolled
+   *  in the meantime is not yanked back - only a position that never took is
+   *  retried. This is the same "restore after the re-render paints" shape
+   *  preserveScrollWhile already uses for a single row.
+   *
+   *  No-ops where there is no window (the DOM stub harnesses). */
+  function restoreScrollAfterRender(y) {
+    if (typeof window === "undefined" || typeof window.scrollY !== "number") return;
+    const want = Number.isFinite(y) ? y : 0;
+    const put = () => {
+      if (Math.abs(window.scrollY - want) < 1) return true;
+      window.scrollTo(0, want);
+      return Math.abs(window.scrollY - want) < 1;
+    };
+    if (put()) return;
+    if (typeof window.requestAnimationFrame !== "function") return;
+    window.requestAnimationFrame(() => {
+      if (put()) return;
+      window.requestAnimationFrame(put);
+    });
+  }
+
   function renderPageGrid() {
     // A full render tears down and rebuilds every node in pageGrid, and
     // clearing it out momentarily (before the new content is appended
@@ -3471,9 +3523,10 @@ const closeDialog = () => {
     // clamp its scroll position to the top. That's what made clicking
     // a row, changing a dropdown, or editing a number field feel like
     // the whole page "refreshed" out from under you — so the position
-    // is saved here and explicitly restored once the rebuild is done
-    // (see both exit points below). The sheet scrolls with the page
-    // itself (no inner scroll box), so this is window scroll now.
+    // is saved here and restored by restoreScrollAfterRender, which has
+    // to wait for layout because the emptying is still in effect for the
+    // first attempt. The sheet scrolls with the page itself (no inner
+    // scroll box), so this is window scroll now.
     if (ensureStableCombatIds()) persist();
     if (ensureRollableFlags()) persist();
     if (ensureSpellAbilityDropdown()) persist();
@@ -3515,7 +3568,7 @@ const closeDialog = () => {
       pageGrid.style.backgroundImage = "";
       pageGrid.style.backgroundPosition = "";
       renderLinkedSheetTab();
-      window.scrollTo(0, preservedScrollTop);
+      restoreScrollAfterRender(preservedScrollTop);
       return;
     }
     if (activeTab().kind === "leveling" || activeTab().kind === "rules") {
@@ -3526,7 +3579,7 @@ const closeDialog = () => {
       pageGrid.style.backgroundPosition = "";
       if (activeTab().kind === "rules") renderRulesTab();
       else renderLevelingTab();
-      window.scrollTo(0, preservedScrollTop);
+      restoreScrollAfterRender(preservedScrollTop);
       return;
     }
     pageGrid.classList.remove("page-grid--leveling");
@@ -3547,7 +3600,7 @@ const closeDialog = () => {
       toolbarEls: [groupToolbar, groupBorderOverlay],
       isEdit: editMode,
     });
-    window.scrollTo(0, preservedScrollTop);
+    restoreScrollAfterRender(preservedScrollTop);
   }
 
   // --- Linked sheet tab (mounts / companions) ---

@@ -447,6 +447,52 @@ async function runViewportTests(viewport) {
   await page.goto(`${base}/demo.html`, { waitUntil: "networkidle" });
   await settled(page, READY_SHEET, `${viewport.name} demo sheet`);
   check(await page.$(READY_SHEET), "demo sheet toolbar renders (no aborted render)");
+
+  // Editing anything re-renders the whole grid, and the grid is emptied
+  // before it is refilled - at which point the document is one screen tall
+  // and the browser clamps the scroll to the top. This checks the invariant
+  // at depth, which is where the clamp bites, and at three depths so a fix
+  // that only holds near the top cannot pass.
+  {
+    const deepEnough = await page.evaluate(() =>
+      document.documentElement.scrollHeight - window.innerHeight > 1200);
+    if (!deepEnough) {
+      check(true, "this page is too short to test scroll preservation");
+    } else {
+      let worst = 0;
+      for (const depth of [400, 1200, 2400]) {
+        const max = await page.evaluate(() =>
+          Math.round(document.documentElement.scrollHeight - window.innerHeight));
+        const target = Math.min(depth, Math.max(0, max - 40));
+        if (target < 100) continue;
+        await page.evaluate((y) => window.scrollTo(0, y), target);
+        await quiet(page);
+        // Something that re-renders: a checkbox, which saves and repaints.
+        const hit = await page.evaluate(() => {
+          const box = [...document.querySelectorAll(".grid-node input[type=checkbox]")]
+            .find((e) => {
+              const r = e.getBoundingClientRect();
+              return r.top > 70 && r.bottom < window.innerHeight - 70 && r.width > 8;
+            });
+          if (!box) return null;
+          const r = box.getBoundingClientRect();
+          return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+        });
+        if (!hit) continue;
+        const before = await page.evaluate(() => Math.round(window.scrollY));
+        await page.mouse.click(hit.x, hit.y);
+        await quiet(page);
+        const after = await page.evaluate(() => Math.round(window.scrollY));
+        const delta = Math.abs(after - before);
+        if (delta > worst) worst = delta;
+        check(delta < 4,
+          `at ${viewport.name} ${target}px down, re-rendering keeps the scroll position (moved ${delta}px)`);
+        // Put it back where the next depth expects it.
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await quiet(page);
+      }
+    }
+  }
   // Was "Play View" / .page-grid.play-mode, which turned out to be a
   // half-dead toggle: its CSS styled class names that no longer exist, so
   // the class it set did nothing beyond the editor-chrome hiding. Replaced
