@@ -2891,8 +2891,15 @@ if (inArea("vault-cards")) {
     const cs = getComputedStyle(grid);
     return { cols: cs.gridTemplateColumns, gap: cs.gap };
   });
-  phoneCheck(!!gridRule && String(gridRule.cols).split(" ").length >= 4,
-    `the phone grid lays out four tracks (${JSON.stringify(gridRule)})`);
+  // The track count, read back as a measurement. It used to be asserted as
+  // "four or more": four 83px cards, on the theory that the count of
+  // characters is what you scan for on a phone. An 83px card truncates a
+  // name, a level, a species and a class - all four of them - so the
+  // density bought a list you had to open each entry of in order to read.
+  // Two tracks is what a card can be and still be readable in; the
+  // readability itself is asserted further down, against real text.
+  phoneCheck(!!gridRule && String(gridRule.cols).trim().split(/\s+/).length === 2,
+    `the phone grid lays out two tracks (${JSON.stringify(gridRule)})`);
 
   // This page has its OWN localStorage - it is a separate context from the
   // viewport pages - so the characters have to be seeded here rather than
@@ -2942,6 +2949,19 @@ if (inArea("vault-cards")) {
     const visibleLines = [...document.querySelectorAll(".character-card__meta-line")]
       .filter((n) => n.textContent.trim())
       .map((n) => ({ text: n.textContent.trim(), shown: n.getBoundingClientRect().height > 0 }));
+    // A name or fact whose text is wider than its own box is ellipsised -
+    // the failure mode the four-across layout could not avoid, since an
+    // 83px card truncates all four of them.
+    const ellipsised = [];
+    for (const n of document.querySelectorAll(".character-card__name, .character-card__meta-line")) {
+      if (n.scrollWidth > n.clientWidth + 1) ellipsised.push(n.textContent.trim().slice(0, 24));
+    }
+    // The two card actions: a 44px floor, and a real gap between them
+    // rather than two circles almost touching over the artwork.
+    const actions = document.querySelector(".character-card__actions");
+    const acts = actions ? [...actions.children].map((b) => b.getBoundingClientRect()) : [];
+    const heading = document.querySelector(".page-header h2")?.getBoundingClientRect();
+    const newInput = document.querySelector(".vault-new__input")?.getBoundingClientRect();
     return {
       cards: cards.length,
       firstRow: row[0] || 0,
@@ -2951,17 +2971,34 @@ if (inArea("vault-cards")) {
       metaHeight: Math.round(meta?.getBoundingClientRect().height || 0),
       visibleLines: visibleLines.slice(0, 8),
       anyLineClipped: visibleLines.some((l) => l.shown === false),
+      ellipsised,
+      actionSizes: acts.map((r) => [Math.round(r.width), Math.round(r.height)]),
+      actionGap: acts.length >= 2
+        ? Math.round(acts[1].left - acts[0].right)
+        : null,
+      headingLines: heading ? Math.round(heading.height / 26) : 0,
+      newInputW: Math.round(newInput?.width || 0),
     };
   });
   phoneCheck(grid.cards >= 4, `the vault has several characters to lay out (got ${grid.cards})`);
-  phoneCheck(grid.firstRow >= 4,
-    `four cards fit across a phone (got ${grid.firstRow} in the first row, card ${grid.cardW}x${grid.cardH})`);
-  // "Half as wide and half as tall so four fit where one did" is the stated
-  // goal; the width that actually achieves it is a quarter of the old
-  // single-column width, so the check is on the density and on the card being
-  // small, not on a literal halving that cannot also give four across.
-  phoneCheck(grid.cardW <= 95 && grid.cardH <= 170,
-    `and each card is small enough that to be true (${grid.cardW}x${grid.cardH}, was 342x413 one-across)`);
+  // Two across, not four. This USED to assert four, on the density
+  // argument that the count is what you scan for on a phone. At 83px a
+  // card cannot show a name, a level, a species and a class without
+  // truncating all four - so the density bought a list you had to open
+  // each entry of to read. The check is now the thing that actually
+  // matters: wide enough to read, with nothing ellipsised.
+  phoneCheck(grid.firstRow === 2,
+    `two cards fit across a phone (got ${grid.firstRow} in the first row, card ${grid.cardW}x${grid.cardH})`);
+  phoneCheck(grid.cardW >= 150 && grid.ellipsised.length === 0,
+    `each card is wide enough to read its name and facts (${grid.cardW}px, ellipsised: ${JSON.stringify(grid.ellipsised)})`);
+  phoneCheck(grid.headingLines <= 1,
+    `the heading is one line, not wrapped beside the create box (${grid.headingLines})`);
+  phoneCheck(grid.newInputW >= 200,
+    `and the create box takes the width it needs (${grid.newInputW}px)`);
+  phoneCheck(grid.actionSizes.every(([w, h]) => w >= 44 && h >= 44),
+    `duplicate and delete are both 44px or more (${JSON.stringify(grid.actionSizes)})`);
+  phoneCheck(grid.actionGap === null || grid.actionGap >= 8,
+    `with a real gap between them, not two circles almost touching (${grid.actionGap}px)`);
   phoneCheck(grid.metaDisplay !== "none",
     `the level/race/class lines are DISPLAYED on a phone (got display:${grid.metaDisplay})`);
   const texts = grid.visibleLines.map((l) => l.text);

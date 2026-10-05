@@ -100,6 +100,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  /* With only one header button on screen - the vault, where there is
+     nothing to go back to - that button no longer has to claim the whole
+     header row, and the page title gets its width back instead of
+     reading "Charact…". The class is set by setBackBtnVisible in
+     js/main.js, because `:only-child` cannot see a display:none sibling. */
+  #auth-area.auth-area--solo {
+    width: auto;
+  }
 }
 
 /* Short viewport - a phone on its side. The header is one slim row with
@@ -147,5 +156,152 @@
     flex: 0 0 auto;
     min-height: 44px;
     padding: var(--space-1) var(--space-3);
+  }
+}
+
+/* --- 4. The vault --------------------------------------------------------
+   ---------------------------------------------------------------------------
+   Four complaints, all measured at 390x844 before anything changed here:
+
+     - "Your Characters" wrapped onto two lines because the create box sat
+       beside it, and the box's placeholder was cut to "New Character" in a
+       129px input. Two things competing for 342px.
+     - each character card was 83px wide, so a name and three facts were
+       four truncated lines in a stamp.
+     - the duplicate and delete buttons were 20x20 with 4px between them,
+       in the corner of the very box you tap to OPEN the character.
+     - the offline-mode note wrapped over three lines.
+
+   The shared cause is padding: `.app-main` was 24px on every side, so a
+   390px screen had 342px to work with, and the heading plus the create box
+   plus a 4-across grid were all being asked to fit into it.
+   ------------------------------------------------------------------------ */
+
+@media screen and (max-width: 720px) {
+  /* 12px a side instead of 24px: 366 of 390 rather than 342. */
+  .app-main {
+    padding: var(--space-3);
+  }
+
+  /* Stack the heading above the create box rather than beside it. The
+     heading is the page's title and the box is one control; a baseline
+     row was making both worse, and `align-items: baseline` is meaningless
+     in a column anyway. */
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  /* The create box fills the row: stacked under the heading there is
+     nothing else on it. */
+  .vault-new {
+    width: 100%;
+  }
+  .vault-new__input {
+    width: 100%;
+  }
+
+  /* Two across, not four.
+     Four across was a density decision (commit 6b311ea): 83px cards, four
+     of them, on the theory that the COUNT is what you scan for on a
+     phone. The cost was that an 83px card cannot show a name, a level, a
+     species and a class without truncating all four - so you had to open
+     each one to find out which was which, which is what the same commit
+     set out to fix when it started showing the meta lines at all. Two
+     across at ~180px is the narrowest a card can be and still read, and
+     six characters still fit one 844px screen.
+     (print.css's tablet query already gives two across above 600px, so
+     landscape phones get this for free.) */
+  .character-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+
+  /* 3/2 rather than 4/5: the art is a monogram or an avatar, and the row
+     of facts under it is the part someone is actually reading. */
+  .character-card__portrait {
+    aspect-ratio: 3 / 2;
+  }
+
+  /* Back to the full text size for the facts. card.css drops these to
+     --text-xs at 83px; at 180px there is room for --text-sm, and the
+     difference between 12px and 14px is the difference between reading
+     the list and squinting at it. */
+  .character-card__name {
+    font-size: var(--text-sm);
+  }
+  .character-card__meta-line {
+    font-size: var(--text-sm);
+  }
+
+  /* The offline-mode note was three lines at 342px, because the sentence
+     is one long run of words with nothing to break at. Letting it break
+     anywhere would split "?offline=1" mid-token, so the leading comes down
+     instead and the note costs two lines. */
+  .leveling-tab__intro {
+    line-height: 1.4;
+  }
+}
+
+/* Touch targets, at every phone width and in both orientations.
+   Kept in their own query-list rather than inside the two above because a
+   landscape phone can be 667px OR 844px wide: "is this narrow enough" is
+   the wrong question for a tap target, and the only reliable one is
+   "is this a touch screen at phone scale".
+
+   Note what is NOT here: `.vault-new { width: 100% }`. At 844x390 the
+   heading and the create box have a 796px row between them, and an input
+   told to fill it took 567px of it and squeezed "Your Characters" into
+   three lines - the same bug this commit set out to fix, reintroduced
+   from the other side. Width is a narrow-screen question (above); size
+   is a touch question (here). */
+@media screen and (max-width: 720px), screen and (max-height: 480px) {
+  /* The create box: the input takes the row, the + button is a target. */
+  .vault-new__input {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 44px;
+  }
+  .vault-new__go {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* The two card actions become a row of their own at the foot of the
+     card, not two circles in the corner of the portrait.
+
+     44px each is 88px plus a gap - half the width of a 180px card - and
+     overlaying that on the art means a tap near the top-right opens a
+     character or deletes it instead. As a row nothing is covered, the gap
+     between them is a gap, and Delete keeps its confirm dialog (js/main.js)
+     either way. */
+  .character-card__actions {
+    position: static;
+    order: 3;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2) var(--space-2);
+    border-top: var(--border-width) solid var(--color-border);
+  }
+  .character-card__delete,
+  .character-card__duplicate {
+    flex: 1 1 0;
+    width: auto;
+    height: 44px;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+  }
+}
+
+/* Short viewport, again: at 844x390 the card is 390px wide, so print.css's
+   tablet two-up gives a 4/5 portrait and a 378px card - the entire height
+   of a 390px screen, one card, one scroll. Shorter art puts two on screen. */
+@media screen and (max-height: 480px) {
+  .character-card__portrait {
+    aspect-ratio: 16 / 9;
+    max-height: 9rem;
+  }
+  .character-card__actions {
+    padding: var(--space-1) var(--space-2);
   }
 }

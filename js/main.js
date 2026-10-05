@@ -59,7 +59,27 @@ const backBtn = authButton({
   short: "Characters",
   title: "Back to your character list",
 });
-backBtn.style.display = "none";
+setBackBtnVisible(false);
+
+/** Show or hide the "back to the character list" button.
+ *
+ *  It is the same node every time - it carries a click listener and its own
+ *  pair of labels - so this only flips its display. It goes through one
+ *  function because css/phone.css asks "is there exactly one header button
+ *  on screen?", and that question can only be answered from one place.
+ *  With the vault showing nothing but "Sign out", that single button
+ *  claiming the whole header row left the page title reading "Charact…",
+ *  and `:only-child` cannot see a display:none sibling. */
+function setBackBtnVisible(visible) {
+  backBtn.style.display = visible ? "" : "none";
+  // The class is what css/phone.css keys on. With only "Sign out" on
+  // screen that one button was claiming the whole header row (leaving the
+  // page title as "Charact…"), and `:only-child` cannot see a
+  // display:none sibling - so the state has to be said in a way the
+  // stylesheet can read.
+  authArea.classList.toggle("auth-area--solo", !visible);
+}
+
 // The currently-open character's { hasUnsavedChanges, destroy } (see
 // renderCustomSheet) — null when no character is open. Checked/torn
 // down below any time we're about to leave whichever character this
@@ -361,7 +381,7 @@ async function renderCharacterList() {
   // it on the character list too, and having it silently reset here would
   // mean re-finding the toggle every time they came back from a sheet.
   applyA11yMode(lastA11yPrefs());
-  backBtn.style.display = "none";
+  setBackBtnVisible(false);
   appRoot.innerHTML = "";
 
   appRoot.append(el("div", { class: "page-header" },
@@ -645,7 +665,7 @@ async function openCharacter(characterId) {
   }
   if (!character) {
     renderOpenFailure(appRoot, loadError || new Error("That character no longer exists."), () => openCharacter(characterId));
-    backBtn.style.display = "none";
+    setBackBtnVisible(false);
     return;
   }
 
@@ -655,7 +675,7 @@ async function openCharacter(characterId) {
   // storage round trip per render is not worth it.
   lastA11y = { ...(character.a11y || {}) };
   appRoot.innerHTML = "";
-  backBtn.style.display = "";
+  setBackBtnVisible(true);
 
   const sheetRoot = document.createElement("div");
   appRoot.append(sheetRoot);
@@ -670,7 +690,7 @@ async function openCharacter(characterId) {
   } catch (err) {
     console.error("Failed to render character sheet:", err);
     renderOpenFailure(appRoot, err, () => openCharacter(characterId));
-    backBtn.style.display = "none";
+    setBackBtnVisible(false);
     openSheet = null;
   }
 }
