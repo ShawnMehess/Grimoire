@@ -24,6 +24,12 @@
 @import url("components/custom-sheet-bundles.css");
 @import url("components/custom-sheet-shared.css");
 /* Glossary terms + the long-press tooltip. Before print.css so the print
- * rules can hide the tooltip, which has no meaning on paper. */
+   rules can hide the tooltip, which has no meaning on paper. */
 @import url("components/tooltip.css");
 @import url("components/print.css");
+/* Phone and short-viewport behaviour, last so it can supersede
+   print.css's own `max-width: 600px` SCREEN rules (the picker-card
+   arrangement there is not what a phone wants). Every rule in it is
+   `@media screen and (...)`, so none of it can reach paper - see the
+   header of that file for why that is written down. */
+@import url("phone.css");

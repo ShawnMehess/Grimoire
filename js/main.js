@@ -24,9 +24,41 @@ import { applyA11yMode } from "./ui/accessibility.js";
 const appRoot = document.getElementById("app-main");
 const authArea = document.getElementById("auth-area");
 
-const backBtn = document.createElement("button");
-backBtn.className = "btn";
-backBtn.textContent = "Return to Character Selection";
+/** A header button whose label is one sentence on a wide screen and two
+ *  words on a phone.
+ *
+ *  "Return to Character Selection" wraps onto three lines in a 167px half
+ *  of a 390px header, which is a sixth of the screen spent on a label, and
+ *  it changes width with the signed-in name. So each button carries BOTH
+ *  labels as spans and css/phone.css shows one and hides the other by
+ *  viewport. The full label stays in `aria-label` either way, because the
+ *  short one on its own ("Characters") does not say what tapping it does.
+ *
+ *  Both labels stay in the DOM, so `textContent` still contains the full
+ *  phrase - which is what scripts/crawl.mjs looks for.
+ *
+ *  `full` is what the button says on a wide screen and what its accessible
+ *  name always is; `short` is what a phone shows instead. */
+function authButton({ cls = "btn", full, short, title = null }) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = `btn ${cls}`.trim();
+  btn.setAttribute("aria-label", full);
+  if (title) btn.title = title;
+  for (const [modifier, text] of [["long", full], ["short", short]]) {
+    const span = document.createElement("span");
+    span.className = `auth-label auth-label--${modifier}`;
+    span.textContent = text;
+    btn.append(span);
+  }
+  return btn;
+}
+
+const backBtn = authButton({
+  full: "Return to Character Selection",
+  short: "Characters",
+  title: "Back to your character list",
+});
 backBtn.style.display = "none";
 // The currently-open character's { hasUnsavedChanges, destroy } (see
 // renderCustomSheet) — null when no character is open. Checked/torn
@@ -91,9 +123,16 @@ onAuthChange(async (user) => {
     return;
   }
 
-  const signOutBtn = document.createElement("button");
-  signOutBtn.className = "btn";
-  signOutBtn.textContent = `Sign out (${user.displayName ?? user.email})`;
+  const who = user.displayName ?? user.email;
+  // An em dash, not parentheses: the local player's display name is
+  // "Local Player (this browser)", so `Sign out (${who})` read
+  // "Sign out (Local Player (this browser))" - the doubled brackets the
+  // review found. A dash cannot collide with whatever the name brings.
+  const signOutBtn = authButton({
+    full: `Sign out — ${who}`,
+    short: "Sign out",
+    title: `Sign out of ${who}`,
+  });
   signOutBtn.addEventListener("click", signOutUser);
   authArea.append(backBtn, signOutBtn);
 

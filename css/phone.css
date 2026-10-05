@@ -1,0 +1,151 @@
+/* ==========================================================================
+   phone.css
+   How the app behaves on a phone: two orientations, four widths.
+
+   WHY A SEPARATE FILE, IMPORTED AFTER print.css
+   ---------------------------------------------
+   Two things forced it out of the component stylesheets:
+
+   1. print.css ends the cascade and owns `@media (max-width: 600px)`
+      screen rules - `.choice-row` goes column, `.choice-row__portrait`
+      drops to 72px, `.level-guide__form` goes single-column. Some of those
+      are exactly what the phone needs UNDONE (a picker card is better with
+      the thumbnail BESIDE the name than stacked above it), and a rule in
+      a component file cannot beat a later one at equal specificity.
+      Importing after print.css is the sanctioned way to supersede it.
+
+   2. Every rule here is written `@media screen and (...)`, never a bare
+      `@media (...)`. A bare width query also matches while PRINTING, where
+      the page box is the paper: that is the leak print.css's own header
+      warns about, in the other direction, and it is why nothing in this
+      file may be unconditional-in-media. Paper is not narrower than
+      720px at any of the page sizes the print dialog offers, so this is
+      belt and braces rather than a live bug - but "screen" costs nothing
+      and makes the print stylesheet unreachable from here.
+
+   THE TWO QUERIES
+   ---------------
+   `max-width: 720px` is the phone ceiling (the same number
+   PHONE_CEILING_PX names in scripts/e2e-smoke.mjs, and the one
+   layout.css already breaks at).
+
+   `max-height: 480px` is the SHORT viewport: a phone held sideways, or a
+   window dragged flat. It is width-independent on purpose - 844x390 is
+   wide enough for the desktop layout and still has 390px of height, which
+   is the case that needs its own rules. Before this file the app had no
+   height query anywhere: nothing in the codebase responded to a landscape
+   phone, which is the root of the landscape problems in items 1, 2 and 6.
+   ========================================================================== */
+
+/* --- 1. The header --------------------------------------------------------
+   ---------------------------------------------------------------------------
+   On a 390px phone the two header buttons were sized by their own text and
+   came out 167px each - "Return to / Character / Selection" over three
+   lines, "Sign out (Local / Player (this / browser))" over three more. The
+   header was 140px of an 844px screen, 16.6%, and every screen has it.
+
+   The fix is three rules: short labels on a phone (js/main.js carries both
+   and this file picks one), one row instead of two, and a 44px target.
+   `--space-*` padding is what made it tall; the row is now as tall as its
+   tallest child, which is the 44px target.
+   ------------------------------------------------------------------------ */
+
+/* Long label by default; the phone rules below swap it. Declared here so
+   the default is not "both visible" if a rule below is ever dropped. */
+.auth-label--short {
+  display: none;
+}
+
+@media screen and (max-width: 720px) {
+  .auth-label--long {
+    display: none;
+  }
+  .auth-label--short {
+    display: inline;
+  }
+
+  /* One row, not two. The old phone rule in layout.css stacked the brand
+     above the buttons; with the buttons down to two words there is room
+     for one line, and one line is the difference between 140px of header
+     and about 60px. The brand gives up some type size to pay for it. */
+  .app-header {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+  }
+  .app-header__brand {
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .app-header h1 {
+    font-size: var(--text-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* 44px, so the buttons are actually hittable with a thumb. `min-width: 0`
+     plus the ellipsis below is what keeps a long word from pushing the
+     page sideways on a 320px screen: the pair is sized by `flex: 1 1 0` in
+     layout.css, so it can always shrink, and only the text inside gives. */
+  #auth-area > .btn {
+    min-height: 44px;
+    min-width: 0;
+    padding: var(--space-2) var(--space-3);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  #auth-area .auth-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+/* Short viewport - a phone on its side. The header is one slim row with
+   no wrapped text at all, and no longer than it needs to be: the point of
+   a landscape phone is that the 390px of height goes to the content, and
+   a 98px header was a quarter of it (measured at 667x375). */
+@media screen and (max-height: 480px) {
+  .app-header {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    /* Never sticky on a short viewport. The header is `position: relative`
+       everywhere already, which is the default rather than an accident;
+       restated here because "if it eats more than ~15% of the height,
+       stop pinning it" is a rule about THIS query, not a global one. */
+    position: relative;
+  }
+  .app-header__brand {
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .app-header h1 {
+    font-size: var(--text-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Short labels regardless of width: at 844px there IS room for the long
+     ones, but the header is measured against HEIGHT here, and a longer
+     label is a taller box the moment the font metrics disagree. */
+  .auth-label--long {
+    display: none;
+  }
+  .auth-label--short {
+    display: inline;
+  }
+  /* Natural width, not a split of the row: at 844px the brand is small and
+     the header is height-limited, so there is nothing to fill. */
+  #auth-area {
+    width: auto;
+    align-self: auto;
+  }
+  #auth-area > .btn {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: var(--space-1) var(--space-3);
+  }
+}

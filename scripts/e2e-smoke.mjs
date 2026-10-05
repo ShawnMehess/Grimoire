@@ -209,6 +209,25 @@ mkdirSync(shotDir, { recursive: true });
 // width check wrong in both directions at once.
 const PHONE_CEILING_PX = 720;
 
+// The four phone viewports every layout change here is checked at: two
+// current phones in both orientations, and two older/smaller ones.
+//
+// Landscape is not a rotated portrait. 844x390 is wide enough for the
+// desktop rules (so it was never covered by a "is this a phone?" check
+// keyed on width) and short enough that a header sized for 844px of
+// height is a quarter of the screen. That is why both orientations are
+// named explicitly rather than derived by swapping width and height.
+//
+// 360x640 is an older Android / small iPhone class screen; 667x375 is the
+// short-and-narrow one, which is the hardest case in the whole set: the
+// sheet's 16-column grid cannot fit either dimension.
+const PHONE_VIEWPORTS = {
+  "390x844": { width: 390, height: 844 },
+  "844x390": { width: 844, height: 390 },
+  "360x640": { width: 360, height: 640 },
+  "667x375": { width: 667, height: 375 },
+};
+
 const VIEWPORTS = [
   // Phone, tablet and laptop. The sheet is specified to work at all three,
   // and 834px is the interesting one: it is above the 720px phone
@@ -3153,6 +3172,67 @@ for (const phoneWidth of [320, 390]) {
     await wiz.close();
   }
 }
+
+  // --- The header, at every phone size and both orientations ---------------
+  //
+  // What the review found was a header that wrapped "Return to Character
+  // Selection" onto three lines inside a 167px half-row - 140px of an 844px
+  // screen, 16.6%, on every screen - and a doubled-bracket sign-out label:
+  // the local player's display name is "Local Player (this browser)", so
+  // `Sign out (${name})` printed the brackets twice.
+  //
+  // Read back as measurements rather than as class names, because what
+  // matters is that the header is ONE row, is not a sixth of the screen,
+  // that the label you can SEE is short while the accessible name is the
+  // full sentence, and that no label is wider than the box it sits in.
+  //
+  // Its own page per size, outside the phoneWidth loop above: these are
+  // four different viewports rather than two widths of one, and the
+  // loop above drives the sheet and the wizard as well.
+  for (const [vpName, vp] of Object.entries(PHONE_VIEWPORTS)) {
+    const hdr = await browser.newPage({ viewport: vp, hasTouch: true });
+    hdr.on("pageerror", (e) => problems.push(`PAGEERROR [header@${vpName}]: ${e.message}`));
+    await hdr.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await settled(hdr, READY_VAULT, `header vault ${vpName}`);
+    const h = await hdr.evaluate(() => {
+      const head = document.querySelector(".app-header");
+      const hr = head.getBoundingClientRect();
+      const btns = [...document.getElementById("auth-area").children]
+        .filter((k) => k.getBoundingClientRect().width > 0)
+        .map((k) => {
+          const r = k.getBoundingClientRect();
+          const shown = [...k.querySelectorAll(".auth-label")]
+            .find((s) => getComputedStyle(s).display !== "none");
+          return {
+            aria: k.getAttribute("aria-label") || "",
+            shown: shown ? shown.textContent.trim() : k.textContent.trim(),
+            h: Math.round(r.height),
+            // A label wider than its own button is the three-line wrap again.
+            overflows: shown ? shown.scrollWidth > shown.clientWidth + 1 : false,
+          };
+        });
+      return {
+        height: Math.round(hr.height),
+        pct: Math.round((100 * hr.height) / window.innerHeight),
+        direction: getComputedStyle(head).flexDirection,
+        btns,
+        sideScroll: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      };
+    });
+    phoneCheck(h.direction === "row" && h.height <= 70,
+      `@${vpName} the header is one slim row (${h.direction}, ${h.height}px of ${vp.height} = ${h.pct}%)`);
+    phoneCheck(h.pct <= 15,
+      `@${vpName} and takes no more than a seventh of the height (${h.pct}%)`);
+    phoneCheck(h.btns.every((b) => b.shown.length <= 14),
+      `@${vpName} the labels on screen are short (${JSON.stringify(h.btns.map((b) => b.shown))})`);
+    phoneCheck(h.btns.every((b) => b.aria.length > b.shown.length),
+      `@${vpName} while the accessible name is still the full sentence (${JSON.stringify(h.btns.map((b) => b.aria))})`);
+    phoneCheck(h.btns.every((b) => !b.overflows) && !h.sideScroll,
+      `@${vpName} and no label overflows its button or the page`);
+    phoneCheck(!/\([^)]*\([^)]*\)/.test(h.btns.map((b) => b.aria).join(" ")),
+      `@${vpName} and neither label has doubled brackets (${JSON.stringify(h.btns.map((b) => b.aria))})`);
+    await hdr.close();
+  }
 }
 
 // --- Phone / tablet / laptop, swept in one place ----------------------------
