@@ -47,11 +47,22 @@ export function renderFieldNodeInto(field, parentBlock, cw, parentStyle = {}, de
   el.className = "grid-node grid-node--field";
   el.dataset.nodeId = field.id;
   el.dataset.nodeKind = "field";
+  // The field's type, mirrored the same way and for the same reason as
+  // gridX/gridY below: the display modes lay fields out by what they ARE
+  // (css/phone.css packs the short numeric ones three to a row and leaves
+  // a textlist or a dropdown full width), and CSS cannot read a property
+  // off the layout data. Read-only; nothing derives layout from it.
+  if (field.fieldType) el.dataset.fieldType = field.fieldType;
   // Grid cell, mirrored onto the DOM so display modes that re-order the
   // nodes (Simple View) can sort row-then-column without having to walk
   // back to the layout data. Read-only; nothing derives layout from it.
+  // The WIDTH is here for the same reason: css/phone.css packs a phone's
+  // sheet into three columns and uses this to decide how many of them a
+  // field may take - a field the author made four cells wide keeps that
+  // width, and one they made a single cell wide can share a row.
   el.dataset.gridX = String(field.x ?? 0);
   el.dataset.gridY = String(field.y ?? 0);
+  if (field.w != null) el.dataset.gridW = String(field.w);
   // Author-set tooltip (hover toolbar → "?" button) plus any starter
   // content default — native title keeps it working everywhere with
   // zero extra chrome.

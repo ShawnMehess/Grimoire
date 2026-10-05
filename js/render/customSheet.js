@@ -878,7 +878,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // disabled state and the wording of the toggle.
   let forcedStacked = false;
 
-  /** How wide the positioned grid actually is right now, and how much room
+/** How wide the positioned grid actually is right now, and how much room
    *  it has. Measured rather than guessed, so this follows the column
    *  count, the cell floor, the sidebar and the window. */
   function gridFitNow() {
@@ -1002,6 +1002,36 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     onclick: () => { sidebarCollapsed = !sidebarCollapsed; syncSidebarVisibility(); },
   });
   toolbar.append(sidebarToggleBtn);
+
+  // "Edit layout" — the one tap that brings the builder controls back.
+  //
+  // On a phone the toolbar was 404px of an 844px screen before a single
+  // field of the sheet appeared: Customize Sheet, Undo, Redo, Blocks, the
+  // name box, Display, Card fields, two dashed drop zones, Level Up and the
+  // save status, stacked and wrapped. Ten rows of editor chrome in front of
+  // the thing you opened the app to read.
+  //
+  // So on a phone those controls are hidden by css/phone.css and this
+  // button reveals them. It adds a class and nothing else: the controls
+  // themselves are not moved, wrapped or re-parented, so they keep their
+  // own listeners, their own state and their own place in the toolbar, and
+  // on a wide screen this button is display:none and the toolbar is
+  // exactly what it always was. Kept deliberately a toggle rather than a
+  // details/summary, so opening it cannot also move focus or submit.
+  const editLayoutBtn = el("button", {
+    type: "button",
+    class: "btn sheet-toolbar__edit-layout",
+    text: "Edit layout",
+    title: "Show the sheet-building controls: customize, undo, blocks, display and card fields",
+    "aria-expanded": "false",
+    onclick: () => {
+      const on = toolbar.classList.toggle("sheet-toolbar--editing");
+      editLayoutBtn.setAttribute("aria-expanded", on ? "true" : "false");
+      editLayoutBtn.classList.toggle("active", on);
+      editLayoutBtn.textContent = on ? "Done editing" : "Edit layout";
+    },
+  });
+  toolbar.append(editLayoutBtn);
 
   // Bundle Libraries / Catalogs toolbar buttons — hidden for now, per
   // Shawn's call to stop fighting the import/homebrew pipeline and

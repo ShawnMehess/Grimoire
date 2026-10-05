@@ -417,6 +417,26 @@ async function runViewportTests(viewport) {
     console.log(`${cond ? "ok" : "FAIL"} [${viewport.name}]: ${msg}`);
   };
 
+  // Open the phone's "Edit layout" panel if this viewport has one.
+  //
+  // On a phone the builder controls - Customize Sheet, Undo, Redo, Blocks,
+  // the Display panel, Card fields and their drop zones - are one tap
+  // behind that button (css/phone.css), which is what keeps the toolbar
+  // from being 404px tall before the sheet's first field. Nothing is
+  // removed and nothing is stubbed: the controls are still there and still
+  // do exactly what they did, so a check that wants one presses this
+  // first, the same way a person would. On a wide screen there is no such
+  // button and this is a no-op.
+  const revealBuilder = async () => {
+    const btn = await page.$(".sheet-toolbar__edit-layout:visible");
+    if (!btn) return false;
+    const already = await btn.evaluate((el) => el.getAttribute("aria-expanded") === "true");
+    if (already) return true;
+    await btn.click();
+    await quiet(page);
+    return true;
+  };
+
   // A: demo sheet (mock store) — toolbar, Simple View toggle, print dialog.
   //
   // The reload/persistence half of the Simple View checks lives on the
@@ -559,6 +579,16 @@ async function runViewportTests(viewport) {
   // blocks further work, so it belongs in the full run rather than between
   // edits. Opening the dialog itself is still cheap, so the smoke run checks
   // the dialog opens and closes; only the PDF stage is gated.
+  // On a phone the Display panel is one tap behind "Edit layout"
+// (css/phone.css), so open that first when it is there. The panel is
+// reachable either way, which is the claim being made; what changed is
+// that reaching it is now a deliberate act rather than a visible row.
+  const editLayoutBtn = await page.$(".sheet-toolbar__edit-layout:visible");
+  if (editLayoutBtn) {
+    await editLayoutBtn.click();
+    await quiet(page);
+  }
+  await revealBuilder();
   const printToggle = await page.$(".toolbar-display summary");
   check(!!printToggle, "demo Display dropdown exists");
   if (printToggle) {
@@ -702,6 +732,9 @@ async function runViewportTests(viewport) {
   // over, and its failure mode is a shape that lays out oddly - found by the
   // full run, not between edits.
   if (inArea("shapes")) {
+    // "Add shape" lives in the Display panel, which on a phone is one tap
+    // behind "Edit layout".
+    await revealBuilder();
     if (!await page.$("button:has-text('Add shape')").then((b) => b && b.isVisible())) {
       const summary = await page.$(".toolbar-display summary");
       if (summary) await summary.click();
@@ -2619,6 +2652,7 @@ async function runViewportTests(viewport) {
   check(afterPrepare.counter === "Prepared: 1 / 8", `one spell prepared (${afterPrepare.counter})`);
   check(afterPrepare.undoDisabled === false, "and Undo becomes available for it");
 
+  await revealBuilder();
   await page.click(undoBtn);
   await quiet(page);
   const afterUndo = await history();
@@ -2627,6 +2661,7 @@ async function runViewportTests(viewport) {
   check(afterUndo.prepared.length === 0, "and the row's toggle goes with it");
   check(afterUndo.redoDisabled === false, "and Redo becomes available");
 
+  await revealBuilder();
   await page.click(redoBtn);
   await quiet(page);
   const afterRedo = await history();
@@ -3115,6 +3150,127 @@ for (const phoneWidth of [320, 390]) {
         `@${phoneWidth} tab ${t} does not scroll sideways (${JSON.stringify(g.pageWidths)})`);
     }
     await sheet.close();
+  }
+
+  // The sheet itself, at every phone size and both orientations.
+  //
+  // Three things the review named, all measured on the demo sheet (a full
+  // starter layout, so every block is present):
+  //
+  //  - every field was its own full-width box, so the sheet was 9,936px
+  //    tall on a 390px phone: thirteen screens of one-number-per-row.
+  //  - the six ability modifiers were six boxes labelled "MOD", thousands
+  //    of pixels from the scores they belong to.
+  //  - the toolbar was 404px of builder chrome before the first field.
+  for (const [vpName, vp] of Object.entries(PHONE_VIEWPORTS)) {
+    const ph = await browser.newPage({ viewport: vp, hasTouch: true });
+    ph.on("pageerror", (e) => problems.push(`PAGEERROR [sheet@${vpName}]: ${e.message}`));
+    await ph.route("**/fonts.googleapis.com/**", (r) => r.abort());
+    await ph.goto(`${base}/demo.html`, { waitUntil: "networkidle" });
+    await settled(ph, READY_SHEET, `phone sheet ${vpName}`);
+    await ph.waitForTimeout(1200);
+    const sh = await ph.evaluate(() => {
+      const q = (s) => document.querySelector(s);
+      const shown = (el) => {
+        if (!el) return false;
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return cs.display !== "none" && r.width > 0 && r.height > 0;
+      };
+      const fieldOf = (id) => q(`.grid-node--field[data-node-id="${id}"]`);
+      // Each modifier must sit in the SAME column as its own score: that is
+      // the whole requirement, since "six boxes labelled MOD" is only wrong
+      // because none of them says whose it is.
+      const pairs = ["str", "dex", "con", "int", "wis", "cha"].map((a) => {
+        const s = fieldOf(`${a}Score`);
+        const m = fieldOf(`${a}Mod`);
+        if (!s || !m) return null;
+        const sr = s.getBoundingClientRect();
+        const mr = m.getBoundingClientRect();
+        return {
+          scoreLabel: (s.querySelector(".field-label")?.textContent || "").trim(),
+          modLabel: (m.querySelector(".field-label")?.textContent || "").trim(),
+          // Beside its own score, on the same row, no more than one tile
+          // away. "Six boxes labelled MOD" is only wrong because none of
+          // them says whose it is.
+          sameRow: Math.abs(sr.top - mr.top) < Math.max(sr.height, mr.height),
+          adjacent: mr.left >= sr.right - 2 && mr.left - sr.right < sr.width,
+        };
+      }).filter(Boolean);
+      const tb = q(".sheet-toolbar");
+      const intro = q(".sheet-intro");
+      // How many fields share a row. "One field per row" is the complaint,
+      // and it is a property of the layout rather than of a pixel height -
+      // a 375px-tall screen legitimately needs more scrolling than an
+      // 844px one, so counting screens would only measure the phone.
+      const rows = new Map();
+      for (const f of document.querySelectorAll(".grid-node--field")) {
+        const t = Math.round(f.getBoundingClientRect().top / 8) * 8;
+        rows.set(t, (rows.get(t) || 0) + 1);
+      }
+      const counts = [...rows.values()];
+      return {
+        fields: counts.reduce((a, b) => a + b, 0),
+        rows: counts.length,
+        packed: counts.filter((n) => n >= 3).length,
+        toolbarHeight: Math.round(tb.getBoundingClientRect().height),
+        // What the first screen is supposed to show.
+        firstScreen: [...tb.children].filter(shown).map((e) => (e.textContent || "").trim().slice(0, 20)),
+        hasName: shown(tb.querySelector(".input-group__control")),
+        hasLevelUp: shown(tb.querySelector(".level-up .btn")),
+        hasSaveStatus: shown(tb.querySelector(".save-status")),
+        builderVisible: shown(tb.querySelector(".sheet-toolbar__group")),
+        editBtn: shown(tb.querySelector(".sheet-toolbar__edit-layout")),
+        // The stacked layout is where the packing below applies; Sheet View
+        // is the positioned grid, and reading it there would be reading a
+        // layout this is not about.
+        simple: !!document.querySelector(".page-grid.is-simple"),
+        pairs,
+        intro: intro
+          ? { height: Math.round(intro.getBoundingClientRect().height),
+              gotItTop: Math.round(intro.querySelector(".sheet-intro__dismiss").getBoundingClientRect().top) }
+          : null,
+        // Inspiration: a caption BESIDE its checkbox, not under it.
+        inspirationBeside: (() => {
+          const box = fieldOf("inspiration");
+          const caption = box?.nextElementSibling;
+          if (!box || !caption || !shown(box) || !shown(caption)) return null;
+          const br = box.getBoundingClientRect();
+          const cr = caption.getBoundingClientRect();
+          return Math.abs(br.top - cr.top) < Math.max(br.height, cr.height);
+        })(),
+        sideScroll: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      };
+    });
+    // Packed means FEWER ROWS THAN FIELDS, not "lots of rows of exactly
+    // three". A field that carries the Adv./Disadvantage pill takes two
+    // columns so the pill fits beside its value, so a three-wide grid
+    // holds a mix of one, two and three across - and the number that
+    // matters is how many rows the 141 fields are spread over, against
+    // the one-field-per-row it used to be.
+    phoneCheck(sh.rows < sh.fields * 0.6 && sh.packed >= 10,
+      `@${vpName} the sheet is packed, not one field per row (${sh.rows} rows for ${sh.fields} fields, ${sh.packed} of them 3+ across)`);
+    // Only meaningful in the stacked layout; skip it rather than fail when
+    // the reader is looking at the editable grid on purpose.
+    if (sh.simple) {
+      phoneCheck(sh.pairs.length === 6 && sh.pairs.every((p) => p.sameRow && p.adjacent),
+        `@${vpName} every ability modifier sits beside its own score (${JSON.stringify(sh.pairs.map((p) => [p.scoreLabel, p.sameRow, p.adjacent]))})`);
+    }
+
+
+    phoneCheck(sh.toolbarHeight <= 200 && !sh.builderVisible && sh.editBtn,
+      `@${vpName} the builder chrome is behind one "Edit layout" tap (toolbar ${sh.toolbarHeight}px, builder visible: ${sh.builderVisible})`);
+    phoneCheck(sh.hasName && sh.hasLevelUp && sh.hasSaveStatus,
+      `@${vpName} and the first screen shows the name, Level Up and the save status (${JSON.stringify(sh.firstScreen)})`);
+    phoneCheck(sh.inspirationBeside !== false,
+      `@${vpName} Inspiration is a checkbox with its caption beside it, not underneath`);
+    if (sh.intro) {
+      phoneCheck(sh.intro.height <= 340 && sh.intro.gotItTop <= vp.height,
+        `@${vpName} the first-run panel is a panel, not a screen (${sh.intro.height}px, "Got it" at ${sh.intro.gotItTop})`);
+    }
+    phoneCheck(!sh.sideScroll, `@${vpName} the sheet does not scroll sideways`);
+    await ph.screenshot({ path: path.join(shotDir, `sheet-phone-${vpName}.png`) });
+    await ph.close();
   }
 
   {
@@ -4182,3 +4338,5 @@ if (failures.length) {
   process.exitCode = 1;
 }
 if (!process.exitCode) console.log("e2e-smoke: all checks passed");
+
+

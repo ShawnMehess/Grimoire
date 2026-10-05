@@ -616,3 +616,377 @@
     font-size: var(--text-xs);
   }
 }
+/* --- 5. The character sheet on a phone ------------------------------------
+   ---------------------------------------------------------------------------
+   Measured at 390x844 on the demo sheet (a Barbarian, level 2, full
+   starter layout), in Simple View - which is what a phone gets anyway,
+   because the 16-column grid cannot fit 342px:
+
+     - the sheet was 9,936px tall: thirteen screens, and every field was
+       its own full-width box with its own label above it. At 667x375 it
+       was 9,768px, twenty-eight screens.
+     - the six ability modifiers were six boxes labelled "MOD", 4,000px
+       away from the six scores they belong to (the abilities block puts
+       every score on row 0 and every modifier on row 1, and stacking
+       turns that into a list of scores followed by a list of modifiers).
+     - the toolbar was 404px, plus a 95px header, before the first field:
+       ten rows of editor chrome in front of the thing you opened the app
+       to read.
+     - Inspiration was a checkbox with its caption underneath.
+   ------------------------------------------------------------------------ */
+
+@media screen and (max-width: 720px), screen and (max-height: 480px) {
+  /* --- Packed field grids -------------------------------------------------
+     A block body becomes a three-column grid instead of a single column of
+     full-width boxes. This is the whole length fix.
+
+     Placement follows DOM order rather than the flex `order` the stack
+     normally sets, because a grid ignores `order` - and for these blocks
+     DOM order IS row-then-column, which is what the flex order was
+     computing. The one place that differs is the abilities block, where
+     DOM order interleaves each score with its own modifier, which is
+     exactly what we want there (see below).
+
+     How many columns a field takes comes from `data-field-type` (stamped
+     by sheetFields.js, read-only, alongside the gridX/gridY it already
+     mirrors) and, for a text field, from how wide the author made it: a
+     field that was one cell of sixteen in the grid can share a row with
+     two others, and one that was four cells across keeps the width it
+     was asking for. Guessing from the field type alone put "Passive
+     Perception" in a third of a phone. */
+  .page-grid.is-simple:not(.page-grid--leveling) .block-body {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-flow: row dense;
+    gap: var(--space-2);
+    align-items: stretch;
+  }
+  .page-grid.is-simple .grid-node--field {
+    grid-column: 1 / -1;
+    min-height: 0;
+  }
+  .page-grid.is-simple .grid-node--field[data-field-type="text"] {
+    grid-column: span 1;
+  }
+  /* How wide the author made it in the grid, which is the only honest
+     answer to "how much of a phone's row does this need". Name is four
+     cells of sixteen; Level is one. Guessing from the field type put the
+     name box, "Passive Perception" and the whole of Notes into a third of
+     a 390px screen. `data-grid-w` is the same read-only mirror of the
+     layout as gridX/gridY (see sheetFields.js). */
+  .page-grid.is-simple .grid-node--field[data-field-type="text"][data-grid-w="3"] {
+    grid-column: span 2;
+  }
+  .page-grid.is-simple .grid-node--field[data-field-type="text"][data-grid-w="4"],
+  .page-grid.is-simple .grid-node--field[data-field-type="text"][data-grid-w="5"],
+  .page-grid.is-simple .grid-node--field[data-field-type="text"][data-grid-w="6"] {
+    grid-column: 1 / -1;
+  }
+  .page-grid.is-simple .grid-node--field[data-field-type="checkbox"],
+  .page-grid.is-simple .grid-node--field[data-field-type="radio"],
+  .page-grid.is-simple .grid-node--field[data-field-type="label"] {
+    grid-column: span 1;
+  }
+  /* Everything that is a box of prose, a list, a picker or an image keeps
+     the whole row: a three-across Notes field is not an improvement. */
+  .page-grid.is-simple .grid-node--field[data-field-type="dropdown"],
+  .page-grid.is-simple .grid-node--field[data-field-type="textarea"],
+  .page-grid.is-simple .grid-node--field[data-field-type="textlist"],
+  .page-grid.is-simple .grid-node--field[data-field-type="taglist"],
+  .page-grid.is-simple .grid-node--field[data-field-type="catalog"],
+  .page-grid.is-simple .grid-node--field[data-field-type="picture"],
+  .page-grid.is-simple .grid-node--field[data-field-type="featureList"],
+  .page-grid.is-simple .grid-node--field[data-field-type="characterlink"] {
+    grid-column: 1 / -1;
+  }
+
+  /* The abilities block: TWO columns, and each score pinned next to its own
+     modifier. Two things are needed and only one is obvious.
+
+     The obvious one is two columns instead of three, so a score and a
+     modifier are neighbours rather than a modifier sitting between two
+     abilities.
+
+     The other is the `order`. The stacked layout writes `style.order`
+     inline from each field's grid cell, and blockModel.js puts all six
+     scores on row 0 and all six modifiers on row 1 - so the
+     order-modified sequence is every score, then every modifier. In ANY
+     grid that puts the modifiers in a second band, and in a 3- or 6-column
+     grid a modifier ends up beside the wrong ability. blockModel.js builds
+     the twelve fields INTERLEAVED, so pinning them to DOM order here is
+     what puts each one back with its own. `!important` because the order
+     is an inline style.
+
+     Identified by a field id the block owns rather than by a class, which
+     would have meant changing the saved layout. `:has()` is cosmetic in
+     the sense that matters: without it the block keeps the generic three
+     columns and still shows every score and every modifier. */
+  .page-grid.is-simple:not(.page-grid--leveling)
+    .block-body:has(> .grid-node--field[data-node-id="strScore"]) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .page-grid.is-simple:not(.page-grid--leveling)
+    .block-body:has(> .grid-node--field[data-node-id="strScore"])
+    > .grid-node--field {
+    order: 0 !important;
+  }
+
+  /* Inspiration: a 1-cell toggle followed by a 3-cell caption field, so
+     side by side they read as one control with a label beside it.
+
+     Both the columns AND the order are named, and the order needs
+     `!important` because the stacked layout writes `style.order` inline
+     from each field's grid cell - and this pair's cells put the caption
+     first, which dropped the checkbox into column 1 on the row BELOW its
+     own caption. Two fields whose columns are named can still land on
+     different rows if the one placed second cannot backfill, so both are
+     pinned to DOM order, which is the order they were authored in.
+
+     The adjacent-sibling selector needs no :has() and no new class - they
+     are adjacent in the layout array. */
+  .page-grid.is-simple .grid-node--field[data-node-id="inspiration"],
+  .page-grid.is-simple
+    .grid-node--field[data-node-id="inspiration"]
+    + .grid-node--field[data-field-type="label"] {
+    order: 0 !important;
+  }
+  .page-grid.is-simple .grid-node--field[data-node-id="inspiration"] {
+    grid-column: 1 / 2;
+  }
+  .page-grid.is-simple
+    .grid-node--field[data-node-id="inspiration"]
+    + .grid-node--field[data-field-type="label"] {
+    grid-column: 2 / -1;
+  }
+
+  /* A value you can tap. 34px was the old height of every input on the
+     sheet; 44 is the floor for a thumb, and a three-across tile is
+     narrower than it is tall anyway, so the row cost is small. */
+  .page-grid.is-simple .grid-node--field .field-value {
+    min-height: 44px;
+  }
+
+  /* Captions at 18px do not fit a third of a phone: "Constitution" and
+     "Intimidation" both broke mid-word once Saves and Skills went to one
+     row each. --text-sm fits most of them; `hyphens: auto` (with the
+     document's own lang="en") handles the rest properly rather than
+     letting the single longest skill name overflow its cell, which is
+     what "Investigation" did at 320px. */
+  .page-grid.is-simple .grid-node--field[data-field-type="label"] .field-value--label {
+    font-size: var(--text-sm);
+    hyphens: auto;
+    word-break: normal;
+    overflow-wrap: normal;
+    /* No side padding: at 320px a three-across cell is 80px, and "Investigation"
+       and "Performance" both came out 3px wider than the box they were in -
+       which the sheet's own e2e check reads as a field cut off at its edge. */
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  /* Proficiency toggles, spell slots, death saves: the most-tapped control
+     on the sheet. The <input> inside each is 16px, but it sits in a <label>
+     that is the real target, so the label is what has to clear 44 - and
+     the box grows too, because a 16px box on a 44px cell is also just
+     harder to aim at. */
+  .page-grid.is-simple .option-checkbox,
+  .page-grid.is-simple .option-radio {
+    min-height: 44px;
+  }
+  .page-grid.is-simple .option-checkbox input,
+  .page-grid.is-simple .option-radio input {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* --- The Adv./Disadvantage chips ----------------------------------------
+     `.field-roll` is `position: absolute; right: 2px; bottom: 2px`, and
+     it is 133px wide on a touch screen - the die plus "Adv." plus
+     "Disadv." (`@media (hover: none)` swaps the full words out for the
+     short ones). In a narrow cell it hangs out over its neighbours, and
+     because a touch screen has no hover to reveal it, six of them side by
+     side overlapped into one strip that also sat on top of the "MOD"
+     labels. On a landscape phone they were 40px cells with a 133px pill
+     hanging 63px out of each one.
+
+     An absolutely positioned overlay cannot be made not to overlap
+     something when it is wider than the thing it is on, so the fix is to
+     stop positioning it.
+
+     Scoped to `.page-grid.is-simple` - the STACKED layout - and not to the
+     sheet at large. In the positioned grid the pill overlays a cell that
+     is already as wide as the layout made it, which is the arrangement
+     the wide screen was designed around; un-positioning it there would
+     change the desktop sheet to fix a phone problem. It is the stacked
+     layout - the one a phone gets - where a field is a third of 366px and
+     the pill cannot fit beside or over anything.
+
+     So a field that carries one gets TWO columns and puts the pill beside
+     its value instead of under it. Two thirds of 366px is 235px, and the
+     value and the 133px pill fit in that with room to spare, which is the
+     point: under the pill the row was 172px tall, beside it the row is as
+     tall as the value. Skills is 54 fields, so that is the difference
+     between eighteen 172px rows and twenty-seven 70px ones.
+
+     44px, because that is what a thumb needs and these are the buttons
+     you press to roll. */
+  .page-grid.is-simple .grid-node--field:has(> .field-roll) {
+    grid-column: span 2;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  /* The abilities block is two columns of its own, where a score and its
+     modifier already share the row; a modifier there keeps its own cell
+     and the pill goes under the value, which is the one place a pill is
+     taller than the row it is in. */
+  .page-grid.is-simple:not(.page-grid--leveling)
+    .block-body:has(> .grid-node--field[data-node-id="strScore"])
+    > .grid-node--field:has(> .field-roll) {
+    grid-column: auto;
+    flex-direction: column;
+    align-items: stretch;
+    align-self: stretch;
+    gap: var(--space-1);
+  }
+  .page-grid.is-simple .grid-node--field:has(> .field-roll) .field-inner {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .page-grid.is-simple .field-roll {
+    position: static;
+    flex: 0 0 auto;
+    align-self: center;
+    flex-wrap: nowrap;
+    max-width: 100%;
+  }
+  .page-grid.is-simple .field-roll button {
+    min-height: 44px;
+    padding: 4px 6px;
+  }
+
+/* --- The toolbar --------------------------------------------------------
+     One row of what you use, and one button for everything you build
+     with. The controls are hidden here and shown again by
+     `.sheet-toolbar--editing` (the "Edit layout" button in
+     customSheet.js), so they are one tap away and not deleted.
+
+     Applies to a short viewport too, which is a different question from a
+     narrow one: 844x390 has all the width in the world and 390px of
+     height, and the same 404px of wrapped toolbar chrome was in front of
+     the sheet there too.
+
+     Selected by title where there is no class to hang it on - the Blocks
+     toggle and the Card fields toggle are plain <button class="btn">, and
+     adding a class to each would have meant touching two more renderers
+     for no gain. */
+.sheet-toolbar > .sheet-toolbar__group,
+  .sheet-toolbar > .btn[title^="Show/hide the Stat Blocks"],
+  .sheet-toolbar > .toolbar-display,
+  .sheet-toolbar > .btn[title^="Choose which fields show"],
+  .sheet-toolbar > .toolbar-card-zones,
+  .sheet-toolbar > .identity-card-fields {
+    display: none;
+  }
+  .sheet-toolbar--editing > .sheet-toolbar__group,
+  .sheet-toolbar--editing > .btn[title^="Show/hide the Stat Blocks"],
+  .sheet-toolbar--editing > .toolbar-display,
+  .sheet-toolbar--editing > .btn[title^="Choose which fields show"],
+  .sheet-toolbar--editing > .toolbar-card-zones,
+  .sheet-toolbar--editing > .identity-card-fields {
+    display: flex;
+  }
+  .sheet-toolbar--editing > .toolbar-display {
+    display: block;
+  }
+
+  /* Name, save status, Level Up, Edit layout: two rows, and the first
+     screen shows the name, a clear Level Up and the save status - then the
+     sheet. Order rather than DOM order because the toolbar's children were
+     arranged for a wide screen, and re-parenting them to get this would
+     have meant moving nodes with their listeners attached. */
+  .sheet-toolbar > .input-group__control {
+    order: 1;
+    flex: 1 1 100%;
+    min-width: 0;
+    min-height: 44px;
+    max-width: none !important;
+  }
+  .sheet-toolbar > .save-status {
+    order: 2;
+    flex: 0 0 auto;
+    align-self: center;
+  }
+  /* An explicit basis, not `auto`. The Level Up button's own max-content
+     width came out at the full 366px row for reasons inside the button's
+     flex context, which pushed it onto a line of its own and made the
+     toolbar four rows tall (183px). 120px is narrower than "Level Up" with
+     its padding and still grows into whatever is left. */
+  .sheet-toolbar > .level-up {
+    order: 3;
+    flex: 1 1 120px;
+    min-width: 0;
+    flex-wrap: nowrap;
+  }
+  .sheet-toolbar > .level-up .btn {
+    flex: 1 1 auto;
+    min-height: 44px;
+    min-width: 0;
+  }
+  .sheet-toolbar__edit-layout {
+    display: inline-flex;
+    order: 4;
+    flex: 0 0 auto;
+    min-height: 44px;
+  }
+  .sheet-toolbar {
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
+  }
+
+  /* Tabs are the other permanent control, and they were 31px tall. */
+  .sheet-tab {
+    min-height: 44px;
+  }
+
+  /* --- The first-run panel -----------------------------------------------
+     Five paragraphs of orientation, ~380px on a phone, between the
+     toolbar and the sheet. Kept - it is genuinely the first thing a new
+     character needs - but the title and the dismiss button share a row
+     and the list is bounded, so the card costs about a quarter of a
+     screen and "Got it" is above the fold instead of below it. */
+  .sheet-intro {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+  }
+  .sheet-intro__title {
+    order: 0;
+    margin: 0;
+    font-size: var(--text-md);
+  }
+  .sheet-intro__dismiss {
+    order: 1;
+    align-self: flex-start;
+    min-height: 44px;
+  }
+  .sheet-intro__list {
+    order: 2;
+    max-height: 9rem;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0;
+    padding-left: var(--space-4);
+  }
+}
+
+/* Narrower still: at 320px a three-across cell is 80px and even 14px
+     "Investigation" does not fit in it. --text-xs is the floor the CSS
+     gate allows for anything that renders words, and a caption is words. */
+@media screen and (max-width: 360px) {
+  .page-grid.is-simple .grid-node--field[data-field-type="label"] .field-value--label {
+    font-size: var(--text-xs);
+  }
+}
