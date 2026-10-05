@@ -4355,6 +4355,115 @@ if (inArea("swipe-arrow")) {
   phoneCheck(afterScroll.index === beforeScroll.index,
     `a vertical drag scrolls and does NOT change step (${beforeScroll.index} -> ${afterScroll.index})`);
 
+  // A DIAGONAL drag is the realistic phone scroll: the thumb arcs, so the
+  // vertical travel often matches or beats the horizontal for the first
+  // centimetre. It must not become a page change, and the check is on the
+  // strict rule - horizontal travel has to EXCEED vertical - so a 200x100
+  // drag counts as a swipe and a 100x200 drag does not.
+  const diagonal = async (dx, dy) => {
+    const before = await stepOf();
+    await t.evaluate(({ dx: ddx, dy: ddy }) => {
+      const wrap = document.querySelector(".wizard");
+      const r = wrap.getBoundingClientRect();
+      const x = Math.round(window.innerWidth / 2);
+      const y = Math.round(r.top + Math.min(r.height - 30, 260));
+      const mk = (type, cx, cy) => wrap.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, cancelable: true, pointerType: "touch",
+        clientX: cx, clientY: cy, pointerId: 3,
+      }));
+      mk("pointerdown", x, y);
+      for (let i = 1; i <= 6; i++) mk("pointermove", x + Math.round((ddx * i) / 6), y + Math.round((ddy * i) / 6));
+      mk("pointerup", x + ddx, y + ddy);
+    }, { dx, dy });
+    await t.waitForTimeout(900);
+    return { before, after: await stepOf() };
+  };
+  const mostlyDown = await diagonal(60, 200);
+  phoneCheck(mostlyDown.after.index === mostlyDown.before.index,
+    `a drag that is mostly vertical does NOT change step (${mostlyDown.before.index} -> ${mostlyDown.after.index})`);
+
+  // A diagonal swipe with clearly more horizontal than vertical travel DOES
+  // still work - the recogniser must not simply refuse anything with a
+  // vertical component, or it would refuse every real thumb arc. Probed with
+  // the RIGHTWARD (back) drag because back is always allowed: a forward drag
+  // would also need a complete page, and this page is not one.
+  const beforeDiag = await stepOf();
+  if (beforeDiag.index > 1) {
+    await diagonal(200, 60);
+    const afterDiag = await stepOf();
+    phoneCheck(afterDiag.index === beforeDiag.index - 1,
+      `a diagonal swipe that is mostly horizontal still goes back (${beforeDiag.index} -> ${afterDiag.index})`);
+    // Put it back where it was, so the checks below measure from one place.
+    await diagonal(-200, -60);
+    await t.waitForTimeout(400);
+  } else {
+    phoneCheck(true, "not far enough into the wizard to probe a diagonal swipe back");
+  }
+
+  // A swipe that starts on a control is that control's gesture. The wizard's
+  // own name field is the clean probe: swiping across it must move nothing.
+  const beforeField = await stepOf();
+  const fieldSwipe = await t.evaluate(async () => {
+    const input = document.querySelector(".wizard input[type=text]");
+    if (!input) return "no field";
+    const r = input.getBoundingClientRect();
+    if (r.width < 20 || r.height < 20) return "no box";
+    const startX = Math.round(r.left + 10);
+    const y = Math.round(r.top + r.height / 2);
+    const wrap = input.closest(".wizard");
+    const mk = (type, cx) => input.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerType: "touch",
+      clientX: cx, clientY: y, pointerId: 4,
+    }));
+    mk("pointerdown", startX);
+    for (let i = 1; i <= 6; i++) mk("pointermove", startX + i * 30);
+    mk("pointerup", startX + 180);
+    return "swiped";
+  });
+  await t.waitForTimeout(900);
+  if (fieldSwipe === "swiped") {
+    const afterField = await stepOf();
+    phoneCheck(afterField.index === beforeField.index,
+      `a swipe starting on the name field does NOT change step (${beforeField.index} -> ${afterField.index})`);
+  } else {
+    phoneCheck(false, `the name field was not available to swipe across (${fieldSwipe})`);
+  }
+
+  // And the handlers are PASSIVE. This is the difference between a scroll the
+  // compositor owns and one that has to wait for app JavaScript on every
+  // frame - the classic cause of a touch fling that starts, travels a
+  // screenful, and then gives up. The page cannot see its own listener
+  // options, so this asks CDP, which can.
+  const passiveReport = await (async () => {
+    const probe = await t.context().newCDPSession(t);
+    try {
+      const { result } = await probe.send("Runtime.evaluate", {
+        expression: "document.querySelector('.wizard')",
+      });
+      const listeners = await probe.send("DOMDebugger.getEventListeners", {
+        objectId: result.objectId,
+      });
+      await probe.detach();
+      const ours = (listeners.listeners || []).filter((l) => /^pointer/.test(l.type));
+      return {
+        types: ours.map((l) => l.type),
+        passive: ours.filter((l) => l.passive === true).map((l) => l.type),
+        blocking: ours.filter((l) => l.passive !== true).map((l) => l.type),
+      };
+    } catch (err) {
+      try { await probe.detach(); } catch { /* already gone */ }
+      return { error: err.message };
+    }
+  })();
+  if (passiveReport.error) {
+    phoneCheck(false, `could not read the wizard's listeners (${passiveReport.error})`);
+  } else {
+    phoneCheck(passiveReport.types.includes("pointermove"),
+      `the swipe recogniser listens for pointermove (${JSON.stringify(passiveReport.types)})`);
+    phoneCheck(passiveReport.blocking.length === 0,
+      `and none of its listeners blocks the browser's scrolling (blocking: ${JSON.stringify(passiveReport.blocking)})`);
+  }
+
   // No Next on the last step, and no bar to sit there empty. Driven forward
   // by clicking Next as often as the gate allows, rather than by jumping a
   // dot - forward dots are themselves locked until the page is finished, so

@@ -55,6 +55,9 @@ import {
   reviewChoiceLinesFor,
   slotLabelFor,
   trimTrailingChooseInstruction,
+  swipeStartsInsideOwnSurface,
+  SWIPE_MIN_DISTANCE,
+  SWIPE_IGNORED_SURFACES,
 } from "../js/render/sheet/sheetWizard.js";
 import {
   clampScoreToRange,
@@ -1046,5 +1049,94 @@ describe("reverting a level-up", () => {
   it("treats a zero HP gain as nothing to restore", () => {
     const r = buildRevertRecord({ level: 2, hpGain: 0, hpBefore: { max: 10, current: 4 } });
     assert.deepEqual(revertConflictLines(r, { hpMax: 999, hpCurrent: 999 }), []);
+  });
+});
+
+describe("swipe between wizard steps", () => {
+  // The gesture recogniser has one job beyond changing step: NOT changing step
+  // while the player is scrolling. On a phone the picker table is the tallest
+  // thing on the page, so a recogniser that claims a vertical drag makes the
+  // wizard unusable. These are the two rules that decide it, tested as pure
+  // functions rather than by flicking a synthetic pointer around.
+
+it("claims a surface that owns its own gestures", () => {
+    // A stand-in for a DOM node: `closest(selector)` answers true only when
+    // one of the selector's own parts matches, which is what the real one
+    // does - and what makes this a test of the LIST rather than of a stub.
+    const inSelector = (part) => ({
+      closest(selector) {
+        return selector.split(",").map((s) => s.trim()).includes(part) ? {} : null;
+      },
+      nodeType: 1,
+      parentElement: null,
+    });
+    const listed = SWIPE_IGNORED_SURFACES.split(",").map((s) => s.trim());
+    for (const own of ["input", "select", "textarea", "option", "label",
+      "[role='slider']", "[role='combobox']", "[role='spinbutton']",
+      ".modal-overlay", ".choice-dialog-overlay", ".spell-picker-list", ".choice-row-list"]) {
+      assert.equal(swipeStartsInsideOwnSurface(inSelector(own)), true, `${own} keeps its gestures`);
+      assert.ok(listed.length > 0);
+    }
+  });
+
+it("does not claim ordinary page content", () => {
+    const plain = { closest: () => null, nodeType: 1, parentElement: null };
+    assert.equal(swipeStartsInsideOwnSurface(plain), false,
+      "a heading or a paragraph is the wizard's to navigate");
+  });
+
+  it("is a selector the browser will actually accept", () => {
+    // An attribute selector with an unquoted empty value - `[contenteditable=''`
+    // with the closing bracket left off - is not valid CSS. `closest` then
+    // THROWS, and because the throw happens inside the pointerdown handler the
+    // gesture is never tracked: the swipe silently stops working and looks
+    // exactly like "the recogniser ignores everything". So each part is
+    // checked structurally rather than trusted.
+    //
+    // A bare presence attribute is fine, which is why the list says
+    // `[contenteditable]` rather than spelling out both values.
+    const NAME = /^[a-zA-Z][a-zA-Z0-9-]*$/;
+    const NAME_VALUE = /^[a-zA-Z][a-zA-Z0-9-]*\s*=\s*('[^']*'|"[^"]*"|[^\s\]"']+)$/;
+    const parts = SWIPE_IGNORED_SURFACES.split(",").map((s) => s.trim());
+    assert.ok(parts.length > 1, "the list really is a list");
+    for (const part of parts) {
+      assert.equal((part.match(/\[/g) || []).length, (part.match(/\]/g) || []).length,
+        `${part}: balanced brackets`);
+      assert.equal(part, part.replace(/\s+/g, ""), `${part}: no stray whitespace`);
+      // A part may be nothing but an attribute selector, in which case there
+      // is no bare name to check.
+      const bare = part.replace(/\[[^\]]*\]/g, "");
+      assert.ok(bare === "" || NAME.test(bare) || /^\.[a-zA-Z][a-zA-Z0-9_-]*$/.test(bare),
+        `${part}: a bare class or element name`);
+      for (const inner of part.match(/\[([^\]]*)\]/g) || []) {
+        assert.ok(NAME.test(inner.slice(1, -1)) || NAME_VALUE.test(inner.slice(1, -1)),
+          `${part}: attribute selector is a name, optionally with a value`);
+      }
+    }
+  });
+
+  it("stands aside for anything that actually scrolls sideways", () => {
+    // The selector cannot name this: a wide row or a table can gain
+    // overflow-x from a rule nobody thought of as a scroller, so the check is
+    // a measurement up the ancestor chain.
+    const scroller = { nodeType: 1, parentElement: null };
+    const child = { nodeType: 1, parentElement: scroller, closest: () => null };
+    assert.equal(swipeStartsInsideOwnSurface(child, { isHorizontallyScrollable: () => false }), false);
+    assert.equal(swipeStartsInsideOwnSurface(child, { isHorizontallyScrollable: (el) => el === scroller }), true,
+      "a swipe across a sideways scroller is that scroller's scroll");
+  });
+
+  it("walks the whole ancestor chain, not just the immediate parent", () => {
+    const grand = { nodeType: 1, parentElement: null };
+    const parent = { nodeType: 1, parentElement: grand };
+    const child = { nodeType: 1, parentElement: parent, closest: () => null };
+    assert.equal(swipeStartsInsideOwnSurface(child, { isHorizontallyScrollable: (el) => el === grand }), true);
+  });
+
+  it("has a threshold a thumb can comfortably clear and a tap cannot", () => {
+    // One comfortable thumb movement on a phone is roughly this much; a tap
+    // and a nudge are both far shorter.
+    assert.ok(SWIPE_MIN_DISTANCE >= 40, "a tap is never a swipe");
+    assert.ok(SWIPE_MIN_DISTANCE <= 80, "and it is still one thumb movement");
   });
 });

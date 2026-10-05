@@ -2211,20 +2211,33 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
   //
   // Vertical scrolling must still work, which is the whole difficulty: on a
   // phone the picker table IS a vertical list, and a gesture recogniser that
-  // claims every touch would make the page unscrollable. So:
+  // claims every touch would make the page unscrollable. Three things make it
+  // safe, and the first is the one that decides whether scrolling feels
+  // smooth at all:
   //
-  //  - horizontal intent only - the drag must be more horizontal than
-  //    vertical before anything is claimed, and it is abandoned outright if
-  //    the vertical movement grows past the horizontal;
-  //  - pointer events with capture, so a drag that leaves the element still
-  //    tracks to the end;
-  //  - a distance threshold, so a tap or a nudge is not a page change;
-  //  - one navigation per gesture, released on pointerup.
+  //  - PASSIVE listeners. Nothing in here calls preventDefault(), so nothing
+  //    needs the browser to wait. Without `passive: true` the browser has to
+  //    hold the scroll until this handler returns, on every frame of every
+  //    flick - which on a touch device puts app JavaScript on the critical
+  //    path of the scroll and is the classic cause of a fling that starts,
+  //    travels a screenful and then gives up. Declaring the listeners passive
+  //    is free here and is the whole of the fix for that.
+  //  - horizontal intent only - a gesture is a scroll as soon as its vertical
+  //    travel exceeds its horizontal, and it is abandoned for good, so a
+  //    diagonal scroll never becomes a page change halfway through. A
+  //    diagonal SWIPE (more horizontal than vertical) still works.
+  //  - a distance threshold, and one navigation per gesture.
+  //
+  // Also ignored: a drag that starts on a control, inside a dialog, or inside
+  // anything that scrolls sideways - see swipeStartsInsideOwnSurface.
   //
   // Touch only. A mouse drag on a desktop page is a text selection or a
   // drag-and-drop elsewhere in the sheet, and hijacking it would break both.
   if (typeof wrap.addEventListener === "function") {
-    const SWIPE_MIN = 60;
+    // Passive, and deliberately not `capture`: the browser may start a scroll
+    // and fire pointercancel at any point, and the handlers below neither need
+    // to see the gesture before the target does nor want to keep it.
+    const listen = { passive: true };
     let startX = 0;
     let startY = 0;
     let tracking = false;
@@ -2232,25 +2245,24 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
 
     wrap.addEventListener("pointerdown", (e) => {
       if (e.pointerType && e.pointerType !== "touch") return;
-      // A control owns its own gestures: swiping starting on a slider or a
-      // scrolling list is the list's business, not ours.
-      if (e.target?.closest?.("select, input, textarea, .choice-row-list, .spell-picker-list")) return;
+      if (swipeStartsInsideOwnSurface(e.target)) return;
       startX = e.clientX;
       startY = e.clientY;
       tracking = true;
       decided = false;
-    });
+    }, listen);
 
     wrap.addEventListener("pointermove", (e) => {
       if (!tracking || decided) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      // Vertical intent wins outright and cancels the gesture for good, so a
-      // diagonal scroll never becomes a page change halfway through.
-      if (Math.abs(dy) > Math.abs(dx)) { tracking = false; return; }
-      if (Math.abs(dx) < SWIPE_MIN) return;
+      const dx = Math.abs(e.clientX - startX);
+      const dy = Math.abs(e.clientY - startY);
+      // Scroll beats swipe, and once it has, this gesture is finished: the
+      // browser is already scrolling and the drag belongs to it.
+      if (dy > dx) { tracking = false; return; }
+      if (dx < SWIPE_MIN_DISTANCE) return;
       decided = true;
-      if (dx < 0) {
+      const forward = e.clientX - startX < 0;
+      if (forward) {
         // Swipe left = forward.
         if (stepState.index < applicableSteps.length - 1 && stepIsComplete(currentStep)) {
           goTo(stepState.index + 1);
@@ -2259,14 +2271,67 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
         // Swipe right = back, always allowed.
         goTo(stepState.index - 1);
       }
-    });
+    }, listen);
 
     const endSwipe = () => { tracking = false; };
-    wrap.addEventListener("pointerup", endSwipe);
-    wrap.addEventListener("pointercancel", endSwipe);
-    wrap.addEventListener("pointerleave", endSwipe);
+    wrap.addEventListener("pointerup", endSwipe, listen);
+    wrap.addEventListener("pointercancel", endSwipe, listen);
+    wrap.addEventListener("pointerleave", endSwipe, listen);
   }
   return wrap;
+}
+
+/** How far a horizontal drag must travel before it counts as a swipe. Large
+ *  enough that a tap, a nudge and a slow scroll-flick are all safe, small
+ *  enough to be one comfortable thumb movement across a phone. */
+export const SWIPE_MIN_DISTANCE = 56;
+
+/** Where a swipe must NOT start, as a selector.
+ *
+ *  A control that owns its own gestures keeps them: inputs, textareas,
+ *  selects and sliders are all dragged or dragged-through by the player, and
+ *  a dialog or a scrolling picker list is already doing its own thing. Listed
+ *  as one string so the rule is visible in one place and cannot be quietly
+ *  widened by a second call site with its own idea of the list. */
+export const SWIPE_IGNORED_SURFACES = [
+  "input", "textarea", "select", "option", "label",
+  "[contenteditable]",
+  "[role='slider']", "[role='combobox']", "[role='spinbutton']",
+  ".modal-overlay", ".choice-dialog-overlay", ".spell-picker-list",
+  ".choice-row-list", ".level-guide__choices", ".tool-picker-dialog",
+].join(", ");
+
+/** Whether a gesture that started on `target` belongs to that surface rather
+ *  than to the wizard's page navigation.
+ *
+ *  Two questions, and the second is the one a selector cannot answer:
+ *
+ *  1. Is it a control, a dialog, or one of the app's own scrolling lists?
+ *  2. Is anything in its ancestor chain actually scrolled sideways? A wide
+ *     table or a code-ish row on a narrow phone scrolls horizontally, and a
+ *     swipe across one is a scroll. Tested by measurement rather than by
+ *     naming classes, because the overflow can come from a rule nobody
+ *     thought was a scroller.
+ *
+ *  `isHorizontallyScrollable` is injected (default: measure) so this is
+ *  testable without a DOM. Pure. */
+export function swipeStartsInsideOwnSurface(
+  target,
+  { selector = SWIPE_IGNORED_SURFACES, isHorizontallyScrollable = null } = {},
+) {
+  const closest = target?.closest;
+  if (typeof closest !== "function") return false;
+  if (closest.call(target, selector)) return true;
+  const measure = isHorizontallyScrollable || ((el) => {
+    const cs = typeof getComputedStyle === "function" ? getComputedStyle(el) : null;
+    if (!cs) return false;
+    const canScroll = /auto|scroll/.test(cs.overflowX || "");
+    return canScroll && el.scrollWidth > el.clientWidth + 1;
+  });
+  for (let el = target; el && el.nodeType === 1; el = el.parentElement) {
+    if (measure(el)) return true;
+  }
+  return false;
 }
 
 /** Bundle-library class/race/background names tagged to one or more
