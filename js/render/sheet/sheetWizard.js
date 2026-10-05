@@ -1709,9 +1709,9 @@ export function stepIsComplete(step) {
  *  detail is what turns "Class is incomplete" into "2 cantrips and 1
  *  1st-level spell still to choose", which is the difference between a
  *  list you can act on and a wall. A step with nothing to add still gets
- *  a row — an unnamed outstanding page is worse than a blunt one. Pure,
+ *  a row - an unnamed outstanding page is worse than a blunt one. Pure,
  *  and never throws: a broken checker must not trap the Review page. */
-function stepMissingReasons(step) {
+export function stepMissingReasons(step) {
   try {
     const own = typeof step?.missingReasons === "function" ? step.missingReasons() : null;
     if (Array.isArray(own)) return own.map((r) => String(r || "").trim()).filter(Boolean);
@@ -1895,9 +1895,61 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
   fill.style.width = `${((stepState.index + 1) / applicableSteps.length) * 100}%`;
   bar.append(fill);
   progress.append(counter, bar);
+
+  // The same position and the same step NAME, as one tappable control,
+  // for a screen the seven pills do not fit on. At 390px the pills wrap
+  // onto three rows (they are 53-128px each and the row is 366px), which
+  // is the wizard's whole navigation before a single question is asked -
+  // and it sat on top of "Step 2 of 7" and a progress bar that said the
+  // same thing twice more.
+  //
+  // A <select> rather than a custom dropdown because the platform already
+  // has the right one: it opens above the keyboard, it is reachable by
+  // keyboard and by screen reader with no ARIA to get wrong, and on a
+  // touch screen it is a native picker rather than a div that has to be
+  // made to behave like one.
+  //
+  // The options are the same steps as the pills and the same gate: a step
+  // past the first undecided one is disabled rather than absent, so the
+  // dropdown says what is coming as well as what you can reach - which the
+  // pills do, and which a filtered list would not. Both are driven by
+  // `stepState.index`, so they cannot disagree about where you are.
+  const stepSelect = document.createElement("select");
+  stepSelect.className = "wizard__step-select";
+  stepSelect.setAttribute("aria-label", "Jump to a step");
+  applicableSteps.forEach((step, i) => {
+    const option = document.createElement("option");
+    option.value = String(i);
+    option.textContent = `${i + 1}. ${step.title || ""}`.trim();
+    stepSelect.append(option);
+  });
+  stepSelect.addEventListener("change", () => {
+    const target = Number(stepSelect.value);
+    if (Number.isInteger(target)) goTo(target);
+  });
+  progress.append(stepSelect);
+
   wrap.append(progress);
 
   const currentStep = applicableSteps[stepState.index];
+
+  // Why Next is refusing, in words, on the page.
+  //
+  // A dimmed Next button with the reason only in its `title` is a dead end
+  // on a phone: there is no hover, so the tooltip is unreachable and the
+  // button just looks broken. The reason comes from the SAME predicate
+  // that disables the button (`stepIsComplete`) and the SAME per-step
+  // `missingReasons()` the Review page reads, so it cannot describe a
+  // different problem from the one that is actually blocking - and it says
+  // which one, not just that there is one.
+  //
+  // Only the first reason is shown. A list of five is a wall, and the
+  // first is the one to fix next; the rest are on the Review page, which
+  // exists to hold them.
+  const gateReasonTextFor = (step) => {
+    const reasons = stepMissingReasons(step);
+    return reasons.length ? reasons[0] : "Make your selections on this page to continue.";
+  };
 
   // Built fresh each call (rather than reused) since a DOM node can
   // only live in one place at a time, and this is placed both above
@@ -1924,6 +1976,10 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
       }
       forward.addEventListener("click", () => { goTo(stepState.index + 1); });
       nav.append(forward);
+      const reason = document.createElement("p");
+      reason.className = "wizard__gate-reason";
+      if (!stepIsComplete(currentStep)) reason.textContent = gateReasonTextFor(currentStep);
+      nav.append(reason);
     }
     return nav;
   };
@@ -2006,6 +2062,13 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
       btn.disabled = blocked;
       btn.title = blocked ? "Make your selections on this page to continue." : "";
     });
+    // The visible reason follows the same predicate, and is removed rather
+    // than emptied when there is nothing blocking - a zero-height gap with
+    // an empty paragraph in it is not "no reason shown".
+    wrap.querySelectorAll(".wizard__gate-reason").forEach((node) => {
+      if (blocked) node.textContent = gateReasonTextFor(cur);
+      else node.remove();
+    });
     // Completing the page via a no-rebuild pick (choice toggles save
     // without rebuilding) also unlocks forward dots in place — without
     // this they stay locked until the next full render, even though
@@ -2018,6 +2081,14 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
       dot.disabled = pastGate;
       dot.title = pastGate ? lockedTitle : "";
     });
+    // The step dropdown is the pills' twin, so it gets the same gate and
+    // the same selected option, from the same index.
+    const freshFirstForSelect = firstIncompleteStep(steps);
+    [...stepSelect.options].forEach((option, i) => {
+      const pastGate = freshFirstForSelect !== -1 && i > freshFirstForSelect;
+      option.disabled = pastGate;
+    });
+    stepSelect.value = String(clampStepIndex(applicableSteps.length, stepState.index));
     // The edge arrow reads the same predicate, so it cannot disagree with
     // the Next buttons it duplicates.
     if (typeof wrap.refreshEdgeNext === "function") wrap.refreshEdgeNext();

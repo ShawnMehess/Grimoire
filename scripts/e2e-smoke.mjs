@@ -898,7 +898,13 @@ async function runViewportTests(viewport) {
   check(!(await page.$(".sheet-intro")), "no orientation panel over the creation wizard");
   await page.screenshot({ path: path.join(shotDir, `creator-${viewport.name}.png`) });
   // Advance one wizard step to prove the wizard is alive, not paint.
-  const nextBtn = await page.$(".wizard button:has-text('Next')");
+  // `:visible` because a phone now has exactly ONE Next on screen - the
+  // fixed bottom bar - and the top copy is hidden by css/phone.css rather
+  // than by the observer that used to hide it. `:visible` is the same
+  // convention scripts/crawl.mjs already uses for its Next clicks ("the
+  // button a person could actually press"), and the assertion below is
+  // unchanged: Next moves the wizard.
+  const nextBtn = await page.$(".wizard button:has-text('Next'):visible");
   if (nextBtn) {
     await nextBtn.click();
     await quiet(page);
@@ -3210,6 +3216,71 @@ for (const phoneWidth of [320, 390]) {
   }
 }
 
+  // The wizard's own chrome, at every phone size and both orientations.
+  //
+  // Three renderings of one number, two forward controls, one of them
+  // dimmed for a reason only a tooltip carried, and a content column
+  // with a gutter on one side only. Measured on the Identity step, which
+  // is the one that is gated. Its own page per size, outside the
+  // phoneWidth loop above: these are four different viewports rather than
+  // two widths of one, and the loop above drives the sheet too.
+  for (const [vpName, vp] of Object.entries(PHONE_VIEWPORTS)) {
+    const wiz = await browser.newPage({ viewport: vp, hasTouch: true });
+      wiz.on("pageerror", (e) => problems.push(`PAGEERROR [wiz@${vpName}]: ${e.message}`));
+      wiz.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [wiz@${vpName}]: ${m.text()}`); });
+      await wiz.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+      await settled(wiz, READY_VAULT, `wiz vault ${vpName}`);
+      await wiz.click(READY_VAULT);
+      await settled(wiz, READY_WIZARD, `wiz wizard ${vpName}`);
+      await wiz.evaluate(() => {
+        const dots = [...document.querySelectorAll(".wizard__dot")];
+        const identity = dots.find((d) => /identity/i.test((d.title || "") + " " + (d.getAttribute("aria-label") || "")));
+        (identity || dots[1] || dots[0]).click();
+      });
+      await wiz.waitForTimeout(1000);
+      const c = await wiz.evaluate(() => {
+        const shown = (el) => {
+          if (!el) return false;
+          const cs = getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          return cs.display !== "none" && cs.visibility !== "hidden" && r.width > 0 && r.height > 0;
+        };
+        const body = document.querySelector(".wizard__body");
+        const nexts = [...document.querySelectorAll(".wizard button.wizard__next")].filter(shown);
+        const nav = nexts[0]?.closest(".wizard__nav");
+        const reason = nav?.querySelector(".wizard__gate-reason");
+        const select = document.querySelector(".wizard__step-select");
+        const cs = body ? getComputedStyle(body) : null;
+        return {
+          vh: window.innerHeight,
+          pillsShown: shown(document.querySelector(".wizard__dots")),
+          barShown: shown(document.querySelector(".wizard__bar")),
+          counter: document.querySelector(".wizard__counter")?.textContent.trim() || "",
+          selectShown: shown(select),
+          selectOpts: select ? [...select.options].length : 0,
+          selectLocked: select ? [...select.options].filter((o) => o.disabled).length : 0,
+          nextCount: nexts.length,
+          nextDisabled: nexts.length ? nexts[0].disabled : null,
+          navPinned: nav ? Math.abs(nav.getBoundingClientRect().bottom - window.innerHeight) < 4 : false,
+          arrowShown: shown(document.querySelector(".wizard__edge-next")),
+          reason: reason && shown(reason) ? reason.textContent.trim() : null,
+          pad: cs ? [cs.paddingLeft, cs.paddingRight] : null,
+          chromePct: body ? Math.round((100 * body.getBoundingClientRect().top) / window.innerHeight) : null,
+          sideScroll: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+        };
+      });
+      phoneCheck(!c.pillsShown && !c.barShown && c.selectShown && /^Step \d+ of \d+$/.test(c.counter),
+        `@${vpName} the stepper is one line: counter + a tappable dropdown, no pill rows, no third copy of the number (${JSON.stringify(c.counter)}, ${c.selectOpts} options, ${c.selectLocked} locked)`);
+      phoneCheck(c.nextCount === 1 && !c.arrowShown && c.navPinned,
+        `@${vpName} one forward control, pinned to the bottom (next:${c.nextCount}, edge arrow:${c.arrowShown}, pinned:${c.navPinned})`);
+      phoneCheck(c.nextDisabled === true && !!c.reason,
+        `@${vpName} and a blocked Next says why on the page ("${c.reason}")`);
+      phoneCheck(c.pad && c.pad[0] === c.pad[1],
+        `@${vpName} the content gutters are symmetric (${JSON.stringify(c.pad)})`);
+      phoneCheck(!c.sideScroll, `@${vpName} the wizard does not scroll sideways`);
+      await wiz.close();
+    }
+
   // --- The header, at every phone size and both orientations ---------------
   //
   // What the review found was a header that wrapped "Return to Character
@@ -3764,12 +3835,22 @@ if (inArea("spell-rows")) {
 }
 
 
-// --- Edge arrow + swipe between steps ---------------------------------------
+// --- Swipe between steps, and ONE forward control on a phone ----------------
 //
-// Both ride on the same gate as the Next button, so neither can skip a
-// decision. Checked on a real touch viewport, because the arrow is hidden
-// above 1024px and the swipe is touch-only - on the desktop viewport there is
-// nothing here to find.
+// The swipe is the point of this block and it is unchanged: a horizontal
+// drag moves between steps on the same gate the buttons obey, so it can
+// never skip a decision, and a vertical drag is left alone so the picker
+// table still scrolls.
+//
+// What DID change is the second half. This used to assert a floating edge
+// arrow was rendered, visible, hittable and gated alongside Next. That
+// arrow is gone on a phone: two gated controls saying the same thing is
+// one more thing to read and one more that can disagree, and the Next
+// button is now pinned to the bottom of the screen so it never needs a
+// floating proxy. The assertions below are rewritten to that design - ONE
+// visible forward control, pinned, gated, and accompanied by a visible
+// reason - and the swipe half is untouched. It is still a real touch
+// viewport, because the swipe is touch-only.
 if (inArea("swipe-arrow")) {
   const t = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
   t.on("pageerror", (e) => problems.push(`PAGEERROR [swipe]: ${e.message}`));
@@ -3784,25 +3865,28 @@ if (inArea("swipe-arrow")) {
     const m = /Step (\d+) of (\d+)/.exec(text);
     return { index: m ? Number(m[1]) : 0, total: m ? Number(m[2]) : 0 };
   });
-  const arrowState = () => t.evaluate(() => {
-    const a = document.querySelector(".wizard__edge-next");
-    if (!a) return { present: false };
-    const r = a.getBoundingClientRect();
-    const cx = Math.round(r.left + r.width / 2);
-    const cy = Math.round(r.top + r.height / 2);
-    const top = document.elementFromPoint(cx, cy);
+  // The forward controls a person can actually see and press right now.
+  const forwards = () => t.evaluate(() => {
+    const shown = (el) => {
+      if (!el) return false;
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      return cs.display !== "none" && cs.visibility !== "hidden" && r.width > 0 && r.height > 0;
+    };
+    const arrow = document.querySelector(".wizard__edge-next");
+    const nexts = [...document.querySelectorAll(".wizard button.wizard__next")].filter(shown);
+    const nav = nexts[0]?.closest(".wizard__nav");
+    const nr = nav?.getBoundingClientRect();
+    const reason = nav?.querySelector(".wizard__gate-reason");
     return {
-      present: true,
-      disabled: a.disabled,
-      display: getComputedStyle(a).display,
-      title: a.title,
-      mid: Math.round(r.top + r.height / 2),
-      viewportMid: Math.round(window.innerHeight / 2),
-      // Vertically middle of the step and on the right-hand side.
-      nearMiddle: Math.abs(r.top + r.height / 2 - (r.top + r.height)) < 1e9,
-      rightHalf: r.left > window.innerWidth / 2,
-      hittable: !!top && (top === a || a.contains(top)),
-      x: cx, y: cy,
+      arrowShown: shown(arrow),
+      nextCount: nexts.length,
+      nextDisabled: nexts.length ? nexts[0].disabled : null,
+      // Pinned to the bottom of the VIEWPORT, which is what makes it a
+      // substitute for the arrow it replaces.
+      pinned: nr ? Math.abs(nr.bottom - window.innerHeight) < 4 : false,
+      reason: reason && shown(reason) ? reason.textContent.trim() : null,
+      reasonH: reason && shown(reason) ? Math.round(reason.getBoundingClientRect().height) : 0,
     };
   });
   // Swipe as real touch-pointer events on the wizard, in steps so the gesture
@@ -3827,24 +3911,35 @@ if (inArea("swipe-arrow")) {
   const s0 = await stepOf();
   phoneCheck(s0.index >= 1, `the wizard is on a step to move away from (step ${s0.index}/${s0.total})`);
 
-  const arrow1 = await arrowState();
-  phoneCheck(arrow1.present, "an edge arrow is rendered on a phone-width page");
-  phoneCheck(arrow1.display && arrow1.display !== "none", `and it is visible (display:${arrow1.display})`);
-  phoneCheck(arrow1.rightHalf, "and it sits on the right-hand side");
-  phoneCheck(arrow1.hittable, "and it is actually clickable where it is drawn");
-  phoneCheck(arrow1.title.startsWith("Next:"),
-    `and it names where it goes ("${arrow1.title}")`);
+  const f0 = await forwards();
+  phoneCheck(!f0.arrowShown, "no floating edge arrow competes with the Next button on a phone");
+  phoneCheck(f0.nextCount === 1, `exactly one Next is on screen (${f0.nextCount})`);
+  phoneCheck(f0.pinned, "and it is pinned to the bottom of the screen, so it is never below the fold");
+  phoneCheck(f0.nextDisabled === false,
+    `this first page is decided, so Next is live (disabled=${f0.nextDisabled})`);
+  phoneCheck(f0.reason === null, `and there is no reason shown when nothing is blocking (${JSON.stringify(f0.reason)})`);
 
-  const gated = arrow1.disabled;
-  phoneCheck(arrow1.disabled === gated,
-    `and its state matches the page's own decisions (disabled=${arrow1.disabled})`);
-
-  if (!gated && arrow1.hittable) {
-    await t.mouse.click(arrow1.x, arrow1.y);
+  if (f0.nextDisabled === false) {
+    // Tap it where it is drawn, which is the assertion the arrow used to
+    // get: a control that looks pressable and is.
+    const box = await t.evaluate(() => {
+      const n = [...document.querySelectorAll(".wizard button.wizard__next")]
+        .find((b) => getComputedStyle(b).display !== "none" && b.getBoundingClientRect().width > 0);
+      const r = n.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    });
+    const topAt = await t.evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      const n = [...document.querySelectorAll(".wizard button.wizard__next")]
+        .find((b) => getComputedStyle(b).display !== "none" && b.getBoundingClientRect().width > 0);
+      return !!(el && (el === n || n.contains(el)));
+    }, box);
+    phoneCheck(topAt, "and it is actually clickable where it is drawn");
+    await t.mouse.click(box.x, box.y);
     await quiet(t);
     const s1 = await stepOf();
     phoneCheck(s1.index === s0.index + 1,
-      `tapping the arrow moves to the next step (${s0.index} -> ${s1.index})`);
+      `tapping Next moves to the next step (${s0.index} -> ${s1.index})`);
 
     // Swipe right = back, always allowed.
     const beforeBack = await stepOf();
@@ -3854,22 +3949,18 @@ if (inArea("swipe-arrow")) {
       `a rightward swipe goes back a step (${beforeBack.index} -> ${afterBack.index})`);
 
     // The forward gate, on a page that genuinely has decisions outstanding.
-    // Identity does: nothing picked yet. Walk there by tapping the arrow
-    // rather than by tapping a species, so the page stays incomplete.
+    // Identity does: nothing picked yet. Walk there by tapping Next rather
+    // than by tapping a species, so the page stays incomplete.
     await t.evaluate(() => {
-      const a = document.querySelector(".wizard__edge-next");
-      if (a && !a.disabled) a.click();
+      const b = [...document.querySelectorAll(".wizard button.wizard__next")]
+        .find((x) => !x.disabled && x.getBoundingClientRect().width > 0);
+      if (b) b.click();
     });
     await t.waitForTimeout(1100);
-    const gated = await arrowState();
-    const gateState = await t.evaluate(() => {
-      const nextBtn = document.querySelector(".wizard button.wizard__next:not(.wizard__dot)");
-      return { arrowBlocked: !!document.querySelector(".wizard__edge-next")?.disabled,
-        nextBlocked: nextBtn ? !!nextBtn.disabled : null };
-    });
-    if (gateState.arrowBlocked) {
-      phoneCheck(gateState.nextBlocked === true,
-        "an incomplete page blocks the Next button AND the arrow together");
+    const gateState = await forwards();
+    if (gateState.nextDisabled === true) {
+      phoneCheck(!!gateState.reason && gateState.reasonH > 0,
+        `an incomplete page says WHY on the page, not only in a tooltip ("${gateState.reason}")`);
       const beforeFwd = await stepOf();
       await swipe(-170);
       const afterFwd = await stepOf();
@@ -3877,9 +3968,9 @@ if (inArea("swipe-arrow")) {
         `and a leftward swipe is refused while the page is incomplete (${beforeFwd.index} -> ${afterFwd.index})`);
     } else {
       phoneCheck(false,
-        `expected an incomplete page to block forward, but it did not (step ${(await stepOf()).index}, arrow title "${gated.title}")`);
+        `expected an incomplete page to block forward, but it did not (step ${(await stepOf()).index})`);
     }
-  } else if (gated) {
+  } else {
     phoneCheck(true, "first page was gated, so the tap-forward path is not exercised here");
   }
 
@@ -3904,10 +3995,10 @@ if (inArea("swipe-arrow")) {
   phoneCheck(afterScroll.index === beforeScroll.index,
     `a vertical drag scrolls and does NOT change step (${beforeScroll.index} -> ${afterScroll.index})`);
 
-  // No arrow when there is no next step. Driven forward by clicking Next as
-  // often as the gate allows, rather than by jumping a dot - forward dots are
-  // themselves locked until the page is finished, so a dot jump would not
-  // arrive.
+  // No Next on the last step, and no bar to sit there empty. Driven forward
+  // by clicking Next as often as the gate allows, rather than by jumping a
+  // dot - forward dots are themselves locked until the page is finished, so
+  // a dot jump would not arrive.
   for (let hop = 0; hop < 12; hop++) {
     const done = await t.evaluate(() => {
       const btn = [...document.querySelectorAll(".wizard button")]
@@ -3920,16 +4011,17 @@ if (inArea("swipe-arrow")) {
     await t.waitForTimeout(900);
     if (done) break;
   }
-  const atEnd = await arrowState();
+  const atEnd = await forwards();
   const hasNext = await t.evaluate(() =>
-    !!document.querySelector(".wizard button.wizard__next:not(.wizard__dot)"));
-  phoneCheck(atEnd.present === hasNext,
-    `the arrow exists exactly when there is a next step (arrow:${atEnd.present}, next:${hasNext}, step:${(await stepOf()).index})`);
-  if (atEnd.present === false) {
-    phoneCheck(true, "and no arrow on the last step, where there is no next");
+    [...document.querySelectorAll(".wizard button.wizard__next")]
+      .some((b) => getComputedStyle(b).display !== "none" && b.getBoundingClientRect().width > 0));
+  phoneCheck((atEnd.nextCount > 0) === hasNext,
+    `a visible Next exists exactly when there is a next step (next:${atEnd.nextCount}, expected:${hasNext}, step:${(await stepOf()).index})`);
+  if (hasNext === false) {
+    phoneCheck(true, "and no bottom bar on the last step, where there is no next");
   }
 
-  await t.screenshot({ path: path.join(shotDir, "wizard-edge-arrow.png") });
+  await t.screenshot({ path: path.join(shotDir, "wizard-one-forward-control.png") });
   await t.close();
 }
 

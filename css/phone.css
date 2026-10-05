@@ -305,3 +305,242 @@
     padding: var(--space-1) var(--space-2);
   }
 }
+
+/* --- 2. The creation wizard's chrome -------------------------------------
+   ---------------------------------------------------------------------------
+   Measured at 390x844 on the Identity step, before this section:
+
+     - the seven step pills wrapped onto THREE rows (they are 53-128px each
+       and the row is 366px), and sat above a "Step 2 of 7" line and a
+       progress bar. Three renderings of one number.
+     - a Next button AND a floating edge arrow, both gated on the same
+       predicate, both on screen.
+     - the content column had 24px of padding on the right and none on the
+       left - the gutter print... the `max-width: 1024px` rule adds, purely
+       to keep the arrow off a picker's text.
+     - Next was dimmed with the reason only in its `title`, which no phone
+       can reach.
+
+   At 844x390 the header, the "Character Setup" title, the pills, the bar
+   and the Back/Next row came to 289px of a 390px screen: the first real
+   content appeared at 74%.
+   ------------------------------------------------------------------------ */
+
+/* The step dropdown is the pills' PHONE arrangement, not an addition to
+   them. Off by default, and declared before the two queries below so it is
+   genuinely off everywhere else: at 1440px it was on screen beside the
+   pills, an unstyled native select in the progress row. Order matters here
+   - at equal specificity the last rule wins, and this file is imported
+   last. */
+.wizard__step-select {
+  display: none;
+}
+
+/* Why Next is refusing, on the page.
+   It sits under the buttons on a full-width line rather than beside them:
+   the sentences are whole ("No species picked yet.") and squeezing one
+   into the gap between two buttons truncates it, which is the failure the
+   missing reason was already causing. */
+.wizard__gate-reason {
+  flex: 1 0 100%;
+  order: 9;
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  line-height: 1.35;
+}
+.wizard__nav {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+@media screen and (max-width: 720px) {
+  /* One line, not three rows of pills, and not three renderings of the
+     same number. The <select> the wizard now builds sits beside the
+     counter - "Step 2 of 7  [Identity v]" - and carries the step name and
+     the jump in one tap; the bar is the third copy and goes. */
+  .wizard__dots,
+  .wizard__bar {
+    display: none;
+  }
+  .wizard__step-select {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 44px;
+    padding: var(--space-2) var(--space-3);
+    font: inherit;
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    background: var(--color-bg-raised);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-sm);
+  }
+
+  /* ONE forward control. The edge arrow is removed here rather than on
+     phones only being cramped: the button below is pinned to the bottom of
+     the screen instead, so it is always visible, and two gated controls
+     saying the same thing is one more thing to read and one more that can
+     disagree. The swipe gesture is untouched - it needs no chrome at all,
+     and it is the reason the arrow existed. */
+  .wizard__edge-next {
+    display: none !important;
+  }
+  /* ...and with the arrow gone, so is the right-hand gutter it needed.
+     This is the asymmetry: `padding-right: var(--space-5)` under
+     `max-width: 1024px`, against nothing on the left. */
+  .wizard__body {
+    padding-right: 0;
+  }
+
+  /* The top Back/Next duplicate goes; the sticky bottom one is the one.
+     Both were already in the DOM (the top one hides itself when the
+     bottom one is on screen) - on a phone the bottom one is ALWAYS on
+     screen, so the top one is always dead weight. */
+  .wizard__nav--top {
+    display: none;
+  }
+
+  /* The step's primary action, always on screen.
+     Fixed rather than `position: sticky`, which is the obvious way to write
+     this and does not work here: `.page-grid-scroll` is the wizard's
+     ancestor and sets `overflow-x: auto`, and when one axis is not
+     `visible` the other computes to `auto` too - so that box, not the
+     viewport, becomes the sticky containing scrollport, and
+     `bottom: 0` pins the nav to a scrollport that never scrolls. Measured:
+     the nav scrolled away with the page exactly as before. `fixed` is
+     relative to the viewport and does what it says.
+     Nothing above it is transformed, which is the other thing that would
+     silently re-root a fixed element. */
+  .wizard__nav:not(.wizard__nav--top):not(.wizard__nav--hidden) {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    margin-top: 0;
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-bg);
+    border-top: var(--border-width) solid var(--color-border-strong);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.35);
+  }
+  /* The bar is out of flow now, so everything after it needs to be able to
+     scroll clear of it. Reserved on the page grid, not on `.wizard__body`:
+     the wizard's parent is not the same element in the two places it
+     appears - it is `.page-grid--leveling` during creation and
+     `.leveling-tab__walkthrough` inside the level-up guide - and what the
+     fixed bar actually covers is whatever follows the wizard: "Cancel this
+     level-up", Feature Uses, the level history, and the Revert button.
+     Caught by the level-up revert check, whose `elementFromPoint` came back
+     with the bar instead of the button it was aiming at. */
+  .page-grid--leveling {
+    padding-bottom: 6rem;
+  }
+  .wizard__nav:not(.wizard__nav--top) .btn {
+    min-height: 44px;
+  }
+
+  /* Every control on a wizard page, not just the navigation. The name and
+     starting-level boxes were 334x34 and Expand All / Collapse All 39 -
+     both under the 44px floor, on the two things you touch first. */
+  .wizard input.input-group__control,
+  .wizard select.input-group__control,
+  .wizard__body .btn,
+  .choice-row-list__collapse-controls .btn {
+    min-height: 44px;
+  }
+}
+
+/* Why Next is refusing, on the page.
+   It sits under the buttons on a full-width line rather than beside them:
+   the sentences are whole ("No species picked yet.") and squeezing one
+   into the gap between two buttons truncates it, which is the failure the
+   missing reason was already causing. */
+.wizard__gate-reason {
+  flex: 1 0 100%;
+  order: 9;
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  line-height: 1.35;
+}
+.wizard__nav {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Short viewport: the title is the least useful thing in the top 100px.
+   It names the wizard, which the step dropdown already does more precisely,
+   and at 844x390 the chrome was 289px of 390 before any content. */
+@media screen and (max-height: 480px) {
+  /* 12px a side here too. 24px of top padding is 6% of a 390px screen
+     spent on air, and on the wizard that air was between the header and
+     the first question. */
+  .app-main {
+    padding: var(--space-3);
+  }
+
+  /* The stepper sits against the content above it rather than floating a
+     step's gap below it. */
+  .leveling-tab {
+    gap: var(--space-2);
+  }
+
+  .wizard__nav:not(.wizard__nav--top) .btn {
+    min-height: 44px;
+  }
+
+  .wizard > h2 {
+    display: none;
+  }
+  .wizard__progress {
+    margin-bottom: var(--space-2);
+  }
+  .wizard__step-select {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 44px;
+    padding: var(--space-1) var(--space-3);
+    font: inherit;
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    background: var(--color-bg-raised);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-sm);
+  }
+  .wizard__dots,
+  .wizard__bar,
+  .wizard__edge-next,
+  .wizard__nav--top {
+    display: none !important;
+  }
+  .wizard__body {
+    padding-right: 0;
+  }
+  .wizard input.input-group__control,
+  .wizard select.input-group__control,
+  .wizard__body .btn,
+  .choice-row-list__collapse-controls .btn {
+    min-height: 44px;
+  }
+  .wizard__nav:not(.wizard__nav--top):not(.wizard__nav--hidden) {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    margin-top: 0;
+    padding: var(--space-1) var(--space-3);
+    background: var(--color-bg);
+    border-top: var(--border-width) solid var(--color-border-strong);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.35);
+  }
+  .page-grid--leveling {
+    padding-bottom: 5.5rem;
+  }
+  .wizard__gate-reason {
+    margin-top: var(--space-1);
+    font-size: var(--text-xs);
+  }
+}
