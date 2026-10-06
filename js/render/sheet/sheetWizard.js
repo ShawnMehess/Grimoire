@@ -3291,6 +3291,58 @@ export function renderLiveBulletItem(item) {
   return li;
 }
 
+/** Give a native `<details>` disclosure the same open/close motion the picker
+ *  rows already use.
+ *
+ *  The rows' own details animate because animateRowDetails owns the `hidden`
+ *  attribute. A `<details>` does not: the browser owns `open`, which is why
+ *  those disclosures snapped open with nothing at all while everything around
+ *  them moved. This wires the same 4px rise and fade onto both directions
+ *  without taking `open` away from the browser.
+ *
+ *  Opening is easy - let the browser toggle, then animate on the `toggle`
+ *  event. Closing has to be intercepted, because by the time `toggle` fires
+ *  the content is already hidden and there is nothing left to animate. So the
+ *  summary's click is prevented on the way down and `open` is removed once
+ *  the animation finishes. That covers the keyboard too, since Enter and
+ *  Space on a focused `<summary>` both fire a click.
+ *
+ *  Reduced motion gets no animation and no interception: with
+ *  `prefersReducedMotion` on, nothing here runs and the disclosure behaves
+ *  exactly as the browser's own.
+ *
+ *  Best-effort and idempotent. A `<details>` with no summary, or with nothing
+ *  to reveal, is left alone; calling twice wires once. */
+export function animateDisclosureInto(detailsEl) {
+  if (!detailsEl || typeof detailsEl.querySelector !== "function") return false;
+  if (detailsEl.dataset.motionWired) return false;
+  const summary = detailsEl.querySelector("summary");
+  const content = detailsEl.querySelector(".choice-row__mechanics-effect");
+  if (!summary || !content) return false;
+  detailsEl.dataset.motionWired = "1";
+
+  const OPEN = [{ opacity: 0, transform: "translateY(-4px)" }, { opacity: 1, transform: "translateY(0)" }];
+  const CLOSE = [{ opacity: 1, transform: "translateY(0)" }, { opacity: 0, transform: "translateY(-4px)" }];
+  const OPEN_OPTS = { duration: 180, easing: "ease-out" };
+  const CLOSE_OPTS = { duration: 150, easing: "ease-in" };
+
+  detailsEl.addEventListener("toggle", () => {
+    if (detailsEl.open) animateWith(content, OPEN, OPEN_OPTS);
+  });
+  summary.addEventListener("click", (e) => {
+    if (!detailsEl.open) return;
+    // Closing. If there is no animation to wait for, let the browser close it
+    // rather than taking the click - same end state, one less thing to break.
+    const anim = animateWith(content, CLOSE, CLOSE_OPTS);
+    if (!anim) return;
+    e.preventDefault();
+    const finish = () => { detailsEl.open = false; };
+    if (typeof anim.finished?.then === "function") anim.finished.then(finish).catch(finish);
+    else { anim.onfinish = finish; setTimeout(finish, 170); }
+  });
+  return true;
+}
+
 function animateRowDetails(details, row, expand) {
   if (!details) return;
   try {
@@ -3696,6 +3748,7 @@ function renderMultiPickerRows(container, names, { selectedSet, onToggle, getInf
         el("summary", { class: "choice-row__more-toggle", text: "Full description" }),
         el("div", { class: "choice-row__mechanics-effect" },
           ...richAbilityNodes(info.mechanics.effect)));
+      animateDisclosureInto(details);
       body.append(details);
     } else if (info?.mechanics?.effect) {
       // No gist, or the gist IS the whole text: show the effect outright
@@ -3858,10 +3911,12 @@ export function openChoiceDialog({
         ...richAbilityNodes(opt.gist || ""));
       const summaryBits = [facts, gist];
       if (opt.hasMoreThanGist && opt.fullText) {
-        summaryBits.push(el("details", { class: "choice-row__more" },
+        const more = el("details", { class: "choice-row__more" },
           el("summary", { class: "choice-row__more-toggle", text: "Full description" }),
           el("div", { class: "choice-row__mechanics-effect" },
-            ...richAbilityNodes(opt.fullText))));
+            ...richAbilityNodes(opt.fullText)));
+        animateDisclosureInto(more);
+        summaryBits.push(more);
       }
       return el("label", { class: "choice-dialog-option choice-dialog-option--stacked" },
         input,

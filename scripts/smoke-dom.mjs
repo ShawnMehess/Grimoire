@@ -1431,6 +1431,48 @@ function openTestDialog(host, overrides = {}) {
     `one set of numbers kept per method (${Object.keys(memory).join(", ")})`);
 }
 
+// --- A row's own disclosure moves like the row does -------------------------
+//
+// The picker rows animate because animateRowDetails owns `hidden`. A
+// <details> does not - the browser owns `open` - so every "Full
+// description" in the app snapped open while everything around it moved.
+// animateDisclosureInto puts the same 4px rise and fade on it, in both
+// directions, without taking `open` away from the browser.
+//
+// The stub has no `animate`, so what is asserted here is the WIRING and the
+// reduced-motion path; the motion itself is covered by the motion rules in
+// tests/wizard-gating.test.mjs.
+{
+  const { animateDisclosureInto } = await import("../js/render/sheet/sheetWizard.js");
+  const { el } = await import("../js/render/sheet/sheetHelpers.js");
+  const build = () => el("details", { class: "choice-row__more" },
+    el("summary", { class: "choice-row__more-toggle", text: "Full description" }),
+    el("div", { class: "choice-row__mechanics-effect" }, "the full text"));
+
+  const details = build();
+  assert(animateDisclosureInto(details) === true, "a disclosure with a summary and content is wired");
+  assert(details.dataset.motionWired === "1", "and says so on the element");
+  assert(animateDisclosureInto(details) === false, "wiring it twice would double every animation");
+
+  assert(animateDisclosureInto(null) === false, "no element is left alone");
+  assert(animateDisclosureInto({}) === false, "and so is something with no querySelector");
+  assert(animateDisclosureInto(el("details")) === false, "a disclosure with no summary is left alone");
+  const bare = el("details", {}, el("summary", {}, "Full description"));
+  assert(animateDisclosureInto(bare) === false, "and one with nothing to reveal");
+
+  // The opening is animated from the browser's own `toggle`, so `open` is
+  // never written from here on the way IN - the disclosure stays a disclosure.
+  assert((details.listeners.toggle || []).length === 1, "one toggle listener watches for the opening");
+  const summary = details.querySelector("summary");
+  assert(!!summary, "and the summary is there for a click to land on");
+  // With no `animate` available - which is what reduced motion looks like from
+  // here - the summary's click must not be prevented, so the browser closes it.
+  let prevented = 0;
+  const click = { preventDefault() { prevented += 1; } };
+  (summary.listeners.click || []).forEach((f) => f(click));
+  assert(prevented === 0, "with nothing to animate, the browser still closes it (nothing prevented)");
+}
+
 // --- Review step: the summary box leads, the Finish button trails ---
 // The name box was appended after the three picker tables, so the name you
 // came to check was the last thing on the page. The whole box moves, not

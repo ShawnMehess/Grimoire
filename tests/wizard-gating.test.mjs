@@ -60,6 +60,7 @@ import {
   SWIPE_IGNORED_SURFACES,
   resumeStepIndex,
   animateStepArrival,
+  animateDisclosureInto,
 } from "../js/render/sheet/sheetWizard.js";
 import {
   clampScoreToRange,
@@ -79,6 +80,7 @@ import {
 } from "../js/render/sheet/sheetWizardSteps.js";
 import { nestedChoiceGroupsFor } from "../js/render/sheet/sheetWizard.js";
 import { prefersReducedMotion, animateWith } from "../js/ui/motion.js";
+import { el } from "../js/render/sheet/sheetHelpers.js";
 import { FIXED_CLASS_ENTRIES } from "../js/data/contentFixups.js";
 import { LANGUAGES, languageSections } from "../js/data/schema.js";
 import { categorizeChoiceGroup } from "../js/render/sheet/sheetMechanics.js";
