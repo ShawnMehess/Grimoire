@@ -67,6 +67,7 @@ import {
   pointBuyNoteText,
   abilityBonusNoteLines,
   reviewLinesFor,
+  reviewAbilityLinesFor,
   resolvePrimaryRuleset,
   HP_METHOD_OPTIONS,
   initPendingLevelState,
@@ -616,32 +617,51 @@ describe("library option names and review lines", () => {
   });
 
   it("reviews creation answers", () => {
-    assert.ok(reviewLinesFor({ characterName: "N", level: 1, resources: [] }).includes("Name: N"));
+    assert.ok(reviewLinesFor({ characterName: "N", level: 1, resources: [] }).noteLines.includes("Name: N"));
     assert.equal(clampScoreToRange("99", 8, 8, 15), 15);
     assert.equal(pointBuyNoteText(10, 27), "Points spent: 10/27");
+  });
+
+  it("never prints the content sources", () => {
+    // It used to, second line: "2014 D&D 5e + Tasha's Cauldron of
+    // Everything". That is a fact about the app's library, not about this
+    // character, on the page whose whole job is the character.
+    const built = reviewLinesFor({
+      characterName: "N", level: 1, resources: [], rulesetName: "Some Book + Another",
+    });
+    assert.ok(!/some book/i.test(JSON.stringify(built)), "the sources line is gone");
+  });
+
+  it("gives each ability its own row, with a signed modifier", () => {
+    // Six scores on one paragraph, in the uppercase abbreviations the score
+    // boxes use, with the modifier only inferable by doing the arithmetic.
+    const lines = reviewAbilityLinesFor({ abilityScores: { str: 8, dex: 16 }, abilityMethod: "manual" });
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0], "Strength 8 (-1 Mod) · Manual Entry");
+    assert.equal(lines[1], "Dexterity 16 (+3 Mod) · Manual Entry");
   });
 
   it("reviews the ability scores the sheet will carry, not the base that was typed", () => {
     // The stored scores are pre-bonus; the sheet applies the racial points
     // on top at render time. Review used to print the base, so it disagreed
     // with the sheet's own STR field by the whole racial bonus.
-    const scores = { str: 14, dex: 14 };
-    const bonuses = {
-      str: { bonus: 2, sources: [{ label: "Half-Orc", value: 2 }] },
-      dex: { bonus: 1, sources: [{ label: "High Elf", value: 1 }] },
-    };
-    const line = reviewLinesFor({ characterName: "N", level: 1, resources: [], abilityScores: scores, abilityBonuses: bonuses })
-      .find((l) => l.startsWith("Ability Scores"));
-    assert.ok(line.includes("STR 16"), "STR shows the applied total");
-    assert.ok(line.includes("DEX 15"), "DEX shows the applied total");
-    assert.ok(line.includes("+2 from Half-Orc"), "and names where the points came from");
+    const lines = reviewAbilityLinesFor({
+      abilityScores: { str: 14, dex: 14 },
+      abilityBonuses: {
+        str: { bonus: 2, sources: [{ label: "Half-Orc", value: 2 }] },
+        dex: { bonus: 1, sources: [{ label: "High Elf", value: 1 }] },
+      },
+    });
+    assert.ok(lines[0].includes("Strength 16"), "STR shows the applied total");
+    assert.ok(lines[1].includes("Dexterity 15"), "DEX shows the applied total");
+    assert.ok(lines[0].includes("+2 from Half-Orc"), "and names where the points came from");
   });
 
   it("still reviews bare base scores when nothing is staged", () => {
-    const line = reviewLinesFor({ characterName: "N", level: 1, resources: [], abilityScores: { str: 14 } })
-      .find((l) => l.startsWith("Ability Scores"));
-    assert.ok(line.includes("STR 14"));
-    assert.ok(!line.includes("+"), "with no bonus to report");
+    const [line] = reviewAbilityLinesFor({ abilityScores: { str: 14 } });
+    assert.ok(line.includes("Strength 14"));
+    assert.ok(line.includes("(+2 Mod)"), "and still says what the modifier is");
+    assert.ok(!line.includes("from"), "with no bonus to report");
   });
 });
 

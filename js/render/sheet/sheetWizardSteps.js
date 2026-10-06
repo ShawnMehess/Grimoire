@@ -8,6 +8,7 @@
 import { capitalizeFirst, ABILITY_DESCRIPTIONS, abilityTooltip, humanizeGameText } from "./sheetMechanics.js";
 import { slotLabelFor, richAbilityNodes, choiceDialogKindFor } from "./sheetWizard.js";
 import { el } from "./sheetHelpers.js";
+import { spellLinkNode } from "./spellLinks.js";
 
 // Ability descriptions live in sheetMechanics.js (shared with the
 // glossary); re-exported here so existing importers keep working.
@@ -466,75 +467,80 @@ export function renderStoryStepInto(container, deps) {
   }
 }
 
-/** Read-only reference list of everything the chosen Race/Class/
- *  Subclass/Background grant automatically (fixed feature grants, one
- *  section per source). `sections` is [{ source, features: [{ name,
- *  description }] }]; empty sections are skipped, and a fully empty
- *  list explains itself instead of rendering blank. */
-export function renderInnateAbilitiesStepInto(container, sections) {
-  const shown = (sections || []).filter((s) => (s.features || []).length);
-  if (!shown.length) {
-    container.append(el("p", { class: "leveling-tab__intro", text: "No automatic grants from your current Race/Class/Background selections yet — Pick those first, then come back." }));
-    return;
-  }
-  shown.forEach((section) => {
-    container.append(el("p", { class: "wizard__section-label", text: section.source }));
-    section.features.forEach((feature) => {
-      const block = el("div", { class: "level-guide__choices" },
-        el("strong", { text: feature.name || "Unnamed ability" }),
-        feature.description ? el("p", { class: "level-guide__choice-description" },
-          ...richAbilityNodes(humanizeGameText(feature.description))) : null);
-      container.append(block);
-    });
-  });
-}
-
+// "What You Get Automatically" was here, and is gone.
+//
+// It was a read-only roll-up of every race/class/subclass/background grant at
+// the current level, rendered on the Review step under the Finish Setup
+// button. It is deleted rather than parked because on Review it restated, in a
+// second list, exactly what the Race, Class and Background rows three
+// sections above already print - including the subclass feature text those
+// rows also carry. Two lists of the same grants on the last page of the
+// wizard is one list too many, and the second one was the more confusing of
+// the pair: unlabelled by what it was summarising.
+//
+// The function and its data-side helper went with it, rather than being left
+// exported and unreferenced. `renderInnateAbilitiesStepInto` had exactly one
+// caller and `innateAbilitySections` exactly one use; keeping either would
+// mean keeping a feature nobody can reach, and the dead-export gate is right
+// to complain about that.
+// ------------------------------------------------------------------------
 // --- Review step ------------------------------------------------------------------------
 //
 // Migration of the renderRulesTab "review" step: summary rows plus the
 // Finish Setup button that syncs wizard answers onto the sheet.
 
-export function reviewLinesFor({ characterName, rulesetName, species, className, subclass, background, level, spellLimit, resources = [], abilityScores = null, abilityBonuses = null, abilityMethod = null, hpMethod = null, choiceLines = [], spellsPicked = [], equipmentLine = null, featNames = [] }) {
+export function reviewLinesFor({ characterName, species, className, subclass, background, level, spellLimit, resources = [], abilityScores = null, abilityBonuses = null, abilityMethod = null, hpMethod = null, choiceLines = [], spellsPicked = [], equipmentLine = null, featNames = [] }) {
   const ABILITY_METHOD_NAMES = { pointbuy: "Point Buy", roll: "Random Roll", manual: "Manual Entry" };
   const HP_METHOD_NAMES = { average: "Fixed Average", roll: "Roll In-Browser", manual: "Roll at the Table" };
+  // NO content-sources line. It used to sit second, reading "2014 D&D 5e +
+  // Tasha's Cauldron of Everything" - a fact about the app's library, not
+  // about this character, on the one page whose job is to say what the
+  // character is. The player ticked those boxes on the first step.
   const noteLines = [
     characterName && `Name: ${characterName}`,
-    rulesetName || null,
     species && `Race: ${species}`,
     className && `Class: ${className}${subclass ? ` (${subclass})` : ""}`,
     background && `Background: ${background}`,
     `Level ${level}`,
   ].filter(Boolean);
-  if (abilityScores) {
-    // What the sheet will actually carry, not the base the player typed:
-    // the stored scores are pre-bonus, and the racial/subracial points are
-    // applied later at sheet-render time. Showing the base here made this
-    // page disagree with the sheet's own STR field by the whole racial
-    // bonus. Sources are named so a total that looks wrong is traceable.
-    const scores = Object.entries(abilityScores)
-      .map(([id, value]) => {
-        const bonus = Number(abilityBonuses?.[id]?.bonus) || 0;
-        const total = Number(value) + bonus;
-        const from = abilityBonusNoteLines(abilityBonuses?.[id]?.sources || []);
-        return `${String(id).toUpperCase()} ${total}${from.length ? ` (${from.join(", ")})` : ""}`;
-      })
-      .join(" · ");
-    noteLines.push(`Ability Scores${abilityMethod ? ` (${ABILITY_METHOD_NAMES[abilityMethod] || abilityMethod})` : ""}: ${scores}`);
-  }
-  if (hpMethod) noteLines.push(`HP Method: ${HP_METHOD_NAMES[hpMethod] || hpMethod}`);
-  for (const line of choiceLines) noteLines.push(line);
-  if (spellLimit) {
-    const { style, cantrips, spells } = spellLimit;
-    const bits = [];
-    if (cantrips) bits.push(`${cantrips} cantrip${cantrips === 1 ? "" : "s"}`);
-    bits.push(`${spells} spell${spells === 1 ? "" : "s"} ${style === "known" ? "known" : "prepared"}`);
-    noteLines.push(`Spells: ${bits.join(" · ")}`);
-  }
-  if (spellsPicked.length) noteLines.push(`Spells Known: ${spellsPicked.join(" · ")}`);
-  if (equipmentLine) noteLines.push(equipmentLine);
-  if (featNames.length) noteLines.push(`Feats: ${featNames.join(" · ")}`);
-  resources.forEach((resource) => noteLines.push(`${resource.name}: ${resource.maximum}`));
-  return noteLines;
+  return { noteLines, abilityLines: reviewAbilityLinesFor({ abilityScores, abilityBonuses, abilityMethod }), hpMethod, choiceLines, spellLimit, spellsPicked, equipmentLine, featNames, resources, ABILITY_METHOD_NAMES, HP_METHOD_NAMES };
+}
+
+/** One row per ability, "Dexterity 16 (+3 Mod)".
+ *
+ *  This was a single line - "Ability Scores (Point Buy): STR 17 (+2 from
+ *  Half-Orc) · DEX 14 · CON 15 · ..." - six scores run together on one
+ *  paragraph, in the uppercase abbreviations the score boxes use, with the
+ *  modifier only inferable by doing the arithmetic yourself. The modifier is
+ *  the number that goes on your rolls; printing it is the whole reason to
+ *  look at an ability on a review page.
+ *
+ *  The arithmetic is the rules' own: floor((score - 10) / 2). -1 is right
+ *  for a score of 8 or 9, which is why the sign is explicit - "+-1 Mod"
+ *  would be wrong and "1 Mod" would read as a bonus.
+ *
+ *  Totals are what the sheet will carry, not the base the player typed:
+ *  stored scores are pre-bonus and the racial points apply at sheet-render
+ *  time, so showing the base made this page disagree with the sheet's own
+ *  field by the whole racial bonus. Sources are named so a total that looks
+ *  wrong is traceable. Pure. */
+export function reviewAbilityLinesFor({ abilityScores, abilityBonuses, abilityMethod } = {}) {
+  if (!abilityScores) return [];
+  const names = {
+    str: "Strength", dex: "Dexterity", con: "Constitution",
+    int: "Intelligence", wis: "Wisdom", cha: "Charisma",
+  };
+  const methodName = { pointbuy: "Point Buy", roll: "Random Roll", manual: "Manual Entry" }[abilityMethod] || abilityMethod;
+  return Object.entries(abilityScores).map(([id, value]) => {
+    const base = Number(value);
+    const bonus = Number(abilityBonuses?.[id]?.bonus) || 0;
+    const total = (Number.isFinite(base) ? base : 10) + bonus;
+    const mod = Math.floor((total - 10) / 2);
+    const signed = mod > 0 ? `+${mod}` : `${mod}`;
+    const from = abilityBonusNoteLines(abilityBonuses?.[id]?.sources || []);
+    const name = names[id] || String(id).toUpperCase();
+    return `${name} ${total} (${signed} Mod)${from.length ? ` — ${from.join(", ")}` : ""}${methodName ? ` · ${methodName}` : ""}`;
+  });
 }
 
 /** The summary box - character name, ruleset, and every pick - WITHOUT
@@ -547,11 +553,10 @@ export function reviewLinesFor({ characterName, rulesetName, species, className,
  *  are one bordered panel and detaching the name from them would leave a
  *  heading floating above a separate panel. */
 export function reviewSummaryBoxInto(container, state, deps) {
-  const { characterName, rulesetName, spellLimit, resources, abilityScores, abilityBonuses, abilityMethod, hpMethod, choiceLines, spellsPicked, equipmentLine, featNames } = deps;
+  const { characterName, spellLimit, resources, abilityScores, abilityBonuses, abilityMethod, hpMethod, choiceLines, spellsPicked, equipmentLine, featNames } = deps;
   const rows = el("div", { class: "wizard__review-rows" });
-  const noteLines = reviewLinesFor({
+  const built = reviewLinesFor({
     characterName,
-    rulesetName,
     species: state.species,
     className: state.className,
     subclass: state.subclass,
@@ -568,10 +573,51 @@ export function reviewSummaryBoxInto(container, state, deps) {
     equipmentLine: equipmentLine || null,
     featNames: featNames || [],
   });
-  if (noteLines.length === 0) {
+  const abilityLines = reviewAbilityLinesFor({ abilityScores, abilityBonuses, abilityMethod });
+  const { noteLines, ABILITY_METHOD_NAMES, HP_METHOD_NAMES } = built;
+  const extra = [];
+  if (hpMethod) extra.push(`HP Method: ${HP_METHOD_NAMES[hpMethod] || hpMethod}`);
+  for (const line of (choiceLines || [])) extra.push(line);
+  if (spellLimit) {
+    const { style, cantrips, spells } = spellLimit;
+    const bits = [];
+    if (cantrips) bits.push(`${cantrips} cantrip${cantrips === 1 ? "" : "s"}`);
+    bits.push(`${spells} spell${spells === 1 ? "" : "s"} ${style === "known" ? "known" : "prepared"}`);
+    extra.push(`Spells: ${bits.join(" · ")}`);
+  }
+  if (equipmentLine) extra.push(equipmentLine);
+  if ((featNames || []).length) extra.push(`Feats: ${featNames.join(" · ")}`);
+  for (const resource of (resources || [])) extra.push(`${resource.name}: ${resource.maximum}`);
+
+  const all = [...noteLines];
+  // The method names the scores were set by, on their own line, rather than
+  // repeated against every ability - the second mention was noise.
+  if (abilityLines.length && abilityMethod) {
+    all.push(`Method: ${ABILITY_METHOD_NAMES[abilityMethod] || abilityMethod}`);
+  }
+  all.push(...abilityLines);
+  all.push(...extra);
+
+  // Each chosen cantrip and spell gets its OWN row and is a link to its own
+  // description, rather than a count and one long "Spells Known: A · B · C"
+  // line. The count is still here - it is how you know you have filled the
+  // slots - but the list beside it is now readable and pressable.
+  const spells = (spellsPicked || []).filter(Boolean);
+  if (spells.length) {
+    const list = el("ul", { class: "wizard__review-spells" });
+    for (const name of spells) {
+      list.append(el("li", { class: "wizard__review-spell" }, spellLinkNode({
+        name, text: name, start: 0, end: String(name).length,
+      })));
+    }
+    rows.append(el("p", { class: "wizard__review-section-label", text: "Spells" }));
+    rows.append(list);
+  }
+
+  if (all.length === 0) {
     rows.append(el("p", { class: "level-guide__summary", text: "Nothing chosen yet." }));
   } else {
-    rows.append(...noteLines.map((line) => el("p", { class: "wizard__review-row", text: line })));
+    rows.append(...all.map((line) => el("p", { class: "wizard__review-row", text: line })));
   }
   container.append(rows);
   return rows;

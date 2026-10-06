@@ -347,7 +347,6 @@ import {
   renderClassStepInto,
   renderRowListStepInto,
   renderPreferencesStepInto,
-  renderInnateAbilitiesStepInto,
   renderAbilitiesStepInto,
   reviewLinesFor,
   reviewSummaryBoxInto,
@@ -4153,37 +4152,12 @@ const closeDialog = () => {
     );
   }
 
-  /** Fixed feature grants from the staged Race/Class/Subclass/
-   *  Background, one section per source, for the automatic-grants
-   *  reference step. Picks made on other pages are decisions, not
-   *  automatic grants, so only fixed grants appear here. */
-  function innateAbilitySections(state) {
-    const bundles = creationFixedBundles(state);
-    const names = [state.species, state.className, state.subclass, state.background];
-    const labels = STAGED_CATEGORIES;
-    const level = Number.isFinite(state.level) ? state.level : Infinity;
-    const packs = includedRulesetIds(state);
-    return labels
-      .map((label, i) => ({
-        source: names[i] ? `${label}: ${names[i]}` : label,
-        // Only grants at or below the chosen level — anything later
-        // belongs to the Leveling tab, not here. Grants without a
-        // level gate always show. Pack-gated optional grants (Tasha's)
-        // show only when their source book is included; unsourced
-        // subclass grants are omitted until sourced (audit 2b), and
-        // auto-spell templates resolve to the currently-granted spells.
-        features: (((bundles[i] || {}).featureGrants || [])
-          .filter((g) => (!g.minLevel || g.minLevel <= level) && (!g.requiresPack || packs.includes(g.requiresPack)) && !g.unsourced)
-          .map((g) => {
-            if (String(g.description || "").includes("{spells}")) {
-              const parts = sharedAutoSpellParts(g, bundles[i], level);
-              return { name: parts.name, description: parts.description };
-            }
-            return { name: g.name, description: g.description };
-          })),
-      }))
-      .filter((section) => section.features.length);
-  }
+  // "What You Get Automatically" and this helper went together on 2026-10-05
+  // (review step, item 21): the section restated the Race/Class/Background
+  // rows above it, so it was removed rather than parked, and this was its
+  // only caller. `creationFixedBundles` and `STAGED_CATEGORIES` stay - they
+  // are what `stagedAbilityBonuses` reads, and the ability bonuses still come
+  // from the same four staged bundles.
 
   // spellPicksComplete used to live here. It has no caller left: the
   // creation wizard gates through the inline class-row picks, and the
@@ -6646,6 +6620,16 @@ const closeDialog = () => {
         // Genasi) has to have a subrace chosen before the character counts
         // as built, and Review is the page that says so out loud.
         isComplete: () => Boolean(raceChoiceSettled(state.species) && state.className && state.background),
+        // Open at the TOP of the page. Arriving here from the Ability Scores
+        // step carried the scroll position with it, so the review opened
+        // halfway down its own summary - the one page whose whole content is
+        // meant to be read from the first line, opened on its middle.
+        opensAtTop: true,
+        // The action bar's button on this step. See sheetWizard's buildNav:
+        // on the last step there is no Next, so a step that says what to do
+        // instead gets its control where Next would have been - Back stays,
+        // because a last step with no way back is a trap.
+        finish: { label: "Finish Setup", run: () => syncRulesToSheet(resolved) },
 
         render(container) {
           // Only what was chosen. This step used to re-render the full
@@ -6712,7 +6696,7 @@ const closeDialog = () => {
             updateKey: "species",
             updateFn: (key, value) => update(key, value),
             fieldFn: (c, label, control) => field(c, label, control),
-            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, { ...opts, showControls: false }),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
@@ -6726,9 +6710,22 @@ const closeDialog = () => {
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
             mechanicsListFn: (category, name) => mechanicsListFor(category, name, state.level),
-            subclassDataFn: (name) => liveSubclassData(name),
+            subclassDataFn: (name) => {
+              const live = liveSubclassData(name);
+              // Only the subclass that was actually chosen. The nested
+              // picker under the class row lists every subclass on offer,
+              // and on the review page those are not options - the choice
+              // was made three steps ago. Six rows the player did not take
+              // is the same problem this step already solved for ancestries
+              // and classes.
+              if (!state.subclass || !live.subclasses.includes(state.subclass)) return live;
+              return { ...live, subclasses: [state.subclass] };
+            },
             updateFn: (key, value) => update(key, value),
-            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
+            // NO Expand All / Collapse All anywhere on this step. The review is a
+            // reading page, and a control that expands forty rows at once
+            // is a control for a page that is hiding things.
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, { ...opts, showControls: false }),
             creationGroups,
             categorizeChoiceGroup: sharedCategorizeChoiceGroup,
             saveRules,
@@ -6749,25 +6746,22 @@ const closeDialog = () => {
             updateKey: "background",
             updateFn: (key, value) => update(key, value),
             fieldFn: (c, label, control) => field(c, label, control),
-            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
+            selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, { ...opts, showControls: false }),
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
             mechanicsListFn: (category, name) => profileSectionsFor(category, name, saveRules),
           });
-          // The summary box goes up top, before the picks; the button stays
-          // at the bottom, where "Finish Setup" belongs after reading them.
-          reviewFinishButtonInto(container, reviewDeps());
-
-          // "What You Get Automatically" moved here from the Gear tab. It
-          // is a read-only roll-up of every race/class/subclass/background
-          // grant at the current level, and Review is where that belongs:
-          // the one place on the last step that shows what you actually
-          // hold. It is the view that carries the fetched subclass feature
-          // text, so before it moved here the only way to read those rules
-          // during creation was a tab that no longer exists.
-          const innateWrap = sectionInto(container, "What You Get Automatically");
-          renderInnateAbilitiesStepInto(innateWrap, innateAbilitySections(state));
+          // Finish Setup moved to the bottom action bar, where Next has been
+          // on every other step (see sheetWizard's buildNav). Putting it back
+          // in the body would mean the last thing on the page is again the
+          // thing that ends the wizard, several screens below the summary
+          // the player just read.
+          //
+          // Gone with it: "What You Get Automatically". It sat after that
+          // button and restated, in a second list, the grants the Race,
+          // Class and Background rows three sections above already show -
+          // including the subclass feature text they also carry.
         },
       },
     ];
@@ -6779,7 +6773,12 @@ const closeDialog = () => {
       // position needs persisting here so reopening resumes it.
       onNavigate: () => persistWizardProgressSoon(),
     });
+    // A step can ask to open at the top of the page (Review does). The
+    // render above preserves the scroll position so nothing else jumps, so
+    // the request is consumed here and only for an actual arrival.
+    const wantsTop = Boolean(wizard?.consumeScrollTopRequest?.());
     if (wizard) pageGrid.append(wizard);
+    if (wantsTop) restoreScrollAfterRender(0);
   }
 
   /** Ability-score minimums the character's own feats are waiting on,

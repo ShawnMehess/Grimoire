@@ -5584,6 +5584,95 @@ if (inArea("background-gate")) {
       `and the highlighted row follows the switch (${JSON.stringify(switched.activeName)})`);
     bgCheck(!switched.budget,
       `while the six rows below switch to that method (no point-buy budget on Manual Entry)`);
+    // --- The Review step, at last ---------------------------------------
+    //
+    // One Next from Ability Scores. Reaching it matters: this is the only
+    // place the whole finished character is on one page, so everything below
+    // is checked here rather than inferred from the steps it summarises.
+    await bgNext();
+    await bgPage.waitForTimeout(900);
+    bgCheck((await bgStep()) === "review", `the walkthrough reaches Review (at ${await bgStep()})`);
+
+    const review = await bgPage.evaluate(() => {
+      const body = document.querySelector(".wizard__body");
+      const nav = document.querySelector(".wizard__nav:not(.wizard__nav--top)");
+      const rows = [...document.querySelectorAll(".wizard__review-row")].map((r) => r.textContent.trim());
+      const spellItems = [...document.querySelectorAll(".wizard__review-spell")];
+      return {
+        scrollY: window.scrollY,
+        rows,
+        // Finish Setup lives in the action bar, where Next has been.
+        navButtons: [...(nav?.querySelectorAll("button") || [])].map((b) => b.textContent.trim()),
+        navHasFinish: !!nav?.querySelector(".wizard__finish-btn"),
+        bodyHasFinish: !!body.querySelector(".wizard__finish-btn"),
+        // No collapse bars anywhere on the page.
+        expandBars: document.querySelectorAll(".choice-row-list__collapse-controls").length,
+        expandWords: /Expand All|Collapse All/i.test(body.textContent || ""),
+        // The rows it does NOT show any more.
+        contentSources: /d&d 5e|2014 dnd|ruleset\s*&?\s*sources|cauldron of everything/i.test(body.textContent || ""),
+        automaticSection: /What You Get Automatically/i.test(body.textContent || ""),
+        // Each spell its own row, and each a real link to its own detail view.
+        spells: spellItems.map((li) => {
+          const a = li.querySelector("a");
+          return {
+            name: li.textContent.trim(),
+            href: a?.getAttribute("href"),
+            external: /^https?:/i.test(a?.getAttribute("href") || ""),
+            h: Math.round(li.getBoundingClientRect().height),
+          };
+        }),
+        // Which choices are on the page. One per kind, no rejected options.
+        chosen: [...document.querySelectorAll(".choice-row[data-row-name]")].map((r) => r.dataset.rowName),
+      };
+    });
+
+    bgCheck(review.navHasFinish,
+      `Finish Setup sits in the bottom action bar, where Next was (${JSON.stringify(review.navButtons)})`);
+    bgCheck(!review.bodyHasFinish,
+      "and there is no second Finish button stranded at the bottom of the page");
+    bgCheck(review.navButtons.some((b) => /back/i.test(b)),
+      "with Back still there, because a last step with no way back is a trap");
+    bgCheck(review.expandBars === 0 && !review.expandWords,
+      `and no Expand All / Collapse All anywhere on Review (${review.expandBars} bars)`);
+    bgCheck(!review.contentSources,
+      `no content-sources section left on it (rows: ${JSON.stringify(review.rows.slice(0, 3))})`);
+    bgCheck(!review.automaticSection,
+      "and no 'What You Get Automatically' list repeating the rows above it");
+
+    // Abilities: one row each, named in full, modifier signed and labelled.
+    const abilityRows = review.rows.filter((r) => /Mod\)/.test(r));
+    bgCheck(abilityRows.length === 6,
+      `each ability score gets its own row (${abilityRows.length}: ${JSON.stringify(abilityRows.slice(0, 2))})`);
+    bgCheck(abilityRows.every((r) => /^[A-Z][a-z]+ \d+ \([+-]?(?:0|[1-9]\d*) Mod\)/.test(r)),
+      `each reading like "Dexterity 16 (+3 Mod)", with the sign kept and zero unsigned (${JSON.stringify(abilityRows[0])})`);
+    bgCheck(!review.rows.some((r) => /\b[SDICWHA]{3}\b/.test(r)),
+      "and none of them in the uppercase abbreviations the score boxes use");
+
+    // Spells. This walkthrough's character is a Barbarian, so the list is
+    // empty - which is itself worth asserting, because the old code printed
+    // a "Spells: ..." count line for every character whether or not they had
+    // spells, and the list must not leave an empty heading behind when there
+    // are none.
+    //
+    // The populated case is checked in scripts/smoke-dom.mjs instead, which
+    // can hand the summary box a list of spells and assert the markup
+    // directly. Reaching it here would mean re-picking this walkthrough's
+    // class as a caster, and that is a second wizard navigation fighting the
+    // same step gates the rest of this area already drives.
+    bgCheck(!review.spells.length && !/^Spells$/m.test(review.rows.join("\n")),
+      `no empty Spells section left on a character with no spells (${review.spells.length} rows)`);
+
+    // Only the chosen subclass, not the whole list under the class row.
+    bgCheck(review.chosen.length > 0 && review.chosen.length <= 4,
+      `the page shows the chosen race, class and background and little else (${JSON.stringify(review.chosen)})`);
+    bgCheck(!review.chosen.some((n) => /^(Evoker|Abjuration|Champion)$/.test(n)),
+      `with no subclass the player did not take (${JSON.stringify(review.chosen)})`);
+    // A Barbarian has no subclass until level 3, so this character has none
+    // to show - and that is the assertion: the page must not be padding
+    // itself out with the six it could have had.
+    bgCheck(review.chosen.length === 3,
+      `and exactly three rows for a character with no subclass yet (${review.chosen.length}: ${JSON.stringify(review.chosen)})`);
+
     await bgPage.screenshot({ path: path.join(shotDir, "background-gate.png") });
   }
   await bgPage.close();

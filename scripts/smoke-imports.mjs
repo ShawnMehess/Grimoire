@@ -346,7 +346,30 @@ const wizardStepsMod = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(wizardStepsMod.abilityBonusNoteLines([]).length === 0, "abilityBonusNoteLines no bonus");
   assert(wizardStepsMod.abilityBonusNoteLines([{ label: "", value: 1 }]).join("|") === "+1", "abilityBonusNoteLines sourceless");
 assert(wizardStepsMod.wizardUnavailableMessageFor({ level: 1, species: "", className: "", subclass: "" }).includes("level 1"), "wizardUnavailableMessageFor");
-assert(wizardStepsMod.reviewLinesFor({ characterName: "N", level: 1, resources: [] }).includes("Name: N"), "reviewLinesFor");
+// reviewLinesFor returns a SHAPE, not a flat array, since abilities and the
+// spell list are rendered as their own rows rather than folded into one
+// paragraph. Checked on the shape's noteLines.
+assert(wizardStepsMod.reviewLinesFor({ characterName: "N", level: 1, resources: [] }).noteLines.includes("Name: N"), "reviewLinesFor");
+assert(!/ruleset/i.test(JSON.stringify(wizardStepsMod.reviewLinesFor({ characterName: "N", level: 1, rulesetName: "Some Book", resources: [] }))),
+  "reviewLinesFor drops the content-sources line");
+{
+  // One row per ability, modifier signed and labelled, names spelled out.
+  const scores = { str: 8, dex: 16, con: 15, int: 10, wis: 12, cha: 14 };
+  const lines = wizardStepsMod.reviewAbilityLinesFor({ abilityScores: scores, abilityMethod: "pointbuy" });
+  assert(lines.length === 6, `one line per ability (${lines.length})`);
+  assert(lines[0] === "Strength 8 (-1 Mod) · Point Buy", `a low score reads as a negative modifier (${lines[0]})`);
+  assert(lines[1] === "Dexterity 16 (+3 Mod) · Point Buy", `a high score reads as a positive modifier (${lines[1]})`);
+  assert(lines.every((l) => !/\b[SDICWHA]{3}\b/.test(l)), "no uppercase score-box abbreviations");
+  // 8 and 9 are both -1; 14 and 15 are both +2. The rules' own floor.
+  assert(wizardStepsMod.reviewAbilityLinesFor({ abilityScores: { str: 9 } })[0] === "Strength 9 (-1 Mod)", "8 and 9 are both -1");
+  assert(wizardStepsMod.reviewAbilityLinesFor({ abilityScores: { str: 15 } })[0] === "Strength 15 (+2 Mod)", "14 and 15 are both +2");
+  // Bonuses apply, and say which pick granted them.
+  const withBonus = wizardStepsMod.reviewAbilityLinesFor({
+    abilityScores: { str: 15 },
+    abilityBonuses: { str: { bonus: 2, sources: [{ label: "Half-Orc", value: 2 }] } },
+  });
+  assert(withBonus[0] === "Strength 17 (+3 Mod) — +2 from Half-Orc", `the total is post-bonus and traceable (${withBonus[0]})`);
+}
 {
   const rules = { subclass: "Evoker", className: "Fighter", level: 1 };
   wizardStepsMod.cleanStaleSubclass(rules, () => ({ subclasses: ["Champion"], subclassLevel: 3 }));

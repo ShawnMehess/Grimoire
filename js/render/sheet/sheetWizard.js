@@ -1938,9 +1938,20 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
     stepState.index = clampStepIndex(applicableSteps.length, i);
     stepState.stepId = applicableSteps[stepState.index]?.id ?? null;
     if (direction) stepState.arrivalDirection = direction;
+    // A step can ask to be shown from the top of the page. The wizard does
+    // not own the scroll position - the sheet does, and it deliberately
+    // PRESERVES it across every render so clicking a row does not feel like
+    // the page refreshed under you - so the request is recorded here and the
+    // caller reads it off the returned node after this render.
+    //
+    // Only on ARRIVAL, which is what `direction` means: a step that re-renders
+    // while you are reading it must not yank you back to the top.
+    scrollToTopOnRender = direction !== 0 && applicableSteps[stepState.index]?.opensAtTop === true;
     if (typeof onNavigate === "function") onNavigate(stepState);
     gridFn();
   };
+
+  let scrollToTopOnRender = false;
 
   const wrap = document.createElement("section");
   wrap.className = "leveling-tab character-rules wizard";
@@ -2108,6 +2119,31 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
       reason.className = "wizard__gate-reason";
       if (!stepIsComplete(currentStep)) reason.textContent = gateReasonTextFor(currentStep);
       nav.append(reason);
+    } else if (currentStep.finish) {
+      // The LAST step's action lives here, where Next would have been.
+      //
+      // It used to be a button at the bottom of the step's own body, which
+      // put it below a long summary and a paragraph repeating what the
+      // summary already said - so the one control that ends the wizard was
+      // the hardest thing on the page to find, and the thing you most want
+      // once you have finished reading. In the action bar it sits where the
+      // player has been pressing Next on every other page, and it is the
+      // only forward control there is, because there is nothing after it.
+      //
+      // Back stays: a last step with no way back is a trap.
+      //
+      // A step opts in with `finish: { label, run }`. `run` is called with
+      // no arguments. A step that supplies neither label nor run gets no
+      // button, which is what every non-final step does anyway.
+      const label = typeof currentStep.finish.label === "string" && currentStep.finish.label.trim()
+        ? currentStep.finish.label.trim()
+        : "Finish";
+      const done = document.createElement("button");
+      done.type = "button";
+      done.className = "btn btn--primary wizard__finish-btn wizard__next";
+      done.textContent = label;
+      done.addEventListener("click", () => { currentStep.finish.run?.(); });
+      nav.append(done);
     }
     return nav;
   };
@@ -4185,7 +4221,16 @@ export function renderChoiceGroupsInto(container, groups, choicesStore, namePref
           });
         });
         wrap.append(select);
-        return wrap;
+// Read by the caller after this render: "the step you just arrived at asked
+  // to be shown from the top". Consumed and cleared here so it cannot leak
+  // into the next render, which is not an arrival.
+  wrap.consumeScrollTopRequest = () => {
+    const wanted = scrollToTopOnRender;
+    scrollToTopOnRender = false;
+    return wanted;
+  };
+
+  return wrap;
       };
       host.append(makeSlot(0, 2), makeSlot(1, 1));
       choiceGroup.append(host);

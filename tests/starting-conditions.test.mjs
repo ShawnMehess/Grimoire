@@ -30,6 +30,7 @@ import { MAGICAL_SECRETS_UNLOCKS, magicalSecretsUnlocked, magicalSecretsMaxSpell
 
 const entries = (x) => (x instanceof Map ? [...x] : Object.entries(x || {}));
 const bardBundle = () => entries(FIXED_CLASS_ENTRIES).find(([, e]) => e.name === "Bard")?.[1]?.bundle;
+const sheetSteps = fs.readFileSync(new URL("../js/render/sheet/sheetWizardSteps.js", import.meta.url), "utf8");
 
 describe("the wizard has no Spells or Gear tab", () => {
   const src = fs.readFileSync(new URL("../js/render/customSheet.js", import.meta.url), "utf8");
@@ -40,7 +41,7 @@ describe("the wizard has no Spells or Gear tab", () => {
     // needs the reason it is parked and the note that every renderer in it
     // is still called from elsewhere.
     assert.match(src, /COMMENTED OUT 2026-10-01\. The Gear step is still parked/);
-    assert.match(src, /renderInnateAbilitiesStepInto moved to Review/);
+    assert.match(src, /renderInnateAbilitiesStepInto/);
   });
 
   it("documents why the Spells half was DELETED rather than parked", () => {
@@ -88,17 +89,31 @@ describe("the wizard has no Spells or Gear tab", () => {
     // The parking is UI-only. If any of these has no remaining caller, the
     // block really is dead and the comment above it is now lying.
     //
-    // renderStartingEquipmentStepInto is not in the list because it no longer
-    // exists: it drew the background's package and the class's either/or rows
-    // together under one heading, and those two now live on different steps.
-    // The two halves it was split into are checked below instead.
+    // Two names are NOT in the list, and both were checked here until
+    // 2026-10-05:
+    //
+    //   renderStartingEquipmentStepInto - it drew the background's package
+    //     and the class's either/or rows together under one heading, and
+    //     those two now live on different steps. The two halves it was split
+    //     into are checked further down instead.
+    //   renderInnateAbilitiesStepInto - "What You Get Automatically" on the
+    //     Review step. It restated, in a second list, the grants the Race,
+    //     Class and Background rows above it already print, so it was
+    //     DELETED rather than moved. A test that kept requiring a live caller
+    //     for it would have been asserting the Review page keeps saying the
+    //     same thing twice.
+    //
+    // What is left is genuinely live, and the import gate's dead-export check
+    // catches anything that stops being.
     for (const fn of [
       "renderEquipmentProficienciesStepInto",
-      "renderInnateAbilitiesStepInto",
     ]) {
       const calls = src.split(`\n`).filter((l) => l.includes(`${fn}(`) && !l.trim().startsWith("//"));
       assert.ok(calls.length > 0, `${fn} has no live caller left`);
     }
+    assert.doesNotMatch(src, /function renderInnateAbilitiesStepInto/,
+      "the automatic-grants list should be gone from the renderer");
+    assert.match(sheetSteps, /What You Get Automatically/, "and its deletion explained where it was");
   });
 
   it("keeps the shared spell picker alive, for Magical Secrets", () => {

@@ -1505,7 +1505,7 @@ function openTestDialog(host, overrides = {}) {
   assert(prevented === 0, "with nothing to animate, the browser still closes it (nothing prevented)");
 }
 
-// --- Review step: the summary box leads, the Finish button trails ---
+// --- Review step: the summary box leads, Finish Setup moved to the nav ---
 // The name box was appended after the three picker tables, so the name you
 // came to check was the last thing on the page. The whole box moves, not
 // just the name line.
@@ -1533,15 +1533,67 @@ function openTestDialog(host, overrides = {}) {
     d.textContent = label;
     box.append(d);
   }
-  steps.reviewFinishButtonInto(box, { syncFn: () => {} });
   const kids = (box.children || []).map((k) => String(k.className || ""));
   assert(kids[0].includes("wizard__review-rows"), "the summary box is the first thing on the review step");
-  assert(kids[kids.length - 1].includes("wizard__review-button-row"), "Finish Setup stays at the bottom");
+  // Finish Setup is in the action bar now (sheetWizard's buildNav reads
+  // `step.finish`), so there must be no button row stranded in the body -
+  // and no "What You Get Automatically" after it either.
+  assert(!kids.some((c) => c.includes("wizard__review-button-row")),
+    "Finish Setup is no longer a button at the bottom of the body");
+  assert(!kids.some((c) => c.includes("wizard__finish-btn")),
+    "and nothing in the body offers to finish");
   const first = (box.children || [])[0];
   assert(first.textContent.includes("Alborax"), "the name is inside that first box");
   // The name must not have been split out of the box it belongs to.
   assert(first.querySelectorAll(".wizard__review-row").length >= 2,
     "the whole panel moved together, not just the name line");
+  // Content sources are gone: the player ticked them on step one.
+  assert(!/srd/i.test(first.textContent), "and no content-sources line in the summary");
+}
+
+// --- Review step: one row per ability, and every spell a link ----------
+{
+  const steps = await import("../js/render/sheet/sheetWizardSteps.js");
+  const box = document.createElement("div");
+  steps.reviewSummaryBoxInto(box, { species: "Half-Orc", className: "Wizard", subclass: "Evoker", background: "Sage", level: 1 }, {
+    characterName: "Alborax",
+    spellLimit: { style: "prepared", cantrips: 3, spells: 2 },
+    resources: [],
+    abilityScores: { str: 8, dex: 14, con: 12, int: 15, wis: 13, cha: 10 },
+    abilityBonuses: { str: { bonus: 2, sources: [{ label: "Half-Orc", value: 2 }] } },
+    abilityMethod: "manual",
+    hpMethod: null,
+    choiceLines: [],
+    spellsPicked: ["Fire Bolt", "Mage Hand", "Magic Missile"],
+    equipmentLine: null,
+    featNames: [],
+  });
+  const rows = (box.children || [])[0].querySelectorAll(".wizard__review-row").map((r) => r.textContent.trim());
+  const ability = rows.filter((r) => /Mod\)/.test(r));
+  assert(ability.length === 6, `one row per ability score (${ability.length})`);
+  assert(ability[0].includes("Strength 10 (0 Mod)"),
+    `and the post-bonus total with its modifier (${ability[0]})`);
+  assert(ability[1].includes("Dexterity 14 (+2 Mod)"),
+    `and a positive one signed (${ability[1]})`);
+  // Each spell its own row, and a link - href "#" plus the shared opener,
+  // which is the app's own spell detail dialog. Never an external site.
+  const items = (box.children || [])[0].querySelectorAll(".wizard__review-spell");
+  assert(items.length === 3, `each chosen spell gets its own row (${items.length})`);
+  assert(items.map((li) => li.textContent.trim()).join("|") === "Fire Bolt|Mage Hand|Magic Missile",
+    "listed by name, one per line");
+  // The stub cannot answer "a.spell-link" (tag+class is a compound it does
+  // support, but it has no `a` element under an li selector) - so ask for the
+  // class alone and check the tag separately.
+  const anchors = items.map((li) => li.querySelector(".spell-link"));
+  console.log("DEBUG anchors:", JSON.stringify(anchors.map((a) => a && ({ tag: a.tag, href: a.getAttribute("href"), cls: a.getAttribute("class") }))));
+  // spellLinkNode sets a.href as a PROPERTY, so read the property: the stub
+  // never saw an attribute and getAttribute would answer null either way.
+  assert(anchors.every((a) => a && a.href === "#"),
+    "and each row is a link with no external destination");
+  assert(anchors.every((a) => String(a.getAttribute("class")).includes("spell-link")),
+    "carrying the shared spell-link class the opener is wired to");
+  assert(!rows.some((r) => /Spells Known/.test(r)),
+    "and no run-together 'Spells Known' line any more");
 }
 
 // --- Review step shows only what was chosen ---
