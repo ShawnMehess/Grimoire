@@ -3742,6 +3742,49 @@ for (const phoneWidth of [320, 390]) {
         `@${phoneWidth} and it is called "Level", with no "Starting" implying you could begin lower (${JSON.stringify(idRow.labels)})`);
     }
     await wiz.waitForTimeout(400);
+
+    // A picker row's NAME starts at the row's left edge, not beside the
+    // portrait. The portrait used to be a flex sibling, which put it in a
+    // column of its own and indented every line below it by its width plus
+    // the gap - 64px of a 366px screen at 390 wide. It is a float now, so the
+    // name runs the full width and only the lines beside the picture are
+    // narrowed.
+    //
+    // Measured against the row's own CONTENT edge (left + padding + border),
+    // not its border box, and the portrait width is reported alongside so the
+    // relationship is visible rather than asserted as a magic number.
+    const rowText = await wiz.evaluate(() => {
+      const r = document.querySelector(".choice-row[data-row-name]");
+      if (!r) return null;
+      const cs = getComputedStyle(r);
+      const box = r.getBoundingClientRect();
+      const padL = parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth);
+      const padR = parseFloat(cs.paddingRight) + parseFloat(cs.borderRightWidth);
+      const contentLeft = Math.round(box.left + padL);
+      const contentW = Math.round(box.width - padL - padR);
+      const label = r.querySelector(".choice-row__label");
+      const portrait = r.querySelector(".choice-row__portrait");
+      if (!label || !portrait) return null;
+      const lr = label.getBoundingClientRect();
+      return {
+        row: r.dataset.rowName,
+        contentLeft,
+        contentW,
+        labelLeft: Math.round(lr.left),
+        labelW: Math.round(lr.width),
+        portraitW: Math.round(portrait.getBoundingClientRect().width),
+      };
+    });
+    phoneCheck(!!rowText, `@${phoneWidth} a picker row has a name to measure (${JSON.stringify(rowText)})`);
+    if (rowText) {
+      phoneCheck(Math.abs(rowText.labelLeft - rowText.contentLeft) <= 1,
+        `@${phoneWidth} and its name starts at the row's LEFT EDGE, not indented past the portrait (${rowText.labelLeft} vs ${rowText.contentLeft})`);
+      phoneCheck(rowText.labelW >= rowText.contentW - 1,
+        `@${phoneWidth} and runs the row's full width (${rowText.labelW} of ${rowText.contentW}px)`);
+      phoneCheck(rowText.portraitW > 0 && rowText.portraitW < rowText.contentW,
+        `@${phoneWidth} with the portrait floated inside that width rather than owning a column (${rowText.portraitW}px)`);
+    }
+    await wiz.waitForTimeout(300);
     // No wizard page may scroll sideways, whatever is on it.
     for (let step = 0; step < 7; step += 1) {
       const o = await wiz.evaluate(() => {
@@ -3843,14 +3886,29 @@ for (const phoneWidth of [320, 390]) {
           listHeight: list ? Math.round(list.getBoundingClientRect().height) : null,
           columns: list ? getComputedStyle(list).gridTemplateColumns.split(" ").length : 1,
           clamp: desc ? getComputedStyle(desc).webkitLineClamp : null,
-          // Beside, not above: the label starts to the RIGHT of the art.
-          beside: portrait && label ? label.left >= portrait.right - 1 : null,
+          // Beside, not above. The portrait is a float, so the name no longer
+          // starts to the RIGHT of the picture's right edge - it starts at the
+          // row's content edge and the lines beside the picture are the ones
+          // narrowed. What still distinguishes "beside" from "stacked above" is
+          // VERTICAL: a stacked portrait puts the name below the picture's
+          // bottom edge, a floated one has the name already running while the
+          // picture is still beside it. That is what this measures now, and
+          // the horizontal relationship is asserted separately further down
+          // (the name starts at the row's left edge).
+          beside: portrait && label ? label.top < portrait.bottom - 1 : null,
+          contentLeft: (() => {
+            const cs = getComputedStyle(first);
+            return Math.round(first.getBoundingClientRect().left
+              + parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth));
+          })(),
+          labelLeft: label ? Math.round(label.left) : null,
+          portraitLeft: portrait ? Math.round(portrait.left) : null,
         };
       });
       phoneCheck(pick.rows > 5 && pick.height <= 130,
         `@${vpName} each species row is compact enough to scan (${pick.rows} rows, ${pick.height}px tall, list ${pick.listHeight}px)`);
       phoneCheck(pick.beside === true,
-        `@${vpName} with the thumbnail beside the name, not above it`);
+        `@${vpName} with the thumbnail beside the name, not above it (name top ${pick.labelLeft}, art ${pick.portraitLeft}.., content ${pick.contentLeft})`);
       if (vp.height <= 480) {
         phoneCheck(pick.columns === 2,
           `@${vpName} and two columns of them, since sideways has width to spare (${pick.columns})`);

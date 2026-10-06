@@ -352,15 +352,40 @@
    ------------------------------------------------------------------------ */
 
 @media screen and (max-width: 720px) {
-  /* Row, not column. This is the one rule that matters: the thumbnail is
-     beside the name rather than above it, so the name and the first lines
-     of the description are above the fold for EVERY option instead of only
-     for the first. */
+  /* FLOAT, not a flex sibling.
+   *
+   * This was `flex-direction: row`, which put the thumbnail in a column of
+   * its own and indented every line of text past it. On a 366px content width
+   * a 56px portrait plus its gap took 64px - nearly a fifth of the screen -
+   * so the name, the description and every bullet below it started 64px in.
+   * A floated portrait does the opposite: the text starts at the row's left
+   * edge, runs its full width, and only the lines beside the picture are
+   * narrowed. Below the picture it is full width again. The thumbnail still
+   * sits beside the name, which is what the rule below is FOR.
+   *
+   * `display: flow-root` rather than `overflow: hidden`, because the row is a
+   * tap target and a hidden overflow would swallow the click on anything that
+   * reached an edge. A flow root contains the float just as well. */
   .choice-row {
-    flex-direction: row;
-    align-items: flex-start;
-    gap: var(--space-2);
+    display: flow-root;
     min-height: 44px;
+    /* The row is a flex container in its own right for nothing else, but the
+       portrait used to be a flex ITEM and is now a float - so nothing here
+       needs flex-direction any more. */
+  }
+  .choice-row__portrait {
+    float: left;
+    margin-right: var(--space-2);
+    /* Without this the floated image's bottom edge overlaps the line box of
+       whatever follows it and the first line of text sits a few pixels high. */
+    margin-bottom: var(--space-1);
+  }
+  /* The body is a block, so it flows around the float rather than beside it.
+     No `overflow` here - that would contain its own float and undo the whole
+     point. */
+  .choice-row__body {
+    display: block;
+    min-width: 0;
   }
   .choice-row:not(.choice-row--expanded) .choice-row__portrait {
     width: 56px;
