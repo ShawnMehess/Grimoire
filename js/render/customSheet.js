@@ -4759,8 +4759,16 @@ const closeDialog = () => {
       character.createdAtLevel = Number.isFinite(made) && made >= 1 ? made : 1;
     }
     normalizeTabs();
-    const levelingTab = character.sheetTabs.find((tab) => tab.kind === "leveling");
-    if (levelingTab) activeTabId = levelingTab.id;
+    // Land on the character's own sheet, not the Leveling tab.
+    //
+    // The popup that follows Finish Setup is about the SHEET - rearrange
+    // anything, roll a number - and it was opening on top of a levelling
+    // walkthrough for a brand-new level 1 character, which has no levels to
+    // walk through and nothing to say yet. Dismiss it and you were looking
+    // at the wrong tab with no obvious way back to the character you just
+    // made.
+    const mainTab = character.sheetTabs.find((tab) => tab.kind === "start");
+    if (mainTab) activeTabId = mainTab.id;
     // Keep the top-level mirror in sync with the canonical rules copy.
     character.rulesetId = character.rules.rulesetId;
     await store.saveCharacterFields(character.id, { rules: character.rules, rulesetId: character.rules.rulesetId, layout: character.layout, sheetTabs: character.sheetTabs, setupComplete: true, createdAtLevel: character.createdAtLevel, creationStepId: null });
@@ -4785,7 +4793,12 @@ const closeDialog = () => {
 
   /** One-time orientation shown right after Finish Setup (per browser,
    *  via localStorage) — the three things a first-timer most needs:
-   *  Customize Sheet, the Leveling tab, and hover-to-roll. */
+   *  Customize Sheet, the Leveling tab, and rolling a number.
+   *
+   *  The rolling bullet used to end "Touch screens show the dice always."
+   *  That is advice for a UI that no longer exists: the dice roll on a tap
+   *  on every input type, and a line that tells half your users something
+   *  they can see for themselves is a line they have to stop and check. */
   function maybeShowSetupCoach() {
     const key = "grimoire.setupCoachSeen.v1";
     try {
@@ -4800,7 +4813,7 @@ const closeDialog = () => {
       ...[
         "Customize Sheet (toolbar) rearranges anything — Drag, resize, restyle. This layout is just the starter.",
         "The Leveling tab walks you through every level-up when the time comes.",
-        "Hover any number field to roll it, with Advantage/Disadvantage. Touch screens show the dice always.",
+        "Tap or hover any number field to roll it, with Advantage or Disadvantage.",
       ].map((text) => el("li", { text })));
     const row = el("div", { class: "modal-actions" });
     const close = () => {

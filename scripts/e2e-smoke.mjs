@@ -5673,6 +5673,46 @@ if (inArea("background-gate")) {
     bgCheck(review.chosen.length === 3,
       `and exactly three rows for a character with no subclass yet (${review.chosen.length}: ${JSON.stringify(review.chosen)})`);
 
+    // --- Finishing: what the popup says, and where it leaves you -----------
+    //
+    // Pressed here, at the end of a real walkthrough, so the popup and the
+    // tab it lands on are checked in the order a player meets them.
+    await bgPage.evaluate(() => {
+      document.querySelector(".wizard__nav:not(.wizard__nav--top) .wizard__finish-btn")?.click();
+    });
+    await bgPage.waitForTimeout(1500);
+    const coach = await bgPage.evaluate(() => {
+      const box = document.querySelector(".modal-overlay .coach-note");
+      return {
+        open: !!box,
+        bullets: box ? [...box.querySelectorAll("li")].map((li) => li.textContent.trim()) : [],
+      };
+    });
+    bgCheck(coach.open, "Finish Setup shows the one-time orientation popup");
+    bgCheck(!coach.bullets.some((b) => /touch screens/i.test(b)),
+      `and it no longer tells touch users the dice show themselves (${JSON.stringify(coach.bullets[2] || "")})`);
+    bgCheck(coach.bullets.length === 3,
+      `with all three things it promises (${coach.bullets.length})`);
+    // Dismissing it must leave the player on their character, not on a
+    // levelling walkthrough for a level 1 character with no levels to walk.
+    await bgPage.evaluate(() => {
+      const box = document.querySelector(".modal-overlay .coach-note");
+      [...(box?.querySelectorAll("button") || [])].find((b) => /got it/i.test(b.textContent))?.click();
+    });
+    await bgPage.waitForTimeout(1200);
+    const landed = await bgPage.evaluate(() => ({
+      tabs: [...document.querySelectorAll(".sheet-tab")].map((t) => ({
+        label: (t.textContent || "").trim().slice(0, 14),
+        active: t.classList.contains("active") || t.getAttribute("aria-selected") === "true",
+      })),
+      hasGrid: !!document.querySelector(".page-grid .grid-node"),
+      hasLevelingPanel: !!document.querySelector(".page-grid--leveling"),
+    }));
+    bgCheck(landed.hasGrid && !landed.hasLevelingPanel,
+      `and closing it lands on the character's own sheet, not the Leveling tab (${JSON.stringify(landed.tabs)})`);
+    bgCheck(landed.tabs.some((t) => t.active && !/leveling/i.test(t.label)),
+      `with the sheet tab selected (${JSON.stringify(landed.tabs.filter((t) => t.active))})`);
+
     await bgPage.screenshot({ path: path.join(shotDir, "background-gate.png") });
   }
   await bgPage.close();

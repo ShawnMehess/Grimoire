@@ -433,6 +433,25 @@
   padding: 6px 4px;
 }
 
+/* Centre the "you cannot go on yet" line.
+ *
+ * It sits under a bar holding Back on the left and a disabled Next on the
+ * right, so left-aligned text under that bar looked like a stray sentence
+ * belonging to Back. Centred it reads as what it is: the bar's own reason,
+ * under the whole bar.
+ *
+ * `text-align` rather than `margin-inline: auto` because the paragraph is a
+ * block filling the bar's width - centring the box would achieve nothing.
+ */
+.wizard__gate-reason {
+  text-align: center;
+  /* The bar's own padding is not the text's; without this the reason hugs
+     the button above it. */
+  padding-inline: var(--space-2);
+  max-width: 40rem;
+  margin-inline: auto;
+}
+
 .wizard__preference-label {
   grid-column: 1 / -1;
   margin: 0 0 4px;

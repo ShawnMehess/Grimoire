@@ -437,7 +437,11 @@
    It sits under the buttons on a full-width line rather than beside them:
    the sentences are whole ("No species picked yet.") and squeezing one
    into the gap between two buttons truncates it, which is the failure the
-   missing reason was already causing. */
+   missing reason was already causing.
+
+   Centred, and that matters more here than on a desktop: the bar wraps, so
+   the reason is the only thing on its own line, full width, and left-aligned
+   under two buttons it reads as part of Back. */
 .wizard__gate-reason {
   flex: 1 0 100%;
   order: 9;
@@ -445,6 +449,9 @@
   font-size: var(--text-sm);
   color: var(--color-text-muted);
   line-height: 1.35;
+  text-align: center;
+  max-width: 40rem;
+  margin-inline: auto;
 }
 .wizard__nav {
   flex-wrap: wrap;
@@ -552,7 +559,11 @@
    It sits under the buttons on a full-width line rather than beside them:
    the sentences are whole ("No species picked yet.") and squeezing one
    into the gap between two buttons truncates it, which is the failure the
-   missing reason was already causing. */
+   missing reason was already causing.
+
+   Centred, and that matters more here than on a desktop: the bar wraps, so
+   the reason is the only thing on its own line, full width, and left-aligned
+   under two buttons it reads as part of Back. */
 .wizard__gate-reason {
   flex: 1 0 100%;
   order: 9;
@@ -560,6 +571,9 @@
   font-size: var(--text-sm);
   color: var(--color-text-muted);
   line-height: 1.35;
+  text-align: center;
+  max-width: 40rem;
+  margin-inline: auto;
 }
 .wizard__nav {
   flex-wrap: wrap;
