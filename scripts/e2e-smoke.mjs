@@ -5511,6 +5511,62 @@ if (inArea("background-gate")) {
 
     // Choosing a method, by clicking the row the way a player does, really
     // changes the six scores below it.
+    // --- An ability's bonus line sits UNDER that ability's description ---
+    //
+    // `.wizard__ability-bonus` carries `flex-basis: 100%`, which is what puts
+    // it on its own line below the description. That only means anything on a
+    // container that WRAPS, and the row did not wrap outside the 600px block -
+    // so at desktop and tablet widths the bonus shared the score row with the
+    // description instead. Measured before the fix, Half-Orc at 1440:
+    // description at x=249 w=234, bonus at x=495 on the SAME line.
+    //
+    // Checked here because this walkthrough reaches the step with real staged
+    // bonuses (Half-Orc gives +2 STR and +1 CON), and the layout question is
+    // "is the second line below the first" - which needs both lines to exist.
+    const bonusLayout = await bgPage.evaluate(() => {
+      const rows = [...document.querySelectorAll(".wizard__ability-row")];
+      const withBonus = rows.map((r) => {
+        const desc = r.querySelector(".wizard__ability-row-description:not(.wizard__ability-bonus):not(.wizard__ability-need)");
+        const bonus = r.querySelector(".wizard__ability-bonus");
+        const lines = [...(bonus?.querySelectorAll(".wizard__ability-bonus-line") || [])];
+        if (!bonus || bonus.hidden || !lines.length) return null;
+        const d = desc.getBoundingClientRect();
+        const b = bonus.getBoundingClientRect();
+        const lineBoxes = lines.map((l) => l.getBoundingClientRect());
+        return {
+          id: r.querySelector(".level-guide__field")?.textContent.trim(),
+          lines: lines.map((l) => l.textContent.trim()),
+          belowDescription: b.top >= d.top,
+          notBeside: b.left < d.left || b.top > d.top + d.height,
+          // Each bonus is its own row: consecutive lines do not share a top.
+          eachOwnRow: lineBoxes.every((lb, i) => i === 0 || lb.top > lineBoxes[i - 1].top),
+          lineWidths: lineBoxes.map((lb) => Math.round(lb.width)),
+        };
+      }).filter(Boolean);
+      return { rows: withBonus, total: rows.length };
+    });
+    bgCheck(bonusLayout.rows.length > 0,
+      `some scores carry a staged bonus to lay out (${bonusLayout.rows.length} of ${bonusLayout.total})`);
+    for (const r of bonusLayout.rows) {
+      bgCheck(r.belowDescription && r.notBeside,
+        `${r.id}'s bonus line sits under its description, not beside it (${JSON.stringify(r.lines)})`);
+      bgCheck(r.eachOwnRow,
+        `${r.id}: and each bonus gets its own row (${JSON.stringify(r.lines)})`);
+    }
+    // And once the fix is in, the description gets its full width back rather
+    // than being squeezed by a bonus sharing its line.
+    const descWidth = await bgPage.evaluate(() => {
+      const row = [...document.querySelectorAll(".wizard__ability-row")]
+        .find((r) => !r.querySelector(".wizard__ability-bonus")?.hidden
+          && r.querySelector(".wizard__ability-bonus-line"));
+      const desc = row?.querySelector(".wizard__ability-row-description:not(.wizard__ability-bonus):not(.wizard__ability-need)");
+      const wrap = row?.getBoundingClientRect();
+      const d = desc?.getBoundingClientRect();
+      return wrap && d ? { desc: Math.round(d.width), row: Math.round(wrap.width) } : null;
+    });
+    bgCheck(descWidth && descWidth.desc > descWidth.row * 0.6,
+      `the description keeps the width it needs once the bonus is on its own line (${JSON.stringify(descWidth)})`);
+
     await bgPage.evaluate(() => {
       document.querySelector('input[name="ability-score-method"][value="manual"]')?.click();
     });

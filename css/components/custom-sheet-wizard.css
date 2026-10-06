@@ -287,6 +287,26 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  /* WRAP, at every width - and this was the bug.
+   *
+   * `.wizard__ability-bonus` and `.wizard__ability-need` both carry
+   * `flex-basis: 100%`, which is what puts an ability's bonus line
+   * UNDER that ability's description instead of beside it. A flex-basis
+   * only means anything on a container that wraps: without `flex-wrap`
+   * here, 100% resolved to a percentage of a line that had no room left,
+   * so both items stayed on the score row, sharing whatever width the
+   * description had not used. Measured at 1440 on Half-Orc:
+   *
+   *   before   description at x=249 w=234, bonus at x=495 w=436
+   *            (one line, bonus beside the description)
+   *   after    description at x=249 w=682, bonus on its own line below
+   *
+   * So this was not a phone-and-tablet-only problem the desktop already
+   * had right: phones got it right by accident, because the 600px block
+   * below happens to set `flex-wrap: wrap`, and desktop and tablet both
+   * had it wrong. Wrapping here fixes all three, and the block below
+   * keeps its own rule only because it changes the parts as well. */
+  flex-wrap: wrap;
   padding: var(--space-2);
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-sm);
