@@ -2029,13 +2029,13 @@ async function runViewportTests(viewport) {
   };
 
   const setUpLeveling = async ({ level, className, subclass = null, recordedLevels = [], createdAtLevel = 1 }) => {
-    await page.evaluate((extra) => {
+    const patch = async () => page.evaluate((extra) => {
       const KEY = "grimoire.local.characters.v1";
       const stored = JSON.parse(localStorage.getItem(KEY) || "{}");
       // The SAME character reopenSheet opens (it clicks this card by name).
       // Keying off Object.keys(...)[0] patches whichever character happens
       // to be first, which is only the one on screen when the vault holds a
-      // single character — and a fixture that seeds a different sheet than
+      // single character - and a fixture that seeds a different sheet than
       // it asserts on fails in ways that look like product bugs.
       const id = Object.entries(stored)
         .find(([, c]) => (c.name || "") === extra.name)?.[0];
@@ -2066,7 +2066,47 @@ async function runViewportTests(viewport) {
       stored[id].createdAtLevel = extra.createdAtLevel;
       localStorage.setItem(KEY, JSON.stringify(stored));
     }, { level, className, recordedLevels, createdAtLevel, name: probe.name });
-    await reopenSheet();
+
+    // What the sheet ends up showing, read from storage rather than from the
+    // rendered chrome - the same first Level field the patch writes.
+    const onSheetLevel = () => page.evaluate((name) => {
+      const stored = JSON.parse(localStorage.getItem("grimoire.local.characters.v1") || "{}");
+      const ch = Object.entries(stored).find(([, c]) => (c.name || "") === name)?.[1];
+      const walk = (nodes) => (nodes || []).flatMap((n) => [n, ...(n.children || [])]);
+      const levelField = [ch?.layout, ...(ch?.sheetTabs || []).map((t) => t.layout)]
+        .filter(Boolean).flatMap(walk).find((f) => f.id === "level");
+      return levelField ? String(levelField.value).trim() : null;
+    }, probe.name);
+
+    // Write, reopen, CHECK, and write again if it did not stick.
+    //
+    // The app debounces persist(), so writing localStorage while a sheet is
+    // open is a race: a timer that was already pending can fire during the
+    // navigation in reopenSheet and flush the OLD in-memory character
+    // straight back over the patch. `goto` rather than `reload` narrows that
+    // window (see reopenSheet) but does not close it, and on CI it did not:
+    // a fixture asking for level 5 came back reading 3, reported as "Edit
+    // Level 3 by hand", at two of three viewports, on a commit whose diff
+    // cannot touch a finished character's Level field at all.
+    //
+    // So this does not pretend the race is gone - it notices. Three attempts
+    // is generous; if the fourth read still disagrees, the fixture is not
+    // what the caller asked for and every assertion after it is meaningless,
+    // so it says so out loud rather than failing six checks further down.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      // Let the DOM settle first. quiet() polls until the fingerprint stops
+      // changing, so nothing is mid-interaction and no NEW save is being
+      // triggered by the page still moving - which is most of the way to
+      // closing the window, though not all of it (a timer already scheduled
+      // is invisible to it), so the check below is still doing the work.
+      await quiet(page);
+      await patch();
+      await reopenSheet();
+      const seen = await onSheetLevel();
+      if (seen === String(level)) break;
+      console.log(`note: fixture set Level to ${seen} instead of ${level} on attempt ${attempt + 1}; rewriting`);
+    }
+
     await pickDropdown("Class", className);
     // A character part-way up the levels has already chosen a subclass, and
     // that is what keeps the walkthrough's own Subclass page from gating the
