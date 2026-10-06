@@ -3765,6 +3765,23 @@ for (const phoneWidth of [320, 390]) {
         levelW20: after ? Math.round(after.getBoundingClientRect().width) : 0,
       };
     });
+    // The step is called "Ability Scores", on the pill as well as in the step.
+    // It was "Starting Conditions" until the gear moved off it (to Class and
+    // Background), which is the whole reason the old name was wrong - and a
+    // rename that missed one of the two places would show the player two
+    // names for one page. The step ID is deliberately still "abilities",
+    // because saved characters store the step they were left on.
+    const stepLabels = await wiz.evaluate(() => ({
+      dots: [...document.querySelectorAll(".wizard__dot")].map((d) => d.textContent.trim()),
+      ids: [...document.querySelectorAll(".wizard__dot")].map((d) => d.dataset.stepId),
+    }));
+    phoneCheck(stepLabels.dots.includes("Ability Scores"),
+      `@${phoneWidth} the step is called "Ability Scores" on the pill (${JSON.stringify(stepLabels.dots)})`);
+    phoneCheck(!stepLabels.dots.some((t) => /starting conditions/i.test(t)),
+      `@${phoneWidth} and nothing still calls it "Starting Conditions" (${JSON.stringify(stepLabels.dots)})`);
+    phoneCheck(stepLabels.ids.includes("abilities"),
+      `@${phoneWidth} while its saved-data step ID is still "abilities" (${JSON.stringify(stepLabels.ids)})`);
+
     phoneCheck(!!idRow && idRow.found, `@${phoneWidth} the Identity step has a name and level row`);
     if (idRow && idRow.found) {
       // One row at EVERY width, 320 included. This used to read

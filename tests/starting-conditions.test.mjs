@@ -8,7 +8,7 @@
 //                           split in two: the class's either/or rows went
 //                           to Class, the background's fixed package to
 //                           Background. They shared one "Starting
-//                           Equipment" section on Starting Conditions
+//                           Equipment" section on the Ability Scores step
 //                           until then, two steps from both the things
 //                           that decide them.)
 //   equipment profs      -> a new block on the main sheet
@@ -114,7 +114,7 @@ describe("the wizard has no Spells or Gear tab", () => {
   });
 });
 
-describe("Starting Conditions is scores, and nothing else", () => {
+describe("the Ability Scores step is scores, and nothing else", () => {
   const src = fs.readFileSync(new URL("../js/render/customSheet.js", import.meta.url), "utf8");
   const step = (from, to) => src.slice(src.indexOf(from), src.indexOf(to));
   // Comments stripped: the deliberately-parked Gear block sits between the
@@ -125,13 +125,29 @@ describe("Starting Conditions is scores, and nothing else", () => {
     .join("\n");
 
   it("is named for what it now covers, and is the last step before Review", () => {
-    assert.match(src, /title: "Starting Conditions"/);
+    assert.match(src, /title: "Ability Scores"/);
+    // Nothing PLAYER-FACING still calls it the old name. A leftover here is
+    // not a cosmetic miss: the step pill, the Review page and the docs all
+    // read their labels from these strings, so a partial rename shows the
+    // player two names for one page. Comments are excluded because the code
+    // deliberately explains what the step used to be called.
+    const liveSrc = src.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+    assert.doesNotMatch(liveSrc, /Starting Conditions/);
     // Review must follow it: the step order in the array is the tab order.
-    const cond = src.indexOf('title: "Starting Conditions"');
+    const cond = src.indexOf('title: "Ability Scores"');
     const review = src.indexOf('id: "review"', cond);
-    assert.ok(cond > 0 && review > cond, "Starting Conditions should come before Review");
+    assert.ok(cond > 0 && review > cond, "Ability Scores should come before Review");
     const background = src.indexOf('id: "background"', cond - 4000);
-    assert.ok(background < cond, "Starting Conditions should come after Background");
+    assert.ok(background < cond, "Ability Scores should come after Background");
+  });
+
+  it("keeps the step ID 'abilities', because saved characters store it", () => {
+    // The rename is a title only. A character's saved state names the step
+    // it was left on, and a resume that cannot find that step opens at the
+    // BEGINNING of the wizard instead of the page the player left - so
+    // renaming the id would silently discard everyone's place.
+    assert.match(src, /id: "abilities"/);
+    assert.ok(!/id: "Ability Scores"/.test(src), "the id must not have been given the new title");
   });
 
   it("carries no starting gear at all", () => {

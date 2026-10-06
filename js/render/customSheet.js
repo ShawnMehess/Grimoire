@@ -4133,7 +4133,7 @@ const closeDialog = () => {
   const STAGED_CATEGORIES = ["Race", "Class", "Subclass", "Background"];
 
   /** Ability-score bonuses every staged pick contributes, broken out by
-   *  source. Shared by the Starting Conditions step and the Review page:
+   *  source. Shared by the Ability Scores step and the Review page:
    *  the two used to disagree, because Review read the stored base scores
    *  while the sheet applied the racial points on top at render time.
    *
@@ -4382,7 +4382,7 @@ const closeDialog = () => {
   /** Starting equipment, rendered where it belongs.
    *
    *  This used to be one function drawing one "Starting Equipment" heading
-   *  on the Starting Conditions step, holding the background's fixed package
+   *  on the Ability Scores step, holding the background's fixed package
    *  and the class's either/or rows together. They are not one thing. The
    *  background's package is a consequence of the background, so it is shown
    *  on the Background step; the class's rows are choices the class leaves
@@ -6507,12 +6507,17 @@ const closeDialog = () => {
       },
       {
         id: "abilities",
-        // Renamed from "Ability Scores". This step is now where the
-        // character states what they START with: their six scores and
-        // their starting kit. Spells and equipment left the wizard as
-        // tabs (both live in the catalogs now), so this is the last step
-        // before Review and the name has to say more than "scores".
-        title: "Starting Conditions",
+        // "Starting Conditions" was the name this step carried while it also
+        // held the starting equipment (see the gear commit of 2026-10-05,
+        // which moved the gear to Class and Background). With that gone it
+        // holds six scores and the footnote about where bonuses come from -
+        // so it is "Ability Scores" again, which is what it does.
+        //
+        // The step ID is unchanged and must stay "abilities": saved
+        // characters store the step they were left on, and a resume that
+        // cannot find its step opens at the beginning of the wizard instead
+        // of the page the player left. The id is not the name.
+        title: "Ability Scores",
         render(container) {
           renderAbilitiesStepInto(container, {
             abilityIds: ABILITY_IDS,
@@ -6559,7 +6564,7 @@ const closeDialog = () => {
           // background's fixed package to Background (both at 2026-10-05).
           // It was the one thing that step held which the item catalog
           // cannot reproduce, and it is still true; it just had no business
-          // on a page called "Starting Conditions", two steps from the thing
+          // on a page called "Ability Scores", two steps from the thing
           // that decides it. The comment above this block, describing it as
           // living here, is gone with it.
         },

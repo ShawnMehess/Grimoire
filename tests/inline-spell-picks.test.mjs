@@ -829,7 +829,7 @@ describe("the lines each class gets", () => {
 // wizard asks for ability scores on a LATER page than the class.
 describe("the prepared limit moves with the ability score", () => {
   // Cleric/Wizard prepare `ability mod + level`. The wizard's step order is
-  // Rules -> Identity -> Class -> Background -> Story -> Starting Conditions,
+  // Rules -> Identity -> Class -> Background -> Story -> Ability Scores,
   // so a class pick can be made before its casting score exists.
   it("the cap follows the score the character is actually going to have", () => {
     // `prepared(level, mod)` is max(1, mod + level), and abilityMod is
