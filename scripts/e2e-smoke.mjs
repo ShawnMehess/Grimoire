@@ -3760,9 +3760,6 @@ for (const phoneWidth of [320, 390]) {
         levelLeft: Math.round(lr.left),
         levelW,
         nameW: Math.round(nr.width),
-        // 44px is the tap floor; at or above 320px the two share a line, and
-        // below that they stack by design.
-        stacksByDesign: window.innerWidth <= 340,
         fits: after ? after.scrollWidth <= after.clientWidth + 1 : false,
         levelH: after ? Math.round(after.getBoundingClientRect().height) : 0,
         levelW20: after ? Math.round(after.getBoundingClientRect().width) : 0,
@@ -3770,8 +3767,16 @@ for (const phoneWidth of [320, 390]) {
     });
     phoneCheck(!!idRow && idRow.found, `@${phoneWidth} the Identity step has a name and level row`);
     if (idRow && idRow.found) {
-      phoneCheck(idRow.stacksByDesign || (idRow.sameLine && idRow.levelLeft > idRow.nameLeft),
-        `@${phoneWidth} above 340px they sit on ONE line, level to the right of name (${JSON.stringify(idRow)})`);
+      // One row at EVERY width, 320 included. This used to read
+      // `stacksByDesign || (...)`, with stacksByDesign true at or below
+      // 340px, which is an assertion written to match the layout it was
+      // complaining about rather than the layout that was asked for.
+      phoneCheck(idRow.sameLine && idRow.levelLeft > idRow.nameLeft,
+        `@${phoneWidth} they sit on ONE line, level to the right of name (${JSON.stringify(idRow)})`);
+      // And the name is the field that gives up the room, so it has to be
+      // left with something usable rather than pushed to a second line.
+      phoneCheck(idRow.nameW >= 120,
+        `@${phoneWidth} with the name still getting real width (${idRow.nameW}px)`);
       phoneCheck(idRow.fits,
         `@${phoneWidth} and a two-digit level shows in full (${idRow.levelW20}px box)`);
       phoneCheck(idRow.levelW >= 44 && idRow.levelW <= 96,

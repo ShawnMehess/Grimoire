@@ -135,12 +135,26 @@
  * player and the race list. The name takes what is left, the level takes only
  * what it needs, and the row breaks to two lines only when there is genuinely
  * not enough width for both - which at 390px there is. */
+/* One row, at every width, including the narrowest phone this is checked
+   at (320px). `flex-wrap: wrap` was here on the theory that two boxes side
+   by side below 340px become two half-width boxes - but that is backwards:
+   the NAME is the thing that needs the room, and it is the field that
+   shrinks. Level is fixed at 44px, so the row needs 44 + gap and the rest
+   goes to the name no matter how narrow the screen is. At 320px the name
+   still gets ~212px, which is three or four characters more than the
+   placeholder "Your character's name" needs to read as a prompt, and it is
+   all editable text anyway.
+
+   `min-width: 0` on the name (see the field rule below) is what lets it
+   shrink instead of forcing the wrap; without it a flex item's automatic
+   minimum size is its content's, and the row would overflow rather than
+   stack. */
 .wizard__identity-row {
   grid-column: 1 / -1;
   display: flex;
   align-items: flex-end;
   gap: var(--space-3);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 .wizard__identity-row > .level-guide__field {
   display: flex;
@@ -167,6 +181,14 @@
  *
  * `ch` rather than a pixel figure, so a larger font grows the box instead of
  * clipping. The 44px floor wins where the two disagree. */
+/* Level is a two-digit number, so it takes only what it needs rather than
+   a share of the row. The 44px floor is the whole point: a level box is a
+   spinner's old 38px target, and a spinner you cannot comfortably hit is
+   worse than no spinner. `5ch` is two digits plus slack, and `min-width`
+   wins where the two disagree, so a larger font grows the box instead of
+   clipping the "20". The native spinner is removed - it needs ~14px of the
+   same row, it is a fiddly target on its own, and min/max plus the step
+   keys and the on-screen keyboard all still work. */
 .wizard__identity-row .wizard__level-input {
   width: 5ch;
   min-width: 44px;
@@ -179,16 +201,6 @@
   -webkit-appearance: none;
   appearance: none;
   margin: 0;
-}
-
-/* Below this the two side by side stop being two short questions and start
-   being two half-width boxes with a label above each. Stacking is the
-   honest answer there: a level box next to a name box leaves too little for
-   either to be a comfortable target. */
-@media (max-width: 340px) {
-  .wizard__identity-row > .level-guide__field:first-child {
-    flex: 1 1 100%;
-  }
 }
 
 /* Ability Scores step — one field per row (not the default two-column
