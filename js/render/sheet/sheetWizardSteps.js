@@ -663,6 +663,38 @@ export function renderReviewStepInto(container, state, deps) {
 //     onMethodChange, rememberedScores,
 //   })
 
+/** The three ways to set six ability scores, with a sentence each.
+ *
+ *  Pure, and exported because the ids and names are saved data: a character
+ *  stores `rules.abilityScoreMethod` as one of these ids, so this list is
+ *  the definition of the values a saved character can hold. Renaming an id
+ *  silently resets every character using it back to Manual Entry.
+ *
+ *  The descriptions exist because the method names used to be the only thing
+ *  on screen. "Random Roll (4d6, drop lowest)" was the whole of what a
+ *  player learned about rolling, and "Point Buy (27 points)" said the budget
+ *  without saying that scores cost 1 point per point above 8.
+ */
+export function abilityScoreMethods(budget = 27) {
+  return [
+    {
+      id: "pointbuy",
+      name: `Point Buy (${budget} points)`,
+      description: `Spend ${budget} points across your six scores. Each score costs 1 point per point above 8, so 8 is free and 15 is the most you can buy. Nothing is left to chance.`,
+    },
+    {
+      id: "roll",
+      name: "Random Roll",
+      description: "Roll 4d6 for each score and drop the lowest die, six times. Fast and unpredictable. You can still edit any score afterwards.",
+    },
+    {
+      id: "manual",
+      name: "Manual Entry",
+      description: "Type all six scores yourself, within the range your species allows. Use this if you are bringing a character built another way.",
+    },
+  ];
+}
+
 export function clampScoreToRange(value, fallback, min, max) {
   let v = Number.parseInt(value, 10);
   if (!Number.isFinite(v)) v = fallback;
@@ -798,29 +830,54 @@ export function renderAbilitiesStepInto(container, deps) {
     }
     : null;
 
-  const methodGroup = el("label", { class: "level-guide__field wizard__ability-method", text: "Method" });
-  const methodSelect = el("select", { class: "input-group__control" });
-  [["pointbuy", "Point Buy (27 points)"], ["roll", "Random Roll (4d6, drop lowest)"], ["manual", "Manual Entry"]].forEach(([value, label]) => {
-    methodSelect.append(el("option", { value, text: label }));
-  });
-  methodSelect.value = method || "manual";
-  methodGroup.append(methodSelect);
+  // The method control is a table of three rows, not a <select>.
+  //
+  // A dropdown asked the player to already know what "4d6, drop lowest"
+  // means, in a list with no room to say it, and the one piece of
+  // information that actually mattered - switching resets your six scores -
+  // lived in a sentence below it. A table has room for all three: what the
+  // method is, what it does, and what switching costs you.
+  //
+  // It is a real radio group, so it is keyboard- and screen-reader-correct
+  // for free: arrow keys move between methods, and the checked one is
+  // announced. No <select> popup to open, and nothing hidden behind a tap -
+  // which is the actual complaint on a phone, where the popup covers the
+  // scores it is about to change.
+  //
+  // No expand/collapse on any of it: three rows that are all short do not
+  // need hiding, and the step has no Expand All / Collapse All bar.
+  const methodGroup = el("div", { class: "wizard__ability-method", role: "radiogroup", "aria-label": "Ability score method" });
+  const methodOptions = abilityScoreMethods(budget);
+  const savedMethod = method || "manual";
+  for (const opt of methodOptions) {
+    const checked = opt.id === savedMethod;
+    const input = el("input", {
+      type: "radio", name: "ability-score-method", value: opt.id,
+      class: "wizard__ability-method-radio",
+      checked,
+      "aria-describedby": `ability-method-${opt.id}-desc`,
+    });
+    input.addEventListener("change", () => {
+      if (!input.checked) return;
+      changeMethod(opt.id);
+    });
+    const row = el("div", { class: `wizard__ability-method-row${checked ? " wizard__ability-method-row--active" : ""}` },
+      el("label", { class: "wizard__ability-method-label", for: `ability-method-${opt.id}` },
+        input,
+        el("span", { class: "wizard__ability-method-name", text: opt.name })),
+      el("p", { class: "wizard__ability-method-desc", id: `ability-method-${opt.id}-desc`, text: opt.description }));
+    methodGroup.append(row);
+  }
   container.append(methodGroup);
 
-  // "Switching methods resets your scores" lives here, beside the control
-  // that does it, rather than in the step's lead-in paragraph (removed). It
-  // is a consequence that destroys typed work, so it has to be visible before
-  // the switch, not recalled afterwards - and a player reads the label on the
-  // dropdown they are about to touch, not a sentence several rows above it.
-  //
-  // Still true, and worth saying why it did not get softer: a method you have
-  // never used has no numbers to restore, so those six scores DO become
-  // whatever that method starts from. What changed is that a method you HAVE
-  // used gives its own six back instead of taking the last method's - see
-  // `remembered` below.
+  // The warning under the table is softer than the one this replaced, and
+  // that is a real change rather than a rewording: a method you HAVE used
+  // now gives its own six scores back (see `remembered` below), so only a
+  // method you have never touched starts from its own default. It sits with
+  // the table because that is where the choice is made.
   container.append(el("p", {
     class: "leveling-tab__intro wizard__ability-note wizard__method-warning",
-    text: "Changing this method sets the six scores to that method's starting point.",
+    text: "Each method remembers your six scores, so switching back and forth will not lose them. A method you have not used yet starts from its own default.",
   }));
 
   // Per-method memory, for the length of this wizard session.
@@ -875,7 +932,11 @@ export function renderAbilitiesStepInto(container, deps) {
 
   function renderScores() {
     scoresWrap.innerHTML = "";
-    const current = methodSelect.value;
+    // `activeMethod`, not the radio's checked value: the radios and the state
+    // are updated together in changeMethod, and reading one of them here
+    // would make the six rows below belong to a different method than the
+    // one the table highlights if a re-render landed between the two.
+    const current = activeMethod;
     const bonusMap = bonuses || {};
     if (current === "pointbuy") {
       const note = el("p", { class: "leveling-tab__intro wizard__ability-note" });
@@ -976,23 +1037,38 @@ export function renderAbilitiesStepInto(container, deps) {
       });
     }
   }
-  methodSelect.addEventListener("change", () => {
-    const next = methodSelect.value;
-    if (next !== activeMethod) {
-      // What the method we are leaving had, so coming back finds it.
-      remembered[activeMethod] = { ...scores };
-      // And what the method we are going to had, if we have been here before.
-      // A method we have NOT used keeps its own defaults, which is the one
-      // case where the six scores really are replaced.
-      const back = remembered[next];
-      if (back) abilityIds.forEach((id) => {
-        if (Number.isFinite(back[id])) scores[id] = back[id];
-      });
-      activeMethod = next;
+  /** Switch method, from whichever control called it.
+   *
+   *  One place, because the control changed shape (a <select> became three
+   *  radio rows) and the state dance below is the part that must not be
+   *  duplicated. Both callers route through here.
+   */
+  function changeMethod(next) {
+    if (next === activeMethod) return;
+    // What the method we are leaving had, so coming back finds it.
+    remembered[activeMethod] = { ...scores };
+    // And what the method we are going to had, if we have been here before.
+    // A method we have NOT used keeps its own defaults, which is the one
+    // case where the six scores really are replaced.
+    const back = remembered[next];
+    if (back) abilityIds.forEach((id) => {
+      if (Number.isFinite(back[id])) scores[id] = back[id];
+    });
+    activeMethod = next;
+    // The table marks the active row with a class as well as `checked`, so
+    // it has to follow the switch - otherwise the highlighted row keeps
+    // claiming to be the one in use while the scores below belong to
+    // another.
+    for (const row of methodGroup.querySelectorAll(".wizard__ability-method-row")) {
+      row.classList.toggle("wizard__ability-method-row--active",
+        row.querySelector(".wizard__ability-method-radio")?.value === next);
     }
     onMethodChange(next);
     renderScores();
-  });
+  }
+
+  // Per-method score memory, seeded before the first render so a method the
+  // player has not touched still has somewhere to be remembered into.
   renderScores();
 }
 

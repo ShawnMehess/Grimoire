@@ -1368,12 +1368,6 @@ function openTestDialog(host, overrides = {}) {
     rememberedScores: memory,
     onMethodChange: () => {},
   });
-  // The DOM stub here cannot answer a descendant selector, so the method
-  // select is reached through its label - which is also the shape a reader
-  // meets it in.
-  const methodLabel = box.querySelector(".wizard__ability-method");
-  const methodSelect = (methodLabel?.children || []).find((k) => String(k.tag).toLowerCase() === "select");
-  assert(!!methodSelect, "the abilities step renders a method picker");
   // The stub cannot answer an attribute selector either, so the score boxes
   // are collected by walking to them.
   const walk = (node, out = []) => {
@@ -1383,7 +1377,51 @@ function openTestDialog(host, overrides = {}) {
     }
     return out;
   };
-  const boxes = () => walk(box);
+  // Score boxes only. The step now starts with three METHOD RADIOS above the
+  // scores, and a blind `walk` picked those up as boxes[0] - so "typing a
+  // score" was typing into the Point Buy radio and setting its value to 14.
+  // Filtering by type says what is being tested instead of relying on the
+  // scores being the first inputs on the page.
+  const boxes = () => walk(box).filter((n) => n.type === "number");
+  // The DOM stub here cannot answer a descendant selector, so the method
+  // control is reached through its container - which is also the shape a
+  // reader meets it in.
+  //
+  // It is a table of three radios, not a <select> (item 19). Driving it means
+  // finding the radio by its value and firing change on it, because the
+  // radios own the change handler; a <select> driver would keep passing
+  // against a control that no longer exists.
+  const methodBox = box.querySelector(".wizard__ability-method");
+  // `el()` maps `type` onto the property, not the attribute bag, so this
+  // reads `.type` where it reads getAttribute for `value` (also a
+  // property) and for class (an attribute).
+  const radios = () => walk(methodBox).filter((n) => n.type === "radio");
+  const methodSelect = (id) => radios().find((r) => r.value === id);
+  assert(methodBox, "the abilities step renders a method table");
+  assert(radios().length === 3, `with one radio per method (${radios().length})`);
+  assert(!!methodSelect("pointbuy") && !!methodSelect("roll") && !!methodSelect("manual"),
+    "and all three methods are offered at once, not behind a dropdown");
+  // Each row carries its own description, which is the reason this is a
+  // table: a <select> had no room to say what any of them does.
+  // Classes live in the attribute bag on this stub, not on a `.class`
+  // property, so they are read with getAttribute.
+  const descCount = (methodBox.children || []).filter((row) =>
+    (row.children || []).some((k) => String(k.getAttribute?.("class") || "").includes("wizard__ability-method-desc"))).length;
+  assert(descCount === 3, `each method has a description of its own (${descCount})`);
+  // Nothing on this step may be collapsed: no details element, and no
+  // Expand All / Collapse All bar anywhere in it.
+  assert(!/details/i.test(String(methodBox.tag || "")), "the method table is not a disclosure");
+  assert(!/Expand All|Collapse All/i.test(box.textContent || ""),
+    "and this step has no Expand All / Collapse All bar");
+
+  // Switching methods the way a player does: click the radio.
+  const chooseMethod = (id) => {
+    const radio = methodSelect(id);
+    assert(!!radio, `the ${id} method has a radio`);
+    radios().forEach((r) => { if (r !== radio) r.checked = false; });
+    radio.checked = true;
+    fire(radio, "change");
+  };
 
   // Typing a score actually reaches `scores`. 14 rather than 16 because the
   // Point Buy box's own maximum is 15 and it clamps what it is given - which
@@ -1396,34 +1434,28 @@ function openTestDialog(host, overrides = {}) {
   // Give Point Buy a distinctive spread, then move to Manual and give that a
   // different one, then come back.
   scores.str = 15; scores.dex = 14;
-  methodSelect.value = "manual";
-  fire(methodSelect, "change");
+  chooseMethod("manual");
   scores.str = 12; scores.dex = 11;
   assert(scores.str === 12, `Manual Entry takes its own numbers (str=${scores.str})`);
 
-  methodSelect.value = "pointbuy";
-  fire(methodSelect, "change");
+  chooseMethod("pointbuy");
   assert(scores.str === 15 && scores.dex === 14,
     `coming back to Point Buy restores its own spread (str=${scores.str}, dex=${scores.dex})`);
 
-  methodSelect.value = "manual";
-  fire(methodSelect, "change");
+  chooseMethod("manual");
   assert(scores.str === 12 && scores.dex === 11,
     `and coming back to Manual Entry restores THAT one (str=${scores.str}, dex=${scores.dex})`);
 
   // A method being used for the first time has nothing to restore, so it
   // really does replace the six scores - which is why the warning still says
   // so, in the new words.
-  methodSelect.value = "roll";
-  fire(methodSelect, "change");
+  chooseMethod("roll");
   const atRoll = { str: scores.str, dex: scores.dex };
   assert(!memory.roll, "a method being used for the first time has nothing to restore");
   assert(!/resets the six scores/.test(box.textContent || ""),
     "and the warning no longer claims a method you have used is reset");
-  methodSelect.value = "pointbuy";
-  fire(methodSelect, "change");
-  methodSelect.value = "roll";
-  fire(methodSelect, "change");
+  chooseMethod("pointbuy");
+  chooseMethod("roll");
   assert(!!memory.roll, "leaving a method remembers the six numbers it had");
   assert(scores.str === atRoll.str && scores.dex === atRoll.dex,
     `a second visit to Roll restores it (str=${scores.str} vs ${atRoll.str})`);

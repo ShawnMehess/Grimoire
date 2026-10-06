@@ -1056,6 +1056,24 @@
   }
 }
 
+/* --- The ability-score method table on a narrow screen ---------------------
+   The row is a two-column grid on a desktop: control and name in one column,
+   the description in the other. Below ~520px that leaves the description
+   about 150px wide, which turns three sentences into one word per line. So
+   the description moves under the name instead of beside it, still indented
+   past the radio so the two read as one block. The row does not become a
+   disclosure - all three methods are always visible. */
+@media screen and (max-width: 520px) {
+  .wizard__ability-method-row {
+    grid-template-columns: 1fr;
+    row-gap: var(--space-1);
+  }
+  .wizard__ability-method-desc {
+    /* Past the radio, aligning with the method name. */
+    padding-inline-start: 32px;
+  }
+}
+
 /* --- 7. The level-up walkthrough on a phone -------------------------------
    ---------------------------------------------------------------------------
    Measured on a fresh level 1 Cleric at all four sizes, with the walkthrough

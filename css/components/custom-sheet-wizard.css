@@ -211,6 +211,64 @@
   grid-column: 1 / -1;
 }
 
+/* The method table: three rows, each a radio plus a sentence. Not a
+   disclosure - nothing here is hidden, so there is no toggle and no
+   Expand All / Collapse All on this step. */
+.wizard__ability-method {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.wizard__ability-method-row {
+  display: grid;
+  /* The radio rides in the label, and the description indents to sit under
+     the NAME rather than under the radio, so the two line up as one block
+     of text with a control beside it. */
+  grid-template-columns: auto 1fr;
+  column-gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border, #d8d2c6);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-surface, #fff);
+}
+.wizard__ability-method-row--active {
+  border-color: var(--color-accent, #b3492b);
+  /* A tinted ground as well as a border, so the chosen method does not
+     depend on noticing a one-pixel colour change. */
+  background: rgba(179, 73, 43, 0.06);
+}
+.wizard__ability-method-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  /* 44px tall minimum: this is the thing a player taps to pick their
+     method, and it is now a row rather than a dropdown option. */
+  min-height: 44px;
+  cursor: pointer;
+}
+/* The radio is 24px, not 16px. Browsers size these at 13px by default,
+   which is a poor tap target on its own; the 44px row beside it absorbs
+   the rest. */
+.wizard__ability-method-radio {
+  inline-size: 24px;
+  block-size: 24px;
+  margin: 0;
+  accent-color: var(--color-accent, #b3492b);
+  flex: none;
+}
+.wizard__ability-method-name {
+  white-space: nowrap;
+}
+.wizard__ability-method-desc {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--color-text-muted, #5c574d);
+}
+
 .wizard__ability-scores {
   display: flex;
   flex-direction: column;

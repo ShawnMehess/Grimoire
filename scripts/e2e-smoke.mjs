@@ -287,6 +287,119 @@ const settled = async (page, selector, what) => {
   }
 };
 
+/** Pickers and dialogs are siblings of the app root; anything left open
+ *  swallows the next click, and a swallowed click reads as a broken wizard. */
+const clearPickOverlays = (page) => page.evaluate(() => {
+  for (const o of document.querySelectorAll("body > .modal-overlay, body > .choice-dialog-overlay")) o.remove();
+});
+
+/** Take one unfilled pick on the CURRENT step of `page`. Returns whether
+ *  anything changed, so a caller can tell "one more to go" from "nothing
+ *  left".
+ *
+ *  Two scopes, and only these two: the SELECTED picker row, and any open
+ *  "Your choices" section body. A collapsed row keeps its dropdowns in the
+ *  DOM, and driving one of those writes a pick for a race/class/background
+ *  the player has NOT chosen and re-renders the page underneath the loop -
+ *  which is how a step ends up reporting picks the player never made.
+ *
+ *  Slot values are set to the first ENABLED non-empty option rather than to
+ *  index 1: a sibling slot's pick disables that option, and a browser
+ *  silently refuses to select a disabled one, so the value never sticks.
+ *
+ *  Page-parameterised rather than closed over one page, because the phone
+ *  area needs the same walkthrough at 320px and it used to be the reason
+ *  two areas each carried their own copy. */
+const takeOnePick = async (page) => {
+  const moved = await page.evaluate(() => {
+    const scopes = [];
+    const sel = document.querySelector(".choice-row--selected");
+    if (sel) scopes.push(sel);
+    for (const b of document.querySelectorAll(".wizard__section-body")) {
+      if (!b.hidden && !scopes.includes(b)) scopes.push(b);
+    }
+    if (!scopes.length) return null;
+    const inScopes = (s) => scopes.some((x) => x.contains(s));
+    const shown = (e) => e.getClientRects().length > 0;
+    for (const scope of scopes) {
+      for (const s of scope.querySelectorAll("select[data-inline-slot]")) {
+        if (s.selectedIndex > 0) continue;
+        const opt = [...s.options].find((o) => !o.disabled && o.value !== "");
+        if (!opt) continue;
+        s.value = opt.value;
+        s.dispatchEvent(new Event("change", { bubbles: true }));
+        return "slot";
+      }
+    }
+    for (const l of document.querySelectorAll(".inline-pick-link")) {
+      if (!inScopes(l) || !shown(l)) continue;
+      const t = (l.textContent || "").trim();
+      if (/^choose\b/i.test(t) || /\bchoose \d/i.test(t)) { l.click(); return "dialog"; }
+    }
+    for (const t of document.querySelectorAll(".wizard__section-toggle")) {
+      if (/needs picks/i.test(t.textContent || "") && shown(t)) { t.click(); return "section"; }
+    }
+    return null;
+  });
+  if (!moved) return false;
+  await page.waitForTimeout(450);
+  if (!(await page.$(".choice-dialog-overlay"))) {
+    await clearPickOverlays(page);
+    await page.waitForTimeout(150);
+    return true;
+  }
+  await page.evaluate(() => {
+    const dlg = document.querySelector(".choice-dialog-overlay");
+    const cap = Number((dlg.textContent.match(/\/\s*(\d+)\s*picked/) || [])[1] || 1);
+    // Both kinds, because openChoiceDialog picks between them by
+    // `maxSelections`: a one-pick group (a fighting style, a tool) opens
+    // RADIOS. Querying checkboxes only left every single-pick group
+    // untaken, and the harness then reported it as "an invisible pick".
+    const boxes = [...dlg.querySelectorAll("input[type=checkbox]:not(:disabled), input[type=radio]:not(:disabled)")];
+    let n = 0;
+    for (const b of boxes) {
+      if (n >= cap) break;
+      if (!b.checked) { b.click(); n++; }
+    }
+    [...dlg.querySelectorAll("button")].find((x) => /accept/i.test(x.textContent))?.click();
+  });
+  await page.waitForTimeout(450);
+  return true;
+};
+
+/** Fill every unfilled pick on the current step. Returns whether anything
+ *  changed at all. */
+const fillEveryPick = async (page) => {
+  let changed = false;
+  for (let i = 0; i < 16; i++) {
+    if (!(await takeOnePick(page))) break;
+    changed = true;
+  }
+  return changed;
+};
+
+/** The class's starting-gear rows live on the Class step and gate it, so
+ *  every walkthrough through that step has to answer them. Plain radio
+ *  groups - first option in each, which is how a player resolves a row
+ *  they have no opinion about. Takes the gold group too, so a class whose
+ *  rows are all answered by gold still reaches the next step. */
+const fillEveryGearRow = async (page) => page.evaluate(() => {
+  const groups = new Map();
+  for (const r of document.querySelectorAll('.wizard input[type=radio][name^="starting-equipment"]')) {
+    if (!r.closest(".wizard__body")) continue;
+    if (!groups.has(r.name)) groups.set(r.name, [...document.querySelectorAll(`input[type=radio][name="${r.name}"]`)]);
+  }
+  let took = 0;
+  for (const radios of groups.values()) {
+    if (radios.some((r) => r.checked)) continue;
+    const first = radios.find((r) => !r.disabled && !r.closest("[hidden]"));
+    if (!first) continue;
+    first.click();
+    took += 1;
+  }
+  return took;
+});
+
 const READY_SHEET = ".sheet-toolbar";
 const READY_VAULT = ".vault-new__go";
 const READY_WIZARD = ".wizard";
@@ -5151,110 +5264,12 @@ if (inArea("background-gate")) {
     b.click();
     return true;
   });
-  // Pickers and dialogs are siblings of the app root; anything left open
-  // swallows the next click, and a swallowed click reads as a broken wizard.
-  const bgClearOverlays = () => bgPage.evaluate(() => {
-    for (const o of document.querySelectorAll("body > .modal-overlay, body > .choice-dialog-overlay")) o.remove();
-  });
+  const bgClearOverlays = () => clearPickOverlays(bgPage);
 
-  /** Take one unfilled pick on the CURRENT step. Returns whether anything
-   *  changed, so a caller can tell "one more to go" from "nothing left".
-   *
-   *  Two scopes, and only these two: the SELECTED picker row, and any open
-   *  "Your choices" section body. A collapsed row keeps its dropdowns in the
-   *  DOM, and driving one of those writes a pick for a race/class/background
-   *  the player has NOT chosen and re-renders the page underneath the loop -
-   *  which is how a step ends up reporting picks the player never made.
-   *
-   *  Slot values are set to the first ENABLED non-empty option rather than to
-   *  index 1: a sibling slot's pick disables that option, and a browser
-   *  silently refuses to select a disabled one, so the value never sticks. */
-  const bgTakePick = async () => {
-    const moved = await bgPage.evaluate(() => {
-      const scopes = [];
-      const sel = document.querySelector(".choice-row--selected");
-      if (sel) scopes.push(sel);
-      for (const b of document.querySelectorAll(".wizard__section-body")) {
-        if (!b.hidden && !scopes.includes(b)) scopes.push(b);
-      }
-      if (!scopes.length) return null;
-      const inScopes = (sel2) => scopes.some((s) => s.contains(sel2));
-      const shown = (e) => e.getClientRects().length > 0;
-      for (const scope of scopes) {
-        for (const s of scope.querySelectorAll("select[data-inline-slot]")) {
-          if (s.selectedIndex > 0) continue;
-          const opt = [...s.options].find((o) => !o.disabled && o.value !== "");
-          if (!opt) continue;
-          s.value = opt.value;
-          s.dispatchEvent(new Event("change", { bubbles: true }));
-          return "slot";
-        }
-      }
-      for (const l of document.querySelectorAll(".inline-pick-link")) {
-        if (!inScopes(l) || !shown(l)) continue;
-        const t = (l.textContent || "").trim();
-        if (/^choose\b/i.test(t) || /\bchoose \d/i.test(t)) { l.click(); return "dialog"; }
-      }
-      for (const t of document.querySelectorAll(".wizard__section-toggle")) {
-        if (/needs picks/i.test(t.textContent || "") && shown(t)) { t.click(); return "section"; }
-      }
-      return null;
-    });
-    if (!moved) return false;
-    await bgPage.waitForTimeout(450);
-    if (!(await bgPage.$(".choice-dialog-overlay"))) {
-      await bgClearOverlays();
-      await bgPage.waitForTimeout(150);
-      return true;
-    }
-    await bgPage.evaluate(() => {
-      const dlg = document.querySelector(".choice-dialog-overlay");
-      const cap = Number((dlg.textContent.match(/\/\s*(\d+)\s*picked/) || [])[1] || 1);
-      // Both kinds, because openChoiceDialog picks between them by
-      // `maxSelections`: a one-pick group (a fighting style, a tool) opens
-      // RADIOS. Querying checkboxes only left every single-pick group
-      // untaken, and the harness then reported it as "an invisible pick".
-      const boxes = [...dlg.querySelectorAll("input[type=checkbox]:not(:disabled), input[type=radio]:not(:disabled)")];
-      let n = 0;
-      for (const b of boxes) {
-        if (n >= cap) break;
-        if (!b.checked) { b.click(); n++; }
-      }
-      [...dlg.querySelectorAll("button")].find((x) => /accept/i.test(x.textContent))?.click();
-    });
-    await bgPage.waitForTimeout(450);
-    return true;
-  };
-  const bgFillPicks = async () => {
-    let changed = false;
-    for (let i = 0; i < 16; i++) {
-      if (!(await bgTakePick())) break;
-      changed = true;
-    }
-    return changed;
-  };
-
-  // The class's starting-gear rows live on the Class step and gate it, so
-  // every walkthrough through that step has to answer them. Plain radio
-  // groups - first option in each, which is how a player resolves a row
-  // they have no opinion about. Takes the gold group too, so a class whose
-  // rows are all answered by gold still reaches Background.
-  const bgFillEquipment = async () => bgPage.evaluate(() => {
-    const groups = new Map();
-    for (const r of document.querySelectorAll('.wizard input[type=radio][name^="starting-equipment"]')) {
-      if (!r.closest(".wizard__body")) continue;
-      if (!groups.has(r.name)) groups.set(r.name, [...document.querySelectorAll(`input[type=radio][name="${r.name}"]`)]);
-    }
-    let took = 0;
-    for (const radios of groups.values()) {
-      if (radios.some((r) => r.checked)) continue;
-      const first = radios.find((r) => !r.disabled && !r.closest("[hidden]"));
-      if (!first) continue;
-      first.click();
-      took += 1;
-    }
-    return took;
-  });
+  // Bound to this area's page, so the calls below read the same as they did.
+  const bgTakePick = () => takeOnePick(bgPage);
+  const bgFillPicks = () => fillEveryPick(bgPage);
+  const bgFillEquipment = () => fillEveryGearRow(bgPage);
 
   await bgPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
   await settled(bgPage, READY_VAULT, "bg-gate vault");
@@ -5423,6 +5438,96 @@ if (inArea("background-gate")) {
           `${bg}: filling every visible pick lets Next through${stillBlocked ? " (still blocked - a pick is invisible)" : ""}`);
       }
     }
+    // --- The Ability Scores step's method table --------------------------
+    //
+    // Reached by walking on: Story has no gate, so from Background it is two
+    // Next clicks away. The walkthrough above already knows how to answer
+    // every gate before it, which is the only reason this is cheap - and the
+    // alternative (jumping the dot) does not work, because forward dots stay
+    // locked until the pages before them are decided.
+    for (let hop = 0; hop < 3; hop += 1) {
+      if ((await bgStep()) === "abilities") break;
+      await bgNext();
+      await bgPage.waitForTimeout(700);
+    }
+    bgCheck((await bgStep()) === "abilities",
+      `the walkthrough continues to the Ability Scores step (at ${await bgStep()})`);
+
+    // Checked at a phone width as well as the page's own, because the whole
+    // complaint about a method control was a phone one: a <select> popup
+    // covers the six scores it is about to change.
+    for (const vp of [{ n: "1440x1400", width: 1440, height: 1400 }, { n: "390x844", width: 390, height: 844 }]) {
+      if ((await bgPage.viewportSize())?.width !== vp.width) {
+        await bgPage.setViewportSize({ width: vp.width, height: vp.height });
+        await bgPage.waitForTimeout(900);
+      }
+      const methods = await bgPage.evaluate(() => {
+        const box = document.querySelector(".wizard__ability-method");
+        const rows = [...(box?.querySelectorAll(".wizard__ability-method-row") || [])];
+        const shown = (e) => e.getClientRects().length > 0;
+        const de = document.documentElement;
+        return {
+          isTable: box?.getAttribute("role") === "radiogroup",
+          selects: box ? box.querySelectorAll("select").length : -1,
+          rows: rows.length,
+          names: rows.map((r) => r.querySelector(".wizard__ability-method-name")?.textContent.trim()),
+          described: rows.every((r) =>
+            (r.querySelector(".wizard__ability-method-desc")?.textContent.trim().length || 0) > 20),
+          // Every row's tap target, not just the 13px radio in it.
+          targets: rows.map((r) => {
+            const label = r.querySelector(".wizard__ability-method-label");
+            const b = label?.getBoundingClientRect();
+            return b ? { w: Math.round(b.width), h: Math.round(b.height) } : null;
+          }),
+          active: rows.filter((r) => r.classList.contains("wizard__ability-method-row--active")).length,
+          details: document.querySelectorAll(".wizard__body details").length,
+          bar: /Expand All|Collapse All/i.test(document.querySelector(".wizard__body")?.textContent || ""),
+          // And the description is beside the name on a wide screen, under it
+          // on a narrow one - reported, not asserted, because which is right
+          // depends only on there being room.
+          stacked: rows.length ? Math.abs(
+            (rows[0].querySelector(".wizard__ability-method-label")?.getBoundingClientRect().top || 0)
+            - (rows[0].querySelector(".wizard__ability-method-desc")?.getBoundingClientRect().top || 0)) > 12 : null,
+          scrollsSideways: de.scrollWidth > de.clientWidth + 1,
+        };
+      });
+      bgCheck(methods.isTable,
+        `@${vp.n} the method control is a table of radios (${JSON.stringify(methods.names)})`);
+      bgCheck(methods.selects === 0,
+        `@${vp.n} with no dropdown popup anywhere on it (${methods.selects})`);
+      bgCheck(methods.rows === 3, `@${vp.n} one row per method, all visible at once (${methods.rows})`);
+      bgCheck(methods.described,
+        `@${vp.n} and each row explaining what that method actually does`);
+      bgCheck(methods.active === 1,
+        `@${vp.n} with exactly one row marked as the method in use (${methods.active})`);
+      bgCheck(methods.targets.every((t) => t && t.h >= 44 && t.w >= 44),
+        `@${vp.n} and every row a real 44px target, not a 13px radio (${JSON.stringify(methods.targets)})`);
+      bgCheck(!methods.bar && methods.details === 0,
+        `@${vp.n} and nothing on this step collapsed: no disclosure, no Expand All / Collapse All (${methods.details} details)`);
+      bgCheck(!methods.scrollsSideways, `@${vp.n} and the table fits the screen without sideways scrolling`);
+      bgCheck(typeof methods.stacked === "boolean",
+        `@${vp.n} with the description beside the name on a wide screen and under it on a narrow one (stacked=${methods.stacked})`);
+    }
+
+    // Choosing a method, by clicking the row the way a player does, really
+    // changes the six scores below it.
+    await bgPage.evaluate(() => {
+      document.querySelector('input[name="ability-score-method"][value="manual"]')?.click();
+    });
+    await bgPage.waitForTimeout(700);
+    const switched = await bgPage.evaluate(() => ({
+      checked: document.querySelector('input[name="ability-score-method"]:checked')?.value || null,
+      activeName: document.querySelector(".wizard__ability-method-row--active .wizard__ability-method-name")
+        ?.textContent.trim() || null,
+      // Point Buy prints a running budget under the scores; Manual does not.
+      budget: /Points spent/.test(document.querySelector(".wizard__body")?.textContent || ""),
+    }));
+    bgCheck(switched.checked === "manual",
+      `clicking a method row selects it (${switched.checked})`);
+    bgCheck(/Manual/.test(switched.activeName || ""),
+      `and the highlighted row follows the switch (${JSON.stringify(switched.activeName)})`);
+    bgCheck(!switched.budget,
+      `while the six rows below switch to that method (no point-buy budget on Manual Entry)`);
     await bgPage.screenshot({ path: path.join(shotDir, "background-gate.png") });
   }
   await bgPage.close();
