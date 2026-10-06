@@ -79,7 +79,7 @@ import { RACE_EXTRA_CATALOG_ENTRIES } from "../data/extraRaces.js";
 import { flavorFor } from "../data/pickerFlavor.js";
 import { portraitArtFor } from "../data/portraitArt.js";
 import { SHEET_THEMES, applySheetTheme, normalizeThemeId, normalizeThemeMode } from "../data/themes.js";
-import { CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT, BG_EQUIPMENT_LINKS, goldOptionIdFor, slugId, resolveStartingEquipmentPick, linkedEquipmentNames, bgDisplayItems } from "../data/startingEquipment.js";
+import { CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT, BG_EQUIPMENT_LINKS, goldOptionIdFor, slugId, optionDetailText, resolveStartingEquipmentPick, linkedEquipmentNames, bgDisplayItems } from "../data/startingEquipment.js";
 import { ABILITIES, SKILLS, languageSections } from "../data/schema.js";
 import { EXPRESS_CLASS_DEFAULTS } from "../data/expressDefaults.js";
 import {
@@ -4379,75 +4379,132 @@ const closeDialog = () => {
     else pickWrap.remove();
   }
 
-  /** Equipment tab: background package first (fixed, automatic),
-   *  then one pick per class equipment row (PHB either/or rows, not
-   *  exclusive whole-kit paths), or the gold instead — plus the free-
-   *  form weapon/armor/tool proficiency pickers. Picks live on
+  /** Starting equipment, rendered where it belongs.
+   *
+   *  This used to be one function drawing one "Starting Equipment" heading
+   *  on the Starting Conditions step, holding the background's fixed package
+   *  and the class's either/or rows together. They are not one thing. The
+   *  background's package is a consequence of the background, so it is shown
+   *  on the Background step; the class's rows are choices the class leaves
+   *  open, so they are answered on the Class step, where the class is picked
+   *  and every other class question is answered.
+   *
+   *  Class starting equipment: the PHB either/or rows (not exclusive
+   *  whole-kit paths) or the gold instead. Picks live on
    *  rules.startingEquipment and apply once at Finish Setup (items to
-   *  Inventory, gold to GP). */
-  function renderStartingEquipmentStepInto(container, state, saveRules) {
-    const bg = BG_STARTING_EQUIPMENT[state.background];
-    if (bg && state.background) {
-      container.append(el("p", { class: "wizard__section-label", text: `Background equipment — ${state.background} (fixed, added automatically)` }));
-      // Linked picks (Acolyte prayer focus, Entertainer/Folk Hero/Guild
-      // Artisan tools) resolve into the package here, so the display
-      // always shows what Finish Setup will actually grant.
-      const bgBundle = bundleFor("Background", state.background, includedRulesetIds(state));
-      const linked = linkedEquipmentNames(state.background, bgBundle, character.rules?.choices || {});
-      const shown = bgDisplayItems(state.background, linked);
-      const link = BG_EQUIPMENT_LINKS[state.background];
-      const hint = link && !linked.length ? " (your linked choice fills the (your choice) line once picked)" : "";
-      noteInto(container, `${shown.join(", ")}${bg.gp ? `, plus ${bg.gp} gp` : ""}.${hint}`);
-    }
+   *  Inventory, gold to GP). Returns whether anything was drawn, so the
+   *  caller can leave its separator out for a class with no rows. */
+  function renderClassEquipmentInto(container, state, saveRules) {
     const entry = CLASS_STARTING_EQUIPMENT[state.className];
-    if (!entry) {
-      noteInto(container, "Pick a class first — Its starting equipment choices will show up here.");
-    } else {
-      const stored = character.rules.startingEquipment || {};
-      const picks = { ...(stored.picks || {}) };
-      const goldId = goldOptionIdFor(state.className);
-      container.append(el("p", { class: "wizard__section-label", text: `Class equipment — ${state.className}` }));
-      (entry.decisions || []).forEach((decision) => {
-        const group = el("div", { class: "wizard__subsection" },
-          el("p", { class: "wizard__section-label", text: decision.label }));
-        decision.options.forEach((opt) => {
-          const input = el("input", {
-            type: "radio", name: `starting-equipment-${decision.id}`, value: opt.id,
-            checked: picks[decision.id] === opt.id,
-            onchange: () => {
-              character.rules.startingEquipment = {
-                picks: { ...(character.rules.startingEquipment?.picks || {}), [decision.id]: opt.id },
-              };
-              saveRules();
-              refreshWizardNav();
-            },
-          });
-          group.append(el("label", { class: "level-guide__choice-option" },
-            input,
-            el("span", { text: opt.label }),
-            el("span", { class: "level-guide__choice-description", text: opt.items.join(" · ") })));
-        });
-        container.append(group);
-      });
-      if ((entry.fixed || []).length) {
-        noteInto(container, `Also included automatically: ${entry.fixed.join(", ")}.`);
-      }
-      {
+    if (!entry) return false;
+    const stored = character.rules.startingEquipment || {};
+    const picks = { ...(stored.picks || {}) };
+    const goldId = goldOptionIdFor(state.className);
+    container.append(el("p", { class: "wizard__section-label", text: `Starting gear — ${state.className}` }));
+    (entry.decisions || []).forEach((decision) => {
+      const group = el("div", { class: "wizard__subsection" },
+        el("p", { class: "wizard__section-label", text: decision.label }));
+      // "Spellcasting focus" asks for something a reader may not have met
+      // yet, and the two options below it looked identical on screen until
+      // they were given descriptions. The hint is the rule, in one line.
+      if (decision.hint) noteInto(group, decision.hint);
+      decision.options.forEach((opt) => {
         const input = el("input", {
-          type: "radio", name: "starting-equipment-gold", value: goldId,
-          checked: stored.gold === true,
+          type: "radio", name: `starting-equipment-${decision.id}`, value: opt.id,
+          checked: picks[decision.id] === opt.id,
           onchange: () => {
-            character.rules.startingEquipment = { gold: true };
+            character.rules.startingEquipment = {
+              picks: { ...(character.rules.startingEquipment?.picks || {}), [decision.id]: opt.id },
+            };
             saveRules();
             refreshWizardNav();
           },
         });
-        container.append(el("label", { class: "level-guide__choice-option" },
+        // `note` wins when a row has one; otherwise work out what is left of
+        // the item list once the label has said its piece. Empty string means
+        // the label was the whole of it, and no second line is drawn - an
+        // empty grey paragraph is worse than nothing.
+        const detail = opt.note || optionDetailText(opt);
+        group.append(el("label", { class: "level-guide__choice-option" },
           input,
-          el("span", { text: `Take ${entry.gold.gp} gp instead` }),
-          el("span", { class: "level-guide__choice-description", text: `Fixed average of your starting wealth roll (${entry.gold.formula}). Use this to buy gear yourself.` })));
-      }
+          el("span", { text: opt.label }),
+          detail ? el("span", { class: "level-guide__choice-description", text: detail }) : null));
+      });
+      container.append(group);
+    });
+    if ((entry.fixed || []).length) {
+      noteInto(container, `Also included automatically: ${entry.fixed.join(", ")}.`);
     }
+    {
+      const input = el("input", {
+        type: "radio", name: "starting-equipment-gold", value: goldId,
+        checked: stored.gold === true,
+        onchange: () => {
+          character.rules.startingEquipment = { gold: true };
+          saveRules();
+          refreshWizardNav();
+        },
+      });
+      container.append(el("label", { class: "level-guide__choice-option" },
+        input,
+        el("span", { text: `Take ${entry.gold.gp} gp instead` }),
+        el("span", { class: "level-guide__choice-description", text: `Fixed average of your starting wealth roll (${entry.gold.formula}). Use this to buy gear yourself.` })));
+    }
+    return true;
+  }
+
+  /** Which of a class's equipment rows are still unanswered. Empty when the
+   *  class has no rows, when the gold was taken instead (the gold settles
+   *  every row at once, which is what `resolveStartingEquipmentPick` does
+   *  with it), or when every row has a pick. This is the same predicate the
+   *  Class step's `isComplete` uses, so the disabled Next and the reason
+   *  under it cannot describe different problems. */
+  function classEquipmentOutstanding(state) {
+    const entry = CLASS_STARTING_EQUIPMENT[state.className];
+    if (!entry) return [];
+    const stored = character.rules.startingEquipment || {};
+    if (stored.gold === true || stored.classOptionId === goldOptionIdFor(state.className)) return [];
+    const picks = stored.picks || {};
+    return (entry.decisions || []).filter((d) => !picks[d.id]).map((d) => d.label);
+  }
+
+  /** The background's own starting items, shown where the background is
+   *  picked. Nothing to answer here — the package is fixed and automatic —
+   *  except the one backgrounds that carry a "(your choice)" line, and that
+   *  pick is an ordinary choice group on this same step, so it is already
+   *  gated by `choicesComplete(backgroundChoiceGroups)`. What is added here
+   *  is the list, and the hint naming which outstanding pick fills the
+   *  placeholder so the player is not asked for the same thing twice. */
+  function renderBackgroundEquipmentInto(container, state) {
+    const bg = BG_STARTING_EQUIPMENT[state.background];
+    if (!bg || !state.background) return false;
+    // Linked picks (Acolyte prayer focus, Entertainer/Folk Hero/Guild
+    // Artisan tools) resolve into the package here, so the display
+    // always shows what Finish Setup will actually grant.
+    const bgBundle = bundleFor("Background", state.background, includedRulesetIds(state));
+    const linked = linkedEquipmentNames(state.background, bgBundle, character.rules?.choices || {});
+    const shown = bgDisplayItems(state.background, linked);
+    const link = BG_EQUIPMENT_LINKS[state.background];
+    const hint = link && !linked.length ? " (your linked choice fills the (your choice) line once picked)" : "";
+    container.append(el("p", { class: "wizard__section-label", text: `Starting gear — ${state.background} (fixed, added automatically)` }));
+    noteInto(container, `${shown.join(", ")}${bg.gp ? `, plus ${bg.gp} gp` : ""}.${hint}`);
+    return true;
+  }
+
+  /** The reason to show when a background's own gear pick is the thing
+   *  blocking Next. Named specifically, because "Choices still to make." on
+   *  a page with a ten-row proficiency table and one unanswered tools line
+   *  does not tell the player which one. Only the first reason is rendered
+   *  under Next; the rest are on Review. */
+  function backgroundEquipmentMissingReason(state) {
+    const link = BG_EQUIPMENT_LINKS[state.background];
+    if (!link) return "";
+    const bgBundle = bundleFor("Background", state.background, includedRulesetIds(state));
+    const group = ((bgBundle || {}).choiceGroups || []).find((g) => g.id === link.groupId);
+    if (!group) return "";
+    const linked = linkedEquipmentNames(state.background, bgBundle, character.rules?.choices || {});
+    if (linked.length) return "";
+    return `Starting gear: ${group.label || "pick your starting tools"} not chosen yet.`;
   }
 
   /** Applies the Starting Equipment pick once at Finish Setup:
@@ -6286,6 +6343,11 @@ const closeDialog = () => {
           if (!state.className) return false;
           const subs = liveSubclassData(state.className);
           if (subs.subclasses.length && state.level >= subs.subclassLevel && !state.subclass) return false;
+          // The starting-gear rows live on this step, so they gate it. They
+          // used to live on a step of their own; moving them here would have
+          // quietly made them optional if this were left out, since nothing
+          // else asks for them.
+          if (classEquipmentOutstanding(state).length) return false;
           return choicesComplete(classChoiceGroups);
         },
         missingReasons() {
@@ -6304,6 +6366,13 @@ const closeDialog = () => {
           const spells = spellPickShortfallPhrase(inlineSpellPickGroups(), state.choices || {});
           if (spells) out.push(spells);
           if (!choicesComplete(classChoiceGroups)) out.push("Choices still to make.");
+          // Last, because it is the last thing on the page: only the first
+          // reason is shown under Next, and the player should be pointed at
+          // the topmost thing still outstanding.
+          const gear = classEquipmentOutstanding(state);
+          if (gear.length) {
+            out.push(`Starting gear: ${gear.length === 1 ? gear[0] : `${gear.length} choices`} still to make.`);
+          }
           return out;
         },
         render(container) {
@@ -6339,6 +6408,16 @@ const closeDialog = () => {
           // (leftovers render in the row via inlineChoicesFn) — the
           // call stays as a safety net for groups no dialog covers.
           renderYourChoicesSections(container, "class", classChoiceGroups.filter((g) => !choiceDialogKindFor(g)), saveRules, classChoiceGroups);
+
+          // The class's starting-gear rows, answered here where the class is
+          // picked rather than on a page of their own. Returns false for a
+          // class with no rows, and then the separator would dangle, so it is
+          // only drawn when there is something under it.
+          const gearWrap = el("div", { class: "wizard__equipment" });
+          if (renderClassEquipmentInto(gearWrap, state, saveRules)) {
+            container.append(el("hr", { class: "wizard__separator" }));
+            container.append(gearWrap);
+          }
         },
       },
       {
@@ -6350,6 +6429,10 @@ const closeDialog = () => {
         },
         missingReasons() {
           if (!state.background) return ["No background picked yet."];
+          // Ahead of the blunt line, so the one thing under Next is the gear
+          // line the player can actually see on this page.
+          const gear = backgroundEquipmentMissingReason(state);
+          if (gear) return [gear];
           return choicesComplete(backgroundChoiceGroups) ? [] : ["Choices still to make."];
         },
         render(container) {
@@ -6379,6 +6462,17 @@ const closeDialog = () => {
           // (leftovers render in the row via inlineChoiceBullets) — the
           // call stays as a safety net for groups no dialog covers.
           renderYourChoicesSections(container, "background", bgSectionGroups, saveRules, backgroundChoiceGroups);
+
+          // The background's own starting items. Fixed and automatic, so
+          // nothing to gate and nothing to answer here — but the player
+          // should not have to remember what they are getting, and they used
+          // to have to remember it, because this list lived on the Starting
+          // Conditions step, four steps away.
+          const gearWrap = el("div", { class: "wizard__equipment" });
+          if (renderBackgroundEquipmentInto(gearWrap, state)) {
+            container.append(el("hr", { class: "wizard__separator" }));
+            container.append(gearWrap);
+          }
         },
       },
       {
@@ -6454,24 +6548,20 @@ const closeDialog = () => {
             featNeeds: featAbilityNeeds(),
           });
 
-          // Starting equipment moved here from the Gear tab, which is no
-          // longer a step. It is the one thing that tab held which the
-          // item catalog cannot reproduce: the catalog lets you add any
-          // item, but only this carries the PHB "pick one of these rows,
-          // or take gold instead" either/or choices and knows what Finish
-          // Setup will actually grant.
-          //
-          // The separator is deliberate - ability scores and starting gear
-          // are two unrelated things that happen to land on one page, and
-          // running them together reads as one long form.
-          container.append(el("hr", { class: "wizard__separator" }));
-          const gearWrap = sectionInto(container, "Starting Equipment");
-          renderStartingEquipmentStepInto(gearWrap, state, saveRules);
           // The free-form weapon/armor/tool/vehicle proficiency picks
           // moved to the MAIN sheet (an Equipment Proficiencies control
           // there), because they are not starting gear: they are extra
           // proficiencies you hold for the life of the character, and the
           // sheet is where everything lasting belongs.
+          //
+          // The starting-equipment section that used to sit here moved to the
+          // steps it belongs to — the class's either/or rows to Class, the
+          // background's fixed package to Background (both at 2026-10-05).
+          // It was the one thing that step held which the item catalog
+          // cannot reproduce, and it is still true; it just had no business
+          // on a page called "Starting Conditions", two steps from the thing
+          // that decides it. The comment above this block, describing it as
+          // living here, is gone with it.
         },
       },
       // ----------------------------------------------------------------
@@ -6490,10 +6580,12 @@ const closeDialog = () => {
       //             it was the one thing this step held that the spell
       //             catalog cannot reproduce - it is a count-limited
       //             cross-class pick.
-      //   gear   -> renderStartingEquipmentStepInto moved to the
-      //             "Starting Conditions" step (it carries the PHB
-      //             either/or rows and the gold-instead option, which no
-      //             catalog reproduces).
+      //   gear   -> the starting-equipment half split in two and moved to
+      //             the steps it decides: the class's PHB either/or rows
+      //             and the gold-instead option to Class, the background's
+      //             fixed package to Background. Neither is reproducible
+      //             from the item catalog, and both now gate the step that
+      //             owns them. (renderStartingEquipmentStepInto is gone.)
       //             renderEquipmentProficienciesStepInto moved to the
       //             main sheet as an Equipment Proficiencies control.
       //             renderInnateAbilitiesStepInto moved to Review.

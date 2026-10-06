@@ -5172,6 +5172,28 @@ if (inArea("background-gate")) {
     return changed;
   };
 
+  // The class's starting-gear rows live on the Class step and gate it, so
+  // every walkthrough through that step has to answer them. Plain radio
+  // groups - first option in each, which is how a player resolves a row
+  // they have no opinion about. Takes the gold group too, so a class whose
+  // rows are all answered by gold still reaches Background.
+  const bgFillEquipment = async () => bgPage.evaluate(() => {
+    const groups = new Map();
+    for (const r of document.querySelectorAll('.wizard input[type=radio][name^="starting-equipment"]')) {
+      if (!r.closest(".wizard__body")) continue;
+      if (!groups.has(r.name)) groups.set(r.name, [...document.querySelectorAll(`input[type=radio][name="${r.name}"]`)]);
+    }
+    let took = 0;
+    for (const radios of groups.values()) {
+      if (radios.some((r) => r.checked)) continue;
+      const first = radios.find((r) => !r.disabled && !r.closest("[hidden]"));
+      if (!first) continue;
+      first.click();
+      took += 1;
+    }
+    return took;
+  });
+
   await bgPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
   await settled(bgPage, READY_VAULT, "bg-gate vault");
   await bgPage.click(READY_VAULT);
@@ -5208,9 +5230,78 @@ if (inArea("background-gate")) {
   // reaches the step under test.
   await bgPage.click('.choice-row[data-row-name="Barbarian"] .choice-row__label');
   await bgPage.waitForTimeout(600);
-  await bgFillPicks();
+
+  // The class's starting gear used to sit on a step of its own, two steps
+  // away. It is here now, and it gates here - so answer it and the reason
+  // under Next has to change. Asserted by measuring the radios rather than
+  // by counting, because a class with no rows is legitimately empty.
+  const classGear = await bgPage.evaluate(() => {
+    const body = document.querySelector(".wizard__body");
+    const head = [...(body?.querySelectorAll(".wizard__section-label") || [])]
+      .find((h) => /^Starting gear/.test(h.textContent.trim()));
+    const groups = new Map();
+    for (const r of document.querySelectorAll('.wizard input[type=radio][name^="starting-equipment"]')) {
+      if (!groups.has(r.name)) groups.set(r.name, [...document.querySelectorAll(`input[type=radio][name="${r.name}"]`)]);
+    }
+    return {
+      heading: head?.textContent.trim() || null,
+      groups: [...groups.entries()].map(([name, rs]) => ({ name, options: rs.length, checked: rs.some((r) => r.checked) })),
+      reason: document.querySelector(".wizard__gate-reason")?.textContent.trim() || null,
+    };
+  });
+  bgCheck(Boolean(classGear.heading && classGear.heading.includes("Barbarian")),
+    `the class's starting gear is on the Class step (${JSON.stringify(classGear.heading)})`);
+  bgCheck(classGear.groups.length > 0 && classGear.groups.every((g) => !g.checked),
+    `and it is unanswered on arrival (${JSON.stringify(classGear.groups)})`);
+  const beforeGear = await bgPage.evaluate(() => Boolean(document.querySelector(".wizard__next:not([disabled])")));
+  bgCheck(!beforeGear,
+    `so Next is refusing while a class gear row is open (${JSON.stringify(classGear.reason)})`);
+  await bgFillEquipment();
+  await bgPage.waitForTimeout(300);
+  const afterGear = await bgPage.evaluate(() => ({
+    checked: [...document.querySelectorAll('.wizard input[type=radio][name^="starting-equipment"]')]
+      .filter((r) => r.checked).length,
+    reason: document.querySelector(".wizard__gate-reason")?.textContent.trim() || null,
+  }));
+  bgCheck(afterGear.checked > 0, `answering the gear rows registers (${afterGear.checked} checked)`);
+
+  // No gear row may restate its own name underneath itself, and the "any X"
+  // rows must admit that they are the player's to name. Checked on screen,
+  // because that is where the complaint was — a pack option used to print
+  // "Explorer's Pack, Backpack, Bedroll, …" under a label saying
+  // "Explorer's pack".
+  const gearText = await bgPage.evaluate(() => {
+    const rows = [...document.querySelectorAll(".wizard__subsection")]
+      .map((g) => {
+        const opts = [...g.querySelectorAll(".level-guide__choice-option")];
+        return {
+          heading: g.querySelector(".wizard__section-label")?.textContent.trim() || null,
+          hint: g.querySelector(".level-guide__note, .wizard__note")?.textContent.trim() || null,
+          options: opts.map((o) => {
+            const spans = [...o.querySelectorAll(":scope > span")];
+            return {
+              label: (spans[0]?.textContent || "").trim(),
+              detail: (spans[1]?.textContent || "").trim(),
+            };
+          }),
+        };
+      })
+      .filter((g) => /^Main weapon|Sidearm|Weapon|Pack|Instrument|Spellcasting focus/i.test(g.heading || ""));
+    return rows;
+  });
+  bgCheck(gearText.length > 0, `the gear rows have readable headings (${JSON.stringify(gearText.map((g) => g.heading))})`);
+  const repeats = gearText.flatMap((g) => g.options)
+    .filter((o) => o.detail && o.detail.toLowerCase().startsWith(o.label.toLowerCase()));
+  bgCheck(repeats.length === 0,
+    `no gear row repeats its own name underneath it (${JSON.stringify(repeats)})`);
+  const placeholders = gearText.flatMap((g) => g.options)
+    .filter((o) => /\(your choice\)/i.test(o.detail));
+  bgCheck(placeholders.length === 0,
+    `and no gear row shows the PHB's "(your choice)" table shorthand (${JSON.stringify(placeholders)})`);
+  bgFillPicks();
   for (let i = 0; i < 4 && (await bgStep()) !== "background"; i++) {
     await bgFillPicks();
+    await bgFillEquipment();
     await bgNext();
     await bgPage.waitForTimeout(600);
   }
@@ -5244,6 +5335,22 @@ if (inArea("background-gate")) {
         };
       });
       bgCheck(before.selected === bg, `${bg} selects`);
+      // The background's fixed package is listed on THIS step, so a player
+      // can read what they are getting without going looking for it.
+      const ownGear = await bgPage.evaluate(() => {
+        const body = document.querySelector(".wizard__body");
+        const head = [...(body?.querySelectorAll(".wizard__section-label") || [])]
+          .find((h) => /^Starting gear/.test(h.textContent.trim()));
+        const note = head?.nextElementSibling;
+        return {
+          heading: head?.textContent.trim() || null,
+          items: note?.textContent.trim() || null,
+        };
+      });
+      bgCheck(ownGear.heading && ownGear.heading.includes(bg),
+        `${bg}: its own starting gear is on the Background step (${JSON.stringify(ownGear.heading)})`);
+      bgCheck(Boolean(ownGear.items && ownGear.items.length > 10),
+        `${bg}: and the items are spelled out (${JSON.stringify((ownGear.items || "").slice(0, 60))})`);
       bgCheck(before.blocked === (before.unfilled > 0),
         `${bg}: Next is blocked (${before.blocked}) exactly when a visible pick is unfilled (${before.unfilled})`);
       if (before.blocked) {

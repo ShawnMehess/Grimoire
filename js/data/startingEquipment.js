@@ -23,16 +23,77 @@
 // decisions shape above.
 
 export const EQUIPMENT_PACK_CONTENTS = {
-  "Burglar's Pack": ["Backpack", "Ball bearings (bag of 1,000)", "10 feet of string", "Bell", "5 candles", "Crowbar", "Hammer", "10 pitons", "Hooded lantern", "2 flasks of oil", "5 days rations", "Tinderbox", "Waterskin", "50 feet of hempen rope"],
+  "Burglar's Pack": ["Backpack", "Ball bearings (bag of 1,000)", "10 feet of string", "Bell", "5 candles", "Crowbar", "Hammer", "10 pitons", "Hooded lantern", "2 flasks of oil", "5 days of rations", "Tinderbox", "Waterskin", "50 feet of hempen rope"],
   "Diplomat's Pack": ["Chest", "2 cases for maps and scrolls", "Fine clothes", "Bottle of ink", "Ink pen", "Lamp", "2 flasks of oil", "5 sheets of paper", "Vial of perfume", "Sealing wax", "Soap"],
-  "Dungeoneer's Pack": ["Backpack", "Crowbar", "Hammer", "10 pitons", "10 torches", "Tinderbox", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "Entertainer's Pack": ["Backpack", "Bedroll", "2 costumes", "5 candles", "5 days rations", "Waterskin", "Disguise kit"],
-  "Explorer's Pack": ["Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "Priest's Pack": ["Backpack", "Blanket", "10 candles", "Tinderbox", "Alms box", "2 blocks of incense", "Censer", "Vestments", "2 days rations", "Waterskin"],
+  "Dungeoneer's Pack": ["Backpack", "Crowbar", "Hammer", "10 pitons", "10 torches", "Tinderbox", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "Entertainer's Pack": ["Backpack", "Bedroll", "2 costumes", "5 candles", "5 days of rations", "Waterskin", "Disguise kit"],
+  "Explorer's Pack": ["Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "Priest's Pack": ["Backpack", "Blanket", "10 candles", "Tinderbox", "Alms box", "2 blocks of incense", "Censer", "Vestments", "2 days of rations", "Waterskin"],
   "Scholar's Pack": ["Backpack", "Book of lore", "Bottle of ink", "Ink pen", "10 sheets of parchment", "Little bag of sand", "Small knife"],
 };
 
 const pack = (name) => [name, ...EQUIPMENT_PACK_CONTENTS[name]];
+
+/** Shown under every "Any <thing>" option.
+ *
+ *  The PHB says "(your choice)" and leaves it there, which reads as a
+ *  promise the wizard does not keep: the row is a radio, and nothing on it
+ *  opens a catalog, so choosing it grants a line reading "Simple weapon (your
+ *  choice)" and leaves the naming to the player. Saying that outright is
+ *  better than a label that implies a picker is one tap away — and better
+ *  than pretending the choice was made for them. */
+const ANY_PICK_NOTE = "The PHB says “your choice” and stops there. Name it yourself on the sheet's Items list after you finish.";
+
+/** What a spellcasting focus does, in one line, for the row label that asks
+ *  for one. Sourced from the compendium item text: “An arcane focus is a
+ *  special item designed to channel the power of arcane spells… using it in
+ *  place of any material component which does not list a cost.” */
+const FOCUS_HINT = "You need one of these to cast at all. It stands in for any material component a spell does not charge you for (PHB).";
+
+/** The two focus options, which until now said nothing beyond their own
+ *  names. Both descriptions are lifted from the compendium item text
+ *  (docs/New Info/5e-items.txt) and trimmed, not invented:
+ *   Component Pouch — "A component pouch is a small, watertight leather
+ *     belt pouch that has compartments to hold all the material components
+ *     and other special items you need to cast your spells, except for those
+ *     components that have a specific cost (as indicated in a spell's
+ *     description)."
+ *   Arcane focus — "An arcane focus is a special item designed to channel
+ *     the power of arcane spells… using it in place of any material component
+ *     which does not list a cost."
+ *  A player choosing between two rows that only named themselves had nothing
+ *  to choose on. */
+const COMPONENT_POUCH_NOTE = "A small watertight leather belt pouch with compartments for the material components and other special items your spells need, except components that carry a stated cost.";
+const ARCANE_FOCUS_NOTE = "An orb, rod, staff, wand or crystal that channels spell power, used in place of any material component that lists no cost.";
+
+/** What to show beneath a starting-gear option's label, or "" when the
+ *  label already says it. Pure, and shared by every renderer so the wizard,
+ *  the review page and anything added later agree.
+ *
+ *  Two kinds of repetition were on screen, both from printing `items` under
+ *  the label verbatim:
+ *
+ *   - A pack option printed the pack's own name first — "Explorer's Pack,
+ *     Backpack, Bedroll, Mess kit, …" — directly beneath a label already
+ *     reading "Explorer's pack". The name is items[0] by construction (see
+ *     `pack`), because the Inventory wants a line for the pack itself, but a
+ *     player-facing description should start with what is INSIDE it.
+ *   - A single-item option printed its one item under a label that WAS that
+ *     item: "Greataxe" over "Greataxe".
+ *
+ *  "(your choice)" is dropped too. It is a data placeholder the PHB uses to
+ *  leave a line open for the table, not something to read on a screen; the
+ *  note on those options says what to do about it instead. */
+export function optionDetailText(opt) {
+  let items = (opt?.items || []).filter(Boolean);
+  if (!items.length) return "";
+  const label = String(opt?.label || "").trim().toLowerCase();
+  if (items.length > 1 && items[0].trim().toLowerCase() === label) items = items.slice(1);
+  const shown = items.map((s) => String(s).replace(/\s*\(your choice\)\s*$/i, "").trim()).filter(Boolean);
+  if (!shown.length) return "";
+  if (shown.length === 1 && shown[0].toLowerCase() === label) return "";
+  return shown.join(" · ");
+}
 
 export const CLASS_STARTING_EQUIPMENT = {
   Barbarian: {
@@ -42,13 +103,13 @@ export const CLASS_STARTING_EQUIPMENT = {
       {
         id: "main-weapon", label: "Main weapon", options: [
           { id: "greataxe", label: "Greataxe", items: ["Greataxe"] },
-          { id: "martial-melee", label: "Any martial melee weapon", items: ["Martial melee weapon (your choice)"] },
+          { id: "martial-melee", label: "Any martial melee weapon", note: ANY_PICK_NOTE, items: ["Martial melee weapon (your choice)"] },
         ],
       },
       {
         id: "sidearm", label: "Sidearm", options: [
           { id: "handaxes", label: "Two handaxes", items: ["Handaxe", "Handaxe"] },
-          { id: "simple-weapon", label: "Any simple weapon", items: ["Simple weapon (your choice)"] },
+          { id: "simple-weapon", label: "Any simple weapon", note: ANY_PICK_NOTE, items: ["Simple weapon (your choice)"] },
         ],
       },
     ],
@@ -61,7 +122,7 @@ export const CLASS_STARTING_EQUIPMENT = {
         id: "weapon", label: "Weapon", options: [
           { id: "rapier", label: "Rapier", items: ["Rapier"] },
           { id: "longsword", label: "Longsword", items: ["Longsword"] },
-          { id: "simple-weapon", label: "Any simple weapon", items: ["Simple weapon (your choice)"] },
+          { id: "simple-weapon", label: "Any simple weapon", note: ANY_PICK_NOTE, items: ["Simple weapon (your choice)"] },
         ],
       },
       {
@@ -73,7 +134,7 @@ export const CLASS_STARTING_EQUIPMENT = {
       {
         id: "instrument", label: "Instrument", options: [
           { id: "lute", label: "Lute", items: ["Lute"] },
-          { id: "any-instrument", label: "Any musical instrument", items: ["Musical instrument (your choice)"] },
+          { id: "any-instrument", label: "Any musical instrument", note: ANY_PICK_NOTE, items: ["Musical instrument (your choice)"] },
         ],
       },
     ],
@@ -98,7 +159,7 @@ export const CLASS_STARTING_EQUIPMENT = {
       {
         id: "ranged", label: "Ranged weapon", options: [
           { id: "light-crossbow", label: "Light crossbow and 20 bolts", items: ["Light crossbow", "20 crossbow bolts"] },
-          { id: "simple-weapon", label: "Any simple weapon", items: ["Simple weapon (your choice)"] },
+          { id: "simple-weapon", label: "Any simple weapon", note: ANY_PICK_NOTE, items: ["Simple weapon (your choice)"] },
         ],
       },
       {
@@ -116,13 +177,13 @@ export const CLASS_STARTING_EQUIPMENT = {
       {
         id: "offhand", label: "Shield or weapon", options: [
           { id: "wooden-shield", label: "Wooden shield", items: ["Wooden shield"] },
-          { id: "simple-weapon", label: "Any simple weapon", items: ["Simple weapon (your choice)"] },
+          { id: "simple-weapon", label: "Any simple weapon", note: ANY_PICK_NOTE, items: ["Simple weapon (your choice)"] },
         ],
       },
       {
         id: "melee", label: "Melee weapon", options: [
           { id: "scimitar", label: "Scimitar", items: ["Scimitar"] },
-          { id: "simple-melee", label: "Any simple melee weapon", items: ["Simple melee weapon (your choice)"] },
+          { id: "simple-melee", label: "Any simple melee weapon", note: ANY_PICK_NOTE, items: ["Simple melee weapon (your choice)"] },
         ],
       },
     ],
@@ -164,7 +225,7 @@ export const CLASS_STARTING_EQUIPMENT = {
       {
         id: "weapon", label: "Weapon", options: [
           { id: "shortsword", label: "Shortsword", items: ["Shortsword"] },
-          { id: "simple-weapon", label: "Any simple weapon", items: ["Simple weapon (your choice)"] },
+          { id: "simple-weapon", label: "Any simple weapon", note: ANY_PICK_NOTE, items: ["Simple weapon (your choice)"] },
         ],
       },
       {
@@ -188,7 +249,7 @@ export const CLASS_STARTING_EQUIPMENT = {
       {
         id: "ranged", label: "Ranged weapon", options: [
           { id: "javelins", label: "Five javelins", items: ["5 javelins"] },
-          { id: "simple-melee", label: "Any simple melee weapon", items: ["Simple melee weapon (your choice)"] },
+          { id: "simple-melee", label: "Any simple melee weapon", note: ANY_PICK_NOTE, items: ["Simple melee weapon (your choice)"] },
         ],
       },
       {
@@ -255,13 +316,13 @@ export const CLASS_STARTING_EQUIPMENT = {
       {
         id: "weapon", label: "Weapon", options: [
           { id: "light-crossbow", label: "Light crossbow and 20 bolts", items: ["Light crossbow", "20 crossbow bolts"] },
-          { id: "simple-weapon", label: "Any simple weapon", items: ["Simple weapon (your choice)"] },
+          { id: "simple-weapon", label: "Any simple weapon", note: ANY_PICK_NOTE, items: ["Simple weapon (your choice)"] },
         ],
       },
       {
-        id: "focus", label: "Spellcasting focus", options: [
-          { id: "component-pouch", label: "Component pouch", items: ["Component pouch"] },
-          { id: "arcane-focus", label: "Arcane focus", items: ["Arcane focus"] },
+        id: "focus", label: "Spellcasting focus", hint: FOCUS_HINT, options: [
+          { id: "component-pouch", label: "Component pouch", note: COMPONENT_POUCH_NOTE, items: ["Component pouch"] },
+          { id: "arcane-focus", label: "Arcane focus", note: ARCANE_FOCUS_NOTE, items: ["Arcane focus"] },
         ],
       },
       {
@@ -279,13 +340,13 @@ export const CLASS_STARTING_EQUIPMENT = {
       {
         id: "weapon", label: "Weapon", options: [
           { id: "light-crossbow", label: "Light crossbow and 20 bolts", items: ["Light crossbow", "20 crossbow bolts"] },
-          { id: "simple-weapon", label: "Any simple weapon", items: ["Simple weapon (your choice)"] },
+          { id: "simple-weapon", label: "Any simple weapon", note: ANY_PICK_NOTE, items: ["Simple weapon (your choice)"] },
         ],
       },
       {
-        id: "focus", label: "Spellcasting focus", options: [
-          { id: "component-pouch", label: "Component pouch", items: ["Component pouch"] },
-          { id: "arcane-focus", label: "Arcane focus", items: ["Arcane focus"] },
+        id: "focus", label: "Spellcasting focus", hint: FOCUS_HINT, options: [
+          { id: "component-pouch", label: "Component pouch", note: COMPONENT_POUCH_NOTE, items: ["Component pouch"] },
+          { id: "arcane-focus", label: "Arcane focus", note: ARCANE_FOCUS_NOTE, items: ["Arcane focus"] },
         ],
       },
       {
@@ -307,9 +368,9 @@ export const CLASS_STARTING_EQUIPMENT = {
         ],
       },
       {
-        id: "focus", label: "Spellcasting focus", options: [
-          { id: "component-pouch", label: "Component pouch", items: ["Component pouch"] },
-          { id: "arcane-focus", label: "Arcane focus", items: ["Arcane focus"] },
+        id: "focus", label: "Spellcasting focus", hint: FOCUS_HINT, options: [
+          { id: "component-pouch", label: "Component pouch", note: COMPONENT_POUCH_NOTE, items: ["Component pouch"] },
+          { id: "arcane-focus", label: "Arcane focus", note: ARCANE_FOCUS_NOTE, items: ["Arcane focus"] },
         ],
       },
       {
@@ -346,32 +407,32 @@ export function goldOptionIdFor(className) {
 // kept verbatim so older saved characters resolve to exactly the
 // items they chose. Anything picked fresh uses the decisions shape.
 const LEGACY_EQUIPMENT_OPTIONS = {
-  "barbarian-a": ["Greataxe", "2 handaxes", "4 javelins", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "barbarian-b": ["Martial melee weapon (your choice)", "2 handaxes", "4 javelins", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days rations", "Waterskin", "50 feet of hempen rope"],
+  "barbarian-a": ["Greataxe", "2 handaxes", "4 javelins", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "barbarian-b": ["Martial melee weapon (your choice)", "2 handaxes", "4 javelins", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
   "bard-a": ["Rapier", "Leather armor", "Dagger", "Lute", "Diplomat's Pack", "Chest", "2 cases for maps and scrolls", "Fine clothes", "Bottle of ink", "Ink pen", "Lamp", "2 flasks of oil", "5 sheets of paper", "Vial of perfume", "Sealing wax", "Soap"],
-  "bard-b": ["Longsword", "Leather armor", "Dagger", "Musical instrument (your choice)", "Entertainer's Pack", "Backpack", "Bedroll", "2 costumes", "5 candles", "5 days rations", "Waterskin", "Disguise kit"],
-  "cleric-a": ["Mace", "Scale mail", "Light crossbow", "20 crossbow bolts", "Shield", "Holy symbol", "Priest's Pack", "Backpack", "Blanket", "10 candles", "Tinderbox", "Alms box", "2 blocks of incense", "Censer", "Vestments", "2 days rations", "Waterskin"],
-  "cleric-b": ["Warhammer", "Chain mail", "Shield", "Holy symbol", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "druid-a": ["Wooden shield", "Scimitar", "Leather armor", "Druidic focus", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "druid-b": ["Wooden shield", "Simple melee weapon (your choice)", "Leather armor", "Druidic focus", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "fighter-a": ["Chain mail", "Longsword", "Shield", "Light crossbow", "20 crossbow bolts", "Dungeoneer's Pack", "Backpack", "Crowbar", "Hammer", "10 pitons", "10 torches", "Tinderbox", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "fighter-b": ["Leather armor", "Longbow", "20 arrows", "Battleaxe", "Handaxe", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "monk-a": ["Shortsword", "10 darts", "Dungeoneer's Pack", "Backpack", "Crowbar", "Hammer", "10 pitons", "10 torches", "Tinderbox", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "monk-b": ["Simple melee weapon (your choice)", "10 darts", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "paladin-a": ["Longsword", "Shield", "5 javelins", "Chain mail", "Holy symbol", "Priest's Pack", "Backpack", "Blanket", "10 candles", "Tinderbox", "Alms box", "2 blocks of incense", "Censer", "Vestments", "2 days rations", "Waterskin"],
-  "paladin-b": ["Battleaxe", "Warhammer", "Simple melee weapon (your choice)", "Chain mail", "Holy symbol", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "ranger-a": ["Scale mail", "2 shortswords", "Longbow", "20 arrows", "Dungeoneer's Pack", "Backpack", "Crowbar", "Hammer", "10 pitons", "10 torches", "Tinderbox", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "ranger-b": ["Leather armor", "2 simple melee weapons (your choice)", "Longbow", "20 arrows", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "rogue-a": ["Rapier", "Shortbow", "20 arrows", "Leather armor", "2 daggers", "Thieves' tools", "Burglar's Pack", "Backpack", "Ball bearings (bag of 1,000)", "10 feet of string", "Bell", "5 candles", "Crowbar", "Hammer", "10 pitons", "Hooded lantern", "2 flasks of oil", "5 days rations", "Tinderbox", "Waterskin", "50 feet of hempen rope"],
-  "rogue-b": ["Shortsword", "Shortsword", "Shortbow", "20 arrows", "Leather armor", "2 daggers", "Thieves' tools", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "sorcerer-a": ["Light crossbow", "20 crossbow bolts", "Component pouch", "2 daggers", "Dungeoneer's Pack", "Backpack", "Crowbar", "Hammer", "10 pitons", "10 torches", "Tinderbox", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "sorcerer-b": ["Simple weapon (your choice)", "Arcane focus", "2 daggers", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days rations", "Waterskin", "50 feet of hempen rope"],
+  "bard-b": ["Longsword", "Leather armor", "Dagger", "Musical instrument (your choice)", "Entertainer's Pack", "Backpack", "Bedroll", "2 costumes", "5 candles", "5 days of rations", "Waterskin", "Disguise kit"],
+  "cleric-a": ["Mace", "Scale mail", "Light crossbow", "20 crossbow bolts", "Shield", "Holy symbol", "Priest's Pack", "Backpack", "Blanket", "10 candles", "Tinderbox", "Alms box", "2 blocks of incense", "Censer", "Vestments", "2 days of rations", "Waterskin"],
+  "cleric-b": ["Warhammer", "Chain mail", "Shield", "Holy symbol", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "druid-a": ["Wooden shield", "Scimitar", "Leather armor", "Druidic focus", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "druid-b": ["Wooden shield", "Simple melee weapon (your choice)", "Leather armor", "Druidic focus", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "fighter-a": ["Chain mail", "Longsword", "Shield", "Light crossbow", "20 crossbow bolts", "Dungeoneer's Pack", "Backpack", "Crowbar", "Hammer", "10 pitons", "10 torches", "Tinderbox", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "fighter-b": ["Leather armor", "Longbow", "20 arrows", "Battleaxe", "Handaxe", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "monk-a": ["Shortsword", "10 darts", "Dungeoneer's Pack", "Backpack", "Crowbar", "Hammer", "10 pitons", "10 torches", "Tinderbox", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "monk-b": ["Simple melee weapon (your choice)", "10 darts", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "paladin-a": ["Longsword", "Shield", "5 javelins", "Chain mail", "Holy symbol", "Priest's Pack", "Backpack", "Blanket", "10 candles", "Tinderbox", "Alms box", "2 blocks of incense", "Censer", "Vestments", "2 days of rations", "Waterskin"],
+  "paladin-b": ["Battleaxe", "Warhammer", "Simple melee weapon (your choice)", "Chain mail", "Holy symbol", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "ranger-a": ["Scale mail", "2 shortswords", "Longbow", "20 arrows", "Dungeoneer's Pack", "Backpack", "Crowbar", "Hammer", "10 pitons", "10 torches", "Tinderbox", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "ranger-b": ["Leather armor", "2 simple melee weapons (your choice)", "Longbow", "20 arrows", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "rogue-a": ["Rapier", "Shortbow", "20 arrows", "Leather armor", "2 daggers", "Thieves' tools", "Burglar's Pack", "Backpack", "Ball bearings (bag of 1,000)", "10 feet of string", "Bell", "5 candles", "Crowbar", "Hammer", "10 pitons", "Hooded lantern", "2 flasks of oil", "5 days of rations", "Tinderbox", "Waterskin", "50 feet of hempen rope"],
+  "rogue-b": ["Shortsword", "Shortsword", "Shortbow", "20 arrows", "Leather armor", "2 daggers", "Thieves' tools", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "sorcerer-a": ["Light crossbow", "20 crossbow bolts", "Component pouch", "2 daggers", "Dungeoneer's Pack", "Backpack", "Crowbar", "Hammer", "10 pitons", "10 torches", "Tinderbox", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "sorcerer-b": ["Simple weapon (your choice)", "Arcane focus", "2 daggers", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
   "warlock-a": ["Light crossbow", "20 crossbow bolts", "Component pouch", "Leather armor", "Simple melee weapon (your choice)", "2 daggers", "Scholar's Pack", "Backpack", "Book of lore", "Bottle of ink", "Ink pen", "10 sheets of parchment", "Little bag of sand", "Small knife"],
-  "warlock-b": ["Simple weapon (your choice)", "Arcane focus", "Leather armor", "Simple melee weapon (your choice)", "2 daggers", "Dungeoneer's Pack", "Backpack", "Crowbar", "Hammer", "10 pitons", "10 torches", "Tinderbox", "10 days rations", "Waterskin", "50 feet of hempen rope"],
+  "warlock-b": ["Simple weapon (your choice)", "Arcane focus", "Leather armor", "Simple melee weapon (your choice)", "2 daggers", "Dungeoneer's Pack", "Backpack", "Crowbar", "Hammer", "10 pitons", "10 torches", "Tinderbox", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
   "wizard-a": ["Quarterstaff", "Component pouch", "Spellbook", "Scholar's Pack", "Backpack", "Book of lore", "Bottle of ink", "Ink pen", "10 sheets of parchment", "Little bag of sand", "Small knife"],
-  "wizard-b": ["Dagger", "Arcane focus", "Spellbook", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "artificer-a": ["Any two simple weapons (your choice)", "Light crossbow", "20 crossbow bolts", "Studded leather armor", "Thieves' tools", "Artisan's tools (your choice)", "Dungeoneer's Pack", "Backpack", "Crowbar", "Hammer", "10 pitons", "10 torches", "Tinderbox", "10 days rations", "Waterskin", "50 feet of hempen rope"],
-  "artificer-b": ["Any two simple weapons (your choice)", "Light crossbow", "20 crossbow bolts", "Scale mail", "Thieves' tools", "Artisan's tools (your choice)", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days rations", "Waterskin", "50 feet of hempen rope"],
+  "wizard-b": ["Dagger", "Arcane focus", "Spellbook", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "artificer-a": ["Any two simple weapons (your choice)", "Light crossbow", "20 crossbow bolts", "Studded leather armor", "Thieves' tools", "Artisan's tools (your choice)", "Dungeoneer's Pack", "Backpack", "Crowbar", "Hammer", "10 pitons", "10 torches", "Tinderbox", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
+  "artificer-b": ["Any two simple weapons (your choice)", "Light crossbow", "20 crossbow bolts", "Scale mail", "Thieves' tools", "Artisan's tools (your choice)", "Explorer's Pack", "Backpack", "Bedroll", "Mess kit", "Tinderbox", "10 torches", "10 days of rations", "Waterskin", "50 feet of hempen rope"],
 };
 
 /** Pure resolution of Starting Equipment picks: which inventory

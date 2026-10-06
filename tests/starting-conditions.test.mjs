@@ -4,7 +4,13 @@
 // Review. Spells and Gear are gone as tabs - both live in the catalogs
 // now - and what they uniquely held had to be rehomed before they went:
 //
-//   starting equipment   -> the "Starting Conditions" step
+//   starting equipment   -> the Class and Background steps (2026-10-05,
+//                           split in two: the class's either/or rows went
+//                           to Class, the background's fixed package to
+//                           Background. They shared one "Starting
+//                           Equipment" section on Starting Conditions
+//                           until then, two steps from both the things
+//                           that decide them.)
 //   equipment profs      -> a new block on the main sheet
 //   innate abilities     -> the Review step
 //   Bard Magical Secrets -> a picker on the Bard's class entry
@@ -34,7 +40,6 @@ describe("the wizard has no Spells or Gear tab", () => {
     // needs the reason it is parked and the note that every renderer in it
     // is still called from elsewhere.
     assert.match(src, /COMMENTED OUT 2026-10-01\. The Gear step is still parked/);
-    assert.match(src, /renderStartingEquipmentStepInto moved to the/);
     assert.match(src, /renderInnateAbilitiesStepInto moved to Review/);
   });
 
@@ -82,8 +87,12 @@ describe("the wizard has no Spells or Gear tab", () => {
   it("still calls every renderer the parked GEAR block referenced", () => {
     // The parking is UI-only. If any of these has no remaining caller, the
     // block really is dead and the comment above it is now lying.
+    //
+    // renderStartingEquipmentStepInto is not in the list because it no longer
+    // exists: it drew the background's package and the class's either/or rows
+    // together under one heading, and those two now live on different steps.
+    // The two halves it was split into are checked below instead.
     for (const fn of [
-      "renderStartingEquipmentStepInto",
       "renderEquipmentProficienciesStepInto",
       "renderInnateAbilitiesStepInto",
     ]) {
@@ -105,8 +114,15 @@ describe("the wizard has no Spells or Gear tab", () => {
   });
 });
 
-describe("Starting Conditions holds scores and starting equipment", () => {
+describe("Starting Conditions is scores, and nothing else", () => {
   const src = fs.readFileSync(new URL("../js/render/customSheet.js", import.meta.url), "utf8");
+  const step = (from, to) => src.slice(src.indexOf(from), src.indexOf(to));
+  // Comments stripped: the deliberately-parked Gear block sits between the
+  // last two creation steps and names every renderer it used to call. What
+  // this file cares about is what the steps CALL.
+  const live = (text) => text.split("\n")
+    .filter((l) => !l.trim().startsWith("//"))
+    .join("\n");
 
   it("is named for what it now covers, and is the last step before Review", () => {
     assert.match(src, /title: "Starting Conditions"/);
@@ -118,14 +134,74 @@ describe("Starting Conditions holds scores and starting equipment", () => {
     assert.ok(background < cond, "Starting Conditions should come after Background");
   });
 
-  it("separates the two halves of the page", () => {
-    // Ability scores and starting gear are unrelated things on one page;
-    // run together they read as one long form.
-    assert.match(src, /wizard__separator/);
+  it("carries no starting gear at all", () => {
+    // The step is now ability scores and their one footnote. Ability scores
+    // and starting gear were unrelated things sharing a page, and the gear
+    // half has moved to the two steps that actually decide it - so the
+    // separator that used to divide them has nothing left to divide.
+    const abilities = live(step('id: "abilities"', 'id: "review"'));
+    assert.doesNotMatch(abilities, /renderClassEquipmentInto/);
+    assert.doesNotMatch(abilities, /renderBackgroundEquipmentInto/);
+    assert.doesNotMatch(abilities, /Starting Equipment/);
   });
 
   it("carries the race/class bonus note as a footnote under the scores", () => {
     assert.match(src, /footnote: "Bonuses from your race/);
+  });
+});
+
+describe("starting gear lives on the steps that decide it", () => {
+  const src = fs.readFileSync(new URL("../js/render/customSheet.js", import.meta.url), "utf8");
+  const step = (from, to) => src.slice(src.indexOf(from), src.indexOf(to));
+  const classStep = step('id: "class"', 'id: "background"');
+  const backgroundStep = step('id: "background"', 'id: "story"');
+
+  it("puts the class's either/or rows on the CLASS step", () => {
+    assert.match(classStep, /renderClassEquipmentInto\(gearWrap, state, saveRules\)/);
+  });
+
+  it("puts the background's fixed package on the BACKGROUND step", () => {
+    assert.match(backgroundStep, /renderBackgroundEquipmentInto\(gearWrap, state\)/);
+  });
+
+  it("gates the Class step on its own rows, or moving them made them optional", () => {
+    // This is the check that matters. The rows used to gate a step of their
+    // own. Moving them onto the Class step without adding them to its
+    // isComplete would have left nothing anywhere asking for them, and every
+    // character would finish with nothing granted.
+    assert.match(classStep, /if \(classEquipmentOutstanding\(state\)\.length\) return false;/);
+  });
+
+  it("says WHY Next is refusing, in the class's own gear", () => {
+    // The reason under Next comes from the same predicate that disables the
+    // button, so it cannot describe a different problem - but only if the
+    // step actually supplies one. A dimmed Next with a generic reason is the
+    // dead end this plumbing exists to avoid.
+    assert.match(classStep, /Starting gear: /);
+  });
+
+  it("names the background's outstanding gear pick rather than saying \"choices\"", () => {
+    // "Choices still to make." on a page with a ten-row proficiency table and
+    // one unanswered tools line does not say which one.
+    assert.match(backgroundStep, /backgroundEquipmentMissingReason\(state\)/);
+    assert.match(src, /function backgroundEquipmentMissingReason\(/);
+  });
+
+  it("counts the gold as answering every class row at once", () => {
+    // resolveStartingEquipmentPick treats gold as settling the whole entry,
+    // so the gate has to agree or Next would refuse on rows the player is
+    // never going to be asked again.
+    assert.match(src, /if \(stored\.gold === true \|\| stored\.classOptionId === goldOptionIdFor\(state\.className\)\) return \[\];/);
+  });
+
+  it("still shows the background's fixed items in its own picker row", () => {
+    // Belt and braces, and not this file: the row's mechanics bullets carry a
+    // Starting Equipment section off the bundle's own grant, so a player who
+    // expands a background row can read the package without leaving the step.
+    const mech = fs.readFileSync(new URL("../js/render/sheet/sheetMechanics.js", import.meta.url), "utf8");
+    assert.match(mech, /bgEquipment: "Starting Equipment"/);
+    assert.match(mech, /isEquipmentGrant/);
+    assert.match(mech, /if \(backgroundDisplay && isEquipmentGrant\(grant\)\)/);
   });
 });
 
