@@ -7,7 +7,7 @@
 import { richGameTextNodes } from "./richText.js";
 import { briefDescription, capitalizeFirst, splitAbilityTokens, abilityTooltip, humanizeGameText, categorizeChoiceGroup, ABILITY_GLOSSARY } from "./sheetMechanics.js";
 import { spellGist, spellHasMoreThanGist } from "../../data/spellGists.js";
-import { el } from "./sheetHelpers.js";
+import { el, animateWith } from "./sheetHelpers.js";
 import { spellLinkNodes } from "./spellLinks.js";
 import { contentIdMatches } from "../../data/dnd5e.js";
 
@@ -1927,9 +1927,17 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
   // Single choke point for every step change — records the new
   // position (numeric index for this render, stable id for later
   // sessions) and notifies the caller before re-rendering.
-  const goTo = (i) => {
+  //
+  // `direction` is how the player moved, and is what the arrival animation
+  // reads so a screen arriving from a swipe looks different from one arriving
+  // from a button press. Recorded on the state rather than passed to the
+  // animation here, because `gridFn()` rebuilds the whole wizard - including
+  // this function's closure - so the element that should animate does not
+  // exist until after the re-render. `afterStepChange` below picks it up.
+  const goTo = (i, direction = 0) => {
     stepState.index = clampStepIndex(applicableSteps.length, i);
     stepState.stepId = applicableSteps[stepState.index]?.id ?? null;
+    if (direction) stepState.arrivalDirection = direction;
     if (typeof onNavigate === "function") onNavigate(stepState);
     gridFn();
   };
@@ -1995,7 +2003,7 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
       dot.disabled = true;
       dot.title = lockedTitle;
     }
-    dot.onclick = () => { goTo(i); };
+    dot.onclick = () => { goTo(i, i === stepState.index ? 0 : (i > stepState.index ? 1 : -1)); };
     dotPairs.push({ dot, step, index: i });
     dots.append(dot);
   });
@@ -2045,7 +2053,7 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
   });
   stepSelect.addEventListener("change", () => {
     const target = Number(stepSelect.value);
-    if (Number.isInteger(target)) goTo(target);
+    if (Number.isInteger(target)) goTo(target, target === stepState.index ? 0 : (target > stepState.index ? 1 : -1));
   });
   progress.append(stepSelect);
 
@@ -2082,7 +2090,7 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
       back.type = "button";
       back.className = "btn";
       back.textContent = "← Back";
-      back.addEventListener("click", () => { goTo(stepState.index - 1); });
+      back.addEventListener("click", () => { goTo(stepState.index - 1, -1); });
       nav.append(back);
     }
     if (stepState.index < applicableSteps.length - 1) {
@@ -2094,7 +2102,7 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
         forward.disabled = true;
         forward.title = "Make your selections on this page to continue.";
       }
-      forward.addEventListener("click", () => { goTo(stepState.index + 1); });
+      forward.addEventListener("click", () => { goTo(stepState.index + 1, 1); });
       nav.append(forward);
       const reason = document.createElement("p");
       reason.className = "wizard__gate-reason";
@@ -2110,6 +2118,18 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
   body.className = "wizard__body level-guide__form";
   wrap.append(body);
   currentStep.render(body);
+
+  // The arrival animation, run once the screen is built.
+  //
+  // Only for a MOVE, never for the first render: arriving on the wizard at
+  // all is not something the player did, and sliding the first page in would
+  // delay the thing they came to read. `arrivalDirection` is set by goTo and
+  // cleared here, so a re-render caused by anything else - an edit on this
+  // page, a re-save - does not replay it.
+  if (stepState.arrivalDirection) {
+    animateStepArrival(body, stepState.arrivalDirection);
+    stepState.arrivalDirection = 0;
+  }
 
   const bottomNav = buildNav();
   wrap.append(bottomNav);
@@ -2146,7 +2166,7 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
       }
     };
     setArrow(!stepIsComplete(currentStep));
-    arrow.addEventListener("click", () => { goTo(stepState.index + 1); });
+    arrow.addEventListener("click", () => { goTo(stepState.index + 1, 1); });
     wrap.append(arrow);
     // Kept beside the Next buttons so refreshWizardNav can drive them
     // together; a stale arrow would contradict the button next to it.
@@ -2288,11 +2308,11 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
       if (forward) {
         // Swipe left = forward.
         if (stepState.index < applicableSteps.length - 1 && stepIsComplete(currentStep)) {
-          goTo(stepState.index + 1);
+          goTo(stepState.index + 1, 1);
         }
       } else if (stepState.index > 0) {
         // Swipe right = back, always allowed.
-        goTo(stepState.index - 1);
+        goTo(stepState.index - 1, -1);
       }
     }, listen);
 
@@ -3277,31 +3297,66 @@ function animateRowDetails(details, row, expand) {
     if (expand) {
       details.hidden = false;
       row?.classList.add("choice-row--expanded");
-      if (typeof details.animate === "function") {
-        details.animate(
-          [{ opacity: 0, transform: "translateY(-4px)" }, { opacity: 1, transform: "translateY(0)" }],
-          { duration: 180, easing: "ease-out" }
-        );
-      }
+      // The end state is set here, not in the last keyframe, so that
+      // "reduced motion" needs no special case: the element is already where
+      // it is going to be. animateWith returns null when the animation is
+      // skipped, and nothing below has to know why.
+      animateWith(details,
+        [{ opacity: 0, transform: "translateY(-4px)" }, { opacity: 1, transform: "translateY(0)" }],
+        { duration: 180, easing: "ease-out" });
     } else {
       row?.classList.remove("choice-row--expanded");
-      if (typeof details.animate === "function") {
-        const anim = details.animate(
-          [{ opacity: 1, transform: "translateY(0)" }, { opacity: 0, transform: "translateY(-4px)" }],
-          { duration: 150, easing: "ease-in" }
-        );
-        const finish = () => { details.hidden = true; };
-        if (anim && typeof anim.finished?.then === "function") anim.finished.then(finish).catch(finish);
-        else if (anim) { anim.onfinish = finish; setTimeout(() => { try { details.hidden = true; } catch {} }, 170); }
-        else details.hidden = true;
-      } else {
-        details.hidden = true;
-      }
+      const anim = animateWith(details,
+        [{ opacity: 1, transform: "translateY(0)" }, { opacity: 0, transform: "translateY(-4px)" }],
+        { duration: 150, easing: "ease-in" });
+      // Collapse is the one case that CANNOT rely on the end state already
+      // being set: the element has to end up hidden, and a skipped animation
+      // has to hide it too. So there is an explicit finish, and `anim` being
+      // null is the normal reduced-motion path rather than a failure.
+      const finish = () => { details.hidden = true; };
+      if (anim && typeof anim.finished?.then === "function") anim.finished.then(finish).catch(finish);
+      else if (anim) { anim.onfinish = finish; setTimeout(() => { try { details.hidden = true; } catch { /* already gone */ } }, 170); }
+      else finish();
     }
   } catch {
     details.hidden = !expand;
     row?.classList.toggle("choice-row--expanded", expand);
   }
+}
+
+/** How far a wizard screen travels when you move between them. Small on
+ *  purpose: this is a gesture acknowledgement, not a page turn, and a long
+ *  slide on a phone reads as the page having jumped somewhere unexpected. */
+const STEP_SLIDE_PX = 18;
+const STEP_FADE_MS = 160;
+
+/** Animate a wizard screen arriving, in the direction of travel.
+ *
+ *  Called after the new step is in the DOM, so it only ever animates the
+ *  ARRIVAL. A screen that slid out would need the old one held somewhere
+ *  while the new one is built, and the wizard re-renders rather than swaps -
+ *  so the outgoing step is already gone before this could run. Sliding in
+ *  from the side you came from is what a person actually perceives as "that
+ *  went the right way", and it costs one transform.
+ *
+ *  `direction` is +1 going forward (a leftward swipe, a Next) and -1 going
+ *  back. Reduced motion gets nothing at all - see animateWith.
+ *
+ *  A no-op wherever the element or the Web Animations API is missing, which
+ *  includes the DOM stubs under scripts/. Never throws. */
+export function animateStepArrival(el, direction = 1, win = null) {
+  // No direction means no move: arriving at the wizard is not something the
+  // player did, and a re-render from an edit on the same page is not a step
+  // change. Neither should slide.
+  if (!el || !Number.isFinite(direction) || direction === 0) return null;
+  const from = direction >= 0 ? STEP_SLIDE_PX : -STEP_SLIDE_PX;
+  return animateWith(el,
+    [
+      { opacity: 0, transform: `translateX(${from}px)` },
+      { opacity: 1, transform: "translateX(0)" },
+    ],
+    { duration: STEP_FADE_MS, easing: "cubic-bezier(0.2, 0, 0, 1)" },
+    win);
 }
 
 /** Run `fn` without letting the page move under the clicker's eyes.

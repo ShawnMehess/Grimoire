@@ -59,6 +59,7 @@ import {
   SWIPE_MIN_DISTANCE,
   SWIPE_IGNORED_SURFACES,
   resumeStepIndex,
+  animateStepArrival,
 } from "../js/render/sheet/sheetWizard.js";
 import {
   clampScoreToRange,
@@ -77,6 +78,7 @@ import {
   REVERT_RECORD_VERSION,
 } from "../js/render/sheet/sheetWizardSteps.js";
 import { nestedChoiceGroupsFor } from "../js/render/sheet/sheetWizard.js";
+import { prefersReducedMotion, animateWith } from "../js/ui/motion.js";
 import { FIXED_CLASS_ENTRIES } from "../js/data/contentFixups.js";
 import { LANGUAGES, languageSections } from "../js/data/schema.js";
 import { categorizeChoiceGroup } from "../js/render/sheet/sheetMechanics.js";
@@ -1181,5 +1183,93 @@ describe("a wizard resumes where it was left", () => {
     assert.equal(resumeStepIndex(STEPS, state), 3, "clamped to the last step, not past it");
     const empty = { index: 4, stepId: "class" };
     assert.equal(resumeStepIndex([], empty), 0, "and 0 when there are no steps at all");
+  });
+});
+
+describe("motion respects the player's preference", () => {
+  // The stylesheet already has `prefers-reduced-motion`. It does NOT cover
+  // the Web Animations API: `element.animate` runs on the compositor and a
+  // CSS `animation-duration: .01ms !important` does not touch it. So every
+  // WAAPI call in the app goes through animateWith, and these are the rules
+  // that decide whether it does.
+
+  const win = (reduce) => ({
+    matchMedia: (q) => {
+      if (!/prefers-reduced-motion/.test(q)) return { matches: false };
+      return { matches: reduce };
+    },
+  });
+  const spyEl = () => {
+    const calls = [];
+    return { calls, animate: (...args) => { calls.push(args); return { finished: Promise.resolve() }; } };
+  };
+
+  it("animates when motion is wanted", () => {
+    const el = spyEl();
+    const anim = animateWith(el, [{ opacity: 0 }, { opacity: 1 }], { duration: 160 }, win(false));
+    assert.ok(anim, "an animation object comes back so a caller can chain it");
+    assert.equal(el.calls.length, 1, "and element.animate was actually called");
+  });
+
+  it("animates nothing at all when motion is reduced", () => {
+    const el = spyEl();
+    const anim = animateWith(el, [{ opacity: 0 }, { opacity: 1 }], { duration: 160 }, win(true));
+    assert.equal(anim, null, "returns null, which is distinguishable from a finished animation");
+    assert.equal(el.calls.length, 0, "and never touches element.animate");
+  });
+
+  it("treats an unknown preference as reduce", () => {
+    // The cost of this mistake is a missing animation; the cost of the other
+    // mistake is motion somebody explicitly asked not to have.
+    assert.equal(prefersReducedMotion(null), true, "no window at all");
+    assert.equal(prefersReducedMotion({}), true, "no matchMedia");
+    assert.equal(prefersReducedMotion({ matchMedia: () => { throw new Error("nope"); } }), true,
+      "a matchMedia that throws");
+    const el = spyEl();
+    assert.equal(animateWith(el, [], {}, { matchMedia: () => { throw new Error("nope"); } }), null,
+      "and the animation is skipped rather than guessed at");
+  });
+
+  it("reads the preference per call, not once at load", () => {
+    // A player who changes the setting mid-session must get the new answer.
+    let reduce = false;
+    const view = { matchMedia: () => ({ matches: reduce }) };
+    assert.equal(prefersReducedMotion(view), false);
+    reduce = true;
+    assert.equal(prefersReducedMotion(view), true, "the next call sees the change");
+  });
+
+  it("never throws, whatever it is handed", () => {
+    assert.equal(animateWith(null, [], {}, win(false)), null, "no element");
+    assert.equal(animateWith({}, [], {}, win(false)), null, "an element with no animate()");
+    const bad = { animate: () => { throw new Error("boom"); } };
+    assert.equal(animateWith(bad, [], {}, win(false)), null, "an animate() that throws");
+  });
+
+  it("a wizard screen slides in from the direction of travel", () => {
+    const fwd = spyEl();
+    animateStepArrival(fwd, 1, win(false));
+    const back = spyEl();
+    animateStepArrival(back, -1, win(false));
+    const from = (el) => el.calls[0][0][0].transform;
+    assert.match(from(fwd), /18px/, "forward comes in from the right");
+    assert.match(from(back), /-18px/, "back comes in from the left");
+    assert.match(fwd.calls[0][0][1].transform, /translateX\(0\)/, "and ends where it belongs");
+    // Short: this is a gesture acknowledgement, not a page turn.
+    assert.ok(fwd.calls[0][1].duration <= 220, "and it is over quickly");
+  });
+
+  it("a wizard screen does not move when motion is reduced", () => {
+    const el = spyEl();
+    assert.equal(animateStepArrival(el, 1, win(true)), null);
+    assert.equal(el.calls.length, 0);
+  });
+
+  it("a step change with no direction is not animated at all", () => {
+    // Arriving at the wizard is not something the player did; a re-render
+    // from an edit is not a move either.
+    const el = spyEl();
+    assert.equal(animateStepArrival(el, 0, win(false)), null);
+    assert.equal(el.calls.length, 0);
   });
 });

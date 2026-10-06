@@ -92,7 +92,7 @@ const AREAS = {
   "levelgated-text": "level-gated prose in a trait, changing with no reload",
   rowclick: "a click inside a row selects that row (picker link vs <select>)",
   "spell-rows": "spell picker row shape: facts, gist, disclosure",
-  "swipe-arrow": "edge arrow and swipe between steps on a touch viewport",
+  "swipe-arrow": "edge arrow, swipe between steps, and the step transition's motion",
   "load-failure": "a blocked entry script produces a failure page",
   "background-gate": "every background: Next is blocked only on a visible pick",
 };
@@ -4614,6 +4614,37 @@ if (inArea("swipe-arrow")) {
       `the swipe recogniser listens for pointermove (${JSON.stringify(passiveReport.types)})`);
     phoneCheck(passiveReport.blocking.length === 0,
       `and none of its listeners blocks the browser's scrolling (blocking: ${JSON.stringify(passiveReport.blocking)})`);
+  }
+
+  // A step change MOVES, in the direction it was made. Last in the area,
+  // because it navigates, and the checks above all care which step they are
+  // standing on.
+  //
+  // Wrapped rather than read after the fact: the animation is 160ms long and
+  // a settled read would always miss it. This is the motion half of item 9;
+  // that a player who asks for reduced motion gets nothing is asserted in the
+  // unit suite, where the preference can be set directly.
+  {
+    const seen = await t.evaluate(async () => {
+      const found = [];
+      const real = Element.prototype.animate;
+      Element.prototype.animate = function (...args) {
+        const anim = real.apply(this, args);
+        const cls = String((this.className && this.className.baseVal) || this.className || "");
+        if (cls.includes("wizard__body")) found.push(String((args[0] && args[0][0] && args[0][0].transform) || ""));
+        return anim;
+      };
+      // Back is always available once you are past the first page, which is
+      // where the walkthrough above has left us.
+      const btn = [...document.querySelectorAll(".wizard__nav button")]
+        .find((b) => /back/i.test(b.textContent || "") && !b.disabled && b.getBoundingClientRect().width > 0);
+      if (btn) btn.click();
+      await new Promise((r) => setTimeout(r, 600));
+      Element.prototype.animate = real;
+      return found;
+    });
+    phoneCheck(seen.length >= 1 && /translateX\(-?18px\)/.test(seen[0]),
+      `moving between steps slides the new one in from the side you came from (${JSON.stringify(seen)})`);
   }
 
   // No Next on the last step, and no bar to sit there empty. Driven forward

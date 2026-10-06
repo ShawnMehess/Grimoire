@@ -5,6 +5,10 @@
 // (applyNodeStyle) — none of these read the sheet's mutable render state,
 // so they are safe to unit-test and reuse from sub-modules.
 
+import { prefersReducedMotion, animateWith } from "../../ui/motion.js";
+
+export { prefersReducedMotion, animateWith };
+
 export function debounce(fn, delayMs = 500) {
   let handle;
   return (...args) => {
