@@ -238,13 +238,20 @@ describe("starting gear lives on the steps that decide it", () => {
 
 describe("the main sheet can set equipment proficiencies", () => {
   const layout = createStarterLayout();
-  const block = layout.find((b) => b.name === "Equipment Proficiencies");
+  // The block named "Equipment Proficiencies" is GONE. It was a second copy
+  // of the four taglists that Character Details already held - same ids,
+  // same vocabularies - so a new character got eight fields for four
+  // proficiencies and anything typed into one never appeared in the other.
+  // The fields themselves are still here, once, on Character Details.
+  const block = layout.find((b) => b.name === "Character Details");
 
-  it("has a block for them", () => {
-    assert.ok(block, "no Equipment Proficiencies block on the starter sheet");
+  it("has them on Character Details, and only there", () => {
+    assert.ok(block, "no Character Details block on the starter sheet");
+    assert.equal(layout.filter((b) => b.name === "Equipment Proficiencies").length, 0,
+      "the duplicate Equipment Proficiencies block is back");
   });
 
-  it("exposes all four categories as taglists", () => {
+  it("exposes all four categories as taglists, once each", () => {
     const rows = (block.children || []).map((c) => c.field || c);
     assert.equal(rows.length, 4);
     for (const id of ["armorProf", "weaponProf", "toolProf", "vehicleProf"]) {
@@ -252,6 +259,11 @@ describe("the main sheet can set equipment proficiencies", () => {
       assert.ok(row, `no ${id} field`);
       assert.equal(row.fieldType, "taglist", `${id} should be a taglist`);
       assert.ok((row.tagOptions || []).length > 0, `${id} has no vocabulary`);
+      // One field per proficiency across the WHOLE sheet, not one per block.
+      const onSheet = layout.flatMap((b) => (b.children || []).map((c) => c.field || c))
+        .filter((f) => f.id === id);
+      assert.equal(onSheet.length, 1,
+        `${id} appears ${onSheet.length} times on the starter sheet - two fields with one id cannot both be right`);
     }
   });
 
@@ -261,6 +273,36 @@ describe("the main sheet can set equipment proficiencies", () => {
     // is.
     const tools = (block.children || []).map((c) => c.field || c).find((r) => r.id === "toolProf");
     assert.equal((tools.tagGroups || []).length, 5);
+  });
+
+  it("keeps Identity, Story and Abilities holding what they should", () => {
+    // Item 24's moves. Race and Background up into Identity (they are the
+    // other answers that block already collects); Alignment and Languages
+    // up into Story; each ability's modifier beside its score.
+    const byName = (n) => layout.find((b) => b.name === n);
+    const idsIn = (n) => (byName(n)?.children || []).map((c) => c.label);
+    for (const label of ["Race", "Background"]) {
+      assert.ok(idsIn("Identity").includes(label), `${label} should be in Identity`);
+      assert.ok(!idsIn("Character Details").includes(label), `${label} should not also be in Character Details`);
+    }
+    assert.ok(idsIn("Story").includes("Alignment"), "Alignment should be in Story");
+    assert.ok(idsIn("Story").includes("Languages"), "Languages should be in Story");
+    assert.ok(!idsIn("Character Details").includes("Languages"), "Languages should not also be in Character Details");
+    // Languages FIRST under the Story heading: it is the field a player
+    // reaches for during play.
+    assert.equal(idsIn("Story")[0], "Languages", "Languages should be the first field under the Story heading");
+
+    // Modifier beside its score, on the same row.
+    const kids = (byName("Abilities")?.children || []).map((c) => ({ ...c, ...(c.field || {}) }));
+    for (const id of ["str", "dex", "con", "int", "wis", "cha"]) {
+      const score = kids.find((k) => k.id === `${id}Score`);
+      const mod = kids.find((k) => k.id === `${id}Mod`);
+      assert.ok(score && mod, `missing score or mod for ${id}`);
+      assert.equal(mod.y, score.y, `${id}'s modifier is on a different row from its score`);
+      assert.ok(mod.x === score.x + 1, `${id}'s modifier is not immediately right of its score`);
+    }
+    // Two rows of three abilities, not three rows of two.
+    assert.equal(byName("Abilities").h, 2);
   });
 
   it("keeps every top-level column ending on the same row", () => {

@@ -819,13 +819,22 @@ async function runViewportTests(viewport) {
     // so the sheet is where they live. Asserted on the rendered block, not
     // on the layout data, because the question is whether the player can
     // actually reach them.
+    //
+    // The block is Character Details, not "Equipment Proficiencies": the
+    // latter was a SECOND copy of these same four fields - same ids, same
+    // vocabularies - sitting on the sheet at the same time, so a new
+    // character had eight fields for four proficiencies and typing into one
+    // never showed up in the other.
     const equipProfs = await page.evaluate(() => {
       const block = [...document.querySelectorAll(".block, .sheet-block, [class*='block']")]
-        .find((b) => /^Equipment Proficiencies/.test((b.textContent || "").trim().slice(0, 40)));
-      if (!block) return { block: false };
+        .find((b) => /^Character Details/.test((b.textContent || "").trim().slice(0, 40)));
+      const dupes = [...document.querySelectorAll(".block, .sheet-block, [class*='block']")]
+        .filter((b) => /^Equipment Proficiencies/.test((b.textContent || "").trim().slice(0, 40)));
+      if (!block) return { block: false, dupes: dupes.length };
       const text = block.textContent || "";
       return {
         block: true,
+        dupes: dupes.length,
         armor: /Armor/.test(text),
         weapons: /Weapons/.test(text),
         tools: /Tools/.test(text),
@@ -833,9 +842,11 @@ async function runViewportTests(viewport) {
         taglists: block.querySelectorAll("[data-field-type='taglist'], .taglist").length,
       };
     });
-    check(equipProfs.block, "main sheet has an Equipment Proficiencies block");
+    check(equipProfs.block, "main sheet sets equipment proficiencies on Character Details");
     check(equipProfs.armor && equipProfs.weapons && equipProfs.tools && equipProfs.vehicles,
       `it covers all four categories (${JSON.stringify(equipProfs)})`);
+    check(equipProfs.dupes === 0,
+      `and there is no second copy of them elsewhere on the sheet (${equipProfs.dupes} duplicate blocks)`);
   }
   // Print dialog opens, previews, and closes via Escape.
   //
@@ -3001,18 +3012,30 @@ async function runViewportTests(viewport) {
     "and its undo stack is empty, as an in-memory stack should be after a load");
 
   check(await page.$(".page-grid"), "a finished character opens its sheet");
-  check(await page.$(".sheet-intro"), "a first-time finished character gets the orientation panel");
-  const introCoversViews = await page.evaluate(() => {
-    const text = document.querySelector(".sheet-intro")?.textContent || "";
-    return { simple: /Simple View/.test(text), sheet: /Sheet View/.test(text), drag: /drag/i.test(text) };
-  });
-  check(introCoversViews.simple && introCoversViews.sheet,
-    "the orientation panel explains both views");
-  check(introCoversViews.drag, "the orientation panel warns that moving a block is a saved change");
+  // No orientation panel over it. It used to appear here on every first
+  // open, listing what the toolbar's buttons do - while the "Character
+  // ready" popup created moments earlier says three of the same things. A
+  // panel you dismiss every time you open your own character is a panel to
+  // dismiss, not to read.
+  check(!(await page.$(".sheet-intro")),
+    "and no Getting started panel sits between the toolbar and the tabs");
+  // And none on a first-time character either, which is the case it was
+  // built for: `sawIntro` is false here, so this is not the flag doing the
+  // hiding.
+  check(!(await page.$(".sheet-intro")),
+    "not even for a character that has never been opened before");
   await page.screenshot({ path: path.join(shotDir, `intro-${viewport.name}.png`) });
 
-  // Dismissing remembers, on the character - not in a module-level flag, and
-  // not globally, so a SECOND character still gets told.
+  // The character's sheet is still reachable and still interactive with the
+  // panel gone - the risk of removing a full-width element is that something
+  // depended on the space it took.
+  const sheetStillUsable = await page.evaluate(() => {
+    const tabs = [...document.querySelectorAll(".sheet-tab")];
+    return { tabs: tabs.length, firstGridField: !!document.querySelector(".page-grid .grid-node--field") };
+  });
+  check(sheetStillUsable.tabs >= 2 && sheetStillUsable.firstGridField,
+    `with the tabs and the grid right underneath (${JSON.stringify(sheetStillUsable)})`);
+
   const reopen = async () => {
     await page.reload({ waitUntil: "networkidle" });
     await page.waitForTimeout(600);
@@ -3020,11 +3043,6 @@ async function runViewportTests(viewport) {
     if (await page.$(sel)) await page.click(sel);
     await quiet(page);
   };
-  await page.click(".sheet-intro__dismiss");
-  await quiet(page);
-  check(!(await page.$(".sheet-intro")), "the orientation panel dismisses");
-  await reopen();
-  check(!(await page.$(".sheet-intro")), "a dismissed orientation panel stays dismissed after a reload");
 
   // Simple View on, reload, still on. Driven from a width that fits the
   // grid: on a phone the stacked layout is already engaged by width and the
@@ -3576,10 +3594,7 @@ for (const phoneWidth of [320, 390]) {
         // layout this is not about.
         simple: !!document.querySelector(".page-grid.is-simple"),
         pairs,
-        intro: intro
-          ? { height: Math.round(intro.getBoundingClientRect().height),
-              gotItTop: Math.round(intro.querySelector(".sheet-intro__dismiss").getBoundingClientRect().top) }
-          : null,
+        intro: intro ? { present: true } : null,
         // Inspiration: a caption BESIDE its checkbox, not under it.
         inspirationBeside: (() => {
           const box = fieldOf("inspiration");
@@ -3655,11 +3670,69 @@ for (const phoneWidth of [320, 390]) {
       `@${vpName} and the first screen shows the name, Level Up and the save status (${JSON.stringify(sh.firstScreen)})`);
     phoneCheck(sh.inspirationBeside !== false,
       `@${vpName} Inspiration is a checkbox with its caption beside it, not underneath`);
-    if (sh.intro) {
-      phoneCheck(sh.intro.height <= 340 && sh.intro.gotItTop <= vp.height,
-        `@${vpName} the first-run panel is a panel, not a screen (${sh.intro.height}px, "Got it" at ${sh.intro.gotItTop})`);
-    }
+    phoneCheck(sh.intro === null,
+      "and no first-run panel over the sheet to push it down");
     phoneCheck(!sh.sideScroll, `@${vpName} the sheet does not scroll sideways`);
+
+    // Reading order on a stacked sheet: highest in the grid first, then
+    // left to right for blocks at the same height.
+    //
+    // Checked for DETERMINISM, not just for the order. This was reported as
+    // "it started working on its own partway through testing", which is what
+    // an order that depends on a measurement landing looks like: the sort key
+    // is stamped from the renderer's own gridX/gridY, but WHETHER it is
+    // stamped at all depends on `narrowScreenNeedsStackedView`, which needs a
+    // measured grid width and reports "not narrow" when it has none. So it
+    // can arrive on the first pass or the second depending on when layout
+    // settled. Read the order twice - once on a fresh load, once after a
+    // resize - and require the same answer, plus the same answer on a second
+    // look at the same page.
+    const readOrder = async () => ph.evaluate(() => {
+      const nodes = [...document.querySelectorAll(".page-grid .grid-node--block")];
+      const rows = nodes.map((n) => ({
+        name: (n.querySelector(".block-name")?.textContent || "").trim().slice(0, 18),
+        top: Math.round(n.getBoundingClientRect().top),
+        x: Number(n.dataset.gridX),
+        y: Number(n.dataset.gridY),
+        order: n.style.order,
+      }));
+      return {
+        stacked: !!document.querySelector(".page-grid.is-simple"),
+        rows: rows.sort((a, b) => a.top - b.top),
+        // Every block carries a stamped key, not just the ones that happen
+        // to look right.
+        stamped: rows.every((r) => r.order !== ""),
+        grid: { width: Math.round(document.querySelector(".page-grid")?.getBoundingClientRect().width || 0) },
+      };
+    });
+    const firstPass = await readOrder();
+    const sortedByGrid = [...firstPass.rows].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    phoneCheck(firstPass.stacked,
+      `@${vpName} the sheet is in the stacked layout, which is where reading order applies`);
+    phoneCheck(firstPass.stamped,
+      `@${vpName} and every block carries a stamped sort key, not just the ones that look right (${JSON.stringify(firstPass.rows.filter((r) => r.order === "").map((r) => r.name))})`);
+    phoneCheck(JSON.stringify(firstPass.rows.map((r) => r.name)) === JSON.stringify(sortedByGrid.map((r) => r.name)),
+      `@${vpName} and the blocks are in reading order - highest in the grid first, then left to right (${JSON.stringify(firstPass.rows.map((r) => r.name))})`);
+    // Same page, looked at again: a second read must not disagree with the
+    // first, which is what "it works partway through" looks like when it is
+    // fixed.
+    const secondPass = await readOrder();
+    phoneCheck(JSON.stringify(secondPass.rows.map((r) => [r.name, r.order]))
+      === JSON.stringify(firstPass.rows.map((r) => [r.name, r.order])),
+      `@${vpName} and reading it twice gives the same order (${JSON.stringify(firstPass.rows.map((r) => r.order))})`);
+    // And a resize - which is what forces the "no measurement yet" path -
+    // must land on the same order.
+    await ph.setViewportSize({ width: vp.width, height: Math.max(vp.height, 700) });
+    await ph.waitForTimeout(700);
+    await ph.setViewportSize({ width: vp.width, height: vp.height });
+    await ph.waitForTimeout(900);
+    const afterResize = await readOrder();
+    phoneCheck(JSON.stringify(afterResize.rows.map((r) => r.name)) === JSON.stringify(sortedByGrid.map((r) => r.name)),
+      `@${vpName} and a resize does not change the order (${JSON.stringify(afterResize.rows.map((r) => r.name))})`);
+    phoneCheck(afterResize.stacked,
+      `@${vpName} and the sheet is still stacked afterwards, so the order it just showed is the stacked order`);
+    phoneCheck(afterResize.stamped,
+      `@${vpName} and every block still carries its sort key after the resize (${JSON.stringify(afterResize.rows.filter((r) => r.order === "").map((r) => r.name))})`);
     await ph.screenshot({ path: path.join(shotDir, `sheet-phone-${vpName}.png`) });
 
     // Every visible target on the sheet, not just the ones a given block

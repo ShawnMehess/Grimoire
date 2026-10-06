@@ -747,7 +747,6 @@
 :root[data-dyslexia="1"] .leveling-tab__intro,
 :root[data-dyslexia="1"] .wizard__field-help,
 :root[data-dyslexia="1"] .wizard__review-row,
-:root[data-dyslexia="1"] .sheet-intro__list,
 :root[data-dyslexia="1"] .field-value--textarea {
   line-height: var(--a11y-line-height);
   letter-spacing: var(--a11y-letter-spacing);

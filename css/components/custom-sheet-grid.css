@@ -86,38 +86,10 @@
   overflow-x: auto;
 }
 
-/* One-time orientation panel. A note, not a modal: it must never be the
-   thing standing between someone and their character. Sits between the
-   toolbar and the tabs because everything it describes is a toolbar
-   button. */
-.sheet-intro {
-  margin-bottom: var(--space-3);
-  padding: var(--space-3);
-  border: var(--border-width) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-inset);
-}
-
-.sheet-intro__title {
-  margin: 0 0 var(--space-2);
-  font-family: var(--font-display);
-  font-size: var(--text-lg);
-  color: var(--color-text);
-}
-
-.sheet-intro__list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  margin: 0 0 var(--space-3);
-  padding-left: var(--space-5);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
-
-.sheet-intro__dismiss {
-  align-self: flex-start;
-}
+/* The "Getting started" panel that used to sit here is GONE - see
+   customSheet.js. Its four rules went with it rather than being left for a
+   class nothing renders; the "Character ready" popup it duplicated keeps
+   its own styling in the dialog components. */
 
 .sheet-tab {
   display: inline-flex;

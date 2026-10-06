@@ -480,6 +480,16 @@ export function createStarterLayout() {
   // NOTE h: 5, not 4 — the extra content row is what gives Inspiration
   // room for a real "Inspiration" caption next to its checkbox instead
   // of squeezing both into one cell (see the nameLabel() comment).
+  //
+  // Race and Background live HERE now, moved up from Character Details.
+  // They are the other two answers the Identity block already collects -
+  // name, class, subclass, level - and they were the first row of a block
+  // named "Character Details", three blocks down the sheet, which is a long
+  // way to scroll to finish the sentence "who is this character".
+  //
+  // Display-only for existing characters: block children are written into
+  // character.layout at creation, so a saved sheet keeps the fields it was
+  // built with. See createStarterLayout's own doc comment.
   const identity = createBlock({ name: "Identity", x: 0, y: 0, w: 4, h: 5 });
   identity.children = [
     field({ fieldType: "text", label: "Name", x: 0, y: 0, w: 4, h: 1 }),
@@ -487,23 +497,40 @@ export function createStarterLayout() {
     // is pinned: bundle dropdownAccess rules and formulas target it.
     field({ fieldType: "dropdown", label: "Class", x: 0, y: 1, w: 2, h: 1, choices: makeChoices(STARTER_CLASSES, CLASS_BUNDLE_ENTRIES) }),
     field({ fieldType: "dropdown", label: "Subclass", x: 2, y: 1, w: 2, h: 1, choices: makeSubclassChoices() }, "subclass"),
-    field({ fieldType: "text", label: "Level", x: 0, y: 2, w: 1, h: 1, value: "1", tooltip: "Total character level across all classes." }, "level"),
+    // Race and Background, side by side. Both are PINNED by label, not id —
+    // they have no id, and bundle statModifiers and the wizard both find
+    // them by label, so renaming either breaks those in a way renaming a
+    // labelled pinned id would not.
+    field({ fieldType: "dropdown", label: "Race", x: 0, y: 2, w: 2, h: 1, choices: makeChoices(STARTER_RACES, RACE_BUNDLE_ENTRIES) }),
+    field({ fieldType: "dropdown", label: "Background", x: 2, y: 2, w: 2, h: 1, choices: makeChoices(STARTER_BACKGROUNDS, BG_BUNDLE_ENTRIES) }),
+    field({ fieldType: "text", label: "Level", x: 0, y: 3, w: 1, h: 1, value: "1", tooltip: "Total character level across all classes." }, "level"),
     field({
-      fieldType: "text", label: "Prof. Bonus", x: 1, y: 2, w: 2, h: 1,
+      fieldType: "text", label: "Prof. Bonus", x: 1, y: 3, w: 2, h: 1,
       formula: { type: "expr", text: "roundup({{level}}/4)+1" },
       tooltip: "Added to everything you're proficient in — attacks, saves, skills, spell DCs. Grows with total level.",
     }, "profBonus"),
-    field({ fieldType: "text", label: "Hit Dice", x: 3, y: 2, w: 1, h: 1, value: "", tooltip: "Your class's hit die type (d6–d12). Spend these to heal on short rests." }),
-    toggleField({ label: "", x: 0, y: 3, w: 1, h: 1, tooltip: "Awarded by the DM for good roleplay. Spend it for advantage on one roll." }, "inspiration"),
-    nameLabel("Inspiration", 1, 3, 3),
+    field({ fieldType: "text", label: "Hit Dice", x: 3, y: 3, w: 1, h: 1, value: "", tooltip: "Your class's hit die type (d6–d12). Spend these to heal on short rests." }),
+    toggleField({ label: "", x: 0, y: 4, w: 1, h: 1, tooltip: "Awarded by the DM for good roleplay. Spend it for advantage on one roll." }, "inspiration"),
+    nameLabel("Inspiration", 1, 4, 3),
   ];
 
-  const abilities = createBlock({ name: "Abilities", x: 4, y: 0, w: 6, h: 3 });
+  // Each ability's modifier sits BESIDE its score, not under it. They used
+  // to be two rows of six: a row of six score boxes, then a row of six
+  // "Mod" boxes directly underneath, so reading one ability meant finding
+  // column three twice and trusting the columns still lined up. Side by
+  // side, a score and its modifier are one thing you read once.
+  //
+  // Three abilities per row in a six-column block, so the whole block is two
+  // rows tall instead of three - which is where the extra room in the middle
+  // column came from.
+  const abilities = createBlock({ name: "Abilities", x: 4, y: 0, w: 6, h: 2 });
   abilities.children = ABILITIES.flatMap((ability, i) => {
     const scoreId = `${ability.id}Score`;
+    const x = (i % 3) * 2;
+    const y = Math.floor(i / 3);
     return [
-      field({ fieldType: "text", label: ability.label.slice(0, 3).toUpperCase(), x: i, y: 0, w: 1, h: 1, value: "10" }, scoreId),
-      field({ fieldType: "text", label: "Mod", x: i, y: 1, w: 1, h: 1, formula: abilityModFormula(scoreId) }, `${ability.id}Mod`),
+      field({ fieldType: "text", label: ability.label.slice(0, 3).toUpperCase(), x, y, w: 1, h: 1, value: "10" }, scoreId),
+      field({ fieldType: "text", label: "Mod", x: x + 1, y, w: 1, h: 1, formula: abilityModFormula(scoreId) }, `${ability.id}Mod`),
     ];
   });
 
@@ -624,57 +651,29 @@ export function createStarterLayout() {
     field({ fieldType: "checkbox", label: "Death ✗", x: 1, y: 4, w: 1, h: 1, tooltip: "Death saving throw failures. Three failures kills your character." }, "deathFailures"),
   ];
 
-  // Equipment proficiencies the player sets for themselves.
+  // The separate "Equipment Proficiencies" block is GONE.
   //
-  // These four taglists were already defined in this module, but on a
-  // block that is not part of the starter layout, so the main sheet had
-  // no control for them at all: a character's armor/weapon/tool/vehicle
-  // proficiencies could only ever arrive from a Race, Class, Background
-  // or Subclass bundle. Anything extra - a campaign boon, a racial trait
-  // the data does not carry, a house rule - had nowhere to go.
+  // It was added by the Gear-tab removal carrying the same four taglists
+  // that Character Details already had - armorProf, weaponProf, toolProf,
+  // vehicleProf, the same ids, the same vocabularies. A new character got
+  // two sets of four identical fields on one sheet, stacked on top of each
+  // other in reading order, with the Character Details copy first. Anything
+  // typed into one never appeared in the other.
   //
-  // They moved here from the creation wizard's Gear tab, which offered
-  // the same four categories as free-form pickers and is no longer a
-  // step. The sheet is the better home for them anyway: a proficiency is
-  // something you hold for the life of the character, not something you
-  // chose once while filling in a form.
+  // It is removed rather than kept as a second home, because a proficiency
+  // has exactly one value and the sheet has no rule saying which of two
+  // identical fields wins.
   //
-  // Tool Prof. keeps its tagGroups so the dropdown is grouped into
-  // artisan's tools / instruments / gaming sets / kits / vehicles -
-  // matching what the picker now offers, so the two do not disagree
-  // about what counts as which kind of tool.
-  // Laid out 2x2 so the block is three rows tall, and every top-level column
-  // on the sheet ends on the same row (verify-content enforces it - the
-  // layout is printed and a ragged bottom edge shows). No block had a spare
-  // row to borrow, so the left and middle columns shift down by the same
-  // three rows rather than one column growing past the others.
-  const equipProfs = createBlock({ name: "Equipment Proficiencies", x: 10, y: 28, w: 6, h: 3 });
-  equipProfs.children = [
-    tagListField({
-      label: "Armor", x: 0, y: 0, w: 3, h: 1,
-      tooltip: "Armor you're proficient in. Sets your armor class when you wear it.",
-    }, ARMOR_PROFICIENCIES, "armorProf"),
-    tagListField({
-      label: "Weapons", x: 3, y: 0, w: 3, h: 1,
-      tooltip: "Weapons you're proficient in. Your proficiency bonus applies to attacks with these.",
-    }, WEAPON_PROFICIENCIES, "weaponProf"),
-    tagListField({
-      label: "Tools", x: 0, y: 1, w: 3, h: 1,
-      tooltip: "Tools and instruments you're proficient in.",
-    }, TOOL_PROFICIENCIES, "toolProf", TOOL_PROFICIENCY_GROUPS),
-    tagListField({
-      label: "Vehicles", x: 3, y: 1, w: 3, h: 1,
-      tooltip: "Vehicles you're proficient in, for the chase rules.",
-    }, VEHICLE_PROFICIENCIES, "vehicleProf"),
-  ];
-
-  const attacks = createBlock({ name: "Attacks", x: 10, y: 4, w: 6, h: 5 });
+  // Display-only in the sense that this is the STARTER layout: existing
+  // characters keep the block they were created with, and nothing in the
+  // app reads it. see createStarterLayout's doc comment.
+  const attacks = createBlock({ name: "Attacks", x: 10, y: 4, w: 6, h: 4 });
   attacks.children = [
     field({ fieldType: "textlist", label: "Name — to hit — damage/type", x: 0, y: 0, w: 6, h: 4 }, "attacks"),
   ];
 
   // Middle column (x4 w6): Abilities, Inventory, Details, Personality — ends y28.
-  const inventory = createBlock({ name: "Inventory", x: 4, y: 4, w: 6, h: 7 });
+  const inventory = createBlock({ name: "Inventory", x: 4, y: 3, w: 6, h: 7 });
   inventory.children = [
     field({ fieldType: "text", label: "CP", x: 0, y: 0, w: 1, h: 1, value: "0" }),
     field({ fieldType: "text", label: "SP", x: 1, y: 0, w: 1, h: 1, value: "0" }),
@@ -684,7 +683,7 @@ export function createStarterLayout() {
     field({ fieldType: "textlist", label: "Items", x: 0, y: 1, w: 6, h: 5 }),
   ];
 
-  const features = createBlock({ name: "Features & Traits", x: 0, y: 24, w: 4, h: 7 });
+  const features = createBlock({ name: "Features & Traits", x: 0, y: 21, w: 4, h: 7 });
   features.children = [
     // Computed, not manually typed — see collectGrantedFeatures in
     // customSheet.js. Shows whatever the character's Class/Race/
@@ -695,16 +694,17 @@ export function createStarterLayout() {
     field({ fieldType: "featureList", label: "Features & Traits", x: 0, y: 0, w: 4, h: 6, tooltip: "Everything your race, class, and background grant, unlocked automatically as you level." }),
   ];
 
-  const details = createBlock({ name: "Character Details", x: 4, y: 12, w: 6, h: 8 });
+  // Character Details keeps the four proficiencies and nothing else. Race,
+// Background and Alignment moved UP to Identity, and Languages moved up to
+// the top of Story - which leaves this block holding exactly the thing it is
+// named for, laid out 2x2 instead of three rows with two full-width boxes
+// under a row of three half-width ones.
+  const details = createBlock({ name: "Character Details", x: 4, y: 11, w: 6, h: 4 });
   details.children = [
-    field({ fieldType: "dropdown", label: "Race", x: 0, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_RACES, RACE_BUNDLE_ENTRIES) }),
-    field({ fieldType: "dropdown", label: "Background", x: 2, y: 0, w: 2, h: 1, choices: makeChoices(STARTER_BACKGROUNDS, BG_BUNDLE_ENTRIES) }),
-    field({ fieldType: "text", label: "Alignment", x: 4, y: 0, w: 2, h: 1 }),
-    tagListField({ label: "Armor Prof.", x: 0, y: 1, w: 2, h: 2 }, ARMOR_PROFICIENCIES, "armorProf"),
-    tagListField({ label: "Weapon Prof.", x: 2, y: 1, w: 2, h: 2 }, WEAPON_PROFICIENCIES, "weaponProf"),
-    tagListField({ label: "Tool Prof.", x: 4, y: 1, w: 2, h: 2 }, TOOL_PROFICIENCIES, "toolProf", TOOL_PROFICIENCY_GROUPS),
-    tagListField({ label: "Languages", x: 0, y: 3, w: 6, h: 2 }, LANGUAGES, "languages"),
-    tagListField({ label: "Vehicle Prof.", x: 0, y: 5, w: 6, h: 2 }, VEHICLE_PROFICIENCIES, "vehicleProf"),
+    tagListField({ label: "Armor Prof.", x: 0, y: 0, w: 3, h: 2 }, ARMOR_PROFICIENCIES, "armorProf"),
+    tagListField({ label: "Weapon Prof.", x: 3, y: 0, w: 3, h: 2 }, WEAPON_PROFICIENCIES, "weaponProf"),
+    tagListField({ label: "Tool Prof.", x: 0, y: 2, w: 3, h: 2 }, TOOL_PROFICIENCIES, "toolProf", TOOL_PROFICIENCY_GROUPS),
+    tagListField({ label: "Vehicle Prof.", x: 3, y: 2, w: 3, h: 2 }, VEHICLE_PROFICIENCIES, "vehicleProf"),
   ];
 
   // "Personality" became "Story" when Appearance and Backstory moved in
@@ -721,8 +721,19 @@ export function createStarterLayout() {
   // growing downward would have ended this column four rows below the
   // others and tripped verify-content's even-column-bottoms check - which
   // exists because the sheet is printed and a ragged bottom edge shows.
-  const personality = createBlock({ name: "Story", x: 4, y: 20, w: 6, h: 11 });
+  const personality = createBlock({ name: "Story", x: 4, y: 16, w: 6, h: 12 });
   personality.children = [
+    // Languages FIRST, then Alignment, then the writing.
+    //
+    // Both are facts about who the character IS rather than a story, and
+    // both used to live in Character Details - Languages in the middle of
+    // four proficiency boxes, Alignment in a row with Race and Background.
+    // Languages at the TOP is deliberate: it is the one field on this sheet
+    // a player reaches for during play ("what does this character speak?"),
+    // so it should be the first thing under the block heading rather than
+    // the fourth row of another block.
+    tagListField({ label: "Languages", x: 0, y: 0, w: 6, h: 1 }, LANGUAGES, "languages"),
+    field({ fieldType: "text", label: "Alignment", x: 0, y: 1, w: 6, h: 1 }),
     // Appearance and Backstory are the two blanks the sheet had nowhere to
     // put. Every other part of a character was representable and these two
     // were not, which meant a player had to keep them somewhere else and
@@ -734,16 +745,16 @@ export function createStarterLayout() {
     // invented, and a dropdown that only offers what the data happens to
     // hold is worse than an empty box for two fields whose whole purpose is
     // whatever you want to say.
-    field({ fieldType: "textarea", label: "Appearance", x: 0, y: 0, w: 3, h: 4, tooltip: "How your character looks: height, build, hair, eyes, clothing, distinguishing marks. Anything you want to remember them by." }),
-    field({ fieldType: "textarea", label: "Backstory", x: 3, y: 0, w: 3, h: 4, tooltip: "Where your character came from and what happened before this. Your background's mechanical benefits are picked elsewhere - this is the story behind them." }),
-    field({ fieldType: "textarea", label: "Personality Traits", x: 0, y: 4, w: 3, h: 3 }),
-    field({ fieldType: "textarea", label: "Ideals", x: 3, y: 4, w: 3, h: 3 }),
-    field({ fieldType: "textarea", label: "Bonds", x: 0, y: 7, w: 3, h: 3 }),
-    field({ fieldType: "textarea", label: "Flaws", x: 3, y: 7, w: 3, h: 3 }),
-    field({ fieldType: "textarea", label: "Notes", x: 0, y: 10, w: 6, h: 1 }),
+    field({ fieldType: "textarea", label: "Appearance", x: 0, y: 2, w: 3, h: 3, tooltip: "How your character looks: height, build, hair, eyes, clothing, distinguishing marks. Anything you want to remember them by." }),
+    field({ fieldType: "textarea", label: "Backstory", x: 3, y: 2, w: 3, h: 3, tooltip: "Where your character came from and what happened before this. Your background's mechanical benefits are picked elsewhere - this is the story behind them." }),
+    field({ fieldType: "textarea", label: "Personality Traits", x: 0, y: 5, w: 3, h: 3 }),
+    field({ fieldType: "textarea", label: "Ideals", x: 3, y: 5, w: 3, h: 3 }),
+    field({ fieldType: "textarea", label: "Bonds", x: 0, y: 8, w: 3, h: 3 }),
+    field({ fieldType: "textarea", label: "Flaws", x: 3, y: 8, w: 3, h: 3 }),
+    field({ fieldType: "textarea", label: "Notes", x: 0, y: 11, w: 6, h: 1 }),
   ];
 
-  return [identity, abilities, spellcasting, saves, skills, combat, attacks, inventory, features, details, personality, equipProfs];
+  return [identity, abilities, spellcasting, saves, skills, combat, attacks, inventory, features, details, personality];
 }
 
 /** Find a top-level block, or a field nested one level inside a block. */

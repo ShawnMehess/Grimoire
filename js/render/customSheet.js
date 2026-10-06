@@ -1979,39 +1979,25 @@ const closeDialog = () => {
 
   root.append(toolbar);
 
-  // One-time orientation, the first time a FINISHED character is opened.
-  // Placed between the toolbar and the tabs because that is where the
-  // buttons it describes are: everything it has to say is "these buttons do
-  // things, here is which".
+  // The "Getting started" panel is GONE.
   //
-  // Skipped entirely while the creation wizard is still running (see
-  // shouldShowIntro) — the wizard is itself the guided first run, and a
-  // panel about switching display modes appearing over it is noise about a
-  // feature the player has not reached.
-  if (shouldShowIntro(character)) {
-    const intro = el("div", { class: "sheet-intro", role: "note" });
-    intro.append(el("p", { class: "sheet-intro__title", text: "Getting started" }));
-    const list = el("ul", { class: "sheet-intro__list" });
-    INTRO_LINES.forEach((line) => list.append(el("li", { text: line })));
-    intro.append(list);
-    const dismiss = el("button", {
-      type: "button",
-      class: "btn btn--secondary sheet-intro__dismiss",
-      text: "Got it",
-      onclick: () => {
-        intro.remove();
-        character.sawIntro = true;
-        if (store.saveCharacterFields) {
-          store.saveCharacterFields(character.id, { sawIntro: true }).catch((err) => {
-            console.error("Failed to save intro dismissal:", err);
-          });
-        }
-      },
-    });
-    intro.append(dismiss);
-    root.append(intro);
-  }
-
+  // It appeared between the toolbar and the tabs the first time a finished
+  // character was opened, listing what the toolbar's buttons do. The
+  // "Character ready - Three things to know" popup already says three of
+  // the same things the moment the character is created, and it covers
+  // exactly the audience this did: a player arriving at a sheet for the
+  // first time. By the time someone reaches a finished character from the
+  // list, they have either seen that popup or created the character
+  // themselves, and a panel about buttons appearing every time they open
+  // their own character is a panel to dismiss, not to read.
+  //
+  // `shouldShowIntro`, `INTRO_LINES` and `character.sawIntro` are left in
+  // place. sawIntro is SAVED DATA, and the layout change of item 24 plus
+  // this removal are both display-only for characters that already exist -
+  // see createStarterLayout. Nothing reads the flag any more, so removing it
+  // would change saved documents for no benefit; and shouldShowIntro is
+  // still the answer to "has this character been through Setup", which the
+  // Leveling tab asks a different question about.
   const tabsBar = el("div", { class: "sheet-tabs" });
   root.append(tabsBar);
 
@@ -9336,6 +9322,18 @@ try {
   const onResize = debounce(() => {
     syncStackedForWidth();
     renderPageGrid();
+    // The stacked layout's sort keys live on the DOM NODES, so they die with
+    // the nodes renderPageGrid just recreated - while the `is-simple` class
+    // on the grid itself survives, because that is on the container. The
+    // result is a sheet that LOOKS stacked and reads in DOM order, which is
+    // not reading order: Saving Throws (grid y=6) came out 4th behind
+    // Attacks (y=4)'s neighbour, and Features & Traits (y=21) came out 9th
+    // of 11.
+    //
+    // This is why the order "worked partway through testing" and then
+    // stopped after a rotate. renderAll() has always restamped here; the
+    // resize path did not.
+    if (simpleView) applySimpleViewOrder(pageGrid, true);
   }, 150);
   window.addEventListener("resize", onResize);
 

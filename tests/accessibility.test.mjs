@@ -241,7 +241,8 @@ describe("dyslexia-friendly text", () => {
     const joined = applied.join(" ");
     assert.ok(/choice-row__description/.test(joined), "choice rows");
     assert.ok(/leveling-tab__intro/.test(joined), "the level-up guide's lead-ins");
-    assert.ok(/sheet-intro__list/.test(joined), "the orientation panel");
+    // The orientation panel this used to list is gone (item 24b); the "Character
+    // ready" popup covers the same ground and has its own typography.
     assert.ok(/textarea/.test(joined), "textareas, where a player types for a long time");
     // Nothing here may move a field: a reader who needs this still has to be
     // able to find every box in the same place.

@@ -1004,36 +1004,10 @@
     min-height: 44px;
   }
 
-  /* --- The first-run panel -----------------------------------------------
-     Five paragraphs of orientation, ~380px on a phone, between the
-     toolbar and the sheet. Kept - it is genuinely the first thing a new
-     character needs - but the title and the dismiss button share a row
-     and the list is bounded, so the card costs about a quarter of a
-     screen and "Got it" is above the fold instead of below it. */
-  .sheet-intro {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    padding: var(--space-3);
-  }
-  .sheet-intro__title {
-    order: 0;
-    margin: 0;
-    font-size: var(--text-md);
-  }
-  .sheet-intro__dismiss {
-    order: 1;
-    align-self: flex-start;
-    min-height: 44px;
-  }
-  .sheet-intro__list {
-    order: 2;
-    max-height: 9rem;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    margin: 0;
-    padding-left: var(--space-4);
-  }
+  /* The first-run panel's rules are gone with the panel. This block used to
+     spend ~380px of a phone screen between the toolbar and the sheet, on
+     every character's first open, saying three things the "Character ready"
+     popup says the moment the character is made. */
 }
 
 /* --- The rest of the under-44 list ----------------------------------------
