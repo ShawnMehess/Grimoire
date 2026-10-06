@@ -128,6 +128,69 @@
   margin: var(--space-2) 0 var(--space-3);
 }
 
+/* Identity step — the name and the level, side by side.
+ *
+ * They were two full-width blocks, so on a phone the name box ran the width
+ * of the screen and the level box sat under it, and both stood between the
+ * player and the race list. The name takes what is left, the level takes only
+ * what it needs, and the row breaks to two lines only when there is genuinely
+ * not enough width for both - which at 390px there is. */
+.wizard__identity-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.wizard__identity-row > .level-guide__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.wizard__identity-row > .level-guide__field:first-child {
+  /* The name grows; the level does not. `1 1 auto` with a min-width keeps
+     both usable rather than letting one squash the other to nothing. */
+  flex: 1 1 10rem;
+}
+/* Level is at most two digits, and 20 is the widest number a level can
+ * actually BE - so "20" and "99" both fit and nothing is clipped.
+ *
+ * The stepper is removed, and that is what makes the sizing work at all.
+ * Measured at this font size: with it, the field needs 56px of width for two
+ * digits - 24px of padding, 2px of border, ~14px of spinner, and then the
+ * digits. Without it, two digits and the same padding fit in 44px, which is
+ * also the smallest comfortable tap target. A spinner is neither "the label"
+ * nor "a two-digit number", and on a 44px-tall phone field its arrows are a
+ * fiddly target in their own right - the field still has min and max, and
+ * typing, the step keys and the keyboard all work.
+ *
+ * `ch` rather than a pixel figure, so a larger font grows the box instead of
+ * clipping. The 44px floor wins where the two disagree. */
+.wizard__identity-row .wizard__level-input {
+  width: 5ch;
+  min-width: 44px;
+  max-width: 100%;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.wizard__identity-row .wizard__level-input::-webkit-outer-spin-button,
+.wizard__identity-row .wizard__level-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+/* Below this the two side by side stop being two short questions and start
+   being two half-width boxes with a label above each. Stacking is the
+   honest answer there: a level box next to a name box leaves too little for
+   either to be a comfortable target. */
+@media (max-width: 340px) {
+  .wizard__identity-row > .level-guide__field:first-child {
+    flex: 1 1 100%;
+  }
+}
+
 /* Ability Scores step — one field per row (not the default two-column
    level-guide__form grid), a short description beside each score, and
    the method note/Roll-All row kept separate from the score rows. */
@@ -487,6 +550,14 @@
   display: flex;
   gap: var(--space-2);
   margin-bottom: var(--space-2);
+}
+/* Centred in each button. On a phone these two share the full width, one half
+   each, and their words sat hard against the left edge of a 150px button -
+   two labels of different lengths, each starting at its own box, reading as
+   one ragged left-aligned block rather than as a pair of buttons. */
+.choice-row-list__collapse-controls > .btn {
+  justify-content: center;
+  text-align: center;
 }
 
 /* Phones and narrow tablets: the pair spans the full width, one half

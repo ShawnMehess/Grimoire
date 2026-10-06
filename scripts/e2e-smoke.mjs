@@ -1719,7 +1719,10 @@ async function runViewportTests(viewport) {
     // Character Name and Starting Level), so proving the filter is
     // dynamic is just: raise it, look again, lower it, look again.
     const setLevel = async (value) => {
-      const input = await page.$('label:has-text("Starting Level") input[type="number"]');
+      // By class, not by the label's text. The label was "Starting Level"
+      // and is now "Level" (item 13/14), and a test that names a player-facing
+      // string is a test that breaks every time the wording is improved.
+      const input = await page.$(".wizard__level-input");
       if (!input) return false;
       await input.fill(String(value));
       await input.dispatchEvent("change");
@@ -1734,7 +1737,7 @@ async function runViewportTests(viewport) {
         check(await spellsOnTiefling() === "Spells — Thaumaturgy", "and loses them again when the level drops");
       }
     } else {
-      check(false, "the wizard's Starting Level control is reachable");
+      check(false, "the wizard's Level control is reachable");
     }
   }
 
@@ -3664,6 +3667,18 @@ for (const phoneWidth of [320, 390]) {
           spansParent: Math.abs(barW - contentW) <= 2,
           barW: Math.round(barW),
           contentW: Math.round(contentW),
+          // Is the label CENTRED in its button? Measured against the text's own
+          // box rather than trusted from CSS: `justify-content` centres the
+          // box the button lays out, which is not the same as the glyphs
+          // sitting in the middle if the button has any padding of its own.
+          centred: kids.map((k) => {
+            const b = k.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(k);
+            const t = range.getBoundingClientRect();
+            if (!t.width) return null;
+            return Math.round(Math.abs((b.left + b.right) / 2 - (t.left + t.right) / 2));
+          }),
         });
       }
       return out;
@@ -3674,8 +3689,59 @@ for (const phoneWidth of [320, 390]) {
         `@${phoneWidth} Expand All and Collapse All are the same width (${JSON.stringify(bar.widths)})`);
       phoneCheck(bar.spansParent,
         `@${phoneWidth} and together span the full width available (${bar.barW} of ${bar.contentW})`);
+      phoneCheck(bar.centred.every((d) => d === null || d <= 2),
+        `@${phoneWidth} and each one's label is CENTRED in it (${JSON.stringify(bar.centred)} off centre)`);
     }
 
+    // The Identity step's own row: a name box and a level box, side by side.
+    // Both are one line of the page now, where before they were two full-width
+    // blocks standing between the player and the race list.
+    const idRow = await wiz.evaluate(() => {
+      const row = document.querySelector(".wizard__identity-row");
+      if (!row) return null;
+      const name = row.querySelector("input[type=text]");
+      let level = row.querySelector(".wizard__level-input");
+      if (!name || !level) return { found: false };
+      const labels = [...row.children].map((c) => (c.textContent || "").trim());
+      const nr = name.getBoundingClientRect();
+      const lr = level.getBoundingClientRect();
+      const levelW = Math.round(lr.width);
+      // The widest level a character can have, in the box that has to hold
+      // it. Re-queried after the change: the wizard re-renders, so the element
+      // measured before it is detached and reports zero.
+      level.value = "20";
+      level.dispatchEvent(new Event("change", { bubbles: true }));
+      const after = document.querySelector(".wizard__level-input");
+      return {
+        found: true,
+        labels,
+        sameLine: Math.abs(nr.top - lr.top) <= 4,
+        nameLeft: Math.round(nr.left),
+        levelLeft: Math.round(lr.left),
+        levelW,
+        nameW: Math.round(nr.width),
+        // 44px is the tap floor; at or above 320px the two share a line, and
+        // below that they stack by design.
+        stacksByDesign: window.innerWidth <= 340,
+        fits: after ? after.scrollWidth <= after.clientWidth + 1 : false,
+        levelH: after ? Math.round(after.getBoundingClientRect().height) : 0,
+        levelW20: after ? Math.round(after.getBoundingClientRect().width) : 0,
+      };
+    });
+    phoneCheck(!!idRow && idRow.found, `@${phoneWidth} the Identity step has a name and level row`);
+    if (idRow && idRow.found) {
+      phoneCheck(idRow.stacksByDesign || (idRow.sameLine && idRow.levelLeft > idRow.nameLeft),
+        `@${phoneWidth} above 340px they sit on ONE line, level to the right of name (${JSON.stringify(idRow)})`);
+      phoneCheck(idRow.fits,
+        `@${phoneWidth} and a two-digit level shows in full (${idRow.levelW20}px box)`);
+      phoneCheck(idRow.levelW >= 44 && idRow.levelW <= 96,
+        `@${phoneWidth} the level box is sized for two digits and no more (${idRow.levelW}px)`);
+      phoneCheck(idRow.levelH >= 44,
+        `@${phoneWidth} and is still a 44px target (${idRow.levelH}px tall)`);
+      phoneCheck(idRow.labels.join(" ").includes("Level") && !/Starting/i.test(idRow.labels.join(" ")),
+        `@${phoneWidth} and it is called "Level", with no "Starting" implying you could begin lower (${JSON.stringify(idRow.labels)})`);
+    }
+    await wiz.waitForTimeout(400);
     // No wizard page may scroll sideways, whatever is on it.
     for (let step = 0; step < 7; step += 1) {
       const o = await wiz.evaluate(() => {

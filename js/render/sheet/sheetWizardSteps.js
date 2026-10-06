@@ -175,6 +175,22 @@ export function renderRulesetStepInto(container, state, deps) {
   container.append(list);
 }
 
+/** One labelled field, for the Identity step's own row.
+ *
+ *  Deliberately not `fieldFn` (the caller's shared appendFieldGroup), which
+ *  makes its own full-width block - fine for one field at a time, wrong for
+ *  two side by side. Kept here rather than passed in so the row and its
+ *  layout live in the same place as the labels they carry.
+ *
+ *  `inputClass` is added to the control so a field can be sized by its own
+ *  content rather than the row's. */
+function fieldWrapper(label, control, { inputClass = "" } = {}) {
+  const field = el("label", { class: "level-guide__field" });
+  if (inputClass) control.classList?.add?.(inputClass);
+  field.append(document.createTextNode(label), control);
+  return field;
+}
+
 export function renderIdentityStepInto(container, state, deps) {
   const { characterName, nameInputSetFn, saveNameFn, updateFn, fieldFn, optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn, selectableRowsFn, debounceFn } = deps;
   const {
@@ -193,13 +209,28 @@ export function renderIdentityStepInto(container, state, deps) {
       nameInputSetFn(nameField.value);
     }, 400),
   });
-  fieldFn(container, "Character Name", nameField);
-
   const level = el("input", {
     type: "number", min: "1", max: "20", value: String(state.level), class: "input-group__control",
     onchange: () => updateFn("level", level.value),
   });
-  fieldFn(container, "Starting Level", level);
+  // Name and Level on ONE row.
+  //
+  // They were two full-width blocks, which on a phone put the name box across
+  // the whole screen and the level box under it, both left-aligned to a 300px
+  // column while the picker table below ran the same width. Two short
+  // questions do not need two screenfuls of vertical space before the race
+  // list starts - and on a 390x844 phone that space is the difference between
+  // seeing the first species without scrolling and not.
+  //
+  // The Level box is sized by CONTENT, not by a guess: `ch` against the widest
+  // two-digit number, so "20" and "99" both show in full and a one-digit level
+  // does not leave a box the width of a phone. Level can never be below 1 -
+  // there is no level 0 character - and `min` has always said so; the label
+  // used to imply otherwise by saying "Starting", as though starting lower
+  // were an option.
+  container.append(el("div", { class: "wizard__identity-row" },
+    fieldWrapper("Name", nameField),
+    fieldWrapper("Level", level, { inputClass: "wizard__level-input" })));
 
   container.append(el("p", { class: "wizard__section-label", text: "Race/Species" }));
 
