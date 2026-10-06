@@ -6,7 +6,13 @@
 
 .character-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  /* 230px rather than 190px. The card has to hold a character NAME, a level,
+     a species, a class and often a subclass - five separate facts, several of
+     them proper nouns that do not abbreviate. At 190px the text column was
+     about 158px, which is where "Urban Bounty Hunter" and "Half-Elf" started
+     losing their ends to an ellipsis. Two facts are still shown in full before
+     anything is clipped; the grid simply puts fewer cards on a row. */
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   gap: var(--space-4);
 }
 
@@ -51,9 +57,11 @@
      the artwork somewhere to be. Capped, because the tablet breakpoint
      below forces a two-up layout and an uncapped 4/5 frame turns a 378px
      card into a 470px one - the art crops to a banner instead, which
-     suits a bust better than losing most of it. */
+     suits a bust better than losing most of it.
+     17rem rather than 15rem: the text under the art now has room to wrap,
+     and the art is the part that can afford to give some back. */
   aspect-ratio: 4 / 5;
-  max-height: 15rem;
+  max-height: 17rem;
   background: var(--color-bg-inset);
   overflow: hidden;
 }
@@ -97,9 +105,19 @@
   font-family: var(--font-display);
   font-size: var(--text-md);
   margin: 0 0 2px;
+  /* Two lines, not one truncated one. A name is the one thing on this card
+     that cannot be abbreviated and cannot be guessed at - "Syr" tells you
+     nothing about which Syr you meant - so the card is allowed to grow to
+     hold it rather than hiding the end of it. Clamped at two because a
+     three-word name on one card should not make one card twice the height
+     of its neighbours. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  min-height: calc(2 * 1.35em);
 }
 
 /* An accent hairline under the name, so the card has a head and a body
@@ -130,15 +148,25 @@
   flex-direction: column;
   flex: 1;
   margin-top: var(--space-2);
+  /* The whole block is capped rather than each line. A per-line clamp was
+     tried and measured badly: `display: -webkit-box` reports a
+     scrollHeight that does not match what it shows, so "Level 3" on one
+     line registered as clipped. Clamping the group is also the honest
+     shape - the facts are read as one list, so it is the list that has to
+     stop somewhere. Four lines holds level, species, class and one more,
+     which is the four the card exists to show. */
+  max-height: calc(4 * 1.4em + var(--space-1));
+  overflow: hidden;
 }
 
 .character-card__meta-line {
   font-size: var(--text-sm);
   color: var(--color-text);
   line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Wraps rather than truncates. Level, species and class are short lines
+     under a name, and they are the whole reason the card exists - a card
+     that says "Half-Or..." is a card you have to open to use. */
+  overflow-wrap: anywhere;
 }
 /* Sub rows nest under their parent: indented, muted, with a true
  * hanging indent so wrapped names stay aligned under the indent. */
@@ -313,6 +341,18 @@
 .vault-new__input {
   width: 14rem;
   max-width: 100%;
+}
+
+/* The placeholder is dimmed here rather than left to the browser's default.
+ * Chrome, Safari and Firefox each pick their own grey - and each picks it
+ * from its own idea of the field's background, not this theme's - so an
+ * unstyled `::placeholder` is very slightly wrong in three browsers at once,
+ * and on the dark themes it is noticeably too bright. It is still a REAL
+ * placeholder: it disappears the moment anything is typed, which a value
+ * pretending to be a placeholder cannot do. */
+.vault-new__input::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1;
 }
 
 .vault-new__go {

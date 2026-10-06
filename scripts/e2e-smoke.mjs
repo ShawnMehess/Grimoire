@@ -3104,20 +3104,34 @@ if (inArea("vault-cards")) {
   // the card only reads rules and the sheet layout.
   await phone.evaluate(() => {
     const layout = [{ name: "Identity", x: 0, y: 0, w: 4, h: 2, children: [] }];
-    const names = ["Aramil", "Brix", "Cerys", "Doran", "Elsi", "Fen"];
+    // Short names AND long ones. The card has to hold a name, a level, a
+    // species and a class without hiding the end of any of them, and that is
+    // only a real claim if the worst realistic case is in the fixture:
+    // "Urban Bounty Hunter" and "Half-Elf" are proper nouns that do not
+    // abbreviate, and they are what the old 190px track was truncating.
+    const rows = [
+      { name: "Aramil", level: 1, species: "Dwarf", className: "Wizard" },
+      { name: "Brix", level: 5, species: "Elf", className: "Cleric" },
+      { name: "Sir Bartholomew Windlesworth", level: 12, species: "Half-Elf", className: "Bard" },
+      { name: "Xu of the Ninth Terrace", level: 20, species: "Air Genasi", className: "Universal Bounty Hunter" },
+      { name: "Cerys", level: 3, species: "Dwarf", className: "Wizard" },
+      { name: "Doran", level: 8, species: "Elf", className: "Rogue" },
+      { name: "Elsi", level: 2, species: "Half-Orc", className: "Barbarian" },
+      { name: "Fen", level: 9, species: "Gnome", className: "Artificer" },
+    ];
     const map = {};
-    names.forEach((name, i) => {
-      map[name] = {
-        id: name,
-        name,
+    rows.forEach((row, i) => {
+      map[row.name] = {
+        id: `${i}`,
+        name: row.name,
         rules: {
-          level: (i % 5) + 1,
-          species: i % 2 ? "Dwarf" : "Elf",
-          className: i % 3 === 0 ? "Wizard" : "Cleric",
+          level: row.level,
+          species: row.species,
+          className: row.className,
           abilityScores: { str: 10, dex: 10, con: 10, int: 10, wis: 12, cha: 10 },
         },
         layout: JSON.parse(JSON.stringify(layout)),
-        sheetTabs: [{ id: `${name}-tab`, name: "Sheet 1", layout: JSON.parse(JSON.stringify(layout)) }],
+        sheetTabs: [{ id: `${i}-tab`, name: "Sheet 1", layout: JSON.parse(JSON.stringify(layout)) }],
         setupComplete: true,
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
@@ -3148,10 +3162,19 @@ if (inArea("vault-cards")) {
       .map((n) => ({ text: n.textContent.trim(), shown: n.getBoundingClientRect().height > 0 }));
     // A name or fact whose text is wider than its own box is ellipsised -
     // the failure mode the four-across layout could not avoid, since an
-    // 83px card truncates all four of them.
+    // 83px card truncates all four of them. Measured on width AND height: a
+    // fact long enough to need a second line must actually get one rather
+    // than losing its tail, which a width check alone would not notice.
     const ellipsised = [];
+    const cutOff = [];
     for (const n of document.querySelectorAll(".character-card__name, .character-card__meta-line")) {
-      if (n.scrollWidth > n.clientWidth + 1) ellipsised.push(n.textContent.trim().slice(0, 24));
+      const text = n.textContent.trim().slice(0, 24);
+      if (n.scrollWidth > n.clientWidth + 1) ellipsised.push(text);
+      // Only the NAME is capped at two lines by design (a three-word name
+      // should not make one card twice its neighbours' height). A fact is
+      // not capped, so a fact taller than its text is a fact being hidden.
+      if (n.classList.contains("character-card__meta-line")
+        && n.scrollHeight > n.clientHeight + 1) cutOff.push(text);
     }
     // The two card actions: a 44px floor, and a real gap between them
     // rather than two circles almost touching over the artwork.
@@ -3169,6 +3192,12 @@ if (inArea("vault-cards")) {
       visibleLines: visibleLines.slice(0, 8),
       anyLineClipped: visibleLines.some((l) => l.shown === false),
       ellipsised,
+      cutOff,
+      // The placeholder's own colour. A real placeholder attribute, dimmed by
+      // us rather than by whichever grey the browser picked for its own idea
+      // of the field's background.
+      placeholderColour: getComputedStyle(document.querySelector(".vault-new__input"), "::placeholder").color,
+      placeholderAttr: document.querySelector(".vault-new__input")?.getAttribute("placeholder") || "",
       actionSizes: acts.map((r) => [Math.round(r.width), Math.round(r.height)]),
       actionGap: acts.length >= 2
         ? Math.round(acts[1].left - acts[0].right)
@@ -3188,6 +3217,15 @@ if (inArea("vault-cards")) {
     `two cards fit across a phone (got ${grid.firstRow} in the first row, card ${grid.cardW}x${grid.cardH})`);
   phoneCheck(grid.cardW >= 150 && grid.ellipsised.length === 0,
     `each card is wide enough to read its name and facts (${grid.cardW}px, ellipsised: ${JSON.stringify(grid.ellipsised)})`);
+  // The fixture deliberately carries "Sir Bartholomew Windlesworth",
+  // "Xu of the Ninth Terrace" and the class "Universal Bounty Hunter", so
+  // this is measuring wrapping rather than short names that happen to fit.
+  phoneCheck(grid.cutOff.length === 0,
+    `a fact long enough to need a second line gets one (cut off: ${JSON.stringify(grid.cutOff)})`);
+  phoneCheck(/^rgb\(/.test(grid.placeholderColour || ""),
+    `the create box's placeholder is a real, dimmed placeholder (${grid.placeholderAttr} in ${grid.placeholderColour})`);
+  phoneCheck(!!grid.placeholderAttr && grid.placeholderAttr === "New Character",
+    "and it says what the box is for");
   phoneCheck(grid.headingLines <= 1,
     `the heading is one line, not wrapped beside the create box (${grid.headingLines})`);
   phoneCheck(grid.newInputW >= 200,
