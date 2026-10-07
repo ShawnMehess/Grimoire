@@ -6,6 +6,7 @@
 import { buildLabelValueInto } from "./sheetFields.js";
 import { previewForType, personIconSvgMarkup } from "./sheetFields.js";
 import { hideToggleBtnInto, labelToggleBtnInto } from "./sheetStyles.js";
+import { renderedBlockRows } from "../../data/blockFit.js";
 
 export function resolveSourceBlock(block, globalLayout = []) {
   if (!block?.sourceBlockId) return block;
@@ -388,6 +389,27 @@ export function renderBlockNodeInto(block, cw, deps) {
     nameEl.title = viewBlock.name;
     nameEl.append(nameLabelEl);
     el.append(nameEl);
+  }
+
+  // The block is drawn at least as tall as its content, whatever the
+  // saved `h` says.
+  //
+  // `.block-body` is `overflow: hidden` and the block's height is a fixed
+  // pixel box, so an `h` one row short of the children does not look like
+  // "a spare row" - it looks like the bottom row of children was never
+  // drawn. That is what the starter layout's Abilities block used to do,
+  // hiding INT, WIS and CHA on every sheet made from it.
+  //
+  // Correcting the layout fixes new characters; this fixes the ones
+  // already saved, whose short `h` is still the truth the drag bounds and
+  // the canvas height are derived from. min-height rather than an
+  // assignment, so a block whose `h` is already generous is untouched, and
+  // so Simple View - which un-positions the node and lets content decide
+  // its height - is unaffected.
+  const fittedRows = Math.max(block.h || 0, renderedBlockRows(viewBlock));
+  if (fittedRows > (block.h || 0)) {
+    const fitted = rectStyle({ h: fittedRows }, cw, gapPx, 0);
+    el.style.minHeight = `${parseFloat(fitted.height) + blockBorderCompensationPx}px`;
   }
 
   const body = document.createElement("div");

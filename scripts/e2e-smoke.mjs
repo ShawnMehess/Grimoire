@@ -89,6 +89,7 @@ const AREAS = {
   "vault-cards": "Your Characters on a phone: card count and meta lines",
   "phone-layout": "phone portrait: no sideways scroll, evenly split buttons",
   "widths-sweep": "320-1440px ladder: stacking threshold and cell floor",
+  "no-clipping": "no rendered box is hidden by an overflow:hidden ancestor",
   "levelgated-text": "level-gated prose in a trait, changing with no reload",
   rowclick: "a click inside a row selects that row (picker link vs <select>)",
   "spell-rows": "spell picker row shape: facts, gist, disclosure",
@@ -4520,6 +4521,135 @@ if (inArea("widths-sweep")) {
     `and it lands below a laptop (unstacked from ${firstUnstacked}px)`);
   await sweep.screenshot({ path: path.join(shotDir, "widths-final.png") });
   await sweep.close();
+}
+
+// --- Nothing is clipped by the box it is drawn inside ------------------------
+//
+// The five widths the headless review was run at, and one question at each:
+// does any rendered box stick out of the overflow-hidden ancestor it is
+// drawn inside?
+//
+// This is the check that catches a class of bug nothing else here can. A
+// block's height is a fixed pixel number read out of the saved layout, and
+// `.block-body` is `overflow: hidden` inside it - so a child on the row
+// past the usable area is not squeezed, it is INVISIBLE, and it looks
+// exactly like a layout with fewer things on it. That is how the
+// starter sheet shipped with only STR/DEX/CON on the Abilities block, with
+// the Inspiration toggle gone, and with the Notes line at the bottom of the
+// sheet missing: five blocks whose declared `h` was one row short of their
+// own children, because `h` reserves a row for the block's name.
+//
+// The data-level half of the same rule lives in scripts/verify-content.mjs
+// and tests/block-fit.test.mjs. This is the half that can only be measured:
+// it catches a block that fits its rows and still overflows, a clip added
+// by a stylesheet, and a font that no longer fits the cell it was sized
+// for. It walks the real rendered tree at each width rather than asserting
+// a count, so it also fails when a NEW element starts overflowing.
+if (inArea("no-clipping")) {
+  const clipCheck = reporter("no-clipping");
+  const clipPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  clipPage.on("pageerror", (e) => problems.push(`PAGEERROR [no-clipping]: ${e.message}`));
+  await clipPage.goto(`${base}/demo.html`, { waitUntil: "networkidle" });
+  await settled(clipPage, READY_SHEET, `no-clipping sheet`);
+
+  // Everything the DOM draws, checked against the nearest ancestor that
+  // actually clips.
+  //
+  // `overflow: hidden` and `overflow: auto` both put a box's content
+  // outside its visible area, and they are not the same thing: hidden
+  // means that content is GONE (this is the bug - a field with an empty
+  // box in it and no way to reach the number), while auto/scroll means it
+  // is there and you can scroll to it, which is exactly what a Features
+  // & Traits list inside a fixed-height cell is supposed to do. Only the
+  // first is a defect, and conflating them would make this check fail on
+  // every long prose field on the sheet.
+  const overflowing = () => clipPage.evaluate(() => {
+    const found = [];
+    const name = (node) => {
+      const owner = node.closest("[data-node-id]");
+      if (owner) return `${owner.dataset.nodeKind}:${(owner.dataset.nodeId || "").slice(0, 8)}`;
+      return `${node.tagName.toLowerCase()}.${String(node.className || "").split(" ")[0]}`;
+    };
+    (function walk(node) {
+      const box = node.getBoundingClientRect();
+      if (box.width > 0 && box.height > 0) {
+        for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+          const cs = getComputedStyle(parent);
+          const clipsX = cs.overflowX !== "visible";
+          const clipsY = cs.overflowY !== "visible";
+          if (clipsX || clipsY) {
+            const pb = parent.getBoundingClientRect();
+            const over = {
+              right: Math.round(box.right - pb.right),
+              bottom: Math.round(box.bottom - pb.bottom),
+              left: Math.round(pb.left - box.left),
+              top: Math.round(pb.top - box.top),
+            };
+            const past = Math.max(over.right, over.bottom, over.left, over.top);
+            // 3px of slack: sub-pixel layout and a 1px border on each side
+            // routinely produce 1-2px of noise, and a gate that trips on
+            // that is a gate people learn to ignore.
+            const pastRightOrLeft = Math.max(over.right, over.left);
+            const pastBottomOrTop = Math.max(over.bottom, over.top);
+            // Reported only where the axis that overflows is one the
+            // clipper actually hides rather than scrolls.
+            const hidden = (clipsX && pastRightOrLeft > 3 && (cs.overflowX === "hidden" || cs.overflowX === "clip"))
+              || (clipsY && pastBottomOrTop > 3 && (cs.overflowY === "hidden" || cs.overflowY === "clip"));
+            if (hidden && past > 3) {
+              found.push({ el: name(node), clipper: String(parent.className || "").slice(0, 30), over });
+            }
+            break;
+          }
+        }
+      }
+      for (const child of node.children) walk(child);
+    })(document.body);
+    return found;
+  });
+
+  for (const [label, width, height] of [
+    ["phone 390", 390, 844],
+    ["tablet portrait 768", 768, 1024],
+    ["tablet portrait 834", 834, 1194],
+    ["tablet landscape 1024", 1024, 768],
+    ["desktop 1440", 1440, 900],
+  ]) {
+    await clipPage.setViewportSize({ width, height });
+    await clipPage.waitForTimeout(750);
+    const found = await overflowing();
+    clipCheck(found.length === 0,
+      `${label}: nothing is hidden by an overflow:hidden ancestor` +
+      (found.length ? ` - ${found.slice(0, 4).map((f) => `${f.el} behind ${f.clipper} ${JSON.stringify(f.over)}`).join("; ")}` : ""));
+  }
+
+  // And the specific symptom, named: every ability has to be on screen.
+  // The general check above says "some box sticks out"; this says the six
+  // ability scores and modifiers are readable, which is what a player
+  // would actually report.
+  await clipPage.setViewportSize({ width: 1440, height: 900 });
+  await clipPage.waitForTimeout(600);
+  const abilities = await clipPage.evaluate(() => {
+    const out = {};
+    for (const id of ["str", "dex", "con", "int", "wis", "cha"]) {
+      const score = document.querySelector(`[data-node-id="${id}Score"]`);
+      const mod = document.querySelector(`[data-node-id="${id}Mod"]`);
+      out[id] = [score, mod].map((node) => {
+        if (!node) return "missing";
+        const b = node.getBoundingClientRect();
+        const body = node.closest(".block-body");
+        if (!body) return "no-body";
+        const bb = body.getBoundingClientRect();
+        return b.top >= bb.top - 3 && b.bottom <= bb.bottom + 3 ? "inside" : `out by ${Math.round(b.bottom - bb.bottom)}px`;
+      });
+    }
+    return out;
+  });
+  for (const [id, states] of Object.entries(abilities)) {
+    clipCheck(states.every((s) => s === "inside"),
+      `${id} score and modifier are drawn inside the Abilities block (${states.join(", ")})`);
+  }
+  await clipPage.screenshot({ path: path.join(shotDir, "no-clipping-final.png") });
+  await clipPage.close();
 }
 
 // --- Level-gated text in the picker, without a reload ----------------------

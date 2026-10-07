@@ -37,3 +37,6 @@
    phone.css's own stacked-layout pill arrangement outside the phone
    query and leave it intact inside it. See the file header. */
 @import url("components/touch-roll-popover.css");
+/* A field's label may not evict its own value out of the cell. Loaded
+   last so it can supersede the flex basis in custom-sheet-grid.css. */
+@import url("components/field-fit.css");

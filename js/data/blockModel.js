@@ -477,9 +477,13 @@ function nameLabel(text, x, y, w, h = 1) {
  * heavier-weight option later for anyone who wants structured items.
  */
 export function createStarterLayout() {
-  // NOTE h: 5, not 4 — the extra content row is what gives Inspiration
-  // room for a real "Inspiration" caption next to its checkbox instead
-  // of squeezing both into one cell (see the nameLabel() comment).
+  // NOTE h: 6. `h` is the block's TOTAL footprint and one row of it is
+  // reserved for this block's name (see BLOCK_HEADER_ROWS), so the five
+  // content rows below need h: 6, not h: 5. It was 5 - which reads as
+  // "one spare row" and is not: the body starts BELOW the header, and
+  // `.block-body` is overflow:hidden, so the Inspiration toggle on row 4
+  // was drawn past the bottom edge of its own block and never seen.
+  // `requiredBlockHeight` (js/data/blockFit.js) is what proves it.
   //
   // Race and Background live HERE now, moved up from Character Details.
   // They are the other two answers the Identity block already collects -
@@ -490,7 +494,7 @@ export function createStarterLayout() {
   // Display-only for existing characters: block children are written into
   // character.layout at creation, so a saved sheet keeps the fields it was
   // built with. See createStarterLayout's own doc comment.
-  const identity = createBlock({ name: "Identity", x: 0, y: 0, w: 4, h: 5 });
+  const identity = createBlock({ name: "Identity", x: 0, y: 0, w: 4, h: 6 });
   identity.children = [
     field({ fieldType: "text", label: "Name", x: 0, y: 0, w: 4, h: 1 }),
     // Class and Subclass sit side by side — the subclass id ("subclass")
@@ -520,10 +524,13 @@ export function createStarterLayout() {
   // column three twice and trusting the columns still lined up. Side by
   // side, a score and its modifier are one thing you read once.
   //
-  // Three abilities per row in a six-column block, so the whole block is two
-  // rows tall instead of three - which is where the extra room in the middle
-  // column came from.
-  const abilities = createBlock({ name: "Abilities", x: 4, y: 0, w: 6, h: 2 });
+  // Three abilities per row in a six-column block, so the CONTENT is two
+  // rows tall - which with the reserved name row makes the block h: 3. It
+  // was h: 2, one row short, and that is the whole of the "only STR, DEX
+  // and CON are visible" bug: INT, WIS and CHA were rendered a full cell
+  // below this block's own bottom edge and `.block-body`'s overflow:hidden
+  // ate them. Which is where the room in the middle column went.
+  const abilities = createBlock({ name: "Abilities", x: 4, y: 0, w: 6, h: 3 });
   abilities.children = ABILITIES.flatMap((ability, i) => {
     const scoreId = `${ability.id}Score`;
     const x = (i % 3) * 2;
@@ -602,10 +609,25 @@ export function createStarterLayout() {
   // same clipping one column over. Stacked, both keep the same width
   // as Identity above them (x0, w4) and the sheet stays a clean single
   // left-hand column instead of a cramped double one.
-  // Left column (x0 w4): Identity, Saves, Combat, Features — ends y28.
-  // Single-row gaps between blocks keep some air without changing any
-  // child layout.
-  const saves = createBlock({ name: "Saving Throws", x: 0, y: 6, w: 4, h: 1 + ABILITIES.length });
+  //
+  // THE COLUMN MATH, which every block below participates in.
+  // Content heights (name row included, per BLOCK_HEADER_ROWS):
+  //
+  //   x0  w4   Identity 6 + Saving Throws 7 + Combat 6 + Features 7 = 26
+  //   x4  w6   Abilities 3 + Inventory 7 + Details 5 + Story 13     = 28
+  //   x10 w6   Spellcasting 4 + Attacks 5 + Skills 19               = 28
+  //
+  // All three start at y0, so they need different gaps to finish level -
+  // and they do: a single blank row after each block in the left column
+  // would end it at 29, the middle at 31 and the right at 30. Hence
+  // TWO blank rows between blocks on the left and the right (which need
+  // 6 and 4 of them) and 1/2/1 in the middle (which needs 4). All three
+  // end on row 32, which is what verify-content's even-column-bottoms
+  // check is about: the sheet is printed, and a ragged bottom edge
+  // shows.
+  //
+  // Left column (x0 w4): ends y28 - now y32.
+  const saves = createBlock({ name: "Saving Throws", x: 0, y: 8, w: 4, h: 1 + ABILITIES.length });
   saves.children = ABILITIES.flatMap((ability, i) => {
     const scoreId = `${ability.id}Score`;
     const profId = `${ability.id}SaveProf`;
@@ -618,7 +640,7 @@ export function createStarterLayout() {
 
   // Skills takes the whole width of its column (w6): proficiency box,
   // a roomy name caption, and the modifier — no clipping.
-  const skills = createBlock({ name: "Skills", x: 10, y: 9, w: 6, h: 1 + SKILLS.length });
+  const skills = createBlock({ name: "Skills", x: 10, y: 13, w: 6, h: 1 + SKILLS.length });
   skills.children = SKILLS.flatMap((skill, i) => {
     const scoreId = `${skill.ability}Score`;
     const profId = `${skill.id}Prof`;
@@ -629,7 +651,7 @@ export function createStarterLayout() {
     ];
   });
 
-  const combat = createBlock({ name: "Combat", x: 0, y: 14, w: 4, h: 6 });
+  const combat = createBlock({ name: "Combat", x: 0, y: 17, w: 4, h: 6 });
   combat.children = [
     // Stable ids ("armorClass", "initiative", "speed", "hpMax",
     // "passivePerception") are what bundle statModifiers target — e.g.
@@ -667,13 +689,19 @@ export function createStarterLayout() {
   // Display-only in the sense that this is the STARTER layout: existing
   // characters keep the block they were created with, and nothing in the
   // app reads it. see createStarterLayout's doc comment.
-  const attacks = createBlock({ name: "Attacks", x: 10, y: 4, w: 6, h: 4 });
+  // Attacks is a h: 5 list. The textlist is h: 4, so with the reserved
+  // name row the block needs 5 and not the 4 it used to be declared -
+  // same off-by-one as Abilities, and the same clipping: the bottom row
+  // of every attack was drawn past the block's own edge. One spare row
+  // over the list is also simply useful, which is why the two-row gap
+  // below it is not reclaimed.
+  const attacks = createBlock({ name: "Attacks", x: 10, y: 6, w: 6, h: 5 });
   attacks.children = [
     field({ fieldType: "textlist", label: "Name — to hit — damage/type", x: 0, y: 0, w: 6, h: 4 }, "attacks"),
   ];
 
-  // Middle column (x4 w6): Abilities, Inventory, Details, Personality — ends y28.
-  const inventory = createBlock({ name: "Inventory", x: 4, y: 3, w: 6, h: 7 });
+  // Middle column (x4 w6): Abilities, Inventory, Details, Story — ends y32.
+  const inventory = createBlock({ name: "Inventory", x: 4, y: 4, w: 6, h: 7 });
   inventory.children = [
     field({ fieldType: "text", label: "CP", x: 0, y: 0, w: 1, h: 1, value: "0" }),
     field({ fieldType: "text", label: "SP", x: 1, y: 0, w: 1, h: 1, value: "0" }),
@@ -683,7 +711,7 @@ export function createStarterLayout() {
     field({ fieldType: "textlist", label: "Items", x: 0, y: 1, w: 6, h: 5 }),
   ];
 
-  const features = createBlock({ name: "Features & Traits", x: 0, y: 21, w: 4, h: 7 });
+  const features = createBlock({ name: "Features & Traits", x: 0, y: 25, w: 4, h: 7 });
   features.children = [
     // Computed, not manually typed — see collectGrantedFeatures in
     // customSheet.js. Shows whatever the character's Class/Race/
@@ -694,12 +722,15 @@ export function createStarterLayout() {
     field({ fieldType: "featureList", label: "Features & Traits", x: 0, y: 0, w: 4, h: 6, tooltip: "Everything your race, class, and background grant, unlocked automatically as you level." }),
   ];
 
-  // Character Details keeps the four proficiencies and nothing else. Race,
-// Background and Alignment moved UP to Identity, and Languages moved up to
-// the top of Story - which leaves this block holding exactly the thing it is
-// named for, laid out 2x2 instead of three rows with two full-width boxes
-// under a row of three half-width ones.
-  const details = createBlock({ name: "Character Details", x: 4, y: 11, w: 6, h: 4 });
+// Character Details keeps the four proficiencies and nothing else. Race,
+  // Background and Alignment moved UP to Identity, and Languages moved up to
+  // the top of Story - which leaves this block holding exactly the thing it is
+  // named for, laid out 2x2 instead of three rows with two full-width boxes
+  // under a row of three half-width ones.
+  //
+  // h: 5, not 4: the four taglists run to row 4 and the name row is not one
+  // of the four.
+  const details = createBlock({ name: "Character Details", x: 4, y: 13, w: 6, h: 5 });
   details.children = [
     tagListField({ label: "Armor Prof.", x: 0, y: 0, w: 3, h: 2 }, ARMOR_PROFICIENCIES, "armorProf"),
     tagListField({ label: "Weapon Prof.", x: 3, y: 0, w: 3, h: 2 }, WEAPON_PROFICIENCIES, "weaponProf"),
@@ -715,13 +746,13 @@ export function createStarterLayout() {
   // replaces. Display-only change - block ids are random and generated per
   // character, so saved sheets keep the name they were built with.
   //
-  // It moves UP from y24 to y20 and grows from 7 rows to 11, using the
-  // four-row gap between Character Details (ends y19) and this block. The
-  // middle column had that gap and the other two columns did not, so
-  // growing downward would have ended this column four rows below the
-  // others and tripped verify-content's even-column-bottoms check - which
-  // exists because the sheet is printed and a ragged bottom edge shows.
-  const personality = createBlock({ name: "Story", x: 4, y: 16, w: 6, h: 12 });
+  // It grew from 7 rows to 13 to make room for two more textareas and for
+  // its own reserved name row - the twelve rows of content below need a
+  // thirteenth, and the one that was missing is why the Notes line at the
+  // very bottom of the sheet was never visible. The middle column had the
+  // gap to absorb that and the other two did not, which is exactly the
+  // constraint verify-content's even-column-bottoms check exists to catch.
+  const personality = createBlock({ name: "Story", x: 4, y: 19, w: 6, h: 13 });
   personality.children = [
     // Languages FIRST, then Alignment, then the writing.
     //

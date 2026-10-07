@@ -1,0 +1,55 @@
+/* ==========================================================================
+   field-fit.css
+   A field's value may not be pushed out of its own cell by its label.
+
+   THE BUG
+   -------
+   `.field-inner` is a flex column: the label, then the value. `.field-label`
+   is `flex: 0 0 auto` - it never shrinks - and `.field-value` is
+   `flex: 1 1 auto` with `min-height: 1.3em`. `.field-inner` itself is
+   `overflow: hidden` and is exactly as tall as the grid cell, because a
+   cell's height is derived from its width (see gridCanvasSize) and there is
+   no row that is "taller if the label wraps".
+
+   So a label that needs two lines takes the space the value needed and
+   pushes the value clean out of the clipped box. Measured at 1024x768,
+   where a cell is about 51px and the inner about 42px:
+
+     .field-label   40px  (two lines of "SAVE DC")
+     .field-value   21px  at y=42 - i.e. entirely below the inner
+
+   The value was not squeezed. It was not drawn at all: Save DC, and the
+   MOD and Attack numbers beside it, showed an empty rounded box and
+   nothing in it. The same shape as the clipped ability scores - a box
+   that is there and has nothing in it - from a different cause.
+
+   THE FIX
+   -------
+   Let the label shrink. It already has `overflow: hidden`, so a label
+   that will not fit is cut rather than allowed to evict the value.
+
+   The value is what a player reads; the label is a caption on it, and the
+   app already has a mechanism for a label that does not fit: the caption
+   is relabelable and the JS widen-on-overflow path
+   (growFieldToFitLabel) grows the FIELD sideways so the caption does fit.
+   This rule is what lets that path have room to work in - it is the
+   difference between "the field grew and now both fit" and "the field grew
+   and the value is still gone".
+   ========================================================================== */
+
+.field-label {
+  /* 0 1 auto, not 0 0 auto: shrinking is allowed, growing is not. A
+     one-line label must not steal height from the value below it, and a
+     label that will not fit must give height back rather than evict the
+     value. */
+  flex: 0 1 auto;
+}
+
+/* The value is left shrinkable (its own `flex: 1 1 auto` plus a 1.3em
+   floor stands), because on a cramped cell BOTH have to give: at 1024 a
+   cell is about 51px, the label wants two lines and the value wants 30px,
+   and 15.6 + 2 + 30 is more than the 42px there is. The flex shrink
+   algorithm splits that difference by base size and both floors hold, so
+   the value lands on 24px and is drawn - which is the whole point. The
+   one thing that must not happen is the label refusing to shrink, which
+   is what pushed the value clean out of the clipped box. */

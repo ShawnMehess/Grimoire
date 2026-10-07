@@ -302,7 +302,15 @@ describe("the main sheet can set equipment proficiencies", () => {
       assert.ok(mod.x === score.x + 1, `${id}'s modifier is not immediately right of its score`);
     }
     // Two rows of three abilities, not three rows of two.
-    assert.equal(byName("Abilities").h, 2);
+    //
+    // h: 3, and that number is the bug this test used to get wrong. `h`
+    // is the block's TOTAL footprint and one row of it is the block's own
+    // name, so two rows of abilities need three. Asserted as 2, the test
+    // agreed with the layout: the bottom row of abilities was rendered
+    // below the Abilities block's own bottom edge, and `.block-body`'s
+    // overflow: hidden ate it - which is why INT, WIS and CHA were missing
+    // from the sheet at every width.
+    assert.equal(byName("Abilities").h, 1 + 2);
   });
 
   it("keeps every top-level column ending on the same row", () => {

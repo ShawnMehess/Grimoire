@@ -713,9 +713,18 @@ function featListWith(namesAndLevels) {
   if (story && !story.children.some((f) => f.label === "Backstory")) {
     fail("Backstory is not in the Appearance block");
   }
-  // The Story block grew from 7 rows to 11 to make room for two more
+  // The Story block grew from 7 rows to 13 to make room for two more
   // textareas, and a child's box has to actually fit inside its block or the
   // sheet prints overlapping text.
+  //
+  // The limit is `h - BLOCK_HEADER_ROWS`, not `h`. One row of a block's
+  // declared height is reserved for its name and is not available to its
+  // children (see BLOCK_HEADER_ROWS in blockModel.js), and `.block-body` is
+  // `overflow: hidden` - so a child that only "fits" by that looser measure
+  // is drawn past the bottom edge of its own block and never seen at all.
+  // That off-by-one is exactly what hid the Abilities block's second row
+  // (INT / WIS / CHA) on every sheet built from it, and this check agreed
+  // with the mistake because it used `h`.
   //
   // Only the overflow direction is checked. A full overlap check flags the
   // Spellcasting slot trackers, and correctly so: a radio's width comes from
@@ -723,9 +732,12 @@ function featListWith(namesAndLevels) {
   // "2nd" with three options is two cells wide and starts on top of "1st"'s
   // second cell by design. That arrangement is deliberate and predates
   // anything here.
-  for (const b of layout) {
-    for (const f of b.children || []) {
-      if ((f.y || 0) + (f.h || 1) > (b.h || 0)) fail(`${b.name}: ${f.label} overflows the block (y${f.y}+h${f.h} > h${b.h})`);
+  {
+    const { childrenOutsideBlock } = await import("../js/data/blockFit.js");
+    for (const b of layout) {
+      for (const f of childrenOutsideBlock(b)) {
+        fail(`${b.name}: ${f.label || f.fieldType || f.id} overflows the block (row ${f.y} + h${f.h} > ${b.h - 1} usable rows)`);
+      }
     }
   }
   console.log(`sheet: dropdowns alphabetical, subclass beside class, columns even (${ends[0]}), vehicle field present, Appearance + Backstory on Story`);
