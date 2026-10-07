@@ -4674,7 +4674,24 @@ if (inArea("tablet-toolbar")) {
       const r = e.getBoundingClientRect();
       return r.top >= 0 && r.bottom <= window.innerHeight + 1 && r.width > 0 && r.height > 0;
     };
+    // How many DISTINCT rows the visible controls sit on, measured from the
+    // controls themselves rather than from the toolbar's box. The box also
+    // contains the "Sheet View is off here" note, which is deliberately a
+    // row of its own - so a height would conflate "one row of controls"
+    // with "one row plus an explanation", which are different claims.
+    const spans = [...tb.children]
+      .filter((e) => !e.classList.contains("sheet-stacked-note"))
+      .map((e) => e.getBoundingClientRect())
+      .filter((r) => r.width > 0 && r.height > 0)
+      .sort((a, b) => a.top - b.top);
+    const rows = [];
+    for (const r of spans) {
+      const row = rows[rows.length - 1];
+      if (!row || r.top >= row.bottom - 1) rows.push({ top: r.top, bottom: r.bottom });
+      else row.bottom = Math.max(row.bottom, r.bottom);
+    }
     return {
+      rows: rows.length,
       height: Math.round(tb.getBoundingClientRect().height),
       name: shown(".sheet-toolbar > .input-group__control"),
       levelUp: shown(".sheet-toolbar > .level-up"),
@@ -4683,7 +4700,7 @@ if (inArea("tablet-toolbar")) {
       editBtn: box(".sheet-toolbar__edit-layout"),
       nameInView: inViewport(".sheet-toolbar > .input-group__control"),
       levelUpInView: inViewport(".sheet-toolbar > .level-up"),
-      undo: shown('.sheet-toolbar__group > .btn[title=""]') || shown(".sheet-toolbar__group > button:nth-child(3)"),
+      undo: shown(".sheet-toolbar__group > .btn:nth-child(3)"),
       display: shown(".sheet-toolbar > .toolbar-display"),
       cardFields: shown('.sheet-toolbar > .btn[title^="Choose which fields show"]'),
     };
@@ -4697,10 +4714,11 @@ if (inArea("tablet-toolbar")) {
     await tab.setViewportSize({ width, height });
     await tab.waitForTimeout(700);
     const t = await read();
-    // 90px: one 44px row plus the toolbar's own bottom margin and padding.
-    // The desktop's single row measures 55px and this adds 2px of a
-    // thicker gap, so anything under 90 is one row by construction.
-    tbCheck(t.height <= 90, `${label}: the toolbar is one row (${t.height}px)`);
+    // One row of controls, measured as one row. (The box itself is
+    // taller than a single 44px row because of its own margin and
+    // padding, and on a stacked screen it also carries the note about
+    // Sheet View being unavailable.)
+    tbCheck(t.rows === 1, `${label}: every toolbar control is on one row (${t.rows} rows, box ${t.height}px)`);
     tbCheck(t.name && t.levelUp && t.status,
       `${label}: and the name, Level Up and the save status are all there without opening anything ` +
       `(name ${t.name}, Level Up ${t.levelUp}, status ${t.status})`);
@@ -4722,6 +4740,54 @@ if (inArea("tablet-toolbar")) {
     await tab.waitForTimeout(350);
     await tab.screenshot({ path: path.join(shotDir, `tablet-toolbar-${width}.png`) });
   }
+
+  // The greyed-out toggle has to SAY why, on the page. A title needs a
+  // hover to appear and a touch screen has none, and a disabled button is
+  // the one control that most reliably does not show a tooltip even on a
+  // device that could - so the reason was written where nobody could read
+  // it. This asserts the on-page half, and that it is absent when there is
+  // nothing to explain.
+  await tab.setViewportSize({ width: 768, height: 1024 });
+  await tab.waitForTimeout(700);
+  const note = await tab.evaluate(() => {
+    const n = document.querySelector(".sheet-stacked-note");
+    const btn = document.querySelector(".sheet-toolbar__view");
+    const visible = (e) => {
+      if (!e) return false;
+      const cs = getComputedStyle(e);
+      const r = e.getBoundingClientRect();
+      return cs.display !== "none" && cs.visibility !== "hidden" && r.width > 0 && r.height > 0;
+    };
+    return {
+      text: (n?.textContent || "").trim(),
+      visible: visible(n),
+      toggleVisible: visible(btn),
+      disabled: btn?.disabled,
+      describedBy: btn?.getAttribute("aria-describedby") || "",
+      id: n?.id || "",
+    };
+  });
+  tbCheck(note.visible && note.disabled && note.toggleVisible,
+    `the greyed-out Sheet View has a visible reason beside it (note ${note.visible}, toggle ${note.toggleVisible})`);
+  tbCheck(/790px|wider screen/.test(note.text),
+    `which says what would change it (${JSON.stringify(note.text.slice(0, 70))})`);
+  tbCheck(note.describedBy === note.id && !!note.id,
+    `and is wired to the control for a screen reader, not just drawn next to it (aria-describedby="${note.describedBy}")`);
+
+  // 1440: the grid fits, the toggle is live, and there is nothing to say.
+  await tab.setViewportSize({ width: 1440, height: 900 });
+  await tab.waitForTimeout(700);
+  const wide = await tab.evaluate(() => {
+    const n = document.querySelector(".sheet-stacked-note");
+    const btn = document.querySelector(".sheet-toolbar__view");
+    return {
+      noteVisible: getComputedStyle(n).display !== "none" && !n.hidden && n.getBoundingClientRect().height > 0,
+      live: !!btn && !btn.disabled,
+      text: (btn?.textContent || "").trim(),
+    };
+  });
+  tbCheck(!wide.noteVisible && wide.live,
+    `and where the grid fits the toggle is live and no note is shown (live ${wide.live}, note ${wide.noteVisible}, label ${JSON.stringify(wide.text)})`);
   await tab.close();
 }
 

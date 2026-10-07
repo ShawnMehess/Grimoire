@@ -1,0 +1,77 @@
+/* ==========================================================================
+   stacked-note.css
+   The on-page reason Sheet View is greyed out.
+
+   THE BUG
+   -------
+   Sheet View is switched off whenever the positioned grid cannot fit -
+   below about 790px, or on a short viewport - and the button said so in
+   its `title`. A title needs a hover to appear, and a touch screen has
+   none. Worse, a *disabled* button is the one control that most reliably
+   does not show a tooltip even on a device that could. So on the screens
+   where the explanation matters most, the reason was written where nobody
+   could read it, and the button was greyed out with nothing to say for
+   itself.
+
+   One line, its own row, only while it is true. It is a paragraph and
+   not a tooltip because the reader it is for is holding the device in
+   one hand with the other one somewhere else.
+   ========================================================================== */
+
+.sheet-stacked-note {
+  /* `hidden` does the showing and hiding; these are what it looks like
+     when it is shown. */
+  flex: 1 1 100%;
+  /* LAST, not first. Without an `order` this sits at 0, sorts with the
+     view toggle, and its 100% basis then breaks the line after it - which
+     left the toggle alone on one row and the name, Level Up and Edit
+     layout on the next, undoing the one-row toolbar this file is a
+     neighbour of. */
+  order: 99;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--color-arcane);
+  border-radius: var(--radius-sm);
+  background: rgba(91, 127, 158, 0.1);
+  color: var(--color-text-muted);
+  /* --text-xs, not smaller: check-imports holds every rule that renders
+     words to this floor, and a sentence nobody can read explains nothing.
+     The cap is what keeps it to one line on a phone. */
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  text-align: left;
+}
+
+/* A cap, not a wrap: on the narrowest phones the sentence can run to
+   three lines, and the note is there to be read once and then ignored. */
+@media screen and (max-width: 720px) {
+  .sheet-stacked-note {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* --- Where there is no button, no note -----------------------------------
+   css/phone.css hides the whole `.sheet-toolbar__group` on a phone, which
+   takes the Sheet/Simple View toggle with it - the phone's arrangement is
+   "Edit layout" plus the name, Level Up and the save status, and the
+   stacked layout is not a choice the phone gets to make. So on exactly the
+   widths where that rule applies there is no greyed-out button for this
+   sentence to explain, and a note about a control that is not on the
+   screen is worse than no note: it names a view the reader cannot see and
+   cannot ask for.
+
+   The query is the same one phone.css uses for that group, so the two
+   cannot disagree about where it starts. */
+@media screen and (max-width: 720px), screen and (max-height: 480px) {
+  .sheet-stacked-note {
+    display: none !important;
+  }
+}
+
+/* Paper has no grid to fit, so the note has nothing to say there. */
+@media print {
+  .sheet-stacked-note { display: none !important; }
+}

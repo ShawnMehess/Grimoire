@@ -958,7 +958,14 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   }
 
   /** The toggle's label/title/disabled state, in one place so the forced
-   *  and preferred paths can never leave it describing the wrong thing. */
+   *  and preferred paths can never leave it describing the wrong thing.
+   *
+   *  The WHY is on the page as well as on the button, and that is the
+   *  whole point of the second half. A `title` is invisible on a touch
+   *  screen - there is no hover to show it - and a disabled button is the
+   *  one control that most reliably does not show a tooltip even with
+   *  one. So the reason was written where nobody could ever read it, and
+   *  the button was greyed out with nothing to say for itself. */
   function syncViewToggleState() {
     const reason = forcedStackedReason();
     playViewBtn.textContent = simpleView ? "Sheet View" : "Simple View";
@@ -970,6 +977,16 @@ export function renderCustomSheet(root, character, store, opts = {}) {
         : (simpleView
           ? "Switch back to the editable grid - your saved layout is exactly where you left it"
           : "Switch to Simple View - every block and field stacked full-width (display only; your layout is untouched)");
+    // The note says the same thing in one line, on the page. It is short on
+    // purpose: the button's `title` still carries the whole reason, and a
+    // paragraph in front of the sheet is the thing this note exists to
+    // avoid. What it has to do is say what is unavailable and what would
+    // make it available, because "Sheet View is disabled" on its own is a
+    // dead end.
+    stackedNoteEl.hidden = !forcedStacked;
+    stackedNoteEl.textContent = reason === "short"
+      ? "Sheet View needs a taller screen than this one: a 40px grid cell cannot hold a label and a value. It returns when there is more height."
+      : "Sheet View needs about 790px of width, and would scroll sideways rather than fit in less. It returns on a wider screen.";
   }
 
   /** Turn Simple View on or off: the grid class, the sort keys, the
@@ -1038,10 +1055,24 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     }
   });
   // modeBtn lives inside leftGroup, not directly under toolbar —
-  // inserting against toolbar throws NotFoundError and aborts the
+// inserting against toolbar throws NotFoundError and aborts the
   // rest of this function (leaving later consts like pageGrid in TDZ
   // for the async library/catalog refreshes).
   leftGroup.insertBefore(playViewBtn, modeBtn);
+
+  // The on-page reason Sheet View is unavailable, shown only while it is.
+  // Its own row under the toolbar rather than beside the toggle: beside it
+  // would push the character's name off the row, and this is one sentence
+  // that does not deserve to be what the name loses its width to.
+  const stackedNoteEl = document.createElement("p");
+  stackedNoteEl.className = "sheet-stacked-note";
+  stackedNoteEl.id = "sheet-stacked-note";
+  stackedNoteEl.hidden = true;
+  toolbar.append(stackedNoteEl);
+  // aria-describedby rather than a title: a screen reader gets the reason
+  // as part of the control it applies to, which is where a reader who
+  // cannot see the note greyed-out control is actually looking.
+  playViewBtn.setAttribute("aria-describedby", stackedNoteEl.id);
 
   // Toggles the Stat Blocks sidebar closed — mainly useful on
   // narrower screens (see the @media rule for .sheet-block-frame in
