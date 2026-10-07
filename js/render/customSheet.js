@@ -8908,6 +8908,9 @@ const closeDialog = () => {
     select.addEventListener("pointerdown", (e) => e.stopPropagation());
     populateDropdownSelect(select, field);
     select.addEventListener("change", () => {
+      // The title has to follow the pick (see updateDropdownTitle), or it
+      // goes on naming the previous answer.
+      updateDropdownTitle(select);
       // A full (not {render:false}) commit here on purpose: picking a
       // Class/Race/etc. can change another dropdown's available
       // choices (bundle dropdown-access rules) and other fields'
@@ -8930,7 +8933,39 @@ const closeDialog = () => {
     dropdownVisibleChoices(field.choices || [], allowed).forEach((choice) => {
       select.append(el("option", { value: choice.id, text: choice.text }));
     });
-    select.value = field.selected || "";
+    select.value = field.selected || null;
+    // The chosen value, as text the reader can see.
+    //
+    // A <select> clips whatever it is given and offers no way to read the
+    // rest: there is no ellipsis, no tooltip, and no text-overflow on a
+    // replaced element. In a two-cell dropdown on a tablet - about 100px of
+    // box - "Path of the Ancestral Guardian" and "Urban Bounty Hunter" are
+    // both cut, and there is no other way to find out what is picked
+    // without opening the list. `title` is the one mechanism a select
+    // still honours, and it works on hover and on a long press.
+    //
+    // Set here rather than in the change handler because the first render
+    // already has a value: a saved subclass is picked long before anyone
+    // touches anything.
+    updateDropdownTitle(select);
+  }
+
+  /** Keeps a select's `title` equal to its own selected text. Called
+   *  after every populate and on every change, so the two cannot disagree
+   *  about what is picked - a stale title would be worse than none, since
+   *  it would look authoritative and be wrong.
+   *
+   *  The placeholder ("—") gets no title: it has nothing to add, and a
+   *  tooltip over an empty field is just a tooltip about nothing. */
+  function updateDropdownTitle(select) {
+    const text = (select.selectedOptions?.[0]?.text || "").trim();
+    const placeholder = !select.value;
+    const title = placeholder || text === "—" ? "" : text;
+    if (title) select.title = title;
+    else select.removeAttribute("title");
+    // The field-level tooltip, when the author wrote one, is the better
+    // thing to say - it explains the field rather than restating it.
+    if (title && !select.closest("[title]")) select.title = title;
   }
 
   /** Uploads a freshly-picked data-URL image: compresses it and stores

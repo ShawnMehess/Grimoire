@@ -91,6 +91,7 @@ const AREAS = {
   "widths-sweep": "320-1440px ladder: stacking threshold and cell floor",
   "no-clipping": "no rendered box is hidden by an overflow:hidden ancestor",
   "tablet-toolbar": "721-1100px: one toolbar row, secondary actions behind Edit layout",
+  "tablet-fields": "1024px: what a 52px grid cell can hold - captions, values, select text",
   "levelgated-text": "level-gated prose in a trait, changing with no reload",
   rowclick: "a click inside a row selects that row (picker link vs <select>)",
   "spell-rows": "spell picker row shape: facts, gist, disclosure",
@@ -4722,6 +4723,74 @@ if (inArea("tablet-toolbar")) {
     await tab.screenshot({ path: path.join(shotDir, `tablet-toolbar-${width}.png`) });
   }
   await tab.close();
+}
+
+// --- What a 52px grid cell can hold ------------------------------------------
+//
+// At 1024 the positioned grid fits, so the sheet is in Sheet View with
+// sixteen columns and a 52px cell: `.field-inner` has 41.6px of it, and
+// the value box was sitting on its own 1.3em floor of 20.8px with the
+// caption taking the rest. The Identity block's two-cell dropdowns are
+// 113px, and "Barbarian" - the character this app ships as its own demo -
+// needed 89px of text in 81px of box.
+//
+// A <select> clips silently: no ellipsis, no tooltip, no text-overflow.
+// So both halves are measured here rather than eyeballed - the caption
+// gets its line, the value keeps a box you can read a two-digit score in,
+// and the selected text fits or carries a title that says what it is.
+if (inArea("tablet-fields")) {
+  const fCheck = reporter("tablet-fields");
+  const tf = await browser.newPage({ viewport: { width: 1024, height: 768 } });
+  tf.on("pageerror", (e) => problems.push(`PAGEERROR [tablet-fields]: ${e.message}`));
+  await tf.goto(`${base}/demo.html`, { waitUntil: "networkidle" });
+  await settled(tf, READY_SHEET, `tablet fields`);
+
+  const measured = await tf.evaluate(() => {
+    const cv = document.createElement("canvas");
+    const cx = cv.getContext("2d");
+    const textWidth = (el, text) => {
+      cx.font = getComputedStyle(el).font;
+      return Math.round(cx.measureText(text).width);
+    };
+    const identity = [...document.querySelectorAll(".grid-node--block")]
+      .find((b) => (b.querySelector(".block-name")?.textContent || "").trim() === "Identity");
+    const dropdowns = [];
+    for (const f of identity.querySelectorAll(".grid-node--field")) {
+      const sel = f.querySelector("select");
+      if (!sel) continue;
+      const cs = getComputedStyle(sel);
+      const room = sel.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      const picked = sel.selectedOptions?.[0]?.textContent || "";
+      dropdowns.push({
+        label: (f.querySelector(".field-label")?.textContent || "").trim(),
+        picked,
+        room: Math.round(room),
+        need: textWidth(sel, picked),
+        title: sel.title || "",
+      });
+    }
+    // The value boxes, which are the other half: what you type in.
+    const values = [...identity.querySelectorAll(".grid-node--field .field-value")]
+      .filter((v) => v.tagName !== "SELECT")
+      .map((v) => Math.round(v.getBoundingClientRect().height));
+    return { dropdowns, values, cell: Math.round(identity.getBoundingClientRect().width / 4) };
+  });
+
+  for (const d of measured.dropdowns) {
+    // The placeholder has nothing to say; every real pick must either fit
+    // or say what it is.
+    const placeholder = d.picked === "—" || !d.picked;
+    fCheck(placeholder || d.need <= d.room || d.title === d.picked,
+      `Identity/${d.label}: "${d.picked}" fits its ${d.room}px (needs ${d.need}px)` +
+      (d.title ? ` or is in the title (${JSON.stringify(d.title)})` : ""));
+  }
+  // A two-digit score in a 20.8px strip is the "tiny" report. 22px is what
+  // the arithmetic of a 41.6px inner allows once the caption has its line.
+  fCheck(measured.values.every((h) => h >= 22),
+    `every Identity value box is tall enough for a two-digit score (min ${Math.min(...measured.values)}px in a ${measured.cell}px cell)`);
+
+  await tf.screenshot({ path: path.join(shotDir, "tablet-fields-1024.png") });
+  await tf.close();
 }
 
 // --- Nothing is clipped by the box it is drawn inside ------------------------

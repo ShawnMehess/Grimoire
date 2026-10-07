@@ -1,0 +1,94 @@
+/* ==========================================================================
+   tablet-fields.css
+   What a 52px grid cell can actually hold, between 721 and 1100px.
+
+   THE MEASUREMENT
+   ---------------
+   At 1024 the positioned grid fits, so the sheet is in Sheet View with
+   sixteen columns. The Identity block is four of them: 237px wide, and
+   its two-column dropdowns are 113px. Inside a 52px cell, `.field-inner`
+   has 41.6px to work with, and:
+
+     .field-label   18.8px    one line of 12px text
+     .field-value   20.8px    <- the box you actually type in
+
+   The value box is at its own `min-height: 1.3em` floor. A two-digit
+   score in a 20.8px strip, with a 12px caption above it, is the "tiny"
+   that a tablet in landscape reports about the Name field - and it is the
+   same squeeze in every field on the sheet, not just that one.
+
+   And the dropdowns: a <select> clips what it is given, with no ellipsis
+   and no tooltip. "Barbarian" needs 89px of text and had 81px, so the
+   Character Vault's own demo character showed as "Barbarian" cut in half.
+   A long subclass is worse and unavoidable in 113px - "Path of the
+   Ancestral Guardian" is 247px - so the CSS buys back what it can and
+   js/render/customSheet.js now puts the chosen text in the select's
+   `title`, which is the one mechanism a select still honours.
+
+   Below 721 this file does not apply: css/phone.css owns the sheet there,
+   and its stacked layout gives every field a full-width row.
+   ========================================================================== */
+
+@media screen and (min-width: 721px) and (max-width: 1100px) {
+  /* --- Give the value the label's spare height ------------------------
+     The label is `flex: 0 1 auto` with `min-height: 1.3em` (see
+     field-fit.css for why it can shrink at all), and its own line box is
+     18px. Trimming the line box to 1.1 and dropping its vertical padding
+     puts the label at its 1.3em floor - still its whole line of text, no
+     clipping - and hands the difference to the value.
+
+     41.6 - 15.6 (label) - 2 (gap) = 24px. That is the most a 52px cell
+     has, and it is 15% more than the value had. Not a transformation; it
+     is what the arithmetic allows. */
+  .field-inner--top .field-label,
+  .field-inner--bottom .field-label {
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 1.1;
+  }
+
+  /* --- Selects ---------------------------------------------------------
+     Three things, all about the same 100px of box.
+
+     `padding-right: 12px` rather than `var(--space-4)`'s 16px. The
+     custom arrow is two 4px triangles drawn at `calc(100% - 12px)` and
+     `calc(100% - 8px)`, so it occupies 8-16px from the right edge and
+     the padding was exactly right-sized for it - which is to say the
+     arrow, not the text, was using a quarter of the field. Drawing it
+     from 10px in instead puts the padding at 12px and gives the text 4px
+     back, which is worth having at this width and is not worth changing
+     anywhere else.
+
+     `padding-left: 3px` for the same reason, one pixel.
+
+     And the font: `var(--text-sm)` (14px) instead of the inherited 16px.
+     "Barbarian" is 89px at 16px and 78px at 14px, and the box has 90px
+     after the padding above - so the character this app ships as its demo
+     stops being cut. It also means "Custom Lineage" (139px at 16px, 122
+     at 14) is closer, and the title carries the rest. */
+  .field-value--dropdown {
+    padding-left: 3px;
+    padding-right: 12px;
+    background-position: calc(100% - 10px) center, calc(100% - 6px) center;
+    font-size: var(--text-sm);
+  }
+
+  /* --- Captions --------------------------------------------------------
+     A caption is the first thing to go when a cell is 52px: "PROF. BONUS"
+     wraps to two lines, and two lines of label is what pushes the value
+     out. One size down keeps the commonest of them on one line. */
+  .field-label {
+    font-size: var(--text-xs);
+    letter-spacing: 0.02em;
+  }
+
+  /* --- The checkbox row ------------------------------------------------
+     Saving Throws and Skills put a proficiency checkbox in a one-cell
+     field beside a name and a modifier. At 52px the checkbox is 42px of
+     available box with the label above it, which is a target you can miss
+     with a thumb. The checkbox field is the one place in the sheet where
+     the whole cell IS the control, so it gets the room. */
+  .grid-node--field[data-field-type="checkbox"] .field-inner {
+    padding: 0 2px;
+  }
+}

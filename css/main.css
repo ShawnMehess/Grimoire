@@ -51,3 +51,6 @@
    the rest behind "Edit layout". Above phone.css's floor and below the
    width where the toolbar gets the whole desktop row. */
 @import url("components/tablet-toolbar.css");
+/* What a 52px grid cell can hold: select padding, caption size, and the
+   height left for a value. Same 721-1100 band as the toolbar. */
+@import url("components/tablet-fields.css");
