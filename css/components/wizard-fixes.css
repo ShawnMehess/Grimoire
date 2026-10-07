@@ -1,0 +1,20 @@
+/* ==========================================================================
+   wizard-fixes.css
+   The fixed "→" edge arrow sits 4px from the viewport's right edge and is
+   34px wide, but the body only gave it 24px of right padding, so at
+   tablet widths it landed on the content column. Give it real room, and
+   let the wizard's column use wide screens instead of parking itself at
+   900px with a third of the screen empty.
+   ========================================================================== */
+
+@media (min-width: 721px) and (max-width: 1024px) {
+  .wizard__body {
+    padding-right: calc(38px + var(--space-3));
+  }
+}
+
+@media (min-width: 1280px) {
+  .leveling-tab.wizard {
+    max-width: 1180px;
+  }
+}

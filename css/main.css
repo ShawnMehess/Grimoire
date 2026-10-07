@@ -61,3 +61,6 @@
 @import url("components/simple-view-fixes.css");
 /* The header title: one line, no truncation, demo tag yields first. */
 @import url("components/header-fixes.css");
+/* The wizard's edge arrow had no room of its own, and its column
+   wasted wide screens. */
+@import url("components/wizard-fixes.css");
