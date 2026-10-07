@@ -3674,6 +3674,144 @@ for (const phoneWidth of [320, 390]) {
       "and no first-run panel over the sheet to push it down");
     phoneCheck(!sh.sideScroll, `@${vpName} the sheet does not scroll sideways`);
 
+    // --- The dice controls (item 25) ---------------------------------
+    //
+    // Measured on a real field, because the requirements are about sizes and
+    // order and both are invisible in a unit test: three equal-width targets
+    // in the order advantage / plain / disadvantage, each carrying a marker
+    // so the two coloured ones are distinguishable with no colour at all,
+    // and an unstretched icon.
+    const dice = await ph.evaluate(() => {
+      const trigger = document.querySelector(".field-roll");
+      if (!trigger) return null;
+      const btns = [...trigger.querySelectorAll(".field-roll__btn")];
+      const rects = btns.map((b) => {
+        const r = b.getBoundingClientRect();
+        const diceEl = b.querySelector(".field-roll__dice");
+        const d = diceEl?.getBoundingClientRect();
+        return {
+          mod: [...b.classList].find((c) => c.startsWith("field-roll__btn--"))?.replace("field-roll__btn--", ""),
+          label: b.getAttribute("aria-label"),
+          w: Math.round(r.width), h: Math.round(r.height),
+          describedBy: b.getAttribute("aria-describedby"),
+          marker: b.querySelector(".field-roll__marker")?.textContent.trim() || null,
+          dice: diceEl?.textContent.trim() || null,
+          diceW: d ? Math.round(d.width) : null,
+          diceH: d ? Math.round(d.height) : null,
+          diceColor: diceEl ? getComputedStyle(diceEl).color : null,
+        };
+      });
+      return { rects, pillW: Math.round(trigger.getBoundingClientRect().width) };
+    });
+    phoneCheck(!!dice, `@${vpName} a numeric field carries the roll controls`);
+    if (dice) {
+      // Guard against measuring a hidden element: every width would be 0 and
+      // every "equal" and "at least" comparison would pass for free.
+      phoneCheck(dice.rects.every((r) => r.w > 0 && r.h > 0),
+        `@${vpName} and the controls are actually on screen (${JSON.stringify(dice.rects.map((r) => [r.w, r.h]))})`);
+      phoneCheck(dice.rects.length === 3 && dice.rects.map((r) => r.mod).join(",") === "advantage,normal,disadvantage",
+        `@${vpName} three controls in the order advantage, plain, disadvantage (${JSON.stringify(dice.rects.map((r) => r.mod))})`);
+      phoneCheck(dice.rects.every((r) => r.h >= 44),
+        `@${vpName} every one a 44px-tall target (${JSON.stringify(dice.rects.map((r) => r.h))})`);
+      // Equal widths. The plain die used to be a bare glyph between two
+      // word-labelled buttons, so it had the smallest hit area of the three -
+      // and it is the one pressed most.
+      const widths = new Set(dice.rects.map((r) => r.w));
+      phoneCheck(widths.size === 1,
+        `@${vpName} and all three the SAME width (${JSON.stringify(dice.rects.map((r) => r.w))})`);
+      // The icon must not be stretched to fill its button.
+      phoneCheck(dice.rects.every((r) => r.diceH !== null && r.diceH <= 22),
+        `@${vpName} with the die icon its natural height, not stretched (${JSON.stringify(dice.rects.map((r) => r.diceH))})`);
+      // Colour plus a marker. Two green dice and two red dice are the same
+      // shape; without the arrow they are only the same to someone who can
+      // tell those two hues apart.
+      phoneCheck(dice.rects[0].marker === "▲" && dice.rects[2].marker === "▼" && dice.rects[1].marker === null,
+        `@${vpName} and each carries a non-colour marker - up, none, down (${JSON.stringify(dice.rects.map((r) => r.marker))})`);
+      phoneCheck(dice.rects[0].diceColor !== dice.rects[2].diceColor,
+        `@${vpName} the two coloured dice really are different colours (${dice.rects[0].diceColor} vs ${dice.rects[2].diceColor})`);
+      phoneCheck(dice.rects[0].dice && dice.rects[0].dice !== dice.rects[2].dice === false,
+        `@${vpName} both coloured controls showing two dice, the plain one showing one (${JSON.stringify(dice.rects.map((r) => r.dice))})`);
+      phoneCheck(dice.rects[0].dice === dice.rects[2].dice && (dice.rects[0].dice || "").length > 1,
+        `@${vpName} advantage and disadvantage are two dice each, and the same two (${JSON.stringify(dice.rects.map((r) => r.dice))})`);
+      phoneCheck(/^Roll with advantage/.test(dice.rects[0].label || "")
+        && /^Roll normally/.test(dice.rects[1].label || "")
+        && /^Roll with disadvantage/.test(dice.rects[2].label || ""),
+        `@${vpName} and each has the accessible name it is supposed to (${JSON.stringify(dice.rects.map((r) => r.label))})`);
+
+      // A normal tap rolls.
+      const openedByTap = await ph.evaluate(() => {
+        const b = document.querySelector(".field-roll__btn--advantage");
+        window.__diceSeen = [];
+        ["pointerdown","pointerup","click"].forEach((t2) => b.addEventListener(t2, () => window.__diceSeen.push(t2), true));
+        b.click();
+        return true;
+      });
+      await ph.waitForTimeout(700);
+      const afterTap = await ph.evaluate(() => ({
+        dialog: !!document.querySelector(".roll-dialog-overlay"),
+        seen: window.__diceSeen || [],
+        box: !!document.querySelector(".roll-dialog"),
+        tooltip: !!document.querySelector("#game-tooltip-live"),
+      }));
+      phoneCheck(openedByTap && afterTap.dialog,
+        `@${vpName} a normal tap rolls rather than explaining (${JSON.stringify(afterTap)})`);
+      phoneCheck(!afterTap.tooltip, `@${vpName} and opens no tooltip on the way`);
+      await ph.keyboard.press("Escape");
+      await ph.waitForTimeout(500);
+      await ph.evaluate(() => { for (const o of document.querySelectorAll("body > .modal-overlay")) o.remove(); });
+
+      // A long press explains instead. Driven with real pointer events at
+      // the button's own centre, because Playwright's `click` cannot hold.
+      // Into view FIRST: on a stacked sheet the field can be a long way down,
+// and a press at coordinates outside the viewport presses nothing.
+      const box = await ph.evaluate(() => {
+        const b = document.querySelector(".field-roll__btn--disadvantage");
+        b.scrollIntoView({ block: "center" });
+        const r = b.getBoundingClientRect();
+        return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+      });
+      await ph.waitForTimeout(400);
+      await ph.evaluate(() => { for (const o of document.querySelectorAll("body > .modal-overlay")) o.remove(); });
+      await ph.waitForTimeout(300);
+      const topmost = await ph.evaluate(({ x, y }) => {
+        const e = document.elementFromPoint(x, y);
+        // The icon is a child of the button, so the topmost element at the
+        // button's centre is the ICON - which is the point: pressing the die
+        // presses the button. What matters is that it is the button or
+        // inside it, and not some overlay.
+        return {
+          tag: e ? (e.className || e.tagName) : "none",
+          inside: !!e?.closest?.(".field-roll__btn"),
+        };
+      }, box);
+      phoneCheck(topmost.inside,
+        `@${vpName} the press lands on the button, not on something over it (${JSON.stringify(topmost)})`);
+      await ph.mouse.move(box.x, box.y);
+      await ph.mouse.down();
+      await ph.waitForTimeout(1200);
+      const held = await ph.evaluate(() => {
+        const tip = document.querySelector("#game-tooltip-live");
+        return { open: !!tip, text: (tip?.textContent || "").trim() };
+      });
+      phoneCheck(held.open && /disadvantage/i.test(held.text),
+        `@${vpName} holding the dice open explains it in a short tooltip (${JSON.stringify(held.text)})`);
+      phoneCheck(!(await ph.evaluate(() => !!document.querySelector(".roll-dialog-overlay"))),
+        `@${vpName} without rolling anything while the finger is still down`);
+      await ph.mouse.up();
+      await ph.waitForTimeout(600);
+      // And a press that wanders is a scroll, not a long press.
+      await ph.mouse.move(box.x, box.y);
+      await ph.mouse.down();
+      await ph.waitForTimeout(120);
+      await ph.mouse.move(box.x + 40, box.y);
+      await ph.waitForTimeout(1200);
+      phoneCheck(!(await ph.evaluate(() => !!document.querySelector("#game-tooltip-live"))),
+        `@${vpName} and a press that turns into a scroll explains nothing`);
+      await ph.mouse.up();
+      await ph.waitForTimeout(400);
+      await ph.evaluate(() => { for (const o of document.querySelectorAll("body > .modal-overlay")) o.remove(); });
+    }
+
     // Reading order on a stacked sheet: highest in the grid first, then
     // left to right for blocks at the same height.
     //

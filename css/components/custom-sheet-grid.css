@@ -2189,9 +2189,6 @@
   min-width: 0;
   min-height: 0;
   display: flex;
-  /* Lets narrow (1-cell) fields shed the Advantage/Disadvantage
-     words and keep just the dice — see the container query below. */
-  container-type: inline-size;
 }
 .field-roll-wrap > .field-value {
   flex: 1 1 auto;
@@ -2202,7 +2199,7 @@
   position: absolute;
   right: 2px;
   bottom: 2px;
-  align-items: center;
+  align-items: stretch;
   gap: 2px;
   background: var(--color-bg-inset);
   border: var(--border-width) solid var(--color-border);
@@ -2215,32 +2212,63 @@
 .field-roll:focus-within {
   display: flex;
 }
-.field-roll button {
+/* Every button is the SAME WIDTH, and each is at least a 44px-tall target.
+   The plain die used to be a bare glyph between two word-labelled buttons,
+   so it had a visibly smaller hit area than its neighbours - and it is the
+   one you press most often. Equal width is the whole point. */
+.field-roll__btn {
+  flex: 0 0 auto;
+  inline-size: 2.75rem;
+  min-block-size: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
   background: transparent;
   border: none;
   color: var(--color-text-muted);
   cursor: pointer;
-  font-size: 11px;
-  line-height: 1;
-  padding: 2px 3px;
+  padding: 0 2px;
   border-radius: 999px;
-  white-space: nowrap;
+  line-height: 1;
 }
-.field-roll button:hover {
+.field-roll__btn:hover {
   color: var(--color-text);
   background: var(--color-bg-raised);
 }
-.field-roll__die {
-  font-size: 13px;
+.field-roll__btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
-.field-roll__short { display: none; }
+/* The dice glyph itself is NOT stretched or shrunk to fill the button: it
+   keeps its own aspect ratio and its own size, and the button is the target.
+   `flex: none` matters here - without it the glyph is a flex item and gets
+   squeezed in a narrow field, which is how a two-die icon ends up reading as
+   one smudge. */
+.field-roll__dice {
+  flex: none;
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
+}
+/* 12px, not smaller: the arrow is the half of this control that works
+   without colour, so making it tiny to tidy the button away would undo the
+   point of it. check-imports enforces the same floor for the same reason. */
+.field-roll__marker {
+  flex: none;
+  font-size: 12px;
+  line-height: 1;
+}
+/* Colour PLUS the arrow. The arrow is the accessible half; the colour is
+   there because it is faster to read, not because it is doing the work. */
+.field-roll__btn--advantage .field-roll__dice { color: var(--color-positive, #2f6f4f); }
+.field-roll__btn--disadvantage .field-roll__dice { color: var(--color-negative, #a3342a); }
+.field-roll__btn--advantage .field-roll__marker { color: var(--color-positive, #2f6f4f); }
+.field-roll__btn--disadvantage .field-roll__marker { color: var(--color-negative, #a3342a); }
+/* No hover, no reveal. A touch device cannot hover, so the controls are
+   simply always there - which is also why the words they used to carry
+   could go: three equal targets with a die and an arrow each read at a
+   glance on a screen a thumb covers. */
 @media (hover: none) {
   .field-roll { display: flex; }
-  .field-roll__full { display: none; }
-  .field-roll__short { display: inline; }
-}
-/* Cramped fields (single-cell modifiers and the like): dice icon
-   only, so the pill never covers the value it's rolling for. */
-@container (max-width: 130px) {
-  .field-roll__mode { display: none; }
 }

@@ -8423,28 +8423,157 @@ const closeDialog = () => {
     });
   }
 
+  /** How long a press has to last before the dice explain themselves, and how
+ *  far the pointer may travel without cancelling it.
+   *
+   *  The travel limit is the important half. Without it, a long-press that
+   *  begins as a tap and turns into a scroll ends up explaining advantage to
+   *  someone who was trying to read the sheet, which is worse than not
+   *  offering the explanation at all. */
+  const DICE_LONG_PRESS_MS = 450;
+  const DICE_MOVE_CANCEL_PX = 10;
+
+  /** The three roll modes, in the order they appear, as one table.
+   *
+   *  `dice` is TEXT presentation (the VS15 selector forces it), not emoji:
+   *  an emoji die is a colour glyph and ignores `color`, so the green and
+   *  red this design is built on could not be applied to it.
+   *
+   *  `marker` is the part that makes the two readable WITHOUT colour. Two
+   *  green dice and two red dice are indistinguishable to a player who
+   *  cannot separate those hues - and to anyone on a washed-out screen - so
+   *  each carries an arrow as well, and the plain die carries none. "Two
+   *  dice pointing up", "one die", "two dice pointing down" reads with no
+   *  colour at all. */
+  const ROLL_MODES = [
+    {
+      mode: "advantage",
+      dice: "⚂⚅",
+      marker: "▲",
+      name: "Roll with advantage",
+      says: "Roll two and keep the higher.",
+      extra: "Advantage",
+    },
+    {
+      mode: "normal",
+      dice: "⚄",
+      marker: "",
+      name: "Roll normally",
+      says: "Roll one.",
+      extra: "",
+    },
+    {
+      mode: "disadvantage",
+      dice: "⚂⚅",
+      marker: "▼",
+      name: "Roll with disadvantage",
+      says: "Roll two and keep the lower.",
+      extra: "Disadvantage",
+    },
+  ];
+
+  /** A short tooltip beside a dice button, reusing the glossary's own
+   *  tooltip element and class so it looks like every other explanation in
+   *  the app. Returns a closer, because a long press that lifts has to take
+   *  its tooltip with it. */
+  function showDiceTooltip(anchor, mode) {
+    document.querySelector("#game-tooltip-live")?.remove();
+    const tip = document.createElement("div");
+    tip.className = "game-tooltip";
+    tip.id = "game-tooltip-live";
+    tip.setAttribute("role", "tooltip");
+    tip.textContent = mode.extra
+      ? `${mode.extra}: ${mode.says}`
+      : `${mode.name} — ${mode.says}`;
+    document.body.append(tip);
+    const rect = anchor.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth || 0;
+    const width = tip.offsetWidth || 0;
+    tip.style.left = `${Math.min(Math.max(8, rect.left), Math.max(8, viewportWidth - width - 8))}px`;
+    tip.style.top = `${Math.round(rect.bottom + 6)}px`;
+    anchor.setAttribute("aria-describedby", tip.id);
+    return () => {
+      tip.remove();
+      anchor.removeAttribute("aria-describedby");
+    };
+  }
+
+  /** One roll button: tap rolls, a long press explains.
+   *
+   *  Both, from the same control, because a separate "?" button beside every
+   *  roll would be three more targets per numeric field on a sheet that is
+   *  mostly numeric fields. The press is armed on pointerdown and cancelled
+   *  by movement, so a tap that wanders even slightly still rolls.
+   *
+   *  keyboard still works, because a press-only affordance is not an
+   *  affordance: Enter and Space fire `click`, which rolls. */
+  function rollButton(mode, onRoll) {
+    const btn = el("button", {
+      type: "button",
+      class: `field-roll__btn field-roll__btn--${mode.mode}`,
+      title: mode.extra
+        ? `Roll d${ROLL_SIDES} with ${mode.extra.toLowerCase()} (${mode.says})`
+        : `Roll d${ROLL_SIDES}`,
+      "aria-label": `${mode.name} (d${ROLL_SIDES})`,
+    });
+    btn.append(el("span", { class: "field-roll__dice", "aria-hidden": "true", text: mode.dice }));
+    // The marker is decorative: it repeats what the accessible name says,
+    // so it is hidden from the reader rather than read as a stray arrow.
+    if (mode.marker) {
+      btn.append(el("span", { class: "field-roll__marker", "aria-hidden": "true", text: mode.marker }));
+    }
+
+    let timer = null;
+    let closeTip = null;
+    let startX = 0;
+    let startY = 0;
+    const cancel = () => {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (closeTip) { closeTip(); closeTip = null; }
+    };
+    btn.addEventListener("pointerdown", (e) => {
+      startX = e.clientX;
+      startY = e.clientY;
+      timer = setTimeout(() => {
+        timer = null;
+        closeTip = showDiceTooltip(btn, mode);
+      }, DICE_LONG_PRESS_MS);
+    });
+    btn.addEventListener("pointermove", (e) => {
+      if (!timer) return;
+      if (Math.hypot(e.clientX - startX, e.clientY - startY) <= DICE_MOVE_CANCEL_PX) return;
+      clearTimeout(timer);
+      timer = null;
+    });
+    // pointercancel is a scroll or a gesture the browser took over.
+    btn.addEventListener("pointercancel", cancel);
+    btn.addEventListener("pointerleave", cancel);
+    btn.addEventListener("pointerup", () => { cancel(); });
+    btn.addEventListener("blur", cancel);
+    btn.addEventListener("click", (e) => {
+      // The EVENT, not the mode: `onRoll` here is the curried roll closure's
+      // inner handler, which stops the click and opens the dialog for a mode
+      // it already has. Handing it the mode string made it call
+      // `stopPropagation()` on a string, which throws - and because the
+      // throw happens inside the listener the whole roll silently did
+      // nothing.
+      e.stopPropagation();
+      cancel();
+      onRoll(e);
+    });
+    return btn;
+  }
+
   function buildRollTrigger(field) {
     // The field sits inside a draggable grid node — a click on these
     // buttons is a roll, never the start of a drag or a text edit.
     const roll = (mode) => (e) => { e.stopPropagation(); openFieldRollDialog(field, mode); };
     return el("div", { class: "field-roll", onpointerdown: (e) => e.stopPropagation() },
-      el("button", {
-        type: "button", class: "field-roll__die", text: "🎲",
-        title: `Roll d${ROLL_SIDES} + ${field.label || "field"}`,
-        "aria-label": `Roll d${ROLL_SIDES}`, onclick: roll("normal"),
-      }),
-      el("button", {
-        type: "button", class: "field-roll__mode",
-        title: `Roll d${ROLL_SIDES} with advantage (higher of two)`,
-        html: `<span class="field-roll__full">Advantage</span><span class="field-roll__short">Adv.</span>`,
-        onclick: roll("advantage"),
-      }),
-      el("button", {
-        type: "button", class: "field-roll__mode",
-        title: `Roll d${ROLL_SIDES} with disadvantage (lower of two)`,
-        html: `<span class="field-roll__full">Disadvantage</span><span class="field-roll__short">Disadv.</span>`,
-        onclick: roll("disadvantage"),
-      }));
+      // `roll(mode.mode)`, not `roll` - `roll` is the CURRIED form, so
+      // passing it straight through handed the button a function that
+      // RETURNS the click handler instead of being one. Every tap silently
+      // did nothing, and nothing threw.
+      ...ROLL_MODES.map((mode) => rollButton(mode, roll(mode.mode))));
   }
 
   /** Wraps a text field's value element with hover-only d20 controls

@@ -855,9 +855,9 @@
 
   /* --- The Adv./Disadvantage chips ----------------------------------------
      `.field-roll` is `position: absolute; right: 2px; bottom: 2px`, and
-     it is 133px wide on a touch screen - the die plus "Adv." plus
-     "Disadv." (`@media (hover: none)` swaps the full words out for the
-     short ones). In a narrow cell it hangs out over its neighbours, and
+     it is three equal-width targets wide on a touch screen - two dice
+     with an arrow, one plain die, two dice with the other arrow. In a
+     narrow cell it hangs out over its neighbours, and
      because a touch screen has no hover to reveal it, six of them side by
      side overlapped into one strip that also sat on top of the "MOD"
      labels. On a landscape phone they were 40px cells with a 133px pill
@@ -914,8 +914,10 @@
     flex-wrap: nowrap;
     max-width: 100%;
   }
-  .page-grid.is-simple .field-roll button {
+  .page-grid.is-simple .field-roll__btn {
     min-height: 44px;
+    /* The 2.75rem width comes from the base rule so all three targets are
+       the same width; here it only has to survive the two-column field. */
     padding: 4px 6px;
   }
 
