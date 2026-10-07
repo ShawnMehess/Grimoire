@@ -56,3 +56,6 @@
 @import url("components/tablet-fields.css");
 /* Why Sheet View is greyed out, on the page rather than in a title. */
 @import url("components/stacked-note.css");
+/* Simple View above phone.css's band: a reading-width column, and a
+   checkbox's caption beside it rather than under it. */
+@import url("components/simple-view-fixes.css");

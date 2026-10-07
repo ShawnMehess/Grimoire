@@ -92,6 +92,7 @@ const AREAS = {
   "no-clipping": "no rendered box is hidden by an overflow:hidden ancestor",
   "tablet-toolbar": "721-1100px: one toolbar row, secondary actions behind Edit layout",
   "tablet-fields": "1024px: what a 52px grid cell can hold - captions, values, select text",
+  "simple-view-wide": "Simple View on a desktop: a reading column, and a checkbox's caption beside it",
   "levelgated-text": "level-gated prose in a trait, changing with no reload",
   rowclick: "a click inside a row selects that row (picker link vs <select>)",
   "spell-rows": "spell picker row shape: facts, gist, disclosure",
@@ -4857,6 +4858,88 @@ if (inArea("tablet-fields")) {
 
   await tf.screenshot({ path: path.join(shotDir, "tablet-fields-1024.png") });
   await tf.close();
+}
+
+// --- Simple View on a wide screen -------------------------------------------
+//
+// Two claims, both of which are about a reading experience rather than a
+// size:
+//
+//   1. it is a reading column, not a field stretched across a monitor -
+//      capped at 52rem and centred
+//   2. Inspiration is a checkbox with its caption BESIDE it, which is what
+//      a checkbox's label is for. It was underneath, because above the
+//      phone band the block body is a flex column and two siblings of a
+//      column cannot share a line.
+//
+// The cap is asserted against the grid rather than the scroller, because
+// that is where it has to live: `gridFitNow()` reads the scroller's width
+// to decide the column count, so a cap on the scroller made a 1440px
+// window measure 832px and put the sheet two-up on a desktop.
+if (inArea("simple-view-wide")) {
+  const svCheck = reporter("simple-view-wide");
+  const sv = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  sv.on("pageerror", (e) => problems.push(`PAGEERROR [simple-view-wide]: ${e.message}`));
+  await sv.goto(`${base}/demo.html`, { waitUntil: "networkidle" });
+  await settled(sv, READY_SHEET, `simple view sheet`);
+
+  await sv.locator(".sheet-toolbar__view").click();
+  await sv.waitForTimeout(700);
+  const m = await sv.evaluate(() => {
+    const g = document.querySelector(".page-grid");
+    const gr = g.getBoundingClientRect();
+    const insp = document.querySelector("[data-node-id='inspiration']");
+    const cap = insp?.nextElementSibling;
+    const ir = insp?.getBoundingClientRect();
+    const cr = cap?.getBoundingClientRect();
+    // Reading order: the pair must sit where the layout puts it, which is
+    // row 4 of Identity - after Name and before Class. Measured on the
+    // RENDERED position, not DOM order: the stacked layout writes `order`
+    // from each field's grid cell, so DOM order is the layout array's and
+    // says nothing about what the reader sees.
+    const yOf = (label) => {
+      const e = [...insp.parentElement.children]
+        .find((c) => (c.querySelector(".field-label")?.textContent || "").trim() === label);
+      return e ? Math.round(e.getBoundingClientRect().top) : null;
+    };
+    const pairTop = ir ? Math.round(ir.top) : null;
+    return {
+      simple: g.classList.contains("is-simple"),
+      twoCol: g.classList.contains("is-tablet-cols"),
+      gridW: Math.round(gr.width),
+      gridLeft: Math.round(gr.left),
+      gapLeft: Math.round(gr.left),
+      gapRight: Math.round(window.innerWidth - gr.right),
+      beside: !!(ir && cr && Math.abs(ir.top - cr.top) < 6 && cr.left >= ir.right - 2),
+      afterName: yOf("Name") !== null && pairTop > yOf("Name"),
+      beforeClass: yOf("Class") !== null && pairTop < yOf("Class"),
+      checkboxW: ir ? Math.round(ir.width) : null,
+      captionW: cr ? Math.round(cr.width) : null,
+      bodyDisp: getComputedStyle(insp.parentElement).display,
+    };
+  });
+  svCheck(m.simple && !m.twoCol, `Simple View is on, and is not the tablet's two-up (simple ${m.simple}, two-up ${m.twoCol})`);
+  svCheck(m.gridW <= 900 && m.gridW >= 640,
+    `the sheet is a reading column rather than 1392px of stretched field (${m.gridW}px)`);
+  svCheck(Math.abs(m.gapLeft - m.gapRight) <= 2 && m.gapLeft > 40,
+    `and it is centred (${m.gapLeft}px left, ${m.gapRight}px right)`);
+  svCheck(m.bodyDisp === "grid", `and its blocks can put two fields on one line (${m.bodyDisp})`);
+  svCheck(m.beside && m.checkboxW < m.captionW,
+    `Inspiration's caption is BESIDE its checkbox, not under it (checkbox ${m.checkboxW}px, caption ${m.captionW}px)`);
+  svCheck(m.afterName && m.beforeClass,
+    `and the pair is still where the layout puts it - after Name, before Class`);
+
+  // And back: leaving Simple View must not leave the cap behind.
+  await sv.locator(".sheet-toolbar__view").click();
+  await sv.waitForTimeout(700);
+  const back = await sv.evaluate(() => {
+    const g = document.querySelector(".page-grid");
+    return { simple: g.classList.contains("is-simple"), w: Math.round(g.getBoundingClientRect().width) };
+  });
+  svCheck(!back.simple && back.w > 900,
+    `and Sheet View is the positioned grid again, uncapped (${back.w}px)`);
+  await sv.screenshot({ path: path.join(shotDir, "simple-view-wide.png") });
+  await sv.close();
 }
 
 // --- Nothing is clipped by the box it is drawn inside ------------------------

@@ -1,0 +1,117 @@
+/* ==========================================================================
+   simple-view-fixes.css
+   Simple View on a screen wider than a phone.
+
+   THE QUERY IS THE POINT
+   ----------------------
+   `min-width: 721px and min-height: 481px` is the exact complement of
+   css/phone.css's sheet query - `(max-width: 720px), (max-height: 480px)`
+   - and not an approximation of it. phone.css is a cascade of phone
+   arrangements and this file is a cascade of everything-else
+   arrangements; if the two overlapped, one would quietly start restyling
+   the other's territory, which is the failure mode that produced two
+   different stacked layouts for two screens in the first place.
+
+   --- Two things, both about a wide screen ---------------------------
+
+   1. Simple View stretched fields across about 1400px. Every field was a
+      full-width box in a column 1400px wide, so "Passive Perception" sat
+      alone on half a monitor with nothing to fill the other half, and the
+      eye had to travel the whole width to get from a field's label to its
+      neighbour's. Capped at 52rem - 832px, about what a line of prose
+      wants - and centred, with the rest of the screen left as margin
+      rather than stretched out.
+
+   2. Inspiration was a checkbox with its caption UNDERNEATH it. Every
+      other field on the sheet has its caption above, so the pair read as
+      two unrelated things stacked vertically - and "a checkbox, with the
+      word Inspiration below it" is exactly the reading a checkbox's label
+      is *for*. phone.css already fixes this below 721px; above it nothing
+      did, because the block body is a flex column there and two siblings
+      of a column cannot share a line.
+   ========================================================================== */
+
+@media screen and (min-width: 721px) and (min-height: 481px) {
+  /* --- 1. A reading column ---------------------------------------------
+     The cap goes on the GRID, and that placement is load-bearing rather
+     than incidental.
+
+     It was on `.page-grid-scroll` first, and that fed straight back into
+     the layout decision: `gridFitNow()` measures the scroller's
+     `clientWidth` and asks `stackedColumnCount` whether the sheet should
+     go two-up, so capping the scroller made a 1440px window read as an
+     832px one, which put the sheet two-up on a desktop - the opposite of
+     what the rule is for. A measurement that the thing being measured can
+     change is not a measurement.
+
+     The grid, on the other hand, is what the cap is about, and nothing
+     reads its width back.
+
+     `!important` because Simple View pins `max-width: 100% !important` on
+     this element (the renderer stamps a fixed pixel width for the
+     positioned grid and the whole mode is the business of overriding it).
+     `auto` margins because the scroller around it is the full-bleed box
+     that lets the positioned grid overflow the page gutters, so "centred
+     in the viewport" and "centred in the page's content column" are not
+     the same place. */
+  .page-grid.is-simple:not(.page-grid--leveling):not(.is-tablet-cols) {
+    max-width: 52rem !important;
+    margin-inline: auto;
+  }
+
+  /* --- 2. A checkbox and its caption on one line ------------------------
+     The block body becomes a two-column grid - `auto` for the control,
+     the rest of the width for the caption - instead of a flex column.
+     Every field spans both columns and so still gets a line of its own; a
+     checkbox followed by a caption field takes one column each and lands
+     beside each other. `auto` for the first column is sized by the
+     checkbox, which is the only thing that ever occupies it alone.
+
+     Not `:has()`, not a new class: the two fields are adjacent in the
+     layout array (the Inspiration pair in createStarterLayout), and an
+     adjacent-sibling selector is what phone.css uses for the same reason
+     - adding a class would have meant changing saved layouts.
+
+     The order rules pin BOTH of them to DOM order, which is the order
+     they were authored in. `!important` because the stacked layout writes
+     `style.order` inline from each field's grid cell, and this pair's
+     cells put the caption FIRST (x1 against x0) - which, left alone,
+     drops the checkbox onto the row BELOW its own caption. Two fields
+     whose columns are named can still land on different rows if the one
+     placed second cannot backfill.
+
+     BOTH, not just the caption: pinning only the caption sends it to
+     order 0, which is ahead of every other field in the block - so
+     Inspiration appeared above the character's name and above Class. */
+  .page-grid.is-simple:not(.page-grid--leveling):not(.is-tablet-cols) .block-body {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .page-grid.is-simple:not(.page-grid--leveling):not(.is-tablet-cols) .block-body > .grid-node--field {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+  .page-grid.is-simple:not(.page-grid--leveling):not(.is-tablet-cols)
+    .block-body
+    > .grid-node--field[data-field-type="checkbox"]:has(+ .grid-node--field[data-field-type="label"]),
+  .page-grid.is-simple:not(.page-grid--leveling):not(.is-tablet-cols)
+    .block-body
+    > .grid-node--field[data-field-type="checkbox"]
+    + .grid-node--field[data-field-type="label"] {
+    grid-column: auto;
+    order: 0 !important;
+  }
+  /* The checkbox's own cell: a target you can hit, not a whole column.
+     The width is `!important` because Simple View stretches every node to
+     100% of its container, and an `auto` column is sized by its content -
+     without this the checkbox would be as wide as the caption beside it
+     and the pair would look exactly like the two separate rows it
+     replaced. */
+  .page-grid.is-simple:not(.page-grid--leveling):not(.is-tablet-cols)
+    .block-body
+    > .grid-node--field[data-field-type="checkbox"]:has(+ .grid-node--field[data-field-type="label"]) {
+    width: 3.25rem !important;
+    justify-content: center;
+  }
+}
