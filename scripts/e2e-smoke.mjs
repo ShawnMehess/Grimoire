@@ -90,6 +90,7 @@ const AREAS = {
   "phone-layout": "phone portrait: no sideways scroll, evenly split buttons",
   "widths-sweep": "320-1440px ladder: stacking threshold and cell floor",
   "no-clipping": "no rendered box is hidden by an overflow:hidden ancestor",
+  "tablet-toolbar": "721-1100px: one toolbar row, secondary actions behind Edit layout",
   "levelgated-text": "level-gated prose in a trait, changing with no reload",
   rowclick: "a click inside a row selects that row (picker link vs <select>)",
   "spell-rows": "spell picker row shape: facts, gist, disclosure",
@@ -4627,6 +4628,100 @@ if (inArea("widths-sweep")) {
     `and it lands below a laptop (unstacked from ${firstUnstacked}px)`);
   await sweep.screenshot({ path: path.join(shotDir, "widths-final.png") });
   await sweep.close();
+}
+
+// --- The toolbar on a tablet -------------------------------------------------
+//
+// Between a phone and a desktop there was a width where the toolbar was at
+// its worst on both counts: 224px and four rows at 768, and 105px with
+// Level Up stranded mid-row at 1024. css/phone.css fixes a phone's and the
+// desktop has a full row to itself; nothing covered the gap between them.
+//
+// The contract, at each of the three tablet widths:
+//
+//   1. the toolbar is ONE row and is not tall
+//   2. the character can still be found: name, Level Up and the save status
+//      are on screen without opening anything
+//   3. the secondary controls - Undo, Redo, Display, Card fields - are NOT
+//      taking up room
+//   4. "Edit layout" brings them back, and only them
+//   5. the view toggle survives, because it is the control that says why
+//      the grid is not available at this width
+if (inArea("tablet-toolbar")) {
+  const tbCheck = reporter("tablet-toolbar");
+  const tab = await browser.newPage({ viewport: { width: 768, height: 1024 } });
+  tab.on("pageerror", (e) => problems.push(`PAGEERROR [tablet-toolbar]: ${e.message}`));
+  await tab.goto(`${base}/demo.html`, { waitUntil: "networkidle" });
+  await settled(tab, READY_SHEET, `tablet toolbar`);
+
+  const read = () => tab.evaluate(() => {
+    const tb = document.querySelector(".sheet-toolbar");
+    const shown = (sel) => [...document.querySelectorAll(sel)].some((e) => {
+      const cs = getComputedStyle(e);
+      const r = e.getBoundingClientRect();
+      return cs.display !== "none" && cs.visibility !== "hidden" && r.width > 0 && r.height > 0;
+    });
+    const box = (sel) => {
+      const e = document.querySelector(sel);
+      if (!e) return null;
+      const r = e.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height) };
+    };
+    const inViewport = (sel) => {
+      const e = document.querySelector(sel);
+      if (!e) return false;
+      const r = e.getBoundingClientRect();
+      return r.top >= 0 && r.bottom <= window.innerHeight + 1 && r.width > 0 && r.height > 0;
+    };
+    return {
+      height: Math.round(tb.getBoundingClientRect().height),
+      name: shown(".sheet-toolbar > .input-group__control"),
+      levelUp: shown(".sheet-toolbar > .level-up"),
+      status: shown(".sheet-toolbar > .save-status"),
+      viewToggle: shown(".sheet-toolbar .sheet-toolbar__view"),
+      editBtn: box(".sheet-toolbar__edit-layout"),
+      nameInView: inViewport(".sheet-toolbar > .input-group__control"),
+      levelUpInView: inViewport(".sheet-toolbar > .level-up"),
+      undo: shown('.sheet-toolbar__group > .btn[title=""]') || shown(".sheet-toolbar__group > button:nth-child(3)"),
+      display: shown(".sheet-toolbar > .toolbar-display"),
+      cardFields: shown('.sheet-toolbar > .btn[title^="Choose which fields show"]'),
+    };
+  });
+
+  for (const [label, width, height] of [
+    ["tablet portrait 768", 768, 1024],
+    ["tablet portrait 834", 834, 1194],
+    ["tablet landscape 1024", 1024, 768],
+  ]) {
+    await tab.setViewportSize({ width, height });
+    await tab.waitForTimeout(700);
+    const t = await read();
+    // 90px: one 44px row plus the toolbar's own bottom margin and padding.
+    // The desktop's single row measures 55px and this adds 2px of a
+    // thicker gap, so anything under 90 is one row by construction.
+    tbCheck(t.height <= 90, `${label}: the toolbar is one row (${t.height}px)`);
+    tbCheck(t.name && t.levelUp && t.status,
+      `${label}: and the name, Level Up and the save status are all there without opening anything ` +
+      `(name ${t.name}, Level Up ${t.levelUp}, status ${t.status})`);
+    tbCheck(t.nameInView && t.levelUpInView,
+      `${label}: with the name and Level Up above the fold, not pushed off the screen`);
+    tbCheck(!t.undo && !t.display && !t.cardFields,
+      `${label}: and Undo, Display and Card fields are out of the way (${JSON.stringify({ undo: t.undo, display: t.display, cardFields: t.cardFields })})`);
+    tbCheck(t.viewToggle, `${label}: the Sheet/Simple View toggle is still on the toolbar`);
+    tbCheck(!!t.editBtn && t.editBtn.h >= 44, `${label}: reached by one "Edit layout" tap that is a 44px target`);
+
+    await tab.locator(".sheet-toolbar__edit-layout").click();
+    await tab.waitForTimeout(450);
+    const open = await read();
+    tbCheck(open.undo && open.display && open.cardFields,
+      `${label}: and that tap brings Undo, Display and Card fields back (${JSON.stringify({ undo: open.undo, display: open.display, cardFields: open.cardFields })})`);
+    tbCheck(open.name && open.levelUp,
+      `${label}: without taking the name or Level Up away while it is open`);
+    await tab.locator(".sheet-toolbar__edit-layout").click();
+    await tab.waitForTimeout(350);
+    await tab.screenshot({ path: path.join(shotDir, `tablet-toolbar-${width}.png`) });
+  }
+  await tab.close();
 }
 
 // --- Nothing is clipped by the box it is drawn inside ------------------------

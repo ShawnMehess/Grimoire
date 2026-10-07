@@ -1015,7 +1015,14 @@ export function renderCustomSheet(root, character, store, opts = {}) {
 
   const playViewBtn = document.createElement("button");
   playViewBtn.type = "button";
-  playViewBtn.className = "btn btn--secondary";
+  // The third class is so css/components/tablet-toolbar.css can keep this
+  // one button visible while collapsing the rest of its group (Customize
+  // Sheet, Undo, Redo) on a tablet. It is the only way to say "this one
+  // out of four siblings" without :nth-child, which would silently start
+  // styling the wrong button the next time something is inserted here -
+  // and this one carries the note about WHY Sheet View is unavailable on a
+  // narrow screen, so hiding it would hide the explanation with it.
+  playViewBtn.className = "btn btn--secondary sheet-toolbar__view";
   playViewBtn.textContent = simpleView ? "Sheet View" : "Simple View";
   playViewBtn.title = "Switch to Simple View - every block and field stacked full-width (display only; your layout is untouched)";
   playViewBtn.addEventListener("click", () => {

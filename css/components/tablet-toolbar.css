@@ -1,0 +1,152 @@
+/* ==========================================================================
+   tablet-toolbar.css
+   One row of what you use, on a tablet, between a phone and a desktop.
+
+   WHAT WAS WRONG
+   --------------
+   Measured, with the toolbar's own children measured rather than guessed:
+
+   768 and 834 portrait - 224px tall, FOUR rows, before a single field of
+   the sheet:
+
+     row 1   Sheet View | Customize Sheet | Undo | Redo | Blocks | Edit layout
+     row 2   <name>                  | Display          | Card fields
+     row 3   the Card-fields drop zones, 720px wide and 56px tall
+     row 4   Level Up                                    Saved
+
+   1024 landscape - 105px, two rows, with Level Up stranded at x=448 on a
+   row of its own between "Card fields" and "Saved": nothing about that
+   position means anything, it is just where the wrapping fell.
+
+   320px of a 768x1024 screen, and ~320px at 834, is editor chrome in
+   front of the thing the app was opened to read. css/phone.css already
+   solved this for a phone - every secondary control behind one "Edit
+   layout" tap, with the name, the save status and Level Up left visible -
+   and none of it applied here, because the phone ceiling is 720px and a
+   tablet is past it.
+
+   WHAT THIS DOES
+   --------------
+   The phone's arrangement, extended up to 1100px. The bound is the one
+   width where the arrangement changes: below it a two-up block is 180px
+   wide, so the sheet needs one block per row; above it the sheet is not
+   stacked at all and the toolbar has the full desktop row to itself.
+
+   721 rather than 720 at the bottom, so a phone keeps css/phone.css's own
+   rules exactly as they are. phone.css hides the whole
+   `.sheet-toolbar__group` there, which takes the Sheet/Simple View toggle
+   with it; below this file's floor that stays true. Above it the toggle
+   is kept, because it is the one control that says WHY the grid is not
+   available on this screen, and hiding it hides the explanation with it.
+
+   Nothing is deleted or re-parented. The controls keep their own
+   listeners, their own state and their own place in the toolbar; a class
+   and an `order` are all that move.
+   ========================================================================== */
+
+@media screen and (min-width: 721px) and (max-width: 1100px) {
+  /* --- Secondary actions, behind "Edit layout" -------------------------
+     The same six selectors css/phone.css uses, for the same reasons:
+     Undo and Redo are history, Display is a dropdown nobody opens while
+     playing, and the Card-fields drop zones are a full 720px row of a
+     dashed border that is empty most of the time and is only useful while
+     you are building a sheet.
+
+     `.sheet-toolbar__view` is excluded from the group rule: the view
+     toggle is not a secondary action, it is how you find out the sheet
+     has been stacked for you. */
+  .sheet-toolbar > .sheet-toolbar__group > .btn:not(.sheet-toolbar__view),
+  .sheet-toolbar > .toolbar-display,
+  .sheet-toolbar > .btn[title^="Choose which fields show"],
+  .sheet-toolbar > .toolbar-card-zones,
+  .sheet-toolbar > .identity-card-fields {
+    display: none;
+  }
+
+  .sheet-toolbar--editing > .sheet-toolbar__group > .btn:not(.sheet-toolbar__view),
+  .sheet-toolbar--editing > .toolbar-display,
+  .sheet-toolbar--editing > .btn[title^="Choose which fields show"],
+  .sheet-toolbar--editing > .toolbar-card-zones,
+  .sheet-toolbar--editing > .identity-card-fields {
+    display: flex;
+  }
+  .sheet-toolbar--editing > .toolbar-display {
+    display: block;
+  }
+  /* With the group back, "Customize Sheet" leads it and the view toggle
+     keeps its place at the front. */
+  .sheet-toolbar--editing > .sheet-toolbar__group {
+    order: -1;
+    flex: 1 1 100%;
+  }
+
+  /* --- One row, and what is in it --------------------------------------
+     Order rather than DOM order, for the reason phone.css gives: the
+     toolbar's children were arranged for a 1400px screen, and moving them
+     in the DOM would have meant moving nodes with their listeners
+     attached.
+
+     Row: view toggle, Blocks, the character's name (which takes the slack),
+     Level Up, Edit layout - then the save status underneath, which is a
+     line of text rather than a control and reads better on its own line
+     than crowded against the end of the row. */
+  .sheet-toolbar {
+    gap: var(--space-2);
+    row-gap: var(--space-1);
+  }
+  .sheet-toolbar > .sheet-toolbar__group {
+    order: 0;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+  }
+  .sheet-toolbar > .btn[title^="Show/hide the Stat Blocks"] {
+    order: 1;
+  }
+  .sheet-toolbar > .input-group__control {
+    order: 2;
+    /* The slack, on a SHORT basis rather than `auto`. `flex: 1 1 auto`
+       sizes the name to its own text, so a long character name becomes
+       268px and pushes Edit layout onto a second row - which is the
+       105px toolbar at 768 that this rule is trying to remove. A 110px
+       basis says "at least enough for a word, then share what is left",
+       and the input still grows into every spare pixel because the grow
+       factor is 1. The inline max-width the renderer sets is overridden
+       because 220px is a sensible cap at 1400px and not at 768. */
+    flex: 1 1 110px;
+    min-width: 0;
+    max-width: none !important;
+  }
+  .sheet-toolbar > .level-up {
+    order: 3;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+  }
+  .sheet-toolbar__edit-layout {
+    order: 4;
+  }
+  .sheet-toolbar > .save-status {
+    order: 5;
+    flex: 0 0 auto;
+    /* A line of text in a row of 44px buttons: centred against them
+       rather than sitting on the row's baseline. */
+    align-self: center;
+  }
+
+  /* 44px, because these are pressed with a thumb. The desktop toolbar's
+     controls are 38px and there is a mouse. */
+  .sheet-toolbar > .btn,
+  .sheet-toolbar > .sheet-toolbar__group > .btn,
+  .sheet-toolbar > .level-up .btn,
+  .sheet-toolbar__edit-layout {
+    min-height: 44px;
+  }
+  .sheet-toolbar > .input-group__control {
+    min-height: 44px;
+  }
+  /* The Blocks toggle and Edit layout are words with no width to spare:
+     left alone they are exactly as wide as their text and the row has
+     nothing left for the name. */
+  .sheet-toolbar > .btn[title^="Show/hide the Stat Blocks"] {
+    min-width: 0;
+  }
+}

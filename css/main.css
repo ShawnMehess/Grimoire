@@ -47,3 +47,7 @@
 /* A dice field is one cell of a packed row. Late, because it has to
    supersede phone.css's two-column arrangement for the same element. */
 @import url("components/stacked-roll-fields.css");
+/* The sheet toolbar between 721 and 1100px: one row of what you use, with
+   the rest behind "Edit layout". Above phone.css's floor and below the
+   width where the toolbar gets the whole desktop row. */
+@import url("components/tablet-toolbar.css");
