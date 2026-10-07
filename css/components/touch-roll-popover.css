@@ -1,0 +1,144 @@
+/* ==========================================================================
+   touch-roll-popover.css
+   The tap-to-open d20 popover for touch screens too wide for css/phone.css.
+
+   WHY A SEPARATE FILE, IMPORTED AFTER phone.css
+   ---------------------------------------------
+   It has to beat two existing rules, and both of them live in files
+   phone.css already sits after:
+
+     - `@media (hover: none) { .field-roll { display: flex } }` in
+       custom-sheet-grid.css, which forces the pill permanently visible
+       on every touch screen.
+     - phone.css's own stacked-layout arrangement, which un-positions
+       the pill and gives the field two columns.
+
+   The second one is the reason the popover is scoped as tightly as it
+   is: that arrangement is genuinely good - the pill sits BESIDE the
+   value instead of over it - and it is the right answer for a phone.
+   This file must not touch it. So every rule below is inside
+   `@media (hover: none)` AND `(min-width: 721px) and (min-height: 481px)`,
+   which is exactly the complement of phone.css's own sheet section
+   (`(max-width: 720px), (max-height: 480px)`).
+
+   Pointer devices see none of it: `(hover: none)` does not match, so
+   the hover reveal in custom-sheet-grid.css is untouched.
+   ========================================================================== */
+
+@media (hover: none) and (min-width: 721px) and (min-height: 481px) {
+  /* The stacked layout un-positions its nodes (`position: static
+     !important`, so flex `order` can stack them), which leaves the
+     absolutely positioned die glyph below with no containing block to
+     resolve against - it would land against the page grid instead of
+     the field. `relative` gives it one back.
+     This changes no layout: the same rules set `left/top: auto` on
+     these nodes, and a relative box with no offsets lays out exactly
+     where a static one does. Only the containing block differs. */
+  .page-grid.is-simple:not(.page-grid--leveling) .grid-node--field {
+    position: relative !important;
+  }
+
+  /* Hidden by default. `display: none` also takes the pill's buttons out
+     of the tab order, which is the other half of why this is right: an
+     invisible control that is still focusable is worse than no control. */
+  .grid-node--field > .field-roll {
+    display: none;
+  }
+
+  /* The field is a roll target, so say so. A hairline dashed ring rather
+     than a tinted fill: this appears on every ability score, every
+     saving throw and every skill on the sheet, and a filled tint on all
+     of them at once turns the sheet into a form full of warnings. The
+     die glyph in the corner is the affordance that actually reads at a
+     glance, and it is `pointer-events: none` so the whole cell stays
+     one tap target. */
+  .grid-node--field:has(> .field-roll)::after {
+    content: "\2684";
+    position: absolute;
+    top: 0;
+    right: 2px;
+    /* 12px, not smaller: the repo's own floor for anything that renders a
+       glyph, and this one has to read at a glance across a sheet with
+       dozens of rollable fields on it. */
+    font-size: var(--text-xs);
+    line-height: 1;
+    color: var(--color-text-faint);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 4;
+  }
+
+  /* Open, in place: for one frame of the tap, before the pill has been
+     moved out. Keeps the reveal from reading as "nothing happened". */
+  .grid-node--field.is-roll-popover-open {
+    outline: 1px dashed var(--color-accent);
+    outline-offset: -1px;
+  }
+  /* The pill has left the field for the popover, so the die glyph goes
+     with it - leaving it would read as a second, broken control. */
+  .grid-node--field.is-roll-popover-open::after {
+    opacity: 0;
+  }
+}
+
+/* The popover itself is not media-scoped: it is a `position: fixed`
+   element appended to <body>, and it only ever exists because JS put it
+   there under the query above. Styling it unconditionally means there is
+   no window - a mid-rotate popover, a keyboard-reachable one - where it
+   renders unstyled.
+
+   `position: fixed` is the load-bearing part. The anchor is inside a
+   scroller and inside `.block-body`, which is `overflow: hidden`; an
+   absolutely positioned popover inside either would be clipped by the
+   block's own edge, which is the same clipping that hid the abilities in
+   the first place. Fixed escapes all of it. */
+.roll-popover {
+  position: fixed;
+  z-index: 60;
+  /* Measured before placement, so the pop-over/flip decision in
+     sheetRollPopover.js is made against a real size rather than an
+     estimate. */
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 1px 4px;
+  background: var(--color-bg-raised);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow-md);
+  animation: roll-popover-in 120ms ease-out;
+}
+
+/* The pill keeps its own display:none from the media query above once it
+   is out here - that selector is scoped to `.grid-node--field >`, which
+   no longer matches - but say it plainly rather than relying on the
+   un-match, so moving the pill back in cannot silently hide it. */
+.roll-popover .field-roll {
+  display: flex;
+  position: static;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* 44px is what a thumb needs, and these are the buttons you press to
+   roll. The base rule already sets min-block-size: 44px; restated here
+   because the popover is where the touch actually happens and a future
+   edit to the pill should not be able to quietly shrink it. */
+.roll-popover .field-roll__btn {
+  min-height: 44px;
+}
+
+@keyframes roll-popover-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* The popover is UI, not paper. print.css hides the pill; this is the
+   same idea for the element that carries it. */
+@media print {
+  .roll-popover { display: none !important; }
+}

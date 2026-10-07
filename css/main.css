@@ -33,3 +33,7 @@
    `@media screen and (...)`, so none of it can reach paper - see the
    header of that file for why that is written down. */
 @import url("phone.css");
+/* Touch-only d20 popover, after phone.css so it can supersede
+   phone.css's own stacked-layout pill arrangement outside the phone
+   query and leave it intact inside it. See the file header. */
+@import url("components/touch-roll-popover.css");

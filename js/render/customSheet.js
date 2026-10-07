@@ -432,6 +432,7 @@ import {
   openRollResultDialog,
   isRollRelevant,
 } from "./sheet/sheetRolls.js";
+import { initRollPopover } from "./sheet/sheetRollPopover.js";
 import {
   WEAPON_STATS,
   ATTACK_CANTRIPS,
@@ -9440,6 +9441,15 @@ try {
 
   // --- Boot + responsive re-render ---------------------------------------
 
+  // Touch devices past the phone query have no hover to reveal the d20
+  // pill, and on a small cell it covers the value it is meant to help you
+  // roll - so it opens into a popover anchored OUTSIDE the cell on a tap
+  // instead (see sheetRollPopover.js). Installed here rather than at
+  // module scope: it is a no-op unless the environment asks for it, and
+  // it has to be torn down with this render closure like the listeners
+  // below.
+  const rollPopover = initRollPopover(root);
+
   renderAll();
   // The stacked layout is forced below a width the grid cannot fit, and the
   // grid's own width is measured rather than known, so this has to run once
@@ -9499,6 +9509,7 @@ try {
     window.removeEventListener("beforeunload", onBeforeUnload);
     document.removeEventListener("keydown", onShortcut);
     document.removeEventListener("pointerdown", onDocumentPointerDown);
+    rollPopover.destroy();
     // Final flush of wizard resume state (fire-and-forget): picks made
     // seconds before closing would otherwise wait out the debounce and
     // never get written, so reopening would miss the very latest.
