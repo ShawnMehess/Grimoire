@@ -1,0 +1,39 @@
+/* ==========================================================================
+   header-fixes.css
+   The header title used to truncate to "Char..." on phones and wrap to
+   two lines on tablets. The demo tag is the thing crowding the brand out,
+   so it yields first as the width shrinks; the mark and the title give up
+   a little size behind it. Loaded last so these win over phone.css.
+   ========================================================================== */
+
+.app-header h1 {
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  .app-header__demo-tag {
+    display: none;
+  }
+  .app-header h1 {
+    font-size: var(--text-base);
+  }
+}
+
+@media (max-width: 720px) {
+  .app-header__mark {
+    width: 20px;
+    height: 20px;
+  }
+  .app-header h1 {
+    font-size: var(--text-sm);
+    /* Sized down enough to fit by measurement; text-overflow: ellipsis
+       from phone.css stays as a last-resort guard rather than the norm. */
+  }
+}
+
+@media (max-width: 420px) {
+  .app-header__mark {
+    width: 16px;
+    height: 16px;
+  }
+}

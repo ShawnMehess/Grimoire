@@ -59,3 +59,5 @@
 /* Simple View above phone.css's band: a reading-width column, and a
    checkbox's caption beside it rather than under it. */
 @import url("components/simple-view-fixes.css");
+/* The header title: one line, no truncation, demo tag yields first. */
+@import url("components/header-fixes.css");
