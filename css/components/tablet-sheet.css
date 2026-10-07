@@ -1,0 +1,185 @@
+/* ==========================================================================
+   tablet-sheet.css
+   The stacked sheet, two blocks to a row, on a portrait tablet.
+
+   WHY A SEPARATE FILE
+   -------------------
+   Because everything here is keyed off ONE class - `is-tablet-cols` -
+   which js/render/sheet/tabletColumns.js puts on the grid and its scroller
+   when, and only when, the stacked sheet should be two-up. That keeps the
+   width band in exactly one place: the JS decides, the CSS obeys. A media
+   query here as well would be a second copy of the same numbers, free to
+   drift from the first.
+
+   THE PROBLEM
+   -----------
+   The positioned grid needs about 790px, so below that the sheet is
+   stacked: every block full width, every field full width. On a phone
+   that is fine and css/phone.css has made it good - a block body becomes
+   a three-column grid, and the whole sheet comes out around 8,000px
+   instead of 9,936.
+
+   A portrait tablet (768, 834) is past phone.css's 720px ceiling, so none
+   of that applied and the sheet was one field per full-width row: 9,817px
+   and 9,796px measured. About thirteen screens, and worse than the phone
+   it was meant to be better than.
+
+   THE SHAPE OF THE FIX
+   --------------------
+   phone.css's packing cannot simply be turned on at tablet width. It
+   packs a block body three fields to a row, and a tablet's block body is
+   720px - so a field would get a third of 720px, which is where "Passive
+   Perception" and Notes stop being readable. It works on a phone because
+   a phone's block body is about 120px and everything in it is a number.
+
+   So the BLOCKS go two-up first, which makes a block body about the width
+   of a phone's, and the phone's packing is then applied to what is
+   inside it. The rules below are therefore deliberately the same
+   declarations phone.css makes; they are restated rather than shared
+   because that file's whole section sits inside its own phone media query,
+   and widening that query would also widen the phone's toolbar and header
+   rules with it - which is a different decision, taken separately.
+
+   A phone keeps one column. At 390px a two-up block is 180px and a
+   three-across field inside it is 60px.
+   ========================================================================== */
+
+/* --- The two-up grid -----------------------------------------------------
+   The nodes are already un-positioned and stretched to 100% by the Simple
+   View rules, so all this has to do is swap the flex column for two
+   columns. `align-items: start` matters: with the default `stretch`, a
+   short block is stretched to the height of the tall one beside it and
+   the sheet grows back toward the height it was trying to lose.
+
+   `order` still does the reading order. Grid honours it exactly as flex
+   does, and the stacked layout writes it inline from each node's grid
+   cell (see simpleView.js), so blocks arrive left-then-right, top to
+   bottom, in the order they were laid out. */
+.page-grid.is-simple.is-tablet-cols:not(.page-grid--leveling) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: row;
+  align-items: start;
+  align-content: start;
+  /* The flex column's own `gap` carries over; this only widens the gutter
+     between columns from a row gap to a pair of them. */
+  column-gap: var(--space-4);
+  row-gap: var(--space-3);
+}
+
+/* The scroller is told about the class as well as the grid, and it has to
+   hand the grid the full width it is being given. */
+.page-grid-scroll--stacked.is-tablet-cols {
+  overflow-x: hidden;
+}
+
+/* --- Inside a block: the phone's packing, restated ---------------------- */
+
+.page-grid.is-tablet-cols:not(.page-grid--leveling) .block-body {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-flow: row dense;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+
+/* Placement follows DOM order rather than the inline `order`, because a
+   grid ignores... no: a grid DOES honour `order`. It is pinned to 0 below
+   only where the phone pins it, and the reason is the same. See the
+   abilities rule. */
+.page-grid.is-tablet-cols .grid-node--field {
+  grid-column: 1 / -1;
+  min-height: 0;
+}
+
+/* How much of a row a field takes comes from how wide the author made it
+   in the grid - `data-grid-w` and `data-field-type` are the read-only
+   mirrors of the layout stamped by sheetFields.js. Guessing from the field
+   type alone put "Passive Perception" and the whole of Notes into a
+   narrow cell, which is the failure this arrangement exists to avoid. */
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="text"] {
+  grid-column: span 1;
+}
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="text"][data-grid-w="3"] {
+  grid-column: span 2;
+}
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="text"][data-grid-w="4"],
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="text"][data-grid-w="5"],
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="text"][data-grid-w="6"] {
+  grid-column: 1 / -1;
+}
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="checkbox"],
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="radio"],
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="label"] {
+  grid-column: span 1;
+}
+/* Anything that is a box of prose, a list, a picker or an image keeps the
+   whole row: three across is not an improvement to a Notes field. */
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="dropdown"],
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="textarea"],
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="textlist"],
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="taglist"],
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="catalog"],
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="picture"],
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="featureList"],
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="characterlink"] {
+  grid-column: 1 / -1;
+}
+
+/* The abilities block: TWO columns, and each score pinned beside its own
+   modifier. The order matters as much as the count. The stacked layout
+   writes `style.order` inline from each field's grid cell, and
+   blockModel.js puts all six scores on row 0 and all six modifiers on row
+   1 - so the order-modified sequence is every score, then every modifier,
+   and in any 2- or 3-column grid a modifier lands beside the wrong
+   ability. blockModel.js builds the twelve fields INTERLEAVED, so pinning
+   them to DOM order is what puts each one back with its own. `!important`
+   because the order is an inline style.
+
+   Identified by a field id the block owns rather than by a class, which
+   would have meant changing the saved layout. */
+.page-grid.is-tablet-cols:not(.page-grid--leveling)
+  .block-body:has(> .grid-node--field[data-node-id="strScore"]) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.page-grid.is-tablet-cols:not(.page-grid--leveling)
+  .block-body:has(> .grid-node--field[data-node-id="strScore"])
+  > .grid-node--field {
+  order: 0 !important;
+}
+
+/* A wide column means a roomier field, so the stacked-layout rule that
+   gives a rollable field two columns (and puts the dice beside its value)
+   still applies - phone.css states it under its own query, so it is
+   restated here. A field with dice is 133px of pill plus a value; one
+   column of three would be about 105px.
+   stacked-roll-fields.css, loaded after this file, takes the rollable
+   field back to ONE column and lets the pill wrap - which is what keeps
+   Saving Throws' three-field rows aligned. It is named here only so the
+   intent reads in one place. */
+
+/* --- Name captions -------------------------------------------------------
+   "Constitution" and "Intelligence" are the whole content of their cell,
+   and they are a single word: a name caption has nowhere to break, so at
+   the display size `.field-value--label` uses they break mid-word
+   ("Constituti / on", "Intelligenc / e", "Acrobatic / s").
+
+   The tablet's two-up block body is about 345px - narrower than a phone's
+   366px, because the block is half of 768 less the page gutters and the
+   column gap - so a column is about 105px where a phone's is about 118px.
+   That 13px is the difference between "Constitution" and a hyphen-less
+   mid-word break, so the caption drops one size here and only here: the
+   phone's own sizing is a reviewed layout and this does not touch it.
+
+   One size, not two: `--text-sm` is 0.875rem against `--text-md`'s
+   1.125rem, and the longest skill name on the sheet is "Sleight of
+   Hand" - which even at --text-sm fits a 105px column on one line. */
+.page-grid.is-tablet-cols .grid-node--field[data-field-type="label"] .field-value--label {
+  font-size: var(--text-sm);
+}
+
+/* At this width the dice are the tap-to-open popover, not a pill in the
+   cell - see touch-roll-popover.css - so there is nothing here to un-
+   position. The rule that matters is that the popover's own die glyph does
+   not appear on a field whose value is full width, where it has room to
+   spare and no need to advertise anything. */

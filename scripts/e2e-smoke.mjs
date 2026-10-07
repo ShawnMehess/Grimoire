@@ -3682,34 +3682,81 @@ for (const phoneWidth of [320, 390]) {
     // in the order advantage / plain / disadvantage, each carrying a marker
     // so the two coloured ones are distinguishable with no colour at all,
     // and an unstretched icon.
-    const dice = await ph.evaluate(() => {
-      const trigger = document.querySelector(".field-roll");
-      if (!trigger) return null;
-      const btns = [...trigger.querySelectorAll(".field-roll__btn")];
-      const rects = btns.map((b) => {
-        const r = b.getBoundingClientRect();
-        const diceEl = b.querySelector(".field-roll__dice");
-        const d = diceEl?.getBoundingClientRect();
+    //
+    // On a touch screen the pill is not in the field: it is hidden until a
+    // tap opens it into a popover anchored outside the cell
+    // (touch-roll-popover.css / sheetRollPopover.js), which is what keeps it
+    // off the value AND lets the field be one cell of a three-cell row -
+    // without which Saving Throws' rows all come out different heights. So
+    // the tap comes first, and what is measured is what the tap opened.
+    const hasPill = await ph.evaluate(() => !!document.querySelector(".field-roll"));
+    phoneCheck(hasPill, `@${vpName} a numeric field carries the roll controls`);
+    if (hasPill) {
+      phoneCheck(await ph.evaluate(() => {
+        const pill = document.querySelector(".grid-node--field > .field-roll");
+        return !!pill && getComputedStyle(pill).display === "none";
+      }), `@${vpName} and the pill is hidden until it is asked for, so it cannot sit on a value`);
+
+      const opened = await ph.evaluate(() => {
+        const field = document.querySelector(".grid-node--field:has(> .field-roll)");
+        if (!field) return null;
+        field.scrollIntoView({ block: "center" });
+        const r = field.getBoundingClientRect();
+        field.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true,
+          clientX: Math.round(r.left + r.width / 2),
+          clientY: Math.round(r.top + r.height / 2),
+        }));
+        return true;
+      });
+      await ph.waitForTimeout(400);
+      const dice = await ph.evaluate(() => {
+        const trigger = document.querySelector(".roll-popover .field-roll");
+        if (!trigger) return null;
+        const pop = trigger.closest(".roll-popover");
+        const pr = pop.getBoundingClientRect();
+        const btns = [...trigger.querySelectorAll(".field-roll__btn")];
+        const rects = btns.map((b) => {
+          const r = b.getBoundingClientRect();
+          const diceEl = b.querySelector(".field-roll__dice");
+          const d = diceEl?.getBoundingClientRect();
+          return {
+            mod: [...b.classList].find((c) => c.startsWith("field-roll__btn--"))?.replace("field-roll__btn--", ""),
+            label: b.getAttribute("aria-label"),
+            w: Math.round(r.width), h: Math.round(r.height),
+            describedBy: b.getAttribute("aria-describedby"),
+            marker: b.querySelector(".field-roll__marker")?.textContent.trim() || null,
+            dice: diceEl?.textContent.trim() || null,
+            diceW: d ? Math.round(d.width) : null,
+            diceH: d ? Math.round(d.height) : null,
+            diceColor: diceEl ? getComputedStyle(diceEl).color : null,
+          };
+        });
+        const field = document.querySelector(".grid-node--field.is-roll-popover-open");
+        const fr = field?.getBoundingClientRect();
         return {
-          mod: [...b.classList].find((c) => c.startsWith("field-roll__btn--"))?.replace("field-roll__btn--", ""),
-          label: b.getAttribute("aria-label"),
-          w: Math.round(r.width), h: Math.round(r.height),
-          describedBy: b.getAttribute("aria-describedby"),
-          marker: b.querySelector(".field-roll__marker")?.textContent.trim() || null,
-          dice: diceEl?.textContent.trim() || null,
-          diceW: d ? Math.round(d.width) : null,
-          diceH: d ? Math.round(d.height) : null,
-          diceColor: diceEl ? getComputedStyle(diceEl).color : null,
+          rects,
+          pillW: Math.round(trigger.getBoundingClientRect().width),
+          onScreen: pr.left >= 0 && pr.top >= 0
+            && pr.right <= document.documentElement.clientWidth + 1
+            && pr.bottom <= window.innerHeight + 1,
+          // The load-bearing claim: the floating bar is outside the field
+          // it belongs to, so it cannot be covering the value.
+          clearOfField: !!(fr && (pr.top >= fr.bottom - 1 || pr.bottom <= fr.top + 1
+            || pr.left >= fr.right - 1 || pr.right <= fr.left + 1)),
         };
       });
-      return { rects, pillW: Math.round(trigger.getBoundingClientRect().width) };
-    });
-    phoneCheck(!!dice, `@${vpName} a numeric field carries the roll controls`);
-    if (dice) {
-      // Guard against measuring a hidden element: every width would be 0 and
-      // every "equal" and "at least" comparison would pass for free.
-      phoneCheck(dice.rects.every((r) => r.w > 0 && r.h > 0),
-        `@${vpName} and the controls are actually on screen (${JSON.stringify(dice.rects.map((r) => [r.w, r.h]))})`);
+      phoneCheck(!!opened && !!dice,
+        `@${vpName} tapping a numeric field opens its roll controls (${JSON.stringify(!!dice)})`);
+      if (dice) {
+        phoneCheck(dice.onScreen,
+          `@${vpName} and the popover lands on screen at this size`);
+        phoneCheck(dice.clearOfField,
+          `@${vpName} and outside the field, so it is not covering the value it rolls`);
+        // Guard against measuring a hidden element: every width would be 0 and
+        // every "equal" and "at least" comparison would pass for free.
+        phoneCheck(dice.rects.every((r) => r.w > 0 && r.h > 0),
+          `@${vpName} and the controls are actually on screen (${JSON.stringify(dice.rects.map((r) => [r.w, r.h]))})`);
       phoneCheck(dice.rects.length === 3 && dice.rects.map((r) => r.mod).join(",") === "advantage,normal,disadvantage",
         `@${vpName} three controls in the order advantage, plain, disadvantage (${JSON.stringify(dice.rects.map((r) => r.mod))})`);
       phoneCheck(dice.rects.every((r) => r.h >= 44),
@@ -3739,9 +3786,15 @@ for (const phoneWidth of [320, 390]) {
         && /^Roll with disadvantage/.test(dice.rects[2].label || ""),
         `@${vpName} and each has the accessible name it is supposed to (${JSON.stringify(dice.rects.map((r) => r.label))})`);
 
-      // A normal tap rolls.
+      // A normal tap rolls. Scoped to the POPOVER, not the document: every
+      // rollable field still owns a pill in the DOM (hidden), so a bare
+      // `.field-roll__btn--advantage` selector would find the first field
+      // on the sheet rather than the one whose popover is open - and a
+      // synthetic .click() on a display:none button still fires, so the
+      // check would have passed while testing the wrong field.
       const openedByTap = await ph.evaluate(() => {
-        const b = document.querySelector(".field-roll__btn--advantage");
+        const b = document.querySelector(".roll-popover .field-roll__btn--advantage");
+        if (!b) return false;
         window.__diceSeen = [];
         ["pointerdown","pointerup","click"].forEach((t2) => b.addEventListener(t2, () => window.__diceSeen.push(t2), true));
         b.click();
@@ -3766,11 +3819,15 @@ for (const phoneWidth of [320, 390]) {
       // Into view FIRST: on a stacked sheet the field can be a long way down,
 // and a press at coordinates outside the viewport presses nothing.
       const box = await ph.evaluate(() => {
-        const b = document.querySelector(".field-roll__btn--disadvantage");
+        const b = document.querySelector(".roll-popover .field-roll__btn--disadvantage");
+        if (!b) return null;
         b.scrollIntoView({ block: "center" });
         const r = b.getBoundingClientRect();
         return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
       });
+      phoneCheck(!!box,
+        `@${vpName} and the popover is still open after the roll, ready for another mode`);
+      if (box) {
       await ph.waitForTimeout(400);
       await ph.evaluate(() => { for (const o of document.querySelectorAll("body > .modal-overlay")) o.remove(); });
       await ph.waitForTimeout(300);
@@ -3811,6 +3868,8 @@ for (const phoneWidth of [320, 390]) {
       await ph.mouse.up();
       await ph.waitForTimeout(400);
       await ph.evaluate(() => { for (const o of document.querySelectorAll("body > .modal-overlay")) o.remove(); });
+      }
+      }
     }
 
     // Reading order on a stacked sheet: highest in the grid first, then
@@ -4510,6 +4569,53 @@ if (inArea("widths-sweep")) {
       // breached and the stacking rule has stopped matching the grid.
       widthCheck(m.cellPx === null || m.cellPx >= 40,
         `@${w} a grid cell is never crushed below the 40px floor (got ${m.cellPx}px)`);
+    }
+  }
+
+  // The stacked sheet's column count. Stacked is necessary but not
+  // sufficient for one column: a portrait tablet is stacked because the
+  // grid cannot fit, and used to get the full-width fallback that came
+  // with it - one field per row, 9,817px at 768. A phone gets the phone
+  // arrangement at 8,000px because its block is 120px wide and three
+  // fields fit across it; a tablet's block is 720px, which is why the
+  // BLOCKS go two-up first and the packing is then applied inside.
+  //
+  // Asserted from the rendered grid rather than from the width alone, so
+  // this cannot pass by the class being stamped without any of the
+  // arrangement following from it: two columns, no cell narrower than a
+  // phone's, and two blocks genuinely sharing a row.
+  const columnsAt = (w) => sweep.evaluate(() => {
+    const grid = document.querySelector(".page-grid");
+    if (!grid) return null;
+    const twoUp = getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length;
+    const blocks = [...grid.querySelectorAll(".grid-node--block")].map((b) => {
+      const r = b.getBoundingClientRect();
+      return { top: Math.round(r.top), left: Math.round(r.left), w: Math.round(r.width) };
+    });
+    const sharing = blocks.some((a, i) => blocks.some((b, j) =>
+      i !== j && Math.abs(a.top - b.top) < 4 && Math.abs(a.left - b.left) > 8));
+    // Width>0 only: a spell-slot tracker with no live slots is
+    // `display: none` in play mode, and a hidden element measures 0 and
+    // would otherwise read as "the narrowest field on the sheet".
+    const widths = [...grid.querySelectorAll(".grid-node--field")]
+      .map((f) => f.getBoundingClientRect().width)
+      .filter((w) => w > 0);
+    const narrowest = widths.length ? Math.min(...widths) : null;
+    return { stacked: !!document.querySelector(".page-grid.is-simple"), twoUp, sharing, narrowest };
+  });
+  for (const w of [390, 768, 834, 1024]) {
+    await sweep.setViewportSize({ width: w, height: 900 });
+    await sweep.waitForTimeout(750);
+    const c = await columnsAt(w);
+    if (!c || !c.stacked) continue;
+    const wantTwo = w >= 700 && w <= 1000;
+    widthCheck(c.twoUp === (wantTwo ? 2 : 1),
+      `@${w} the stacked sheet is ${wantTwo ? "two blocks to a row" : "one column"} (got ${c.twoUp})`);
+    if (wantTwo) {
+      widthCheck(c.sharing,
+        `@${w} two blocks actually share a row, rather than the grid merely declaring two columns`);
+      widthCheck(c.narrowest === null || c.narrowest >= 90,
+        `@${w} a stacked field is still wide enough to be usable (narrowest ${c.narrowest}px)`);
     }
   }
 

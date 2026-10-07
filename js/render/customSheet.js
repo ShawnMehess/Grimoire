@@ -410,6 +410,7 @@ import {
 import { confirmDialog, alertDialog, promptDialog, chooseDialog } from "../ui/dialogs.js";
 import { A11Y_OPTIONS, a11yEnabled, applyA11yMode } from "../ui/accessibility.js";
 import { applySimpleViewOrder, narrowScreenNeedsStackedView, shortViewportNeedsStackedView, shouldShowIntro, INTRO_LINES } from "./sheet/simpleView.js";
+import { stackedColumnCount, applyTwoColumnClass } from "./sheet/tabletColumns.js";
 import { featRowModels, renderFeatListInto } from "./sheet/featList.js";
 import {
 allGrantsIn,
@@ -915,6 +916,26 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     return null;
   }
 
+  /** How many columns the stacked sheet gets at this width. Separate from
+   *  forcedStackedReason() on purpose: that answers "is the sheet stacked
+   *  at all", this answers "how many columns the stacked version has",
+   *  and a phone and a portrait tablet are both stacked and want different
+   *  answers. See tabletColumns.js. */
+  function stackedColumnsNow() {
+    return stackedColumnCount(gridFitNow());
+  }
+
+  /** Keep the two-up class in step with the current width. A no-op in
+   *  Sheet View, where the grid is positioned and columns mean nothing -
+   *  so it is driven off `simpleView`, not off the forced flag: the
+   *  stacked layout is FORCED on a portrait tablet and must still go
+   *  two-up. */
+  function syncStackedColumns() {
+    const count = simpleView ? stackedColumnsNow() : 1;
+    applyTwoColumnClass([pageGrid, scrollWrapper], count);
+    return count;
+  }
+
   /** Re-decide whether the stacked layout is being forced, and apply the
    *  result if it changed. Called on load, on the view toggle, and on every
    *  resize, so rotating a phone or dragging a desktop window across either
@@ -922,11 +943,17 @@ export function renderCustomSheet(root, character, store, opts = {}) {
    *  unscrollable. */
   function syncStackedForWidth() {
     const forced = forcedStackedReason() !== null;
-    if (forced === forcedStacked) return false;
+    if (forced === forcedStacked) {
+      // The reason has not changed, but the width may have moved within
+      // the stacked band - a portrait tablet crossing 700px, say - and
+      // that is a column-count question, not a forced-or-not one.
+      syncStackedColumns();
+      return false;
+    }
     forcedStacked = forced;
     const wanted = forced || simpleViewPreferred;
     if (wanted !== simpleView) applySimpleView(wanted, { persist: false });
-    else syncViewToggleState();
+    else { syncViewToggleState(); syncStackedColumns(); }
     return true;
   }
 
@@ -961,6 +988,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
     // keeps a phone sheet from scrolling sideways.
     scrollWrapper?.classList.toggle("page-grid-scroll--stacked", simpleView);
     applySimpleViewOrder(pageGrid, simpleView);
+    syncStackedColumns();
     // Which builder chrome to hide follows the CHOICE, not the layout.
     //
     // Simple View used to be something you picked, and hiding the toolbar

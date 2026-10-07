@@ -14,12 +14,13 @@
 //   - does it land below, flip above, or clamp - and always on screen
 //   - does it stay clear of the field's own box
 //
-// The environment gate is the one that must not drift. It is the
-// complement of css/phone.css's sheet media query, and if it ever
-// overlaps, the pill gets opened out of a layout where it was already
-// un-positioned beside the value - which is a worse answer than either
-// one on its own. That is a claim about two files agreeing, so both the
-// media string and the boolean it produces are asserted here.
+// The environment gate is the one that must not drift, and it is a single
+// condition on purpose. It used to be the complement of css/phone.css's
+// sheet media query, which meant two files each holding a copy of the same
+// width boundary; they drifted into producing two different layouts on two
+// different screens, and only the sheet that used the second one had rows
+// that lined up. One condition - can this device hover? - cannot drift
+// from anything.
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -30,22 +31,16 @@ import { fileURLToPath } from "node:url";
 import {
   placeRollPopover,
   shouldUseRollPopover,
-  POPOVER_MEDIA,
   OPEN_FIELD_CLASS,
   POPOVER_CLASS,
 } from "../js/render/sheet/sheetRollPopover.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** A window stand-in that reports whatever `(hover: none)` and the
- *  popover's own media query should say. */
-function win({ noHover, wide }) {
-  return {
-    matchMedia: (q) => ({
-      matches: q === "(hover: none)" ? noHover : q === POPOVER_MEDIA ? wide : false,
-    }),
-  };
-}
+/** A window stand-in that reports whether the device can hover. */
+const win = (noHover) => ({
+  matchMedia: (q) => ({ matches: q === "(hover: none)" ? noHover : false }),
+});
 
 const rect = (left, top, width, height) => ({
   left, top, width, height,
@@ -60,38 +55,19 @@ const FIELD = rect(300, 200, 52, 52);
 const POP = { width: 140, height: 48 };
 
 describe("shouldUseRollPopover", () => {
-  it("opens on a touch tablet past the phone query", () => {
-    assert.equal(shouldUseRollPopover(win({ noHover: true, wide: true })), true);
+  it("opens on anything that cannot hover, at any width", () => {
+    // The point of the single condition. A phone, a portrait tablet, a
+    // landscape tablet and a touch laptop all get the popover, and none
+    // of them has to agree with a stylesheet about where the boundary is.
+    for (const w of [320, 390, 768, 834, 1024, 1440]) {
+      assert.equal(shouldUseRollPopover(win(true)), true, `${w}px with no hover`);
+    }
   });
 
   it("never opens on a pointer device", () => {
     // The desktop sheet already reveals the pill on hover. Opening a
     // popover there as well would be two ways to do one thing.
-    assert.equal(shouldUseRollPopover(win({ noHover: false, wide: true })), false);
-  });
-
-  it("never opens inside the phone query's width or height", () => {
-    // This is the arrangement that must not change: phone.css
-    // un-positions the pill into a two-column row beside the value,
-    // which covers nothing. Re-opening it out of a popover there would
-    // take away a better answer AND change a layout that already works.
-    for (const wide of [false]) {
-      assert.equal(shouldUseRollPopover(win({ noHover: true, wide })), false);
-    }
-  });
-
-  it("is the exact complement of css/phone.css's own sheet query", () => {
-    // The CSS and the JS have to agree about where the boundary is, and
-    // the CSS is not readable from JS. phone.css gates its sheet section
-    // on `(max-width: 720px), (max-height: 480px)`; POPOVER_MEDIA is
-    // the same boundary written as minimums. If either number moves,
-    // this fails rather than the two files quietly overlapping.
-    const phone = readFileSync(join(ROOT, "css", "phone.css"), "utf8");
-    assert.ok(/@media screen and \(max-width: 720px\)/.test(phone),
-      "phone.css still uses the 720px ceiling this is the complement of");
-    const [minW, minH] = POPOVER_MEDIA.match(/min-width:\s*(\d+)px.*min-height:\s*(\d+)px/).slice(1).map(Number);
-    assert.equal(minW, 721, "one past the phone ceiling");
-    assert.equal(minH, 481, "one past the short-viewport ceiling");
+    assert.equal(shouldUseRollPopover(win(false)), false);
   });
 
   it("says no in an environment with no matchMedia at all", () => {
@@ -201,6 +177,7 @@ describe("placeRollPopover", () => {
 
 describe("the popover CSS agrees with the JS", () => {
   const css = readFileSync(join(ROOT, "css", "components", "touch-roll-popover.css"), "utf8");
+  const stacked = readFileSync(join(ROOT, "css", "components", "stacked-roll-fields.css"), "utf8");
 
   it("is imported after phone.css, so it can supersede the phone's own pill", () => {
     const main = readFileSync(join(ROOT, "css", "main.css"), "utf8");
@@ -210,14 +187,23 @@ describe("the popover CSS agrees with the JS", () => {
     assert.ok(popAt > phoneAt, "the popover comes last");
   });
 
-  it("hides the pill by default on exactly the popover's own media query", () => {
+  it("hides the pill by default, on hover alone", () => {
     // `display: none` rather than `visibility` or opacity: it also takes
     // the three buttons out of the tab order, and an invisible control
     // that is still focusable is worse than no control at all.
-    assert.ok(/@media \(hover: none\) and \(min-width: 721px\) and \(min-height: 481px\)/.test(css),
-      "scoped to no-hover, past the phone width and past the short-viewport height");
-    assert.ok(/\.grid-node--field > \.field-roll\s*\{\s*display: none;/.test(css),
-      "the pill is hidden until a tap opens it");
+    assert.ok(/@media \(hover: none\)\s*\{[\s\S]*\.grid-node--field > \.field-roll\s*\{\s*display: none;/.test(css),
+      "hidden under (hover: none), with no width range to drift from");
+  });
+
+  it("has no width of its own to keep in step with phone.css", () => {
+    // The regression this replaced: two files, two copies of the same
+    // boundary, two different layouts. If a min-width or max-width turns
+    // up in this file's only media query, the split is back.
+    const query = css.match(/@media \(hover: none\)\s*\{/);
+    assert.ok(query, "there is still a hover:none block");
+    const block = css.slice(query.index, css.indexOf("}", css.indexOf("position: relative")));
+    assert.ok(!/min-width|max-width:\s*7|max-width:\s*10/.test(block),
+      "the hover:none block carries no width range");
   });
 
   it("keeps the 44px touch targets", () => {
@@ -243,5 +229,14 @@ describe("the popover CSS agrees with the JS", () => {
     // print.css hides the pill; the element that carries it needs the
     // same protection or a printed sheet grows a floating dice bar.
     assert.ok(/@media print\s*\{[^}]*\.roll-popover\s*\{[^}]*display: none/.test(css));
+  });
+
+  it("gives a dice field ONE cell of a packed row", () => {
+    // The other half of the fix, and the half that makes the rows line
+    // up: a two-column rollable field in a three-column row wraps, and a
+    // dense grid then pulls everything after it up into the gap.
+    assert.ok(/\.page-grid\.is-simple \.grid-node--field:has\(> \.field-roll\)\s*\{\s*grid-column: span 1;/.test(stacked));
+    // ...and the abilities block keeps its own two-column pair.
+    assert.ok(/\.block-body:has\(> \.grid-node--field\[data-node-id="strScore"\]\)[\s\S]*grid-column: auto;/.test(stacked));
   });
 });

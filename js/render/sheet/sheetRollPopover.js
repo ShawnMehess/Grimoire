@@ -11,28 +11,24 @@
 //
 // A touch device has no hover, so the old rule forced it permanently
 // visible (`@media (hover: none) { .field-roll { display: flex } }`).
-// On a small cell - an ability score, a saving throw, a spell MOD or DC
-// - a 132px pill is wider than the 40-60px cell it covers, so it sat
-// ON the value it was supposed to help you roll. Six side by side became
-// one strip. An absolutely positioned overlay cannot be made not to
-// overlap something when it is wider than the thing it is on.
+// On a small cell - an ability score, a saving throw, a spell MOD or DC -
+// a 132px pill is wider than the 40-60px cell it covers, so it sat
+// ON the value it was supposed to help you roll.
 //
-// css/phone.css already solved this for a phone in the STACKED layout by
-// un-positioning the pill and giving the field two columns, so the pill
-// sits BESIDE the value. That fix is scoped to
-// `@media (max-width: 720px), (max-height: 480px)` - it is the phone's
-// arrangement, and it must not change. What it does not cover is a
-// tablet in portrait (768/834px wide) or a tablet in landscape: both are
-// wider than the phone query, so the pill is still an overlay there, and
-// in portrait the sheet is stacked with the overlay still on top of the
-// values.
+// css/phone.css had already solved this for a phone in the STACKED
+// layout, by un-positioning the pill and giving the field two columns so
+// the pill sits BESIDE the value rather than over it. That works, and it
+// keeps the dice permanently visible - but it costs the row its shape.
+// Saving Throws and Skills are rows of THREE fields (a proficiency
+// checkbox, a name caption, a modifier), and a two-column field in a
+// three-column grid wraps onto a second line, so every row came out a
+// different height and no two abilities lined up. Measured on a phone:
+// 9,632px.
 //
-// THE FIX
-// -------
-// On those sizes the pill is hidden by default and opened by a TAP, into
-// a popover anchored OUTSIDE the cell - below it, above it if there is
-// no room, clamped to the viewport either way. One popover at a time, so
-// two fields can never have two open rolls fighting for the same spot.
+// A popover fixes both halves at once. The pill is not in the cell, so it
+// cannot cover the value AND the field needs only one column, so the rows
+// line up. It also removes the special case: there is one arrangement for
+// every touch screen instead of two that disagree with each other.
 //
 // The popover is not a copy of the pill. It MOVES the field's own
 // `.field-roll` node into itself, and puts it back on close. That means
@@ -42,35 +38,22 @@
 // chance of the popover rolling a different field than the one it is
 // anchored to.
 //
-// Pointer devices are untouched: nothing here runs unless `(hover: none)`
-// matches AND the screen is past the phone query's width and height.
+// Pointer devices are untouched: `(hover: none)` does not match a mouse.
 
-/** The media condition that mirrors css/phone.css's sheet section -
- *  `(max-width: 720px), (max-height: 480px)`. Inverted, because this is
- *  the "the phone rules are NOT in charge here" case. Written as a
- *  positive min- query so a browser that does not understand it says
- *  "no match" and leaves the sheet alone, which is the safe direction. */
-export const POPOVER_MEDIA = "(min-width: 721px) and (min-height: 481px)";
-
-/** Whether this environment should use the tap-to-open popover at all.
+/** Whether this environment should use the tap-to-open popover.
  *
- *  Both conditions are required:
- *
- *  - `(hover: none)`. Without it this opens a popover over a desktop
- *    sheet that already reveals the pill on hover, and two ways to do
- *    one thing is a regression, not a fix.
- *  - past the phone query on BOTH axes. Inside that query css/phone.css
- *    has already un-positioned the pill into its own two-column row,
- *    which covers nothing - re-opening it in a popover there would take
- *    away a better arrangement and change a phone layout that works.
+ *  `(hover: none)` and nothing else. Not a width range: the previous
+ *  arrangement was scoped to whatever css/phone.css covered, which meant
+ *  two rules - one in each file - that had to agree about where the
+ *  boundary was, and they had drifted into producing two different
+ *  layouts on two different screens. One rule keyed on the one thing
+ *  that actually differs (can this device hover?) cannot drift.
  *
  *  `win` is injectable so this is testable without a browser. */
 export function shouldUseRollPopover(win = globalThis) {
   const mq = win?.matchMedia;
   if (typeof mq !== "function") return false;
-  const noHover = win.matchMedia("(hover: none)");
-  const wide = win.matchMedia(POPOVER_MEDIA);
-  return Boolean(noHover.matches && wide.matches);
+  return Boolean(win.matchMedia("(hover: none)").matches);
 }
 
 /** Where to put the popover for an anchor of `anchorRect`, given the
@@ -144,8 +127,7 @@ export const POPOVER_CLASS = "roll-popover";
  *  document-level handler behind holding a whole stale render closure.
  *
  *  Deliberately NOT installed when shouldUseRollPopover() is false - not
- *  merely inert, absent - so a phone or a desktop pays nothing at all
- *  for this. */
+ *  merely inert, absent - so a desktop pays nothing at all for this. */
 export function initRollPopover(root, { onBeforeOpen } = {}) {
   if (!root || !shouldUseRollPopover()) return { destroy() {} };
 
@@ -227,9 +209,16 @@ export function initRollPopover(root, { onBeforeOpen } = {}) {
   }
 
   /** Escape closes it and returns the focus to the field, so a keyboard
-   *  user is not left with focus on a node that has just been removed. */
+   *  user is not left with focus on a node that has just been removed.
+   *
+   *  Not while a modal is open. Escape belongs to the topmost layer, and
+   *  the roll dialog opens over this popover - so if the popover also
+   *  closed, one Escape would dismiss the roll you just made AND the
+   *  control you would use to make another one, and the second press
+   *  would do nothing at all. */
   function onKeyDown(e) {
     if (e.key !== "Escape" || !openedTrigger) return;
+    if (doc.querySelector(".modal-overlay")) return;
     const fieldEl = openedFieldEl;
     close();
     const target = fieldEl?.querySelector("[contenteditable='true'], input, textarea");

@@ -1,43 +1,27 @@
 /* ==========================================================================
    touch-roll-popover.css
-   The tap-to-open d20 popover for touch screens too wide for css/phone.css.
+   The tap-to-open d20 popover, on every screen that cannot hover.
 
    WHY A SEPARATE FILE, IMPORTED AFTER phone.css
    ---------------------------------------------
-   It has to beat two existing rules, and both of them live in files
-   phone.css already sits after:
+   It has to supersede two existing rules:
 
      - `@media (hover: none) { .field-roll { display: flex } }` in
-       custom-sheet-grid.css, which forces the pill permanently visible
-       on every touch screen.
-     - phone.css's own stacked-layout arrangement, which un-positions
-       the pill and gives the field two columns.
+       custom-sheet-grid.css, which forces the pill permanently visible on
+       every touch screen.
+     - phone.css's own stacked-layout arrangement, which un-positions the
+       pill and gives the field two columns so the pill sits beside the
+       value instead of over it. That arrangement is the reason this file
+       has to exist at all, and it is superseded rather than deleted: on a
+       pointer device, and for print, both still say what they always did.
 
-   The second one is the reason the popover is scoped as tightly as it
-   is: that arrangement is genuinely good - the pill sits BESIDE the
-   value instead of over it - and it is the right answer for a phone.
-   This file must not touch it. So every rule below is inside
-   `@media (hover: none)` AND `(min-width: 721px) and (min-height: 481px)`,
-   which is exactly the complement of phone.css's own sheet section
-   (`(max-width: 720px), (max-height: 480px)`).
-
-   Pointer devices see none of it: `(hover: none)` does not match, so
-   the hover reveal in custom-sheet-grid.css is untouched.
+   Scoping is on `(hover: none)` alone. It used to be the complement of
+   phone.css's own sheet media query, which meant two files each holding a
+   copy of the same boundary - and they had drifted into producing two
+   different layouts on two different screens.
    ========================================================================== */
 
-@media (hover: none) and (min-width: 721px) and (min-height: 481px) {
-  /* The stacked layout un-positions its nodes (`position: static
-     !important`, so flex `order` can stack them), which leaves the
-     absolutely positioned die glyph below with no containing block to
-     resolve against - it would land against the page grid instead of
-     the field. `relative` gives it one back.
-     This changes no layout: the same rules set `left/top: auto` on
-     these nodes, and a relative box with no offsets lays out exactly
-     where a static one does. Only the containing block differs. */
-  .page-grid.is-simple:not(.page-grid--leveling) .grid-node--field {
-    position: relative !important;
-  }
-
+@media (hover: none) {
   /* Hidden by default. `display: none` also takes the pill's buttons out
      of the tab order, which is the other half of why this is right: an
      invisible control that is still focusable is worse than no control. */
@@ -45,13 +29,26 @@
     display: none;
   }
 
+  /* The stacked layout un-positions its nodes (`position: static
+     !important`, so flex `order` can stack them), which leaves the
+     absolutely positioned die glyph below with no containing block to
+     resolve against - it would land against the page grid instead of
+     the field. `relative` gives it one back.
+
+     This changes no layout: the same rules set `left/top: auto` on these
+     nodes, and a relative box with no offsets lays out exactly where a
+     static one does. Only the containing block differs. */
+  .page-grid.is-simple:not(.page-grid--leveling) .grid-node--field {
+    position: relative !important;
+  }
+
   /* The field is a roll target, so say so. A hairline dashed ring rather
      than a tinted fill: this appears on every ability score, every
      saving throw and every skill on the sheet, and a filled tint on all
      of them at once turns the sheet into a form full of warnings. The
      die glyph in the corner is the affordance that actually reads at a
-     glance, and it is `pointer-events: none` so the whole cell stays
-     one tap target. */
+     glance, and it is `pointer-events: none` so the whole cell stays one
+     tap target. */
   .grid-node--field:has(> .field-roll)::after {
     content: "\2684";
     position: absolute;
@@ -68,8 +65,8 @@
     z-index: 4;
   }
 
-  /* Open, in place: for one frame of the tap, before the pill has been
-     moved out. Keeps the reveal from reading as "nothing happened". */
+  /* Open: a dashed ring around the field the popover belongs to, so the
+     floating bar has something it is visibly attached to. */
   .grid-node--field.is-roll-popover-open {
     outline: 1px dashed var(--color-accent);
     outline-offset: -1px;
@@ -122,6 +119,12 @@
   border: none;
   box-shadow: none;
   padding: 0;
+  /* phone.css lays the pill out in a row inside its two-column field;
+     here there is nothing to sit beside, so it goes back to the row of
+     three it always was. */
+  flex-wrap: nowrap;
+  max-width: none;
+  border-radius: 999px;
 }
 
 /* 44px is what a thumb needs, and these are the buttons you press to

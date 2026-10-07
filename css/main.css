@@ -40,3 +40,10 @@
 /* A field's label may not evict its own value out of the cell. Loaded
    last so it can supersede the flex basis in custom-sheet-grid.css. */
 @import url("components/field-fit.css");
+/* Portrait tablet: the stacked sheet two blocks to a row. Keyed off the
+   class tabletColumns.js sets, not off its own media query, so the width
+   band lives in one place. */
+@import url("components/tablet-sheet.css");
+/* A dice field is one cell of a packed row. Late, because it has to
+   supersede phone.css's two-column arrangement for the same element. */
+@import url("components/stacked-roll-fields.css");

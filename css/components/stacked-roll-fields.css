@@ -1,0 +1,78 @@
+/* ==========================================================================
+   stacked-roll-fields.css
+   A dice field is ONE cell of a packed row.
+
+   THE BUG
+   -------
+   In the stacked layouts a block body is a three-column grid (see
+   css/phone.css, and tablet-sheet.css for the two-up tablet). Saving
+   Throws and Skills are rows of THREE fields - a proficiency checkbox, a
+   name caption, and a modifier that carries the d20 controls:
+
+       [x]  Strength      0
+       [x]  Dexterity     0
+
+   phone.css gave a rollable field `grid-column: span 2`, so the 133px
+   pill could sit BESIDE its value rather than over it. That was the right
+   answer while the pill was an overlay - but the row then needs four
+   columns and the grid has three, so the modifier wraps onto a second
+   line and, because the grid is `dense`, everything after it shifts up
+   into the gap. What rendered was:
+
+       [x]  Strength   [x]
+           0  <dice>      Dexterity
+       [x]              [x]
+           0  <dice>      Constitution
+
+   Every row a different height, no two abilities lining up, and on the
+   tablet two-up a 9,000px sheet where the rows did not line up either.
+
+   THE FIX
+   -------
+   One cell each - which is only possible now that the pill is no longer
+   in the cell. touch-roll-popover.css moves it into a popover anchored
+   outside the field on every touch screen, so a rollable field needs no
+   extra room for it and can be one ordinary cell of the row.
+
+   One rule for both stacked layouts, and no wrapping: the pill's three
+   targets are laid out in a row inside the popover (see
+   `.roll-popover .field-roll` there), so there is nothing here to fit and
+   nothing here that can be squeezed.
+   ========================================================================== */
+
+/* One cell. Beats phone.css's `span 2` at equal specificity by arriving
+   later in the cascade. Scoped to the stacked layouts only: in the
+   positioned grid the pill is behind a hover and the field's cell is
+   whatever the author made it. */
+.page-grid.is-simple .grid-node--field:has(> .field-roll) {
+  grid-column: span 1;
+}
+
+/* Back to the plain vertical field shape. phone.css turns these fields
+   into a row so the pill could sit beside the value; with the pill in the
+   popover there is nothing beside it, and a field with one child is a
+   column whichever way it is pointed. */
+.page-grid.is-simple .grid-node--field:has(> .field-roll) {
+  flex-direction: column;
+  align-items: stretch;
+  align-self: stretch;
+  gap: var(--space-1);
+}
+
+/* phone.css makes `.field-inner` a shrink-to-fit row child for these
+   fields. With the pill gone it is the field's only child again, so it
+   takes the width. */
+.page-grid.is-simple .grid-node--field:has(> .field-roll) .field-inner {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The abilities block is two columns of its own, where a score and its
+   modifier already share a row; `grid-column: auto` keeps each of them in
+   one column of that pair rather than re-inheriting `span 1` from above
+   and being pushed out by the dense flow. */
+.page-grid.is-simple:not(.page-grid--leveling)
+  .block-body:has(> .grid-node--field[data-node-id="strScore"])
+  > .grid-node--field:has(> .field-roll) {
+  grid-column: auto;
+}
