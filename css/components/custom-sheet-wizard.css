@@ -234,10 +234,10 @@
   background: var(--color-surface, #fff);
 }
 .wizard__ability-method-row--active {
-  border-color: var(--color-accent, #b3492b);
+  border-color: var(--color-accent);
   /* A tinted ground as well as a border, so the chosen method does not
      depend on noticing a one-pixel colour change. */
-  background: rgba(179, 73, 43, 0.06);
+  background: rgba(59, 111, 212, 0.08);
 }
 .wizard__ability-method-label {
   display: inline-flex;
@@ -256,7 +256,7 @@
   inline-size: 24px;
   block-size: 24px;
   margin: 0;
-  accent-color: var(--color-accent, #b3492b);
+  accent-color: var(--color-accent);
   flex: none;
 }
 .wizard__ability-method-name {
@@ -1332,7 +1332,7 @@
   font-size: 0.7em;
   vertical-align: super;
   cursor: pointer;
-  color: var(--color-accent, #b3492b);
+  color: var(--color-accent);
 }
 .inline-pick-help a {
   color: inherit;

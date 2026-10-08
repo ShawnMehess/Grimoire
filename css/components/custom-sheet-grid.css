@@ -831,7 +831,7 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--color-accent-hover);
-  background: linear-gradient(180deg, rgba(179,73,43,0.14), rgba(179,73,43,0.03));
+  background: linear-gradient(180deg, rgba(59,111,212,0.14), rgba(59,111,212,0.03));
   border-bottom: var(--border-width) solid var(--color-border-strong);
   padding: 2px 10px;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
@@ -1494,9 +1494,9 @@
   justify-content: center;
 }
 
-/* Bare native inputs otherwise render in the browser/OS's own default
-   accent color (often blue or green) — jarring against the sealing-
-   wax-red theme everywhere else on the sheet. Slightly enlarged too:
+   /* Bare native inputs otherwise render in the browser/OS's own default
+    accent color (often blue or green) - jarring against the sheet's own
+    cool-blue theme. Slightly enlarged too:
    a native checkbox/radio at its default ~13px is a small target for
    what's often the single most-clicked control on the sheet
    (proficiency toggles, spell slots, death saves). */

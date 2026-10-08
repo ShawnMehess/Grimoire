@@ -174,12 +174,12 @@
     --color-text: #1a1510;
     --color-text-muted: #5c5344;
     --color-text-faint: #8a7d66;
-    --color-accent: #8f3a20;
-    --color-accent-hover: #8f3a20;
-    --color-accent-muted: #e8d9bd;
+    --color-accent: #2456b8;
+    --color-accent-hover: #2456b8;
+    --color-accent-muted: #d5e0f2;
     --color-arcane: #2f5d7c;
     --color-positive: #4a7a3f;
-    --color-negative: #8f3a20;
+    --color-negative: #a03a32;
     --gradient-surface: none;
     --gradient-accent: none;
     --shadow-sm: none;

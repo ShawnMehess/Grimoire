@@ -770,8 +770,8 @@ export function abilityBonusNoteLines(sources = []) {
 function flashBonusNote(bonusNote) {
   if (!bonusNote || bonusNote.hidden) return;
   bonusNote.style.transition = "color 0.2s ease, background-color 0.2s ease";
-  bonusNote.style.color = "var(--color-accent, #b3492b)";
-  bonusNote.style.backgroundColor = "rgba(179, 73, 43, 0.15)";
+  bonusNote.style.color = "var(--color-accent)";
+  bonusNote.style.backgroundColor = "var(--color-accent-muted)";
   setTimeout(() => {
     bonusNote.style.color = "";
     bonusNote.style.backgroundColor = "";

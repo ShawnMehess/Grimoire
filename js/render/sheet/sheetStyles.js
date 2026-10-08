@@ -263,7 +263,7 @@ export function buildStylePopoverInto(node, wrapperEl, deps) {
   const bgLabel = buildStyleLabel("Background", "bg");
   const bgInput = document.createElement("input");
   bgInput.type = "color";
-  bgInput.value = editableStyle.bg || "#1d1a16";
+  bgInput.value = editableStyle.bg || "#202227";
   bgInput.addEventListener("input", () => {
     commit(() => {
       setValue(node, "bg", bgInput.value);
