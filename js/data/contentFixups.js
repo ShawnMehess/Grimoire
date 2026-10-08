@@ -142,11 +142,16 @@ function takeNotes(bundle, test) {
 
 function skillExpertiseOptions(prefix) {
   return SKILLS.map((s) => ({
-    id: `${prefix}-expertise-${s.id}`, name: s.label, description: "",
+    id: `${prefix}-expertise-${s.id}`, name: s.label,
+    // The dialog lists a bare skill name otherwise, and the point of the
+    // pick is what it does to that skill - the sheet's own vocabulary
+    // carries the flavour text, so this says the effect in one line of our
+    // own instead of repeating it.
+    description: `Add your proficiency bonus to every ${s.label} check a second time.`,
     statModifiers: [],
     featureGrants: [{
       name: `Expertise: ${s.label}`,
-      description: `Double your proficiency bonus for ${s.label} checks. The sheet has no doubling mechanic â€” proficiency plus this note; apply the doubled bonus by hand.`,
+      description: `Double your proficiency bonus for ${s.label} checks. The sheet has no doubling mechanic — proficiency plus this note; apply the doubled bonus by hand.`,
       minLevel: null,
     }],
     resourceGrants: [],

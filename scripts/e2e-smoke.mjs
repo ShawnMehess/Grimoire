@@ -104,6 +104,7 @@ const AREAS = {
   "species-sweep": "every species (and subrace) clears Identity with only its visible picks",
   "asi-slots": "racial ability increases are three +1 slots, capped at twice per ability",
   "fighting-style": "Fighter L1, Paladin L2 and Ranger L2 fighting styles are real picks",
+  "expertise-pick": "Rogue and Bard expertise offers only skills the character is proficient in",
 };
 
 // The areas the smoke preset drops. Written as an explicit drop list so a new
@@ -7343,6 +7344,207 @@ if (inArea("fighting-style")) {
   fsCheck(levelUpStyle.labels.includes("Defense") && levelUpStyle.labels.includes("Dueling"),
     `with the Paladin's own style list (${JSON.stringify(levelUpStyle.labels)})`);
   await fsPage.close();
+}
+
+// --- Expertise, at 1 and at 6 ------------------------------------------------
+//
+// "Choose two skills in which you have proficiency" cannot be a list of all
+// eighteen: a skill the character has never been trained in has no
+// proficiency bonus to double, so offering it grants a free bonus. The
+// dialog narrows to what the character actually owns, and says so when
+// nothing is owned yet.
+if (inArea("expertise-pick")) {
+  const exPage = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
+  exPage.on("pageerror", (e) => problems.push(`PAGEERROR [expertise-pick]: ${e.message}`));
+  exPage.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [expertise-pick]: ${m.text()}`); });
+  const exCheck = (cond, msg) => {
+    if (!cond) failures.push(`[expertise-pick] ${msg}`);
+    console.log(`${cond ? "ok" : "FAIL"} [expertise-pick]: ${msg}`);
+  };
+  const exStep = () => exPage.evaluate(() =>
+    document.querySelector(".wizard__dot--active")?.dataset.stepId || null);
+  const exNext = () => exPage.evaluate(() => {
+    const b = document.querySelector(".wizard__next:not([disabled])");
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  // Fresh character, a level, and a class; returns once the Class step is up.
+  const exToClass = async (className, level = 1) => {
+    await exPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await exPage.evaluate(() => localStorage.clear());
+    await exPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await settled(exPage, READY_VAULT, "ex vault");
+    await exPage.click(READY_VAULT);
+    await settled(exPage, READY_WIZARD, "ex wizard");
+    await exPage.waitForTimeout(600);
+    await exNext();
+    await exPage.waitForTimeout(600);
+    await exPage.evaluate((lvl) => {
+      const n = document.querySelector(".wizard input[type=text]");
+      if (n) {
+        n.value = "Expertise Tester";
+        n.dispatchEvent(new Event("input", { bubbles: true }));
+        n.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      const box = document.querySelector('.wizard input[type="number"]');
+      if (box && box.value !== String(lvl)) {
+        box.value = String(lvl);
+        box.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }, level);
+    await exPage.waitForTimeout(700);
+    await exPage.click('.choice-row[data-row-name="Human"] .choice-row__label');
+    await exPage.waitForTimeout(800);
+    for (let i = 0; i < 8; i += 1) {
+      const did = await exPage.evaluate(() => {
+        const row = document.querySelector(".choice-row--selected");
+        const s = [...(row?.querySelectorAll("select[data-inline-slot]") || [])].find((x) => x.selectedIndex <= 0);
+        if (!s) return false;
+        const o = [...s.options].find((x) => x.value && !x.disabled);
+        s.value = o.value; s.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      });
+      await exPage.waitForTimeout(450);
+      if (!did) break;
+    }
+    await exNext();
+    await exPage.waitForTimeout(800);
+    await exPage.click(`.choice-row[data-row-name="${className}"] .choice-row__label`);
+    await exPage.waitForTimeout(900);
+  };
+  const exLinks = () => exPage.evaluate(() => {
+    const row = document.querySelector(".choice-row--selected");
+    return {
+      links: [...(row?.querySelectorAll(".inline-pick-link") || [])].map((a) => a.getAttribute("aria-label") || a.textContent.trim()),
+      reason: document.querySelector(".wizard__gate-reason")?.textContent?.trim() || "",
+    };
+  });
+  const exOpenDialog = async (labelMatch) => {
+    await exPage.evaluate((re) => {
+      const rx = new RegExp(re);
+      const row = document.querySelector(".choice-row--selected");
+      [...row.querySelectorAll(".inline-pick-link")].find((a) => rx.test(a.getAttribute("aria-label") || "")).click();
+    }, labelMatch);
+    await exPage.waitForTimeout(700);
+    const dialog = await exPage.evaluate(() => {
+      const d = document.querySelector(".choice-dialog-overlay");
+      if (!d) return null;
+      return {
+        // The input's value IS the option id, which carries the skill id -
+        // the name text beside it is glued to its own description, so the
+        // id is the honest way to ask "which skills are on offer".
+        values: [...d.querySelectorAll("input")].map((i) => i.value),
+        cap: Number((d.textContent.match(/\/\s*(\d+)\s*picked/) || [])[1] || 1),
+        text: d.textContent.replace(/\s+/g, " ").slice(0, 200),
+      };
+    });
+    return dialog;
+  };
+  const exAccept = async (want) => {
+    await exPage.evaluate((names) => {
+      const d = document.querySelector(".choice-dialog-overlay");
+      const cap = Number((d.textContent.match(/\/\s*(\d+)\s*picked/) || [])[1] || 1);
+      const boxes = [...d.querySelectorAll("input[type=checkbox]:not(:disabled), input[type=radio]:not(:disabled)")];
+      let n = 0;
+      for (const b of boxes) {
+        if (n >= cap) break;
+        if (names.some((w) => b.value === w || b.value.includes(w)) && !b.checked) { b.click(); n += 1; }
+      }
+      [...d.querySelectorAll("button")].find((x) => /accept/i.test(x.textContent))?.click();
+    }, want);
+    await exPage.waitForTimeout(800);
+  };
+
+  // ---- Rogue at level 1 ---------------------------------------------------
+  await exToClass("Rogue", 1);
+  const rogue1 = await exLinks();
+  exCheck(rogue1.links.some((l) => /Expertise/.test(l)),
+    `the Rogue is offered expertise (${JSON.stringify(rogue1.links)})`);
+  exCheck(/Expertise/.test(rogue1.reason) && /Rogue/.test(rogue1.reason),
+    `and the reason names it (${JSON.stringify(rogue1.reason)})`);
+
+  const early = await exOpenDialog("Expertise");
+  exCheck(Boolean(early) && early.values.length < 5,
+    `before any skills are picked the list is nearly empty (${JSON.stringify(early?.values)})`);
+  exCheck(early?.values.some((v) => /thieves/i.test(v)),
+    `keeping the Rogue's Thieves' Tools option (${JSON.stringify(early?.values)})`);
+  await exPage.keyboard.press("Escape");
+  await exPage.waitForTimeout(500);
+
+  // Take four skill proficiencies, then reopen: the list must be exactly those.
+  await exOpenDialog("Skill Proficiencies");
+  await exAccept(["acrobatics", "athletics", "deception", "insight"]);
+  const narrowed = await exOpenDialog("Expertise");
+  const offered = (narrowed?.values || []).map((v) => v.replace(/^.*-/, ""));
+  exCheck(offered.length === 5 && ["acrobatics", "athletics", "deception", "insight", "tools"].every((w) => offered.includes(w)),
+    `the expertise list is exactly the owned skills (${JSON.stringify(offered)})`);
+  exCheck(!offered.some((o) => ["arcana", "sleightOfHand", "nature"].includes(o)),
+    `and no skill the character has never been trained in (${JSON.stringify(offered)})`);
+  exCheck(narrowed?.cap === 2, `still a pair of picks (${narrowed?.cap})`);
+  await exAccept(["stealth", "acrobatics"].filter((w) => offered.includes(w)).length >= 2
+    ? ["stealth", "acrobatics"]
+    : ["acrobatics", "athletics"]);
+  const rogueTaken = await exLinks();
+  exCheck(!/Expertise/.test(rogueTaken.reason),
+    `once taken, the reason stops naming expertise (${JSON.stringify(rogueTaken.reason)})`);
+
+  // The two picks reach the sheet as features of their own, each naming the
+  // skill it doubles. The sheet has no numeric per-skill bonus field - the
+  // skill's modifier is a formula keyed on its proficiency checkbox - so the
+  // feature is where the effect is recorded, and the test is on that.
+  for (let hop = 0; hop < 16 && (await exStep()) !== "review"; hop += 1) {
+    const step = await exStep();
+    if (step === "background" && !(await exPage.$('.choice-row--selected[data-row-name="Folk Hero"]'))) {
+      await exPage.click('.choice-row[data-row-name="Folk Hero"] .choice-row__label');
+      await exPage.waitForTimeout(700);
+    }
+    await exPage.evaluate(() => {
+      const b = [...document.querySelectorAll("#app-main .wizard__body button")]
+        .find((x) => x.textContent.trim() === "Expand All");
+      b?.click();
+    });
+    await fillEveryPick(exPage);
+    await fillEveryGearRow(exPage);
+    if (!(await exNext())) break;
+    await exPage.waitForTimeout(700);
+  }
+  const exFinish = await exPage.$(".wizard button:text-is('Finish Setup')");
+  if (exFinish) { await exFinish.click(); await exPage.waitForTimeout(1400); }
+  await exPage.evaluate(() => {
+    for (const b of document.querySelectorAll("body > .modal-overlay button")) {
+      if (/close|got it|ok/i.test(b.textContent)) { b.click(); return; }
+    }
+    document.querySelectorAll("body > .modal-overlay").forEach((o) => o.remove());
+  });
+  await exPage.waitForTimeout(900);
+  const sheetExpertise = await exPage.evaluate(() => {
+    const text = (document.querySelector(".page-grid")?.textContent || "").replace(/\s+/g, " ");
+    return {
+      acrobatics: (text.match(/Expertise: Acrobatics.{0,80}/) || [""])[0],
+      skills: (text.match(/Skills.{0,220}/) || [""])[0],
+    };
+  });
+  exCheck(/Expertise: Acrobatics/.test(sheetExpertise.acrobatics),
+    `the chosen skill lands on the sheet as its own feature (${JSON.stringify(sheetExpertise.acrobatics.slice(0, 90))})`);
+  exCheck(/Acrobatics/.test(sheetExpertise.skills),
+    `and the skill it doubles is still marked proficient (${JSON.stringify(sheetExpertise.skills.slice(0, 120))})`);
+
+  // ---- Rogue at level 6: a second pair ------------------------------------
+  await exToClass("Rogue", 6);
+  const rogue6 = await exPage.evaluate(() => {
+    const row = document.querySelector(".choice-row--selected");
+    const bullets = [...(row?.querySelectorAll(".mechanics-pick") || [])]
+      .map((b) => b.textContent.replace(/\s+/g, " ").slice(0, 60));
+    return { expertiseBullets: bullets.filter((b) => /Expertise/.test(b)).length };
+  });
+  exCheck(rogue6.expertiseBullets >= 2,
+    `a level-6 Rogue is offered both expertise pairs (${rogue6.expertiseBullets})`);
+  await exToClass("Bard", 3);
+  const bard3 = await exLinks();
+  exCheck(bard3.links.some((l) => /Expertise/.test(l)),
+    `a level-3 Bard is offered expertise (${JSON.stringify(bard3.links)})`);
+  await exPage.close();
 }
 
 await browser.close();
