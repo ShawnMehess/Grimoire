@@ -1,6 +1,6 @@
 // main.js — app entry point
 
-import { loadStore } from "./state/store.js";
+import { loadStore, offlineReason } from "./state/store.js";
 // Firebase when reachable (shared between friends), localStorage when
 // not (?offline=1, no connection, or CDN failure) — same exports
 // either way, so everything below is backend-agnostic.
@@ -144,14 +144,15 @@ onAuthChange(async (user) => {
   }
 
   const who = user.displayName ?? user.email;
+  const offlineSession = characterStore.isLocal;
   // An em dash, not parentheses: the local player's display name is
   // "Local Player (this browser)", so `Sign out (${who})` read
   // "Sign out (Local Player (this browser))" - the doubled brackets the
   // review found. A dash cannot collide with whatever the name brings.
   const signOutBtn = authButton({
-    full: `Sign out — ${who}`,
+    full: offlineSession ? "Sign out of offline mode" : `Sign out — ${who}`,
     short: "Sign out",
-    title: `Sign out of ${who}`,
+    title: offlineSession ? "Lock the vault on this browser" : `Sign out of ${who}`,
   });
   signOutBtn.addEventListener("click", signOutUser);
   authArea.append(backBtn, signOutBtn);
@@ -389,7 +390,15 @@ async function renderCharacterList() {
     vaultNewCharacterField()));
 
   if (characterStore.isLocal) {
-    appRoot.append(el("p", { class: "leveling-tab__intro", text: "Offline mode — Characters save in this browser only. Drop ?offline=1 (with a connection) to use the shared backend." }));
+    if (offlineReason.current === "import") {
+      const note = el("p", { class: "leveling-tab__intro", text: "Grimoire couldn't reach the shared backend, so your characters are saving in this browser only." });
+      const retry = el("a", { class: "btn", href: window.location.pathname, text: "Retry" });
+      appRoot.append(note, retry);
+    } else if (offlineReason.current === "offline") {
+      appRoot.append(el("p", { class: "leveling-tab__intro", text: "No connection — characters save in this browser only until you're back online, then reload to rejoin the shared backend." }));
+    } else {
+      appRoot.append(el("p", { class: "leveling-tab__intro", text: "Offline mode — Characters save in this browser only. Drop ?offline=1 (with a connection) to use the shared backend." }));
+    }
   }
 
   let characters = [];
