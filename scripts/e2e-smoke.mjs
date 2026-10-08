@@ -103,6 +103,7 @@ const AREAS = {
   "gate-reasons": "the reason under Next names the open choice and takes you to it",
   "species-sweep": "every species (and subrace) clears Identity with only its visible picks",
   "asi-slots": "racial ability increases are three +1 slots, capped at twice per ability",
+  "fighting-style": "Fighter L1, Paladin L2 and Ranger L2 fighting styles are real picks",
 };
 
 // The areas the smoke preset drops. Written as an explicit drop list so a new
@@ -7054,6 +7055,294 @@ const asiWalkToReview = async () => {
   asiCheck(/\+1 from Aasimar/.test(reviewLines2.dex?.rest || ""),
     `and Dexterity picks the +1 up instead (${JSON.stringify(reviewLines2.dex)})`);
   await asiPage.close();
+}
+
+// --- Fighting Style, at 1 and at 2 ------------------------------------------
+//
+// The compiled data carried "Fighting Style — Choice (FEATURE_SELECT) —
+// not a pickable list here yet"; the fixup replaced it with real groups
+// (fighter L1, paladin/ranger L2), each gated by minLevel so a level-1
+// Paladin is not asked for a level-2 pick. One pick per character: the
+// dialog is a radio set, so a style cannot be taken twice.
+if (inArea("fighting-style")) {
+  const fsPage = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
+  fsPage.on("pageerror", (e) => problems.push(`PAGEERROR [fighting-style]: ${e.message}`));
+  fsPage.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [fighting-style]: ${m.text()}`); });
+  const fsCheck = (cond, msg) => {
+    if (!cond) failures.push(`[fighting-style] ${msg}`);
+    console.log(`${cond ? "ok" : "FAIL"} [fighting-style]: ${msg}`);
+  };
+  const fsStep = () => fsPage.evaluate(() =>
+    document.querySelector(".wizard__dot--active")?.dataset.stepId || null);
+  const fsNext = () => fsPage.evaluate(() => {
+    const b = document.querySelector(".wizard__next:not([disabled])");
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  // Reach Identity on a fresh character and drive it to the Class step.
+  // Tasha's is checked in the Rules step, because half the Fighter's styles
+  // come from it and a list missing them would read as a short list.
+  const fsToClass = async (race = "Human") => {
+    await fsPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await fsPage.evaluate(() => localStorage.clear());
+    await fsPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await settled(fsPage, READY_VAULT, "fs vault");
+    await fsPage.click(READY_VAULT);
+    await settled(fsPage, READY_WIZARD, "fs wizard");
+    await fsPage.waitForTimeout(600);
+    await fsPage.evaluate(() => {
+      // The content books are role=checkbox ROWS, not input boxes.
+      const row = [...document.querySelectorAll('.ruleset-list [role="checkbox"]')]
+        .find((r) => /tasha/i.test(r.textContent || "") && r.getAttribute("aria-checked") !== "true"
+          && r.getAttribute("aria-disabled") !== "true");
+      row?.click();
+    });
+    await fsPage.waitForTimeout(500);
+    await fsNext();
+    await fsPage.waitForTimeout(600);
+    await fsPage.evaluate(() => {
+      const n = document.querySelector(".wizard input[type=text]");
+      if (n) {
+        n.value = "Style Tester";
+        n.dispatchEvent(new Event("input", { bubbles: true }));
+        n.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+    await fsPage.waitForTimeout(300);
+    await fsPage.click(`.choice-row[data-row-name="${race}"] .choice-row__label`);
+    await fsPage.waitForTimeout(700);
+    for (let i = 0; i < 8; i += 1) {
+      const did = await fsPage.evaluate(() => {
+        const row = document.querySelector(".choice-row--selected");
+        const s = [...(row?.querySelectorAll("select[data-inline-slot]") || [])].find((x) => x.selectedIndex <= 0);
+        if (!s) return false;
+        const o = [...s.options].find((x) => x.value && !x.disabled);
+        s.value = o.value; s.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      });
+      await fsPage.waitForTimeout(450);
+      if (!did) break;
+    }
+    await fsNext();
+    await fsPage.waitForTimeout(700);
+  };
+  const fsClassState = () => fsPage.evaluate(() => {
+    const row = document.querySelector(".choice-row--selected");
+    return {
+      className: row?.dataset.rowName || null,
+      links: [...(row?.querySelectorAll(".inline-pick-link") || [])].map((a) => ({
+        text: a.textContent.trim(),
+        label: a.getAttribute("aria-label") || "",
+      })),
+      reason: document.querySelector(".wizard__gate-reason")?.textContent?.trim() || "",
+      blocked: !document.querySelector(".wizard__next:not([disabled])"),
+    };
+  });
+
+  // ---- Fighter at level 1 --------------------------------------------------
+  await fsToClass("Human");
+  await fsPage.click('.choice-row[data-row-name="Fighter"] .choice-row__label');
+  await fsPage.waitForTimeout(800);
+  const fighter1 = await fsClassState();
+  fsCheck(fighter1.links.some((l) => /Fighting Style/i.test(l.label || l.text)),
+    `the Fighter offers a Fighting Style link (${JSON.stringify(fighter1.links)})`);
+  fsCheck(fighter1.blocked && /Fighting Style/.test(fighter1.reason),
+    `and is blocked until it is taken (${JSON.stringify(fighter1.reason)})`);
+
+  // Open the styles dialog and read its shape.
+  await fsPage.evaluate(() => {
+    const row = document.querySelector(".choice-row--selected");
+    [...row.querySelectorAll(".inline-pick-link")]
+      .find((a) => /Fighting Style/i.test(a.getAttribute("aria-label") || "")).click();
+  });
+  await fsPage.waitForTimeout(600);
+  const styles = await fsPage.evaluate(() => {
+    const d = document.querySelector(".choice-dialog-overlay");
+    if (!d) return null;
+    return {
+      radios: d.querySelectorAll("input[type=radio]").length,
+      names: [...d.querySelectorAll("input[type=radio]")].map((r) => r.closest("label, .choice-dialog__option, li, div")?.textContent?.trim().split("\n")[0] || ""),
+      hasArchery: /Archery/.test(d.textContent),
+      hasDueling: /Dueling/.test(d.textContent),
+      hasUnarmed: /Unarmed Fighting/.test(d.textContent),
+    };
+  });
+  fsCheck(Boolean(styles && styles.radios >= 6), `the styles dialog offers the core list as radios (${styles?.radios})`);
+  fsCheck(styles?.hasArchery && styles?.hasDueling && /Protection/.test(styles?.names?.join("|") || ""),
+    `including the Fighter's own styles (${JSON.stringify(styles?.names?.slice(0, 3).map((n) => n.split(/(You|While|When|Learn|Draw)/)[0]))})`);
+  // A radio set cannot hold two picks: the max is one and picking a second
+  // simply moves the selection, which is what "a style can't be taken twice"
+  // means for a single-pick group. Assert the group is single-pick.
+  const cap = await fsPage.evaluate(() => {
+    const cap = document.querySelector(".choice-dialog-overlay")?.textContent?.match(/\/\s*(\d+)\s*picked/);
+    return cap ? Number(cap[1]) : 1;
+  });
+  fsCheck(cap === 1, `the dialog caps the pick at one (${cap})`);
+
+  await fsPage.evaluate(() => {
+    const d = document.querySelector(".choice-dialog-overlay");
+    const target = [...d.querySelectorAll("input[type=radio]")]
+      .find((r) => /Dueling/.test(r.closest("label, li, div")?.textContent || "") && !r.disabled);
+    target.click();
+    [...d.querySelectorAll("button")].find((b) => /accept/i.test(b.textContent))?.click();
+  });
+  await fsPage.waitForTimeout(700);
+  const afterStyle = await fsPage.evaluate(() => {
+    const row = document.querySelector(".choice-row--selected");
+    const link = [...row.querySelectorAll(".inline-pick-link")]
+      .find((a) => /Fighting Style/i.test(a.getAttribute("aria-label") || ""));
+    return {
+      summary: link?.textContent?.trim() || null,
+      blocked: !document.querySelector(".wizard__next:not([disabled])"),
+      hasNote: /not a pickable list here yet/.test(row.textContent || ""),
+    };
+  });
+  fsCheck(/Dueling/.test(afterStyle.summary || ""),
+    `the link summarises the chosen style (${JSON.stringify(afterStyle.summary)})`);
+  fsCheck(!afterStyle.hasNote, "and the placeholder note is gone from the row");
+  // The class step may still be blocked on its starting gear or skill
+  // proficiencies; the style itself must no longer be named.
+  const stillNamed = await fsPage.evaluate(() =>
+    /Fighting Style/.test(document.querySelector(".wizard__gate-reason")?.textContent || ""));
+  fsCheck(!stillNamed, "and the reason no longer names the style");
+  await fsPage.screenshot({ path: path.join(shotDir, "fighting-style.png") });
+
+  // The chosen style reaches the sheet as a feature of its own. Finish the
+  // fighter and read the sheet, because "recorded" and "applied" are
+  // different claims.
+  for (let hop = 0; hop < 16 && (await fsStep()) !== "review"; hop += 1) {
+    const step = await fsStep();
+    if (step === "background" && !(await fsPage.$('.choice-row--selected[data-row-name="Folk Hero"]'))) {
+      await fsPage.click('.choice-row[data-row-name="Folk Hero"] .choice-row__label');
+      await fsPage.waitForTimeout(700);
+    }
+    await fsPage.evaluate(() => {
+      const b = [...document.querySelectorAll("#app-main .wizard__body button")]
+        .find((x) => x.textContent.trim() === "Expand All");
+      b?.click();
+    });
+    await fillEveryPick(fsPage);
+    await fillEveryGearRow(fsPage);
+    if (!(await fsNext())) break;
+    await fsPage.waitForTimeout(700);
+  }
+  const finishF = await fsPage.$(".wizard button:text-is('Finish Setup')");
+  if (finishF) { await finishF.click(); await fsPage.waitForTimeout(1400); }
+  await fsPage.evaluate(() => {
+    for (const b of document.querySelectorAll("body > .modal-overlay button")) {
+      if (/close|got it|ok/i.test(b.textContent)) { b.click(); return; }
+    }
+    document.querySelectorAll("body > .modal-overlay").forEach((o) => o.remove());
+  });
+  await fsPage.waitForTimeout(800);
+  const sheetStyle = await fsPage.evaluate(() => {
+    const text = (document.querySelector(".page-grid")?.textContent || "").replace(/\s+/g, " ");
+    return { hasDueling: /Dueling/.test(text), snippet: (text.match(/.{0,40}Dueling.{0,90}/) || [""])[0] };
+  });
+  fsCheck(sheetStyle.hasDueling,
+    `the chosen style is on the sheet's Features & Traits (${JSON.stringify(sheetStyle.snippet)})`);
+
+  // ---- Paladin: not asked for the level 2 pick at level 1 -----------------
+  await fsToClass("Human");
+  await fsPage.click('.choice-row[data-row-name="Paladin"] .choice-row__label');
+  await fsPage.waitForTimeout(800);
+  const paladin1 = await fsClassState();
+  fsCheck(!paladin1.links.some((l) => /Fighting Style/i.test(l.label || l.text)),
+    `a level-1 Paladin is not asked for the level-2 style (${JSON.stringify(paladin1.links)})`);
+  fsCheck(!/Fighting Style/.test(paladin1.reason),
+    `and the reason does not name one (${JSON.stringify(paladin1.reason)})`);
+
+  // ---- Level up a Paladin to 2: the style appears in the Level Up flow ------
+  // Finished character, then the real Level Up button - the level-2 pick is
+  // a level-up decision, so it belongs in that walkthrough, not the creation
+  // wizard.
+  await fsToClass("Human");
+  await fsPage.click('.choice-row[data-row-name="Paladin"] .choice-row__label');
+  await fsPage.waitForTimeout(800);
+  // Answer everything on the creation wizard and finish.
+  for (let hop = 0; hop < 16; hop += 1) {
+    const step = await fsStep();
+    if (step === "review") break;
+    if (step === "background" && !(await fsPage.$('.choice-row--selected[data-row-name="Folk Hero"]'))) {
+      await fsPage.click('.choice-row[data-row-name="Folk Hero"] .choice-row__label');
+      await fsPage.waitForTimeout(700);
+    }
+    await fsPage.evaluate(() => {
+      const b = [...document.querySelectorAll("#app-main .wizard__body button")]
+        .find((x) => x.textContent.trim() === "Expand All");
+      b?.click();
+    });
+    await fillEveryPick(fsPage);
+    await fillEveryGearRow(fsPage);
+    if (!(await fsNext())) break;
+    await fsPage.waitForTimeout(700);
+  }
+  fsCheck(await fsStep() === "review", `the Paladin reaches Review (at ${await fsStep()})`);
+  const finish = await fsPage.$(".wizard__nav button.btn--primary, .wizard button:text-is('Finish Setup')");
+  if (finish) { await finish.click(); await fsPage.waitForTimeout(1400); }
+  // Finish Setup opens the one-time orientation panel, which covers the
+  // sheet. Closed before anything is clicked underneath it.
+  await fsPage.evaluate(() => {
+    for (const b of document.querySelectorAll("body > .modal-overlay button")) {
+      if (/close|got it|ok|got it!/i.test(b.textContent)) { b.click(); return; }
+    }
+    document.querySelectorAll("body > .modal-overlay").forEach((o) => o.remove());
+  });
+  await fsPage.waitForTimeout(700);
+  // Land on the sheet's main tab, then take level 2.
+  await fsPage.evaluate(() => {
+    const main = [...document.querySelectorAll(".sheet-tab")].find((t) => t.textContent.trim() !== "Leveling");
+    main?.click();
+  });
+  await fsPage.waitForTimeout(700);
+  await fsPage.click(".level-up__btn");
+  await fsPage.waitForTimeout(1500);
+  const levelUpState = await fsPage.evaluate(() => {
+    const body = document.querySelector(".wizard__body") || document;
+    const links = [...body.querySelectorAll(".inline-pick-link")].map((a) => a.getAttribute("aria-label") || a.textContent.trim());
+    return {
+      onLeveling: Boolean(document.querySelector(".page-grid--leveling")) || Boolean(document.querySelector(".level-guide")),
+      level: [...document.querySelectorAll(".grid-node--field")].find((n) => n.querySelector(".field-label")?.textContent?.trim() === "Level")?.textContent.trim() || null,
+      links,
+      wizardOpen: Boolean(document.querySelector(".wizard")),
+      text: (body.textContent || "").replace(/\s+/g, " ").slice(0, 200),
+    };
+  });
+  fsCheck(levelUpState.onLeveling && levelUpState.wizardOpen,
+    `the Level Up walkthrough is open (${JSON.stringify(levelUpState).slice(0, 160)})`);
+  // Whatever page it opens on, walk forward until the style appears. The
+  // level-up choices step renders the level's picks as option rows (not the
+  // dialog link the creation wizard uses), so the assertion is on the group
+  // heading, which is the same word either way.
+  for (let hop = 0; hop < 8; hop += 1) {
+    const has = await fsPage.evaluate(() =>
+      /Fighting Style/.test(document.querySelector(".wizard__body")?.textContent || ""));
+    if (has) break;
+    const dots = await fsPage.evaluate(() => [...document.querySelectorAll(".wizard__dot")].map((d) => ({ id: d.dataset.stepId, active: d.classList.contains("wizard__dot--active") })));
+    const moved = await fsPage.evaluate(() => {
+      const b = [...document.querySelectorAll(".wizard__nav:not(.wizard__nav--top) button")]
+        .find((x) => /^Next/.test(x.textContent.trim()) && !x.disabled);
+      if (!b) return false;
+      b.click();
+      return true;
+    });
+    if (!moved) {
+      console.log(`[fighting-style] level-up stuck at hop ${hop}: ${JSON.stringify(dots)} reason=${await fsPage.evaluate(() => document.querySelector(".wizard__gate-reason")?.textContent?.trim())}`);
+      break;
+    }
+    await fsPage.waitForTimeout(900);
+  }
+  const levelUpStyle = await fsPage.evaluate(() => {
+    const body = document.querySelector(".wizard__body")?.textContent || "";
+    const radios = document.querySelectorAll('.wizard__body input[type=radio], .wizard__body input[type=checkbox]').length;
+    return { hasStyle: /Fighting Style/.test(body), radios, labels: [...body.matchAll(/(Defense|Dueling|Great Weapon Fighting|Protection|Blessed Warrior)/g)].map((m) => m[1]).slice(0, 6) };
+  });
+  fsCheck(levelUpStyle.hasStyle,
+    `the level-2 Fighting Style is offered in the Level Up flow (${JSON.stringify(levelUpStyle.labels)})`);
+  fsCheck(levelUpStyle.labels.includes("Defense") && levelUpStyle.labels.includes("Dueling"),
+    `with the Paladin's own style list (${JSON.stringify(levelUpStyle.labels)})`);
+  await fsPage.close();
 }
 
 await browser.close();
