@@ -101,6 +101,7 @@ const AREAS = {
   "background-gate": "every background: Next is blocked only on a visible pick",
   "dwarf-gate": "Dwarf subraces and Duergar clear the Identity gate; picks land on Review",
   "gate-reasons": "the reason under Next names the open choice and takes you to it",
+  "species-sweep": "every species (and subrace) clears Identity with only its visible picks",
 };
 
 // The areas the smoke preset drops. Written as an explicit drop list so a new
@@ -6667,6 +6668,186 @@ if (inArea("gate-reasons")) {
   grCheck(!/Still to choose/.test(afterPick.reason),
     "and the reason no longer names a choice that is made");
   await grPage.close();
+}
+
+// --- Every species, and every subrace, clears the Identity gate ----------
+//
+// One loop, every race row on the page, every nested subrace under it, each
+// on a fresh character. A species that blocks Next on a pick it never shows
+// is a wall: the player can read the reason and the page and find nothing to
+// do about it. Every failure is collected and reported together, because the
+// question is "which of these", not "the first one".
+if (inArea("species-sweep")) {
+  const swPage = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
+  swPage.on("pageerror", (e) => problems.push(`PAGEERROR [species-sweep]: ${e.message}`));
+  const swFailures = [];
+
+  // One dropdown at a time, re-queried each time. Every change re-renders the
+  // page, so a NodeList taken once is stale by the second write and silently
+  // writes nothing.
+  const swFillDropdowns = async (limit = 24) => {
+    let filled = 0;
+    for (let i = 0; i < limit; i += 1) {
+      const empty = await swPage.evaluate(() => {
+        const scopes = [];
+        const sel = document.querySelector(".choice-row--selected");
+        if (sel) scopes.push(sel);
+        for (const b of document.querySelectorAll(".wizard__section-body, .wizard__choice-section-body")) {
+          if (!b.hidden && !scopes.includes(b)) scopes.push(b);
+        }
+        const cands = scopes.flatMap((s) => [...s.querySelectorAll("select[data-inline-slot]")])
+          .filter((s) => (s.selectedIndex <= 0 || !s.value) && s.getClientRects().length > 0);
+        const first = cands[0];
+        if (!first) return null;
+        const opt = [...first.options].find((o) => o.value && !o.disabled);
+        if (!opt) return null;
+        first.setAttribute("data-sweep-marker", "1");
+        return opt.value;
+      });
+      if (empty === null) break;
+      await swPage.selectOption("select[data-sweep-marker]", empty).catch(() => {});
+      await swPage.waitForTimeout(250);
+      filled += 1;
+    }
+    return filled;
+  };
+
+  const swFillDialogs = async (limit = 12) => {
+    let filled = 0;
+    for (let i = 0; i < limit; i += 1) {
+      const opened = await swPage.evaluate(() => {
+        const scopes = [];
+        const sel = document.querySelector(".choice-row--selected");
+        if (sel) scopes.push(sel);
+        for (const b of document.querySelectorAll(".wizard__section-body, .wizard__choice-section-body")) {
+          if (!b.hidden && !scopes.includes(b)) scopes.push(b);
+        }
+        for (const s of scopes) {
+          for (const a of s.querySelectorAll(".inline-pick-link")) {
+            if (/^choose\b/i.test((a.textContent || "").trim()) && a.getClientRects().length > 0) {
+              a.click();
+              return true;
+            }
+          }
+        }
+        return false;
+      });
+      if (!opened) break;
+      await swPage.waitForTimeout(450);
+      if (!(await swPage.$(".choice-dialog-overlay"))) {
+        await clearPickOverlays(swPage);
+        await swPage.waitForTimeout(150);
+        filled += 1;
+        continue;
+      }
+      await swPage.evaluate(() => {
+        const dlg = document.querySelector(".choice-dialog-overlay");
+        const cap = Number((dlg.textContent.match(/\/\s*(\d+)\s*picked/) || [])[1] || 1);
+        const boxes = [...dlg.querySelectorAll("input[type=checkbox]:not(:disabled), input[type=radio]:not(:disabled)")];
+        let n = 0;
+        for (const b of boxes) {
+          if (n >= cap) break;
+          if (!b.checked) { b.click(); n += 1; }
+        }
+        [...dlg.querySelectorAll("button")].find((x) => /accept/i.test(x.textContent))?.click();
+      });
+      await swPage.waitForTimeout(450);
+      await clearPickOverlays(swPage);
+      filled += 1;
+    }
+    return filled;
+  };
+
+  const swSettle = async (rounds = 10) => {
+    for (let i = 0; i < rounds; i += 1) {
+      await swFillDropdowns();
+      await swFillDialogs();
+      const ready = await swPage.evaluate(() => Boolean(document.querySelector(".wizard__next:not([disabled])")));
+      if (ready) return true;
+    }
+    return false;
+  };
+
+  // Reach Identity on a brand-new character.
+  const swFreshCharacter = async (name) => {
+    await swPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await swPage.evaluate(() => localStorage.clear());
+    await swPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await settled(swPage, READY_VAULT, "sw vault");
+    await swPage.click(READY_VAULT);
+    await settled(swPage, READY_WIZARD, "sw wizard");
+    await swPage.waitForTimeout(600);
+    await swPage.evaluate(() => {
+      for (const b of document.querySelectorAll(".wizard input[type=checkbox]")) {
+        if (!b.checked) { b.click(); return; }
+      }
+    });
+    await swPage.waitForTimeout(300);
+    await swPage.evaluate(() => document.querySelector(".wizard__next:not([disabled])")?.click());
+    await swPage.waitForTimeout(600);
+    await swPage.evaluate((n) => {
+      const box = document.querySelector(".wizard input[type=text]");
+      if (box) {
+        box.value = n;
+        box.dispatchEvent(new Event("input", { bubbles: true }));
+        box.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }, name);
+    await swPage.waitForTimeout(300);
+  };
+
+  // The species list is read from the Identity step's own top-level rows.
+  const speciesNames = await (async () => {
+    await swFreshCharacter("Sweep Probe");
+    return swPage.evaluate(() => [...document.querySelectorAll("#app-main .wizard__body .choice-row:not(.choice-row--nested)")]
+      .map((r) => r.dataset.rowName)
+      .filter(Boolean));
+  })();
+
+  let swSubracesSeen = 0;
+  for (const raceName of speciesNames) {
+    // Which subraces this one offers is a property of the row, and they only
+    // render once it is the picked race.
+    await swFreshCharacter(`Sweep ${raceName}`);
+    await swPage.click(`.choice-row[data-row-name="${raceName}"] .choice-row__label`);
+    await swPage.waitForTimeout(600);
+    const subraces = await swPage.evaluate(() => [...document.querySelectorAll("#app-main .wizard__body .choice-row--nested")]
+      .map((s) => s.dataset.rowName)
+      .filter(Boolean));
+    swSubracesSeen += subraces.length;
+    const targets = subraces.length ? subraces : [null];
+    for (const sub of targets) {
+      const label = sub ? `${raceName} / ${sub}` : raceName;
+      if (!sub) {
+        // The row is still the pick from the discovery pass above.
+      } else {
+        await swPage.click(`.choice-row[data-row-name="${sub}"] .choice-row__label`);
+        await swPage.waitForTimeout(600);
+      }
+      const ready = await swSettle();
+      const state = await swPage.evaluate(() => ({
+        reason: document.querySelector(".wizard__gate-reason")?.textContent?.trim() || "",
+        openControls: [...document.querySelectorAll(".choice-row--selected select[data-inline-slot], .choice-row--selected .inline-pick-link, .wizard__section-body:not([hidden]) select[data-inline-slot], .wizard__choice-section-body:not([hidden]) .inline-pick-link")]
+          .filter((e) => e.getClientRects().length > 0)
+          .map((e) => (e.tagName === "SELECT" ? `select(${e.getAttribute("aria-label") || ""})` : `link(${e.textContent.trim()})`)),
+      }));
+      if (!ready) {
+        swFailures.push(`${label}: Next still disabled - ${state.reason} (open controls: ${JSON.stringify(state.openControls)})`);
+      }
+      const onStep = await swPage.evaluate(() => document.querySelector(".wizard__dot--active")?.dataset.stepId);
+      if (onStep !== "identity") {
+        swFailures.push(`${label}: the wizard left the Identity step unexpectedly (at ${onStep})`);
+      }
+    }
+  }
+  console.log(`[species-sweep] ${speciesNames.length} species, ${swSubracesSeen} subraces`);
+  for (const line of swFailures) console.log(`FAIL [species-sweep]: ${line}`);
+  if (!swFailures.length) {
+    console.log(`ok [species-sweep]: all ${speciesNames.length} species (and ${swSubracesSeen} subraces) clear the Identity gate`);
+  } else {
+    failures.push(`[species-sweep] ${swFailures.length} species combination(s) failed:\n  ${swFailures.join("\n  ")}`);
+  }
+  await swPage.close();
 }
 
 await browser.close();
