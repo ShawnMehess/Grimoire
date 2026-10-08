@@ -6280,9 +6280,18 @@ const closeDialog = () => {
             catalogInfoFn: (keywords, name) => catalogEntryInfo(keywords, name),
             bundleFn: (category, name, rulesetId) => bundleFor(category, name, rulesetId ?? includedRulesetIds(state)),
             summarizeFn: (m) => statModifierSummary(m),
-            mechanicsListFn: (category, name) => (subraceGroupFor(name)
-              ? []
-              : profileSectionsFor(category, name, saveRules)),
+            // Races with subraces show no static Details of their own -
+            // the subrace rows carry those - but their race-level live
+            // controls (a tools/skills dialog, a language dropdown, an
+            // ASI pick) must still be reachable, or Next gates on a pick
+            // the page never shows. Keep just the live bullet items.
+            mechanicsListFn: (category, name) => {
+              const sections = profileSectionsFor(category, name, saveRules);
+              if (!subraceGroupFor(name)) return sections;
+              return sections
+                .map((s) => ({ ...s, items: (s.items || []).filter((it) => it && typeof it === "object" && !("text" in it)) }))
+                .filter((s) => s.items.length > 0);
+            },
             selectableRowsFn: (c, names, opts) => renderPickerRows(c, names, opts),
             debounceFn: (fn, ms) => debounce(fn, ms),
             getSummary: (name) => sharedMechanicsSummaryForPicker(

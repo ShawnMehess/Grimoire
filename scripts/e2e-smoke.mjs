@@ -99,6 +99,7 @@ const AREAS = {
   "swipe-arrow": "edge arrow, swipe between steps, and the step transition's motion",
   "load-failure": "a blocked entry script produces a failure page",
   "background-gate": "every background: Next is blocked only on a visible pick",
+  "dwarf-gate": "Dwarf subraces and Duergar clear the Identity gate; picks land on Review",
 };
 
 // The areas the smoke preset drops. Written as an explicit drop list so a new
@@ -6476,6 +6477,97 @@ if (inArea("background-gate")) {
     await bgPage.screenshot({ path: path.join(shotDir, "background-gate.png") });
   }
   await bgPage.close();
+}
+
+// --- Dwarf race family clears the Identity gate -------------------------
+//
+// The base Dwarf bundle's tool pick used to be counted by choicesComplete
+// but rendered nowhere, so every dwarf build stalled at Identity with
+// "Choices still to make." and no control. For each subrace, walk the
+// wizard to Review asserting only that the controls the page shows are
+// enough to finish every step.
+if (inArea("dwarf-gate")) {
+  const dverPage = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
+  dverPage.on("pageerror", (e) => problems.push(`PAGEERROR [dwarf-gate]: ${e.message}`));
+  dverPage.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [dwarf-gate]: ${m.text()}`); });
+  const dvCheck = (cond, msg) => {
+    if (!cond) failures.push(`[dwarf-gate] ${msg}`);
+    console.log(`${cond ? "ok" : "FAIL"} [dwarf-gate]: ${msg}`);
+  };
+  const dvStep = () => dverPage.evaluate(() =>
+    document.querySelector(".wizard__dot--active")?.dataset.stepId || null);
+  const dvNext = () => dverPage.evaluate(() => {
+    const b = document.querySelector(".wizard__next:not([disabled])");
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+
+  for (const sub of ["Hill Dwarf", "Mountain Dwarf", "Duergar"]) {
+    await dverPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await settled(dverPage, READY_VAULT, "dv vault");
+    await dverPage.click(READY_VAULT);
+    await settled(dverPage, READY_WIZARD, "dv wizard");
+    await dverPage.waitForTimeout(600);
+    await dverPage.evaluate(() => {
+      for (const b of document.querySelectorAll(".wizard input[type=checkbox]")) {
+        if (!b.checked) { b.click(); return; }
+      }
+    });
+    await dverPage.waitForTimeout(300);
+    await dvNext();
+    await dverPage.waitForTimeout(500);
+    await dverPage.evaluate(() => {
+      const n = document.querySelector(".wizard input[type=text]");
+      if (n) {
+        n.value = "Dwarven Tester";
+        n.dispatchEvent(new Event("input", { bubbles: true }));
+        n.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+    await dverPage.waitForTimeout(300);
+    await dverPage.click('.choice-row[data-row-name="Dwarf"] .choice-row__label');
+    await dverPage.waitForTimeout(600);
+    await dverPage.click(`.choice-row[data-row-name="${sub}"] .choice-row__label`);
+    await dverPage.waitForTimeout(600);
+    await fillEveryPick(dverPage);
+    await dverPage.waitForTimeout(400);
+    const nextOk = await dverPage.evaluate(() => Boolean(document.querySelector(".wizard__next:not([disabled])")));
+    const reason = await dverPage.evaluate(() => document.querySelector(".wizard__gate-reason")?.textContent || "");
+    dvCheck(nextOk, `${sub}: Next is enabled after the visible picks (${JSON.stringify(reason)})`);
+    await dvNext();
+    await dverPage.waitForTimeout(700);
+    dvCheck((await dvStep()) === "class", `${sub}: proceeds to the Class step (at ${await dvStep()})`);
+    await dverPage.click('.choice-row[data-row-name="Barbarian"] .choice-row__label');
+    await dverPage.waitForTimeout(600);
+    await fillEveryGearRow(dverPage);
+    await fillEveryPick(dverPage);
+    await dverPage.waitForTimeout(300);
+    await dvNext();
+    await dverPage.waitForTimeout(700);
+    dvCheck((await dvStep()) === "background", `${sub}: proceeds to the Background step (at ${await dvStep()})`);
+    await dverPage.click('.choice-row[data-row-name="Folk Hero"] .choice-row__label');
+    await dverPage.waitForTimeout(600);
+    await fillEveryPick(dverPage);
+    await fillEveryGearRow(dverPage);
+    await dverPage.waitForTimeout(300);
+    await dvNext();
+    await dverPage.waitForTimeout(700);
+    for (let hop = 0; hop < 12 && (await dvStep()) !== "review"; hop += 1) {
+      await fillEveryPick(dverPage);
+      await fillEveryGearRow(dverPage);
+      await dvNext();
+      await dverPage.waitForTimeout(700);
+    }
+    dvCheck((await dvStep()) === "review", `${sub}: walks to the Review step (at ${await dvStep()})`);
+    if ((await dvStep()) === "review") {
+      const reviewText = await dverPage.evaluate(() =>
+        (document.querySelector(".wizard__body")?.textContent || "").replace(/\s+/g, " "));
+      dvCheck(/Smith's Tools|Brewer's Supplies|Mason's Tools/.test(reviewText),
+        `${sub}: the chosen tools option is listed on Review (${JSON.stringify(reviewText.slice(0, 120))}...)`);
+    }
+  }
+  await dverPage.close();
 }
 
 await browser.close();
