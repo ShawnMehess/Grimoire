@@ -93,9 +93,11 @@ export function openCatalogBrowser({ catalog, getMoney, spendMoney, moneyLabel }
   const tagSelect = document.createElement("select");
   tagSelect.className = "input-group__control";
   tagSelect.title = "Filter by tag";
+  tagSelect.setAttribute("aria-label", "Filter by tag");
   const sortSelect = document.createElement("select");
   sortSelect.className = "input-group__control";
   sortSelect.title = "Sort entries";
+  sortSelect.setAttribute("aria-label", "Sort entries");
   [["name", "Name A–Z"], ["cost-asc", "Cost ↑"], ["cost-desc", "Cost ↓"]].forEach(([value, text]) => {
     const o = document.createElement("option");
     o.value = value;

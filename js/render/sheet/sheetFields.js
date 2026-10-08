@@ -532,6 +532,7 @@ export function buildOptionsValueInto(field, effectiveOptions, deps) {
       const input = document.createElement("input");
       input.type = "radio";
       input.name = field.id;
+      input.setAttribute("aria-label", `${field.label || field.id}: ${n} of ${effectiveOptions}`);
       input.checked = field.selected !== null && n <= field.selected;
       input.addEventListener("change", () => {
         commitFn(() => {
@@ -553,6 +554,7 @@ export function buildOptionsValueInto(field, effectiveOptions, deps) {
       const granted = grantedCheckboxes.has(`${field.id}::${i}`);
       const input = document.createElement("input");
       input.type = "checkbox";
+      input.setAttribute("aria-label", `${field.label || field.id} checkbox ${i + 1} of ${field.options}`);
       input.checked = !!field.checked[i] || granted;
       if (granted) {
         // Not independently uncheckable while granted — same
@@ -1760,6 +1762,7 @@ export function buildTagListValueInto(field, grantedSet, deps) {
   chipsWrap.className = "taglist-chips";
   const select = document.createElement("select");
   select.className = "input-group__control taglist-select";
+  select.setAttribute("aria-label", `Add to ${field.label || field.id || "list"}`);
   select.addEventListener("pointerdown", (e) => e.stopPropagation());
 
   function buildChip(tag, locked) {

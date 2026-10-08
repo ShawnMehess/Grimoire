@@ -849,8 +849,8 @@
   }
   .page-grid.is-simple .option-checkbox input,
   .page-grid.is-simple .option-radio input {
-    width: 22px;
-    height: 22px;
+    width: 32px;
+    height: 32px;
   }
 
   /* --- The Adv./Disadvantage chips ----------------------------------------

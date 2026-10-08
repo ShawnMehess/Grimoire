@@ -64,3 +64,5 @@
 /* The wizard's edge arrow had no room of its own, and its column
    wasted wide screens. */
 @import url("components/wizard-fixes.css");
+/* Checkboxes and radios clear the target-size floor. */
+@import url("components/a11y-targets.css");

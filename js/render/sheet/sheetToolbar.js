@@ -86,6 +86,7 @@ export function buildNameInput(initialValue) {
   input.className = "input-group__control";
   input.style.maxWidth = "220px";
   input.placeholder = "Character name";
+  input.setAttribute("aria-label", "Character name");
   input.value = initialValue || "";
   return input;
 }
@@ -95,6 +96,7 @@ export function buildRulesetSelect(rulesets, currentId) {
   select.className = "input-group__control";
   select.style.maxWidth = "220px";
   select.title = "Ruleset used for guided leveling";
+  select.setAttribute("aria-label", "Ruleset used for guided leveling");
   const placeholder = document.createElement("option");
   placeholder.value = "";
   placeholder.textContent = "Choose ruleset";

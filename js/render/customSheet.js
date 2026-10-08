@@ -1213,6 +1213,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   }
   const rulesetSelect = buildRulesetSelect(listRulesets(), currentRulesetId() || "");
   rulesetSelect.title = "Game system for guided leveling (page 1 of Character Setup picks which content books are included)";
+  rulesetSelect.setAttribute("aria-label", "Game system for guided leveling (page 1 of Character Setup picks which content books are included)");
   rulesetSelect.addEventListener("change", () => {
     setRulesetId(rulesetSelect.value || null);
     const syncMessage = syncRulesetBundles(includedRulesetIdsFor());
@@ -1245,6 +1246,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   themeSelect.className = "input-group__control";
   themeSelect.style.maxWidth = "200px";
   themeSelect.title = "Visual theme for this character sheet";
+  themeSelect.setAttribute("aria-label", "Visual theme for this character sheet");
   SHEET_THEMES.forEach((theme) => {
     themeSelect.append(el("option", { value: theme.id, text: theme.name }));
   });
@@ -1309,6 +1311,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   modeSelect.className = "input-group__control";
   modeSelect.style.maxWidth = "150px";
   modeSelect.title = "How you'll mainly use this sheet — changeable anytime here";
+  modeSelect.setAttribute("aria-label", "How you'll mainly use this sheet — changeable anytime here");
   [["screen", "Use on screen"], ["print", "Print out"]].forEach(([value, label]) => {
     modeSelect.append(el("option", { value, text: label }));
   });
@@ -1331,6 +1334,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   const layoutSelect = document.createElement("select");
   layoutSelect.className = "input-group__control";
   layoutSelect.title = "Rearrange every tab's blocks with a preset layout (undoable)";
+  layoutSelect.setAttribute("aria-label", "Rearrange every tab's blocks with a preset layout (undoable)");
   layoutSelect.append(el("option", { value: "", text: "Apply a layout…" }));
   LAYOUT_PRESETS.forEach((preset) => {
     layoutSelect.append(el("option", { value: preset.id, text: preset.name }));
@@ -1408,6 +1412,7 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   const aspectSelect = document.createElement("select");
   aspectSelect.className = "input-group__control";
   aspectSelect.title = "Switch to a target screen shape; a shape you've already arranged is restored, not re-guessed";
+  aspectSelect.setAttribute("aria-label", "Switch to a target screen shape; a shape you've already arranged is restored, not re-guessed");
   // The options (and the placeholder's detected-shape offer) are filled
   // by fillAspectOptions, which has to run again whenever the character
   // gains or loses one of its own shapes.
@@ -8936,6 +8941,7 @@ const closeDialog = () => {
   function buildDropdownValue(field) {
     const select = document.createElement("select");
     select.className = "field-value field-value--dropdown";
+    select.setAttribute("aria-label", field.label || "Field value");
     select.addEventListener("pointerdown", (e) => e.stopPropagation());
     populateDropdownSelect(select, field);
     select.addEventListener("change", () => {

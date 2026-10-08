@@ -454,6 +454,7 @@ export function renderModifiersPanelInto(field, choice, deps) {
     const minLevelInput = document.createElement("input");
     minLevelInput.type = "number";
     minLevelInput.title = "Min level (blank = always active)";
+  minLevelInput.setAttribute("aria-label", "Min level (blank = always active)");
     minLevelInput.placeholder = "Lvl";
     minLevelInput.className = "bundle-mod-row__level";
     minLevelInput.value = Number.isFinite(mod.minLevel) ? mod.minLevel : "";
@@ -531,6 +532,7 @@ export function renderModifiersPanelInto(field, choice, deps) {
     const minLevelInput = document.createElement("input");
     minLevelInput.type = "number";
     minLevelInput.title = "Min level (blank = always active)";
+  minLevelInput.setAttribute("aria-label", "Min level (blank = always active)");
     minLevelInput.placeholder = "Lvl";
     minLevelInput.className = "bundle-mod-row__level";
     minLevelInput.value = Number.isFinite(rule.minLevel) ? rule.minLevel : "";

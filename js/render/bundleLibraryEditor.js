@@ -347,6 +347,7 @@ export function openBundleLibraryManager(store, onChange) {
       const minLevelInput = document.createElement("input");
       minLevelInput.type = "number";
       minLevelInput.title = "Min level (blank = always active)";
+  minLevelInput.setAttribute("aria-label", "Min level (blank = always active)");
       minLevelInput.placeholder = "Lvl";
       minLevelInput.className = "bundle-mod-row__level";
       minLevelInput.value = Number.isFinite(mod.minLevel) ? mod.minLevel : "";
@@ -412,6 +413,7 @@ export function openBundleLibraryManager(store, onChange) {
       const ruleMinLevelInput = document.createElement("input");
       ruleMinLevelInput.type = "number";
       ruleMinLevelInput.title = "Min level (blank = always active)";
+  ruleMinLevelInput.setAttribute("aria-label", "Min level (blank = always active)");
       ruleMinLevelInput.placeholder = "Lvl";
       ruleMinLevelInput.className = "bundle-mod-row__level";
       ruleMinLevelInput.value = Number.isFinite(rule.minLevel) ? rule.minLevel : "";

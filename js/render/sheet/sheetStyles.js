@@ -419,6 +419,7 @@ export function buildStylePopoverInto(node, wrapperEl, deps) {
   borderInput.type = "color";
   borderInput.value = editableStyle.borderColor || "#554838";
   borderInput.title = "Border color";
+  borderInput.setAttribute("aria-label", "Border color");
   borderInput.addEventListener("input", () => {
     commit(() => {
       setValue(node, "borderColor", borderInput.value);
