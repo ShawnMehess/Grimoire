@@ -7,7 +7,7 @@
    900px with a third of the screen empty.
    ========================================================================== */
 
-@media (min-width: 721px) and (max-width: 1024px) {
+@media (min-width: 721px) and (max-width: 1024px) and (min-height: 481px) {
   .wizard__body {
     padding-right: calc(38px + var(--space-3));
   }
