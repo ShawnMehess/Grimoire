@@ -4,3 +4,7 @@
 # js/data/subclassFeatureText.js, which IS committed (the sheet needs it
 # without a network round trip).
 .fetch-subclass-raw.json
+
+# Dependencies are installed with npm install, not committed.
+node_modules/
+
