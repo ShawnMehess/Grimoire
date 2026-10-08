@@ -244,7 +244,13 @@ import {
   assignLanguageSlot,
   asiSlotsFor,
   assignAsiSlot,
+  asiFamiliesOf,
+  asiFamilyOf,
+  asiSiblingAbilityCounts,
+  asiFamilyWithinCap,
+  ASI_FAMILY_MAX_PER_ABILITY,
   migrateAsiComboPicks,
+  migrateFlexibleAsiToSlots,
   expressPicksFor,
   spellPicksCompleteForClass,
   magicalSecretsUnlocked,
@@ -4180,7 +4186,15 @@ const closeDialog = () => {
       creationChoiceGroupsFor(state),
       group.key
     );
-    return groupPicksSatisfied(group, character.rules?.choices?.[group.key], owned);
+    if (!groupPicksSatisfied(group, character.rules?.choices?.[group.key], owned)) return false;
+    // An ASI family's cap is not a property of any one group: three "+1 STR"
+    // picks each satisfy their own group perfectly while granting a +3 no
+    // racial increase allows. So a family is checked whole, and the group
+    // that reveals the breach is the one the reason under Next points at.
+    if (asiFamilyOf(group) && !asiFamilyWithinCap(creationChoiceGroupsFor(state), character.rules?.choices || {})) {
+      return false;
+    }
+    return true;
   }
 
   /** The four fixed picks a creation wizard makes, in the positional
@@ -4926,6 +4940,14 @@ const closeDialog = () => {
       character.rules.choices = legacyAsi.choices;
       saveWithStatus("rules", character.rules);
     }
+    // A saved "+2/+1 or +1/+1/+1" pick, stored as one choice under one key,
+    // becomes the three +1 slots that replaced it. Same deal as above: runs
+    // every render, saves only when something moved.
+    const flexibleAsi = migrateFlexibleAsiToSlots(character.rules.choices || {});
+    if (flexibleAsi.migrated > 0) {
+      character.rules.choices = flexibleAsi.choices;
+      saveWithStatus("rules", character.rules);
+    }
     // First-visit source default: a returning user's last-picked
     // sources apply silently to characters that never chose their
     // own, before the single-source auto-select below runs. Anything
@@ -5128,11 +5150,18 @@ const closeDialog = () => {
    *  the shared section checker) — per-section gating for a merged
    *  wizard step: Next blocks until each section is complete. */
   function choicesComplete(groups) {
-    return sectionsComplete(
+    if (!sectionsComplete(
       sectionsForChoiceGroups(groups),
       character.rules.choices || {},
       (key) => ownedSkillIdsFrom(creationFixedBundles(state), creationChoiceGroupsFor(state), key)
-    );
+    )) return false;
+    // The per-section checker knows nothing about an ASI family, whose cap
+    // spans three groups: each slot can be individually complete while the
+    // three together grant a +3 the rules never allow. An import or a
+    // hand-edited save can reach that state without the UI, so the gate
+    // refuses it here too (creationGroupSatisfied carries the same check for
+    // the paths that go group by group).
+    return asiFamilyWithinCap(creationChoiceGroupsFor(state), character.rules?.choices || {});
   }
 
   /** Names of the still-open choice sections (in order), for the
@@ -5466,22 +5495,52 @@ const closeDialog = () => {
    *  "+1 to each of" rather than repeating the number per slot. */
   function liveAsiBullet(asiGroups, saveRules) {
     if (!asiGroups.length) return null;
-    const models = asiSlotsFor(asiGroups, character.rules.choices || {});
+    const store = character.rules.choices || {};
+    const models = asiSlotsFor(asiGroups, store);
     const allPlusOne = models.every((m) => m.value === 1);
     const collective = models.length > 1 && allPlusOne ? "+1 to each of" : null;
+    // One family of slots draws as one row: a fieldset whose legend says how
+    // many abilities to choose, with the dropdowns inside it. A single
+    // standalone slot (Changeling's one +1) keeps the sentence form, since
+    // a fieldset around one control is a label with nothing to group.
+    const family = asiFamiliesOf(asiGroups).find((f) => f.groups.length > 1 && asiFamilyOf(f.groups[0]));
+    const count = family ? family.groups.length : models.length;
     return {
       live: true,
-      topic: null,
+      // The topic names the CONTROL ("Ability Score Increase 1"), so it is
+      // not the legend; with a family the legend says how many to choose.
+      topic: family ? (asiGroups.find((g) => family.groups.includes(g))?.label || "Ability Score Increase") : null,
+      legend: family
+        ? `${family.groups[0].label || "Ability Score Increase"}: choose ${count} ${count === 1 ? "ability" : "abilities"} to increase`
+        : null,
       collective,
-      slots: models.map((m) => ({
-        key: m.groupKey,
-        value: m.pickedAbility || "",
-        placeholder: "Choose…",
-        // With no shared "+1 to each of" to carry it, each slot names its
-        // own amount. A single +2 slot reads "+2 [select]" the same way.
-        prefix: collective ? null : `+${m.value} `,
-        options: m.options.map((o) => ({ value: o.ability, label: o.label, title: sharedAbilityTooltip(o.ability) ?? null })),
-      })),
+      slots: models.map((m) => {
+        const group = asiGroups.find((g) => g.key === m.groupKey);
+        const takenElsewhere = asiSiblingAbilityCounts(group, asiGroups, store);
+        return {
+          key: m.groupKey,
+          value: m.pickedAbility || "",
+          placeholder: "Choose…",
+          // With no shared "+1 to each of" to carry it, each slot names its
+          // own amount. A single +2 slot reads "+2 [select]" the same way.
+          prefix: collective ? null : `+${m.value} `,
+          options: m.options.map((o) => {
+            // A family may take the same ability twice and no more: the two
+            // allowed patterns are A,A,B (+2/+1) and A,B,C (+1/+1/+1), so
+            // once the other two slots hold it, this one greys out. The
+            // reason lives in the title - hover and screen reader only,
+            // never as visible text on a row of six identical options.
+            const used = takenElsewhere.get(o.ability) || 0;
+            const capped = used >= ASI_FAMILY_MAX_PER_ABILITY;
+            return {
+              value: o.ability,
+              label: o.label,
+              title: capped ? "Already chosen twice" : (sharedAbilityTooltip(o.ability) ?? null),
+              disabled: capped,
+            };
+          }),
+        };
+      }),
       onPick: (slotKey, abilityId, info) => {
         const patch = assignAsiSlot(asiGroups, slotKey, abilityId || null);
         character.rules.choices = { ...(character.rules.choices || {}), ...patch };
@@ -7157,6 +7216,13 @@ const closeDialog = () => {
     const legacyAsi = migrateAsiComboPicks(character.rules.choices || {}, LEGACY_ASI_COMBOS);
     if (legacyAsi.migrated > 0) {
       character.rules.choices = legacyAsi.choices;
+      store.saveCharacterFields(character.id, { rules: character.rules }).catch((err) => {
+        console.error("Failed to save migrated ASI picks:", err);
+      });
+    }
+    const flexibleAsi = migrateFlexibleAsiToSlots(character.rules.choices || {});
+    if (flexibleAsi.migrated > 0) {
+      character.rules.choices = flexibleAsi.choices;
       store.saveCharacterFields(character.id, { rules: character.rules }).catch((err) => {
         console.error("Failed to save migrated ASI picks:", err);
       });

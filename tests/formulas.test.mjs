@@ -370,10 +370,11 @@ describe("mechanics previews", () => {
   });
 
   it("keeps a parent's own real grants", () => {
-    // The Genasi flexible ASI is shared by all four elemental heritages, so
-    // it belongs on the base and must survive the defaults being dropped.
+    // The Genasi ability increase is shared by all four elemental
+    // heritages, so it belongs on the base and must survive the defaults
+    // being dropped.
     const genasi = FIXED_RACE_ENTRIES.find((e) => e.name === "Genasi");
-    assert.ok((genasi.bundle.choiceGroups || []).some((g) => g.id === "genasi-flexible-asi"),
+    assert.ok((genasi.bundle.choiceGroups || []).some((g) => g.id === "genasi-asi-choice-1"),
       "the shared ASI picker is still on the base");
     assert.ok(genasi.bundle.choiceGroups.some((g) => g.subrace === true),
       "and the base is still recognised as a parent");

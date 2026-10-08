@@ -478,12 +478,20 @@ export function setChoiceSectionCollapsed(key, collapsed) {
 /** A picked option's own name is the better label when it names
  *  something ("High Elf"), but an ASI slot names an ability instead
  *  ("STR"), where repeating the source reads better than the player
- *  seeing "+1 from STR". */
+ *  seeing "+1 from STR".
+ *
+ *  An ability in a name is recognised in both forms the data uses: the
+ *  abbreviation ("STR") and a signed long name ("+1 Strength"), which is
+ *  what an ASI slot option is called. Without the second form, two +1
+ *  Strength picks from one race read as two separate sources instead of
+ *  one "+2 from Aasimar". */
 function pickSourceLabel(source, option) {
   const name = String(option?.name || "").trim();
   if (!name) return source;
-  const isAbilityAbbr = Object.values(ABILITY_GLOSSARY).some((entry) => entry.abbr === name.toUpperCase());
-  return isAbilityAbbr ? source : name;
+  const bare = name.replace(/^[+-]?\d+\s+/, "").trim();
+  const isAbility = Object.values(ABILITY_GLOSSARY).some((entry) =>
+    entry.abbr === name.toUpperCase() || entry.name.toLowerCase() === bare.toLowerCase());
+  return isAbility ? source : name;
 }
 
 /** Ability-score bonuses granted by staged picks, broken out by where
@@ -1366,6 +1374,73 @@ export function assignLanguageSlot(groups, groupKey, slotIndex, name, choicesSto
   return { [groupKey]: ids };
 }
 
+/** How many times an ability may be picked across one ASI family.
+ *
+ *  A racial "+2 to one and +1 to another, or +1 to three" is three +1
+ *  slots, so the same score twice is legal and the rules cap it there:
+ *  three STR is a +3, which no such increase grants. Groups that do not
+ *  name a family (Half-Elf's two independent +1s, the Custom Lineage +2)
+ *  are not capped, because each of those is its own single decision. */
+export const ASI_FAMILY_MAX_PER_ABILITY = 2;
+
+/** The family a group belongs to, or "" when it is a standalone slot. */
+export function asiFamilyOf(group) {
+  return typeof group?.asiFamily === "string" ? group.asiFamily : "";
+}
+
+/** Every group's ASI family, siblings included: `{ family, groups }`.
+ *  Groups with no family are returned under their own key so a caller
+ *  counting across one row still sees them. Pure. */
+export function asiFamiliesOf(groups = []) {
+  const families = new Map();
+  for (const group of groups || []) {
+    if (!isAsiSlotGroup(group)) continue;
+    const key = asiFamilyOf(group) || group.key;
+    if (!families.has(key)) families.set(key, []);
+    families.get(key).push(group);
+  }
+  return [...families].map(([family, members]) => ({ family, groups: members }));
+}
+
+/** How many times each ability is picked ACROSS a family, ignoring the
+ *  group asked about. Returns `{ ability: count }`, so a slot can grey out
+ *  whatever its siblings have already taken up to the cap. Pure. */
+export function asiSiblingAbilityCounts(group, groups = [], choicesStore = {}) {
+  const counts = new Map();
+  for (const other of groups || []) {
+    if (other === group || !isAsiSlotGroup(other)) continue;
+    if (asiFamilyOf(other) !== asiFamilyOf(group) || !asiFamilyOf(group)) continue;
+    for (const option of other.options || []) {
+      const ability = asiAbilityOf(option);
+      if (!ability) continue;
+      const picked = (choicesStore?.[other.key] || []).includes(option.id);
+      if (picked) counts.set(ability, (counts.get(ability) || 0) + 1);
+    }
+  }
+  return counts;
+}
+
+/** Whether a family's picks are within the cap - no ability taken more
+ *  than ASI_FAMILY_MAX_PER_ABILITY times. The saved-state guard behind the
+ *  UI's greyed-out options: an imported or hand-edited character can hold
+ *  three STRs that no page would let a player make, and a sheet that
+ *  accepted it would be a sheet granting a +3 nobody is entitled to. Pure. */
+export function asiFamilyWithinCap(groups = [], choicesStore = {}) {
+  for (const { groups: members } of asiFamiliesOf(groups)) {
+    if (!asiFamilyOf(members[0])) continue;
+    const counts = new Map();
+    for (const group of members) {
+      const chosen = asiAbilityOf((group.options || [])
+        .find((o) => (choicesStore?.[group.key] || []).includes(o.id)) || {});
+      if (!chosen) continue;
+      const next = (counts.get(chosen) || 0) + 1;
+      if (next > ASI_FAMILY_MAX_PER_ABILITY) return false;
+      counts.set(chosen, next);
+    }
+  }
+  return true;
+}
+
 /** ASI slots for a set of slot groups: the uniform grant value, the
  *  picked ability (or null), and the offered abilities in group
  *  order. Returns
@@ -1435,6 +1510,49 @@ export function migrateAsiComboPicks(choices = {}, defs = [], abilityIds = ["str
     migrated++;
   }
   return { choices: out, migrated };
+}
+
+/** Retires a saved `flexibleAbilityBonus` pick onto the three +1 slots
+ *  that replaced it.
+ *
+ *  A flexible pick stored ONE choice under ONE key:
+ *  `{pattern, abilities, statModifiers}` for "+2 STR and +1 CON" or
+ *  "+1 STR +1 DEX +1 CON". The slots that replaced it store one option id
+ *  per group, so the migration expands the pattern across them: a `2-1`
+ *  pick becomes two STR slots and a CON slot, a `1-1-1` pick three single
+ *  slots.
+ *
+ *  Driven from the KEY rather than from a live group, because by the time a
+ *  returning character is rendered the flexible group no longer exists in
+ *  the data - that is the whole reason for the migration. The slot keys and
+ *  option ids are the ones asiSlotChoiceGroups writes, so if a future data
+ *  change renames them the migration simply finds nothing to do and the old
+ *  key is left exactly where it was: never destroyed, and the owner is asked
+ *  to repick the row. Returns `{ choices, migrated }`. Pure. */
+export function migrateFlexibleAsiToSlots(choices = {}, slotCount = 3) {
+  const out = { ...(choices || {}) };
+  let migrated = 0;
+  for (const [key, picks] of Object.entries(choices || {})) {
+    const groupId = key.split(":").pop();
+    if (!groupId.endsWith("-flexible-asi")) continue;
+    const pick = (picks || [])[0];
+    if (!pick || typeof pick === "string" || !Array.isArray(pick.abilities)) continue;
+    const abilities = pick.abilities.filter((a) => typeof a === "string" && a);
+    if (!abilities.length) continue;
+    const stem = groupId.slice(0, -"-flexible-asi".length);
+    const prefix = key.slice(0, key.length - groupId.length);
+    const slotKeys = Array.from({ length: slotCount }, (_, i) => `${prefix}${stem}-asi-choice-${i + 1}`);
+    // Never overwrite a slot that already holds a pick.
+    if (slotKeys.some((k) => (out[k] || []).length)) continue;
+    const expanded = [...abilities];
+    while (expanded.length < slotCount) expanded.unshift(expanded[0]);
+    slotKeys.forEach((slotKey, i) => {
+      out[slotKey] = [`${stem}-asi-choice-${i + 1}-${expanded[i]}`];
+    });
+    delete out[key];
+    migrated += 1;
+  }
+return { choices: out, migrated };
 }
 
 /** The one place that decides WHERE a choice group is rendered.
@@ -3232,13 +3350,30 @@ export function renderLiveBulletItem(item) {
   const li = el("li", {
     class: "mechanics-pick" + (item.indent ? " mechanics-pick--nested" : ""),
   });
+  // A bullet that is a ROW OF RELATED CONTROLS rather than a sentence with
+  // dropdowns in it. The ASI trio ("choose 3 abilities to increase") is the
+  // case: three dropdowns that are one decision, drawn as a <fieldset> so
+  // the label is the <legend> a screen reader announces with the group and
+  // so the row wraps as a unit on a narrow screen. Everything the sentence
+  // form would print - the topic, the collective "+1 to each of", the "+1"
+  // prefixes - is dropped in this mode: the legend already says what the
+  // three dropdowns are for, and each option carries its own amount.
+  const legendMode = typeof item.legend === "string" && item.legend.trim();
+  let host = li;
+  if (legendMode) {
+    const fieldset = el("fieldset", { class: "mechanics-pick-set" });
+    const controls = el("div", { class: "mechanics-pick-set__controls" });
+    fieldset.append(el("legend", { class: "mechanics-pick-set__legend", text: item.legend }), controls);
+    li.append(fieldset);
+    host = controls;
+  }
   const lead = item.lead || [];
   const slots = item.slots || [];
   // Choice-summary bullets open the shared dialog from their own summary
   // text ("Choose 2" is the link) — no superscript. The older
   // language/tool dropdown bullets keep their slot-level ? instead.
   const slotOpener = slots.some((s) => s.dialogOpener) ? () => slots.forEach((s) => s.dialogOpener?.()) : null;
-  if (item.topic) {
+  if (item.topic && !legendMode) {
     // Only when there is a link after it. Without one the label is the whole
     // line and "choose one" is the only instruction the player gets, so
     // stripping it would leave a topic with nothing after it at all.
@@ -3285,7 +3420,7 @@ export function renderLiveBulletItem(item) {
       });
     }
   }
-  if (item.collective && slots.length) {
+  if (item.collective && slots.length && !legendMode) {
     if (lead.length) li.append(document.createTextNode(", "));
     li.append(el("span", { class: "inline-pick-collective", text: `${item.collective} ` }));
   }
@@ -3294,7 +3429,7 @@ export function renderLiveBulletItem(item) {
   // only asks about on a LATER page, so a list that was correct when it was
   // made can be over by the time the player reaches this one.
   if (item.warning) {
-    li.append(document.createTextNode(" "), el("span", { class: "mechanics-pick__warning", text: item.warning }));
+    host.append(document.createTextNode(" "), el("span", { class: "mechanics-pick__warning", text: item.warning }));
   }  // Whether the CURRENT interaction with a slot came from the keyboard. The
   // pick handler re-renders the page, so focus has to be put back on the
   // replacement control - but doing that after a tap reopens the native
@@ -3311,9 +3446,9 @@ export function renderLiveBulletItem(item) {
     // reads "Strength (10, +0), Dexterity (11, +1)" with no statement of
     // which is which. The number is part of the choice, not a hint about how
     // to make it, so it belongs in the sentence.
-    if (i > 0 || (lead.length && !item.collective)) li.append(document.createTextNode(", "));
-    if (slot.prefix) {
-      li.append(el("span", { class: "inline-pick-slot-prefix", text: slot.prefix }));
+    if (!legendMode && (i > 0 || (lead.length && !item.collective))) host.append(document.createTextNode(", "));
+    if (slot.prefix && !legendMode) {
+      host.append(el("span", { class: "inline-pick-slot-prefix", text: slot.prefix }));
     }
     const select = el("select", {
       class: "input-group__control inline-pick-select",
@@ -3360,7 +3495,7 @@ export function renderLiveBulletItem(item) {
       select.append(el("option", { value: o.value, text: o.label, disabled: o.disabled || false, title: o.title || null }));
     }
     select.value = slot.value ?? "";
-    li.append(select);
+    host.append(select);
   });
   return li;
 }

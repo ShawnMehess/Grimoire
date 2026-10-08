@@ -790,23 +790,65 @@ const ARTIFICER_ARTISAN_TOOLS = [
 ];
 
 // --- Race patches -----------------------------------------------------------------
+
+// The six abilities a +1 slot offers, in sheet order.
+const ASI_SLOT_ABILITIES = [
+  ["str", "Strength"],
+  ["dex", "Dexterity"],
+  ["con", "Constitution"],
+  ["int", "Intelligence"],
+  ["wis", "Wisdom"],
+  ["cha", "Charisma"],
+];
+
+/**
+ * Three +1 ability slots, the shape a "+2 to one ability and +1 to another,
+ * OR +1 to three" racial increase actually is.
+ *
+ * Three identical single-pick groups, not a pattern picker with a second
+ * step behind it. Each slot is its own group, so the stat engine folds two
+ * "+1 STR" picks from two groups into one +2 (applyStatModifiers adds, it
+ * does not overwrite), and A,A,B and A,B,C are the same three questions - no
+ * separate +2 control to understand, and no step where the player has to
+ * commit to a shape before being told which abilities are free.
+ *
+ * `asiFamily` is what ties the three together for the two things a slot
+ * cannot know alone: the cap (an ability may be taken at most twice across
+ * the family, so the third pick cannot be the same one again) and the one
+ * label the row is drawn under. Sibling groups are found by family rather
+ * than by id shape, so the groups stay independent data.
+ */
+function asiSlotChoiceGroups(prefix, minLevel, count = 3) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `${prefix}-asi-choice-${i + 1}`,
+    label: "Ability Score Increase",
+    minLevel,
+    minSelections: 1,
+    maxSelections: 1,
+    category: "abilities",
+    asiFamily: `${prefix}-asi`,
+    options: ASI_SLOT_ABILITIES.map(([id, name]) => ({
+      id: `${prefix}-asi-choice-${i + 1}-${id}`,
+      name: `+1 ${name}`,
+      description: "",
+      statModifiers: [{ targetFieldId: `${id}Score`, op: "add", value: 1, minLevel: null }],
+      featureGrants: [],
+      resourceGrants: [],
+    })),
+  }));
+}
+
+/**
+ * Replaces a race's free-form ASI note ("pick by hand") with three real
+ * +1 slot groups. The note is REMOVED by takeNotes, which is the point: it
+ * used to be the only thing the sheet said, and it described a decision the
+ * sheet could not record.
+ */
 function patchFreeformAsi(bundle, prefix) {
   const levels = takeNotes(bundle, (g) => /plus_2_plus_1_or_three_plus_1s/.test(g.description || ""));
   if (!levels.length) return bundle;
   const minLevel = Math.min(...levels.filter(Number.isFinite).length ? levels.filter(Number.isFinite) : [1]);
-  
-  // New flexibleAbilityBonus choice type (Phase 3b): replaces the 3-slot approach
-  // with a two-step picker: first choose "2-1" or "1-1-1" pattern, then pick abilities.
-  bundle.choiceGroups.push({
-    id: `${prefix}-flexible-asi`, label: "Ability Score Increase", minLevel,
-    type: "flexibleAbilityBonus",
-    minSelections: 1, maxSelections: 1,
-    category: "abilities",
-    options: [
-      { pattern: "2-1", description: "+2 to one ability, +1 to a different ability" },
-      { pattern: "1-1-1", description: "+1 to three different abilities" },
-    ],
-  });
+  bundle.choiceGroups.push(...asiSlotChoiceGroups(prefix, minLevel, 3));
   return bundle;
 }
 
@@ -1444,21 +1486,13 @@ function patchRaceEntry(entry) {
   }
   applyRacePicks(entry.name, out.bundle);
   if (entry.name === "Custom Lineage") {
-    // Custom Lineage has a different structure: the ASI is a choice group with +2 options,
-    // and there's no feature grant with the "plus_2_plus_1_or_three_plus_1s" description.
-    // Remove the old ASI choice group and add the new flexible one.
-    out.bundle.choiceGroups = out.bundle.choiceGroups.filter((g) => g.id !== "custom-lineage-asi-choice-0");
-    const minLevel = 1;
-    out.bundle.choiceGroups.push({
-      id: "custom-lineage-flexible-asi", label: "Ability Score Increase", minLevel,
-      type: "flexibleAbilityBonus",
-      minSelections: 1, maxSelections: 1,
-      category: "abilities",
-      options: [
-        { pattern: "2-1", description: "+2 to one ability, +1 to a different ability" },
-        { pattern: "1-1-1", description: "+1 to three different abilities" },
-      ],
-    });
+    // Custom Lineage arrived with a single +2 group and no free-form note,
+    // so there is no note to take: the compiled group goes, and the same
+    // three +1 slots every other free-form increase uses take its place.
+    // One +2 with a free choice is the same three questions, and it keeps
+    // Custom Lineage's own ASI on the renderer every other species uses.
+    out.bundle.choiceGroups = out.bundle.choiceGroups.filter((g) => !/^custom-lineage-(asi-choice|flexible-asi)/.test(g.id));
+    out.bundle.choiceGroups.push(...asiSlotChoiceGroups("custom-lineage", 1, 3));
     patchLineageTraitNames(out.bundle);
     // "Skill Proficiency" is a Variable Trait option that grants
     // "proficiency in 1 skill of your choice" - but with nothing to pick

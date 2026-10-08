@@ -102,6 +102,7 @@ const AREAS = {
   "dwarf-gate": "Dwarf subraces and Duergar clear the Identity gate; picks land on Review",
   "gate-reasons": "the reason under Next names the open choice and takes you to it",
   "species-sweep": "every species (and subrace) clears Identity with only its visible picks",
+  "asi-slots": "racial ability increases are three +1 slots, capped at twice per ability",
 };
 
 // The areas the smoke preset drops. Written as an explicit drop list so a new
@@ -1591,102 +1592,69 @@ async function runViewportTests(viewport) {
       }
     }
 
-    // Flexible ASI: two dropdowns ("+2 to" / "+1 to") listing all six
-    // abilities. This replaced a two-step pattern dialog, and before that
-    // the row opened the GENERIC dialog, which lists only options with a
-    // `name` — a flexible ASI's options are {pattern, description}
-    // descriptors, so it opened EMPTY and the player saw no stats at all.
-    const asiSlots = '.choice-row--selected .mechanics-pick select[data-inline-slot$="custom-lineage-flexible-asi#0"], .choice-row--selected .mechanics-pick select[data-inline-slot$="custom-lineage-flexible-asi#1"]';
+    // Racial ability increases: three "+1 ability" dropdowns in one fieldset,
+    // each listing all six abilities. Two STRs and a CON is the "+2 and +1"
+    // the rules allow; three different scores is the "+1 to three". Before this
+    // the row was a two-dropdown "+2 to / +1 to" picker, and before THAT a
+    // pattern dialog whose options carried no names, so the generic choice
+    // dialog opened it EMPTY and the player saw no stats at all.
+    const asiSlots = [1, 2, 3].map((n) =>
+      `.choice-row--selected select[data-inline-slot$="custom-lineage-asi-choice-${n}"]`);
     const asiState = () => page.evaluate(() => {
       const row = document.querySelector(".choice-row--selected");
-      const li = [...row.querySelectorAll(".mechanics-pick")]
-        .find((b) => /Ability Score/i.test(b.querySelector("strong")?.textContent || ""));
-      if (!li) return { found: false };
-      const sels = [...li.querySelectorAll("select")];
+      const set = row?.querySelector(".mechanics-pick-set");
+      if (!set) return { found: false };
+      const sels = [...set.querySelectorAll("select")];
       return {
         found: true,
-        prefixes: sels.map((s) => s.previousElementSibling?.classList.contains("inline-pick-slot-prefix")
-          ? s.previousElementSibling.textContent : null),
+        legend: set.querySelector("legend")?.textContent?.trim() || null,
+        ariaLabels: sels.map((s) => s.getAttribute("aria-label")),
         optionLabels: sels.map((s) => [...s.options].slice(1).map((o) => o.textContent)),
-        hasDialogLink: !!li.querySelector(".inline-pick-link"),
+        hasDialogLink: !!set.querySelector(".inline-pick-link"),
       };
     });
     const asi = await asiState();
     check(asi.found, "lineage has an Ability Score Increase row");
-    // The amounts are now in the sentence in front of each dropdown, not in
-    // the placeholder. A placeholder is replaced by the chosen value, so
-    // putting "+2" there meant the number disappeared the instant the player
-    // chose an ability and the line stopped saying which was the +2.
-    check(asi.prefixes?.join("").includes("+2") && asi.prefixes?.join("").includes("+1"),
-      `the +2 and +1 are stated before their dropdowns (got ${JSON.stringify(asi.prefixes)})`);
+    check(Boolean(asi.legend && /Ability Score Increase/.test(asi.legend) && /choose 3/.test(asi.legend)),
+      `the legend says how many to choose (${JSON.stringify(asi.legend)})`);
+    check(asi.ariaLabels?.join(",") === "Ability Score Increase 1,Ability Score Increase 2,Ability Score Increase 3",
+      `each dropdown is named for the slot it fills (${JSON.stringify(asi.ariaLabels)})`);
     const six = ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"];
-    check(six.every((a) => asi.optionLabels?.[0]?.includes(a)) && six.every((a) => asi.optionLabels?.[1]?.includes(a)),
-      "both ASI dropdowns list all six abilities");
+    check(six.every((a) => asi.optionLabels?.[0]?.includes(`+1 ${a}`)) && six.every((a) => asi.optionLabels?.[2]?.includes(`+1 ${a}`)),
+      `every dropdown lists all six abilities with their value (${JSON.stringify(asi.ariaLabels)}: ${JSON.stringify(asi.optionLabels?.[0])})`);
     check(!asi.hasDialogLink, "ASI is dropdowns, not a dialog link");
     if (asi.found) {
-      await page.selectOption(asiSlots.split(", ")[0], "str");
+      await page.selectOption(asiSlots[0], "str");
       await quiet(page);
-      await page.selectOption(asiSlots.split(", ")[1], "con");
+      await page.selectOption(asiSlots[1], "str");
       await quiet(page);
       const picked = await page.evaluate(() => {
         const row = document.querySelector(".choice-row--selected");
-        const li = [...row.querySelectorAll(".mechanics-pick")]
-          .find((b) => /Ability Score/i.test(b.querySelector("strong")?.textContent || ""));
-        const sels = [...li.querySelectorAll("select")];
+        const sels = [...(row?.querySelector(".mechanics-pick-set")?.querySelectorAll("select") || [])];
+        const thirdStr = [...(sels[2]?.options || [])].find((o) => o.value === "str");
         return {
-          plus2: sels[0]?.value,
-          plus1: sels[1]?.value,
-          strDisabledInSecond: [...(sels[1]?.options || [])].find((o) => o.value === "str")?.disabled,
-          // The whole point of the fix: after choosing, does the line still
-          // say which is the +2?
-          prefixesStillThere: [...li.querySelectorAll(".inline-pick-slot-prefix")].map((n) => n.textContent),
+          values: sels.map((s) => s.value),
+          // Two STRs is the "+2 to one ability"; a third slot may not take it
+          // again, because that is a +3 no racial increase grants.
+          strDisabledInThird: thirdStr?.disabled,
+          strTitleInThird: thirdStr?.title,
         };
       });
-      check(picked.plus2 === "str" && picked.plus1 === "con", `both ASI dropdowns keep their pick (got ${picked.plus2}/${picked.plus1})`);
-      check(picked.strDisabledInSecond === true, "the +1 dropdown greys out the score already used by +2");
-      check(picked.prefixesStillThere.length === 2
-        && /\+2/.test(picked.prefixesStillThere[0]) && /\+1/.test(picked.prefixesStillThere[1]),
-        `the amounts survive the choice (got ${JSON.stringify(picked.prefixesStillThere)})`);
-      // A <select> reports every option in textContent, so this reads the
-      // visible sentence only: prefixes plus each control's current value.
-      const readLine = await page.evaluate(() => {
-        const row = document.querySelector(".choice-row--selected");
-        const li = [...row.querySelectorAll(".mechanics-pick")]
-          .find((b) => /Ability Score/i.test(b.querySelector("strong")?.textContent || ""));
-        const parts = [];
-        for (const node of li.childNodes) {
-          if (node.nodeType === 3) { parts.push(node.textContent); continue; }
-          if (node.tagName === "SELECT") {
-            parts.push(node.selectedOptions[0]?.textContent || "");
-            continue;
-          }
-          if (node.classList?.contains("inline-pick-slot-prefix")) parts.push(node.textContent);
-        }
-        return parts.join("").replace(/\s+/g, " ").trim();
-      });
-      // The leading "— " is the separator renderLiveBulletItem puts after the
-      // bold topic, so the sentence under test starts after it.
-      check(readLine === "— +2 to Strength, +1 to Constitution",
-        `so the line reads as "+2 to Strength, +1 to Constitution" (got "${readLine}")`);
+      check(picked.values.join(",") === "str,str,",
+        `the first two slots keep their picks (got ${picked.values.join("/")})`);
+      check(picked.strDisabledInThird === true, "the third dropdown greys out the score already taken twice");
+      check(picked.strTitleInThird === "Already chosen twice",
+        `the reason is on the option title, not printed beside the list (got ${JSON.stringify(picked.strTitleInThird)})`);
 
-      // The close-then-reopen bug. A pick re-renders the page, and the old
+      // The close-then-reopen bug. A pick re-renders the page and the old
       // <select> is destroyed; focusing its replacement reopened the native
-      // picker on touch. So a tap on a dropdown closed the list and opened it
-      // straight back up - and since the value was already set, choosing the
-      // SAME option again fired no change event at all, which is why the
-      // second tap stayed closed and only a different choice reopened it.
-      //
-      // Measurable in a headless browser as focus: if the replacement control
-      // is focused, a real touch device will open its picker.
+      // picker on touch. Measurable headlessly as focus: if the replacement
+      // control is focused, a real touch device will open its picker.
       const focusAfterPick = async (slot) => page.evaluate((key) => {
         const row = document.querySelector(".choice-row--selected");
-        const li = [...row.querySelectorAll(".mechanics-pick")]
-          .find((b) => /Ability Score/i.test(b.querySelector("strong")?.textContent || ""));
-        const sels = [...li.querySelectorAll("select")];
+        const sels = [...(row?.querySelector(".mechanics-pick-set")?.querySelectorAll("select") || [])];
         const target = sels[Number(key)];
         return {
-          // Still in the document at all - the re-render replaced it, and a
-          // stale reference would make this read as focused when it is not.
           connected: document.contains(target),
           isActive: document.activeElement === target,
         };
@@ -1697,20 +1665,17 @@ async function runViewportTests(viewport) {
       check(focusAfterFirst.isActive === false,
         "and it is NOT focused after a tap, so a touch device leaves the picker closed");
 
-      // Choosing a different value must not change that. This is the "if I
-      // make a different choice, then the dropdown will again reopen" half.
-      await page.selectOption(asiSlots.split(", ")[0], "dex");
+      await page.selectOption(asiSlots[0], "dex");
       await quiet(page);
       const focusAfterSecond = await focusAfterPick(0);
       check(focusAfterSecond.isActive === false,
         `nor after choosing a different option (focused: ${focusAfterSecond.isActive})`);
       const retyped = await page.evaluate(() => {
         const row = document.querySelector(".choice-row--selected");
-        const li = [...row.querySelectorAll(".mechanics-pick")]
-          .find((b) => /Ability Score/i.test(b.querySelector("strong")?.textContent || ""));
-        return [...li.querySelectorAll("select")].map((s) => s.value).join("/");
+        const set = row?.querySelector(".mechanics-pick-set");
+        return [...set.querySelectorAll("select")].map((s) => s.value).join("/");
       });
-      check(retyped === "dex/con", `and the changed pick took (got "${retyped}")`);
+      check(retyped === "dex/str/", `and the changed pick took, leaving the siblings alone (got "${retyped}")`);
       await page.screenshot({ path: path.join(shotDir, `lineage-asi-${viewport.name}.png`) });
     }
 
@@ -6878,6 +6843,217 @@ if (inArea("species-sweep")) {
     failures.push(`[species-sweep] ${swFailures.length} species combination(s) failed:\n  ${swFailures.join("\n  ")}`);
   }
   await swPage.close();
+}
+
+// --- Racial ability increases are three +1 slots -----------------------------
+//
+// "+2 to one ability and +1 to another, OR +1 to three" used to be a note
+// telling the player to do it by hand. It is now three dropdowns, each
+// offering +1 to any of the six scores: two STRs and a CON is the first
+// pattern, three different scores is the second, and the third slot greys
+// out a score the other two have already taken twice.
+if (inArea("asi-slots")) {
+  const asiPage = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
+  asiPage.on("pageerror", (e) => problems.push(`PAGEERROR [asi-slots]: ${e.message}`));
+  asiPage.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [asi-slots]: ${m.text()}`); });
+  const asiCheck = (cond, msg) => {
+    if (!cond) failures.push(`[asi-slots] ${msg}`);
+    console.log(`${cond ? "ok" : "FAIL"} [asi-slots]: ${msg}`);
+  };
+  const asiNext = () => asiPage.evaluate(() => {
+    const b = document.querySelector(".wizard__next:not([disabled])");
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  const asiStep = () => asiPage.evaluate(() =>
+    document.querySelector(".wizard__dot--active")?.dataset.stepId || null);
+  // One dropdown at a time: every change re-renders the page, so a NodeList
+  // taken once is stale by the second write.
+  const asiPick = async (n, abilityLabel) => {
+    const sel = `.choice-row--selected select[data-inline-slot$="aasimar-asi-choice-${n}"]`;
+    await asiPage.waitForSelector(sel, { timeout: 5000 });
+    const value = await asiPage.$eval(sel, (s, want) => {
+      const o = [...s.options].find((x) => x.textContent.trim() === want && !x.disabled);
+      return o ? o.value : null;
+    }, `+1 ${abilityLabel}`);
+    if (value === null) return false;
+    await asiPage.selectOption(sel, value);
+    await asiPage.waitForTimeout(450);
+    return true;
+  };
+  const asiSlotState = () => asiPage.evaluate(() => {
+    const row = document.querySelector(".choice-row--selected[data-row-name='Aasimar']");
+    const set = row?.querySelector(".mechanics-pick-set");
+    return {
+      legend: set?.querySelector("legend")?.textContent?.trim() || null,
+      inFieldset: Boolean(set),
+      slots: [...(row?.querySelectorAll("select[data-inline-slot$='aasimar-asi-choice-1'], select[data-inline-slot$='aasimar-asi-choice-2'], select[data-inline-slot$='aasimar-asi-choice-3']") || [])]
+        .sort((a, b) => a.getAttribute("aria-label").localeCompare(b.getAttribute("aria-label"), "en", { numeric: true }))
+        .map((s) => ({
+          label: s.getAttribute("aria-label"),
+          value: s.value,
+          disabled: [...s.options].filter((o) => o.disabled).map((o) => o.textContent.trim()),
+        })),
+      reason: document.querySelector(".wizard__gate-reason")?.textContent?.trim() || "",
+      blocked: !document.querySelector(".wizard__next:not([disabled])"),
+      // The pick has to be somewhere on the page the player can see it, not
+      // only in storage: the summary lines of the chosen row.
+      rowText: (row?.textContent || "").replace(/\s+/g, " "),
+    };
+  });
+const asiWalkToReview = async () => {
+    for (let hop = 0; hop < 14 && (await asiStep()) !== "review"; hop += 1) {
+      const step = await asiStep();
+      // Pick first, answer second: a class or background's gear and
+      // proficiencies only exist once its row is the picked one, and
+      // answering before picking would be answering the wrong row's picks.
+      if (step === "class" && !(await asiPage.$('.choice-row--selected[data-row-name="Barbarian"]'))) {
+        await asiPage.click('.choice-row[data-row-name="Barbarian"] .choice-row__label');
+        await asiPage.waitForTimeout(700);
+      }
+      if (step === "background" && !(await asiPage.$('.choice-row--selected[data-row-name="Folk Hero"]'))) {
+        await asiPage.click('.choice-row[data-row-name="Folk Hero"] .choice-row__label');
+        await asiPage.waitForTimeout(700);
+      }
+      // Expand All rather than clicking a row: a row picked before the
+      // reload comes back collapsed, and a collapsed row's proficiencies are
+      // in the DOM but not on screen, so takeOnePick - which only touches
+      // what is visible - cannot answer them.
+      await asiPage.evaluate(() => {
+        const b = [...document.querySelectorAll("#app-main .wizard__body button")]
+          .find((x) => x.textContent.trim() === "Expand All");
+        b?.click();
+      });
+      await asiPage.waitForTimeout(500);
+      await fillEveryPick(asiPage);
+      await fillEveryGearRow(asiPage);
+      if (step === "background" && !(await asiPage.$('.choice-row--selected[data-row-name="Folk Hero"]'))) {
+        await asiPage.click('.choice-row[data-row-name="Folk Hero"] .choice-row__label');
+        await asiPage.waitForTimeout(600);
+      }
+      if (!(await asiNext())) { console.log(`[asi-slots] stuck at ${await asiStep()}: ${await asiPage.evaluate(() => document.querySelector(".wizard__gate-reason")?.textContent?.trim())}`); break; }
+      await asiPage.waitForTimeout(700);
+    }
+    return asiStep();
+  };
+  const asiScoreLines = () => asiPage.evaluate(() => {
+    const text = (document.querySelector(".wizard__body")?.textContent || "").replace(/\s+/g, " ");
+    const grab = (name) => {
+      const m = new RegExp(`${name} (\\d+) \\(([+-]?\\d+) Mod\\)\\s*(.{0,60})`).exec(text);
+      return m ? { score: m[1], mod: m[2], rest: m[3] } : null;
+    };
+    const rows = [...text.matchAll(/(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma) \d+ \([+-]?\d+ Mod\)[^A-Z]{0,40}/g)]
+      .map((m) => `${m[1]}=${m[0].replace(/\s+/g, " ").trim()}`);
+    return { str: grab("Strength"), dex: grab("Dexterity"), con: grab("Constitution"), wis: grab("Wisdom"), rows, raw: text };
+  });
+
+  // ---- Pattern 1: STR, STR, CON ------------------------------------------
+  await asiPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+  await settled(asiPage, READY_VAULT, "asi vault");
+  await asiPage.click(READY_VAULT);
+  await settled(asiPage, READY_WIZARD, "asi wizard");
+  await asiPage.waitForTimeout(600);
+  await asiPage.evaluate(() => {
+    for (const b of document.querySelectorAll(".wizard input[type=checkbox]")) {
+      if (!b.checked) { b.click(); return; }
+    }
+  });
+  await asiPage.waitForTimeout(300);
+  await asiNext();
+  await asiPage.waitForTimeout(600);
+  await asiPage.evaluate(() => {
+    const n = document.querySelector(".wizard input[type=text]");
+    if (n) {
+      n.value = "Asi Tester";
+      n.dispatchEvent(new Event("input", { bubbles: true }));
+      n.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+  await asiPage.waitForTimeout(300);
+  await asiPage.click('.choice-row[data-row-name="Aasimar"] .choice-row__label');
+  await asiPage.waitForTimeout(800);
+
+  const opening = await asiSlotState();
+  asiCheck(opening.inFieldset, `the three dropdowns sit in one fieldset (${opening.legend})`);
+  asiCheck(/Ability Score Increase/.test(opening.legend || "") && /choose 3/.test(opening.legend || ""),
+    `the legend says how many to choose (${JSON.stringify(opening.legend)})`);
+  asiCheck(opening.slots.length === 3, `there are three of them (${opening.slots.map((s) => s.label).join(", ")})`);
+  asiCheck(opening.slots.map((s) => s.label).join(",") === "Ability Score Increase 1,Ability Score Increase 2,Ability Score Increase 3",
+    `each named for the slot it fills (${opening.slots.map((s) => s.label).join(", ")})`);
+  asiCheck(opening.slots.every((s) => s.disabled.length === 0), "nothing is greyed out before any pick");
+  asiCheck(opening.blocked && /Ability Score Increase/.test(opening.reason),
+    `and Next waits for them (${JSON.stringify(opening.reason)})`);
+  asiCheck(!/pick by hand|plus_2_plus_1/.test(opening.rowText),
+    "and the 'pick by hand' note is nowhere in the row");
+
+  await asiPick(1, "Strength");
+  await asiPick(2, "Strength");
+  const twice = await asiSlotState();
+  asiCheck(twice.slots[2].disabled.includes("+1 Strength"),
+    `the third dropdown greys out the ability already taken twice (${JSON.stringify(twice.slots[2].disabled)})`);
+  asiCheck(twice.slots[2].disabled.length === 1, "and only that one");
+  asiCheck(await asiPage.$eval('.choice-row--selected select[data-inline-slot$="aasimar-asi-choice-3"]',
+    (s) => [...s.options].find((o) => o.textContent.trim() === "+1 Strength")?.title) === "Already chosen twice",
+    'the reason is on the title, not printed beside the options');
+  asiCheck(!/twice|already/i.test(twice.rowText.replace(/Ability Score Increase: choose 3 abilities to increase/, "")),
+    `and not as visible text (${JSON.stringify(twice.rowText.slice(twice.rowText.indexOf("Ability Score Increase:"), 200))})`);
+
+  const blockedThird = await asiPick(3, "Strength");
+  asiCheck(blockedThird === false, "so STR cannot be chosen a third time through the page");
+  asiCheck(twice.blocked && /Ability Score Increase/.test(twice.reason),
+    `and Next is still disabled until the third slot is answered (${JSON.stringify(twice.reason)})`);
+
+  await asiPick(3, "Constitution");
+  const complete = await asiSlotState();
+  asiCheck(complete.slots.map((s) => s.value).join(",") === "str,str,con",
+    `the row now holds STR, STR, CON (${complete.slots.map((s) => s.value).join(",")})`);
+  asiCheck(!/Ability Score Increase/.test(complete.reason),
+    `and the reason no longer names it (${JSON.stringify(complete.reason)})`);
+
+  // A reload has to keep the picks: they are in storage, not in the DOM.
+  await asiPage.reload({ waitUntil: "networkidle" });
+  await settled(asiPage, READY_VAULT, "asi vault after reload");
+  await asiPage.click(".character-card");
+  await settled(asiPage, READY_WIZARD, "asi wizard after reload");
+  await asiPage.waitForTimeout(1200);
+  const afterReload = await asiSlotState();
+  asiCheck(afterReload.slots.map((s) => s.value).join(",") === "str,str,con",
+    `a reload keeps all three (${afterReload.slots.map((s) => s.value).join(",")})`);
+
+  asiCheck(await asiWalkToReview() === "review", "and the wizard still reaches Review");
+  // The Review grid renders its score rows from a computed pass that lands
+  // a beat after the page itself; reading immediately can catch the header
+  // before the rows are in.
+  await asiPage.waitForTimeout(1200);
+  const reviewLines = await asiScoreLines();
+  // The sheet shows the NET, not three +1 lines: +2 STR, +1 CON.
+  asiCheck(/\+2 from Aasimar/.test(reviewLines.str?.rest || ""),
+    `Strength reads as +2 from Aasimar (${JSON.stringify(reviewLines.str)})`);
+  asiCheck(/\+1 from Aasimar/.test(reviewLines.con?.rest || ""),
+    `Constitution reads as +1 from Aasimar (${JSON.stringify(reviewLines.con)}; rows: ${JSON.stringify(reviewLines.rows)})`);
+  if (!reviewLines.con) {
+    console.log(`[asi-slots] review text: ${JSON.stringify(reviewLines.raw?.slice(0, 500))}`);
+  }
+  asiCheck(/^· Point Buy/.test(reviewLines.dex?.rest || "") || !/\+1 from Aasimar/.test((reviewLines.dex?.rest || "").split("Constitution")[0]),
+    `and nothing was added to the untouched scores (${JSON.stringify(reviewLines.dex?.rest?.split("Constitution")[0])})`);
+  await asiPage.screenshot({ path: path.join(shotDir, "asi-slots.png") });
+
+  // ---- Pattern 2: three different abilities, and no double counting -------
+  await asiPick(1, "Dexterity");
+  const swapped = await asiSlotState();
+  asiCheck(swapped.slots[0].value === "dex",
+    `changing a slot replaces its own pick (${swapped.slots[0].value})`);
+  asiCheck(swapped.slots[1].value === "str" && swapped.slots[2].value === "con",
+    `and leaves the others alone (${swapped.slots.map((s) => s.value).join(",")})`);
+  asiCheck(swapped.slots[2].disabled.length === 0,
+    `so the cap no longer greys out anything (${JSON.stringify(swapped.slots[2].disabled)})`);
+  const reviewLines2 = await asiScoreLines();
+  asiCheck(/\+2 from Aasimar/.test(reviewLines2.str?.rest || "") === false,
+    `Strength drops back to +1 with one pick on it (${JSON.stringify(reviewLines2.str)})`);
+  asiCheck(/\+1 from Aasimar/.test(reviewLines2.dex?.rest || ""),
+    `and Dexterity picks the +1 up instead (${JSON.stringify(reviewLines2.dex)})`);
+  await asiPage.close();
 }
 
 await browser.close();

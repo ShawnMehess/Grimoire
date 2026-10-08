@@ -19,6 +19,9 @@ import {
   choiceDialogKindFor,
   nestedChoiceGroupsFor,
   groupOptionsOf,
+  asiFamilyWithinCap,
+  asiSiblingAbilityCounts,
+  migrateFlexibleAsiToSlots,
 } from "../js/render/sheet/sheetWizard.js";
 import { FIXED_RACE_ENTRIES } from "../js/data/contentFixups.js";
 
@@ -35,26 +38,98 @@ const baseState = (over = {}) => ({
 const groupIds = (state) => creationChoiceGroupsForState(state, lookup, ["phb"]).map((g) => g.id);
 const groupById = (state, id) => creationChoiceGroupsForState(state, lookup, ["phb"]).find((g) => g.id === id);
 
-describe("Custom Lineage's flexible ASI", () => {
-  it("exists as a flexibleAbilityBonus group", () => {
-    const g = groupById(baseState(), "custom-lineage-flexible-asi");
-    assert.ok(g, "the ASI group should be offered");
-    assert.equal(g.type, "flexibleAbilityBonus");
+describe("Custom Lineage's racial ASI", () => {
+  it("exists as three +1 slot groups", () => {
+    const ids = ["custom-lineage-asi-choice-1", "custom-lineage-asi-choice-2", "custom-lineage-asi-choice-3"];
+    for (const id of ids) assert.ok(groupById(baseState(), id), `${id} should be offered`);
   });
 
-  it("has pattern options but no named options", () => {
-    // This is the trap: the generic choice dialog lists options that have
-    // a `name`, so these descriptors are invisible to it. A flexible ASI
-    // has to be routed to its own two-step dialog wherever it's offered.
-    const g = groupById(baseState(), "custom-lineage-flexible-asi");
-    assert.deepEqual((g.options || []).map((o) => o.pattern), ["2-1", "1-1-1"]);
-    assert.ok((g.options || []).every((o) => !o.name), "no option carries a name");
+  it("offers all six abilities in each slot, each adding +1 to one score", () => {
+    const g = groupById(baseState(), "custom-lineage-asi-choice-1");
+    assert.equal(g.type, undefined, "a plain slot group, not a pattern picker");
+    assert.equal(g.minSelections, 1);
+    assert.equal(g.maxSelections, 1);
+    assert.deepEqual((g.options || []).map((o) => o.name), [
+      "+1 Strength", "+1 Dexterity", "+1 Constitution", "+1 Intelligence", "+1 Wisdom", "+1 Charisma",
+    ]);
+    const str = g.options.find((o) => o.name === "+1 Strength");
+    assert.deepEqual(str.statModifiers, [{ targetFieldId: "strScore", op: "add", value: 1, minLevel: null }]);
   });
 
-  it("is stored under a key the dialog reads", () => {
-    const g = groupById(baseState(), "custom-lineage-flexible-asi");
-    assert.equal(g.key, "creation:Race:Custom Lineage:custom-lineage-flexible-asi");
-    assert.equal(keyFor({ id: "custom-lineage-flexible-asi" }, "Race", "Custom Lineage"), g.key);
+  it("ties the three slots together as one family, so the cap can be read", () => {
+    const groups = ["custom-lineage-asi-choice-1", "custom-lineage-asi-choice-2", "custom-lineage-asi-choice-3"]
+      .map((id) => groupById(baseState(), id));
+    assert.deepEqual(groups.map((g) => g.asiFamily), ["custom-lineage-asi", "custom-lineage-asi", "custom-lineage-asi"]);
+    assert.equal(asiFamilyWithinCap(groups, {
+      [groups[0].key]: ["custom-lineage-asi-choice-1-str"],
+      [groups[1].key]: ["custom-lineage-asi-choice-2-str"],
+      [groups[2].key]: ["custom-lineage-asi-choice-3-con"],
+    }), true, "STR twice and CON once is +2/+1, which is allowed");
+    assert.equal(asiFamilyWithinCap(groups, {
+      [groups[0].key]: ["custom-lineage-asi-choice-1-str"],
+      [groups[1].key]: ["custom-lineage-asi-choice-2-str"],
+      [groups[2].key]: ["custom-lineage-asi-choice-3-str"],
+    }), false, "three STRs is a +3 no racial increase grants");
+  });
+
+  it("greys out an ability the other two slots have already taken twice", () => {
+    const groups = ["custom-lineage-asi-choice-1", "custom-lineage-asi-choice-2", "custom-lineage-asi-choice-3"]
+      .map((id) => groupById(baseState(), id));
+    const store = {
+      [groups[0].key]: ["custom-lineage-asi-choice-1-str"],
+      [groups[1].key]: ["custom-lineage-asi-choice-2-str"],
+    };
+    const takenElsewhere = asiSiblingAbilityCounts(groups[2], groups, store);
+    assert.equal(takenElsewhere.get("str"), 2, "the third slot sees both STRs");
+    assert.equal(takenElsewhere.get("con"), undefined, "and nothing for an untouched ability");
+  });
+
+  it("is stored under a key the dropdown reads", () => {
+    const g = groupById(baseState(), "custom-lineage-asi-choice-1");
+    assert.equal(g.key, "creation:Race:Custom Lineage:custom-lineage-asi-choice-1");
+    assert.equal(keyFor({ id: "custom-lineage-asi-choice-1" }, "Race", "Custom Lineage"), g.key);
+  });
+});
+
+describe("a saved flexible pick migrates onto the three slots", () => {
+  it("expands a +2/+1 pattern across the slots", () => {
+    const out = migrateFlexibleAsiToSlots({
+      "creation:Race:Aasimar:aasimar-flexible-asi": [{
+        pattern: "2-1", abilities: ["str", "con"],
+        statModifiers: [{ targetFieldId: "strScore", op: "add", value: 2 }, { targetFieldId: "conScore", op: "add", value: 1 }],
+      }],
+    });
+    assert.deepEqual(out.choices, {
+      "creation:Race:Aasimar:aasimar-asi-choice-1": ["aasimar-asi-choice-1-str"],
+      "creation:Race:Aasimar:aasimar-asi-choice-2": ["aasimar-asi-choice-2-str"],
+      "creation:Race:Aasimar:aasimar-asi-choice-3": ["aasimar-asi-choice-3-con"],
+    });
+    assert.equal(out.migrated, 1);
+  });
+
+  it("expands a +1/+1/+1 pattern one per slot", () => {
+    const out = migrateFlexibleAsiToSlots({
+      "creation:Race:Yuan-ti:yuan-ti-flexible-asi": [{ pattern: "1-1-1", abilities: ["dex", "wis", "cha"] }],
+    });
+    assert.deepEqual(out.choices["creation:Race:Yuan-ti:yuan-ti-asi-choice-2"], ["yuan-ti-asi-choice-2-wis"]);
+    assert.equal(out.migrated, 1);
+  });
+
+  it("never overwrites a slot that already holds a pick", () => {
+    const store = {
+      "creation:Race:Aasimar:aasimar-flexible-asi": [{ pattern: "1-1-1", abilities: ["str", "dex", "con"] }],
+      "creation:Race:Aasimar:aasimar-asi-choice-1": ["aasimar-asi-choice-1-cha"],
+    };
+    const out = migrateFlexibleAsiToSlots(store);
+    assert.equal(out.migrated, 0);
+    assert.deepEqual(out.choices["creation:Race:Aasimar:aasimar-asi-choice-1"], ["aasimar-asi-choice-1-cha"]);
+  });
+
+  it("leaves anything else alone", () => {
+    const store = { "creation:Race:Aasimar:aasimar-languages": ["Dwarvish"] };
+    const out = migrateFlexibleAsiToSlots(store);
+    assert.equal(out.migrated, 0);
+    assert.deepEqual(out.choices, store);
   });
 });
 
@@ -108,10 +183,10 @@ describe("the Skill Proficiency follow-up row", () => {
 });
 
 describe("groups without a follow-up gate behave as before", () => {
-  it("does not gate Custom Lineage's languages or ASI", () => {
+it("does not gate Custom Lineage's languages or ASI", () => {
     const ids = groupIds(baseState());
     assert.ok(ids.includes("custom-lineage-languages"));
-    assert.ok(ids.includes("custom-lineage-flexible-asi"));
+    assert.ok(ids.includes("custom-lineage-asi-choice-1"));
   });
 
   it("leaves other races' groups alone", () => {
@@ -119,9 +194,9 @@ describe("groups without a follow-up gate behave as before", () => {
     assert.ok(!ids.some((id) => id.includes("variable_trait")), "Elf has no variable trait");
   });
 
-  it("survives a state with no choices object at all", () => {
+it("survives a state with no choices object at all", () => {
     const ids = groupIds(baseState({ choices: undefined }));
-    assert.ok(ids.includes("custom-lineage-flexible-asi"));
+    assert.ok(ids.includes("custom-lineage-asi-choice-1"));
     assert.ok(!ids.includes("custom-lineage-variable_trait_skill"));
   });
 });

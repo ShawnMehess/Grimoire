@@ -630,18 +630,30 @@ function featListWith(namesAndLevels) {
   const champ = SUBCLASS_BUNDLE_MAP.get("champion");
   if (!(champ?.choiceGroups || []).some((g) => g.id === "champion-fighting-style")) fail("Champion: fighting-style picker missing");
 
-  // Free-form racial ASIs: flexible ability bonus picker (Phase 3b)
-  // replaces the old 3-slot approach. The new picker has type "flexibleAbilityBonus"
-  // with two pattern options ("2-1" and "1-1-1").
-  for (const n of ["Aarakocra", "Aasimar", "Yuan-ti", "Genasi"]) {
-    const group = (race(n)?.choiceGroups || []).find((g) => g.type === "flexibleAbilityBonus");
-    if (!group) fail(`${n}: flexibleAbilityBonus group missing`);
-    if (group.minSelections !== 1 || group.maxSelections !== 1) fail(`${n}: flexibleAbilityBonus not single-pick`);
-    const opts = group.options || [];
-    if (opts.length !== 2) fail(`${n}: flexibleAbilityBonus wants 2 pattern options`);
-    const patterns = opts.map((o) => o.pattern).sort();
-    if (patterns[0] !== "1-1-1" || patterns[1] !== "2-1") fail(`${n}: flexibleAbilityBonus patterns incorrect`);
-    if ((race(n)?.featureGrants || []).some((f) => /plus_2_plus_1_or_three_plus_1s/.test(f.description || ""))) {
+  // Free-form racial ASIs: three "+1 ability" slots, one per group, sharing
+  // an asiFamily so the cap (an ability at most twice) can be read across
+  // them. Both legal patterns fall out of the same three questions: A,A,B is
+  // the +2/+1 and A,B,C the +1/+1/+1.
+  for (const n of ["Aarakocra", "Aasimar", "Yuan-ti", "Genasi", "Custom Lineage"]) {
+    const stem = n.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const slots = [1, 2, 3].map((i) => (race(n)?.choiceGroups || []).find((g) => g.id === `${stem}-asi-choice-${i}`));
+    if (slots.some((g) => !g)) fail(`${n}: three +1 ability slots expected (${stem}-asi-choice-1..3)`);
+    for (const group of slots.filter(Boolean)) {
+      if (group.minSelections !== 1 || group.maxSelections !== 1) fail(`${n}: ${group.id} not single-pick`);
+      if (group.asiFamily !== `${stem}-asi`) fail(`${n}: ${group.id} is not in the ${stem}-asi family`);
+      const opts = group.options || [];
+      if (opts.length !== 6) fail(`${n}: ${group.id} wants all six abilities, got ${opts.length}`);
+      for (const o of opts) {
+        if (!/^\+1 [A-Z]/.test(o.name || "")) fail(`${n}: ${group.id} option "${o.name}" should name its value`);
+        const m = (o.statModifiers || [])[0];
+        if (!m || m.op !== "add" || m.value !== 1 || !/^[a-z]+Score$/.test(m.targetFieldId || "")) {
+          fail(`${n}: ${group.id}/${o.id} does not add +1 to an ability score`);
+        }
+      }
+      if (opts.some((o, i) => opts[i - 1] && o.id === opts[i - 1].id)) fail(`${n}: ${group.id} option ids repeat`);
+    }
+    if ((race(n)?.featureGrants || []).some((f) => /plus_2_plus_1_or_three_plus_1s/.test(f.description || "")
+      || /pick by hand/.test(f.description || ""))) {
       fail(`${n}: stale ASI stub note still present`);
     }
   }

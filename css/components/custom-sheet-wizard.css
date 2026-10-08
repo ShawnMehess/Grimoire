@@ -813,6 +813,50 @@
   vertical-align: baseline;
 }
 
+/* A bullet that is a GROUP of controls rather than a sentence: the three
+ * "+1 ability" dropdowns of a racial increase, under one legend.
+ *
+ * The fieldset/legend pair is not decoration - it is how a screen reader
+ * announces which question three dropdowns belong to, and how the browser
+ * groups them for focus. The rest is layout: the controls wrap rather than
+ * overflow, and each takes a full row on a phone-width screen where three
+ * side by side would be three unusable slivers. The legend wears the
+ * section-label weight the other group headings use, so the row reads as
+ * the same kind of thing as the bullet it replaces. */
+.mechanics-pick-set {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.mechanics-pick-set__legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.mechanics-pick-set__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.mechanics-pick-set__controls .inline-pick-select {
+  margin: 0;
+  flex: 1 1 8em;
+  min-width: 7em;
+}
+
+@media (max-width: 600px) {
+  .mechanics-pick-set__controls .inline-pick-select {
+    flex: 1 1 100%;
+  }
+}
+
 .choice-row__portrait img {
   width: 100%;
   height: 100%;
