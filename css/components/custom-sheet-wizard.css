@@ -452,6 +452,61 @@
   margin-inline: auto;
 }
 
+/* The same line, when the step knows which control is open and can take
+ * you to it.
+ *
+ * A <button> carries UA styling a <p> never had, so everything about the
+ * look is reset back to the paragraph it replaced: no chrome, no fill, the
+ * same centred muted text, and an underline on hover so it still reads as
+ * pressable. The reason's colour is the token it already had, so this
+ * never looks like a second, louder message. */
+.wizard__gate-reason--action {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent-muted);
+  text-underline-offset: 0.2em;
+}
+
+.wizard__gate-reason--action:hover,
+.wizard__gate-reason--action:focus-visible {
+  color: var(--color-accent-text);
+  text-decoration-color: var(--color-accent);
+}
+
+/* The flash on the control the reason just sent you to. One and a half
+ * seconds of accent ring - the ring token is the app's own, so this cannot
+ * introduce a colour the page does not already use. */
+.wizard-gate-flash {
+  animation: wizard-gate-flash 1.5s ease-out 1;
+  border-radius: var(--radius-sm);
+}
+
+@keyframes wizard-gate-flash {
+  0%,
+  55% {
+    box-shadow: var(--shadow-glow-accent);
+    background-color: var(--color-accent-muted);
+  }
+  100% {
+    box-shadow: none;
+    background-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wizard-gate-flash {
+    animation: none;
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
 .wizard__preference-label {
   grid-column: 1 / -1;
   margin: 0 0 4px;

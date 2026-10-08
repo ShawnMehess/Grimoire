@@ -5145,6 +5145,76 @@ const closeDialog = () => {
     );
   }
 
+  /** The same walk as openChoiceSections, one entry per still-open GROUP
+   *  rather than per section, and named by the choice itself: "Languages
+   *  (Human)". A section name is the pick the group hangs off, which is
+   *  what the collapsible sections are called - but the reason under Next
+   *  has to say what the player is being asked to decide, and that is the
+   *  group's label, the same words the control on the page carries. */
+  function openChoiceLabels(groups) {
+    const out = [];
+    for (const group of groups || []) {
+      if (creationGroupSatisfied(group, state)) continue;
+      const label = (group.label || "").trim();
+      const source = (group.source || "").trim();
+      const name = label && label !== source ? `${label} (${source})` : (source || label);
+      if (name && !out.includes(name)) out.push(name);
+    }
+    return out;
+  }
+
+  /** The line under Next for a merged step, naming what is open. */
+  function stillToChoosePhrase(groups) {
+    const open = openChoiceLabels(groups);
+    if (!open.length) return openChoiceSections(groups).length ? "Choices still to make." : "";
+    return `Still to choose: ${open.join(", ")}`;
+  }
+
+  /** Scrolls to (and focuses, and briefly highlights) the first control on
+   *  this page that is still unanswered, so the reason under Next can be a
+   *  link rather than a dead end.
+   *
+   *  Two shapes of control, in reading order: an empty dropdown that names
+   *  the choice in its aria-label, and a "Choose ..." link that opens the
+   *  shared dialog. A collapsed ancestor is expanded first - scrolling to
+   *  something inside a collapsed row would show nothing at all. */
+  function focusFirstOpenChoice() {
+    const body = document.querySelector("#app-main .wizard__body") || document.querySelector(".wizard__body");
+    if (!body) return;
+    // Only the places this step's picks actually are: the SELECTED picker
+    // row and any open "Your choices" section. An unselected row keeps its
+    // controls in the DOM, and its dropdowns are as empty as the selected
+    // row's - so searching the whole page sent the flash to a race the
+    // player had not chosen, and revealed it to do it.
+    const scopes = [];
+    const selected = body.querySelector(".choice-row--selected");
+    if (selected) scopes.push(selected);
+    for (const open of body.querySelectorAll(".wizard__section-body, .wizard__choice-section-body")) {
+      if (!open.hidden && !scopes.includes(open)) scopes.push(open);
+    }
+    if (!scopes.length) scopes.push(body);
+    const empties = scopes.flatMap((scope) =>
+      [...scope.querySelectorAll("select[data-inline-slot]")].filter((s) => s.selectedIndex <= 0 || !s.value));
+    const links = scopes.flatMap((scope) =>
+      [...scope.querySelectorAll(".inline-pick-link")].filter((a) => /^choose\b/i.test((a.textContent || "").trim())));
+    const target = empties[0] || links[0];
+    if (!target) return;
+    if (typeof target.scrollIntoView === "function") {
+      target.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+    if (typeof target.focus === "function") target.focus({ preventScroll: true });
+    // Flash the accent ring for as long as it takes to read the line, then
+    // take it off again - a permanent marker would be decoration that
+    // outlives the question.
+    const flash = (node) => {
+      node.classList.add("wizard-gate-flash");
+      window.setTimeout(() => node.classList.remove("wizard-gate-flash"), 1500);
+    };
+    flash(target);
+    const shell = target.closest("li, .wizard__field, .choice-row__details");
+    if (shell && shell !== target) flash(shell);
+  }
+
   /** "Your choices" sections for a merged wizard step: one collapsible
    *  section per originating pick (race, class, …), each rendering
    *  that pick's own choice groups directly under it. Renders nothing
@@ -6260,11 +6330,15 @@ const closeDialog = () => {
           if (!state.species) out.push("No species picked yet.");
           else {
             if (!raceChoiceSettled(state.species)) out.push("Subrace pick outstanding.");
-            if (!choicesComplete(raceChoiceGroups)) out.push("Choices still to make.");
+            if (!choicesComplete(raceChoiceGroups)) {
+              const phrase = stillToChoosePhrase(raceChoiceGroups);
+              if (phrase) out.push(phrase);
+            }
             if (lineageFeatOffered() && !lineageFeatPick()) out.push("Ancestry feat not taken yet.");
           }
           return out;
         },
+        focusOpenChoice: focusFirstOpenChoice,
         render(container) {
           renderIdentityStepInto(container, state, {
             characterName: character.name,
@@ -6419,7 +6493,10 @@ const closeDialog = () => {
           // standing here most needs to know.
           const spells = spellPickShortfallPhrase(inlineSpellPickGroups(), state.choices || {});
           if (spells) out.push(spells);
-          if (!choicesComplete(classChoiceGroups)) out.push("Choices still to make.");
+          if (!choicesComplete(classChoiceGroups)) {
+            const phrase = stillToChoosePhrase(classChoiceGroups);
+            if (phrase) out.push(phrase);
+          }
           // Last, because it is the last thing on the page: only the first
           // reason is shown under Next, and the player should be pointed at
           // the topmost thing still outstanding.
@@ -6429,6 +6506,7 @@ const closeDialog = () => {
           }
           return out;
         },
+        focusOpenChoice: focusFirstOpenChoice,
         render(container) {
           const classFallback = wizardFieldOptionNames("class", "Class");
           renderClassStepInto(container, state, {

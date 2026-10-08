@@ -100,6 +100,7 @@ const AREAS = {
   "load-failure": "a blocked entry script produces a failure page",
   "background-gate": "every background: Next is blocked only on a visible pick",
   "dwarf-gate": "Dwarf subraces and Duergar clear the Identity gate; picks land on Review",
+  "gate-reasons": "the reason under Next names the open choice and takes you to it",
 };
 
 // The areas the smoke preset drops. Written as an explicit drop list so a new
@@ -6568,6 +6569,104 @@ if (inArea("dwarf-gate")) {
     }
   }
   await dverPage.close();
+}
+
+// --- The reason under Next names the missing choice, and leads to it ------
+//
+// "Choices still to make." named no choice, so a player with a blocked Next
+// had nothing to act on. The reason now names the group, and clicking it
+// scrolls to and focuses the control that decides it.
+if (inArea("gate-reasons")) {
+  const grPage = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
+  grPage.on("pageerror", (e) => problems.push(`PAGEERROR [gate-reasons]: ${e.message}`));
+  grPage.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [gate-reasons]: ${m.text()}`); });
+  const grCheck = (cond, msg) => {
+    if (!cond) failures.push(`[gate-reasons] ${msg}`);
+    console.log(`${cond ? "ok" : "FAIL"} [gate-reasons]: ${msg}`);
+  };
+  await grPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+  await settled(grPage, READY_VAULT, "gr vault");
+  await grPage.click(READY_VAULT);
+  await settled(grPage, READY_WIZARD, "gr wizard");
+  await grPage.waitForTimeout(600);
+  await grPage.evaluate(() => {
+    for (const b of document.querySelectorAll(".wizard input[type=checkbox]")) {
+      if (!b.checked) { b.click(); return; }
+    }
+  });
+  await grPage.waitForTimeout(300);
+  await grPage.evaluate(() => document.querySelector(".wizard__next:not([disabled])")?.click());
+  await grPage.waitForTimeout(600);
+  await grPage.evaluate(() => {
+    const n = document.querySelector(".wizard input[type=text]");
+    if (n) {
+      n.value = "Reason Tester";
+      n.dispatchEvent(new Event("input", { bubbles: true }));
+      n.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+  await grPage.waitForTimeout(300);
+  await grPage.click('.choice-row[data-row-name="Human"] .choice-row__label');
+  await grPage.waitForTimeout(800);
+
+  const reasonState = await grPage.evaluate(() => {
+    const node = document.querySelector(".wizard__gate-reason");
+    return {
+      text: (node?.textContent || "").trim(),
+      tag: node?.tagName || null,
+      blocked: !document.querySelector(".wizard__next:not([disabled])"),
+    };
+  });
+  grCheck(reasonState.blocked, "a Human with no language picked is blocked at Identity");
+  grCheck(/Language/i.test(reasonState.text),
+    `the reason names the language choice (${JSON.stringify(reasonState.text)})`);
+  grCheck(!/Choices still to make/.test(reasonState.text),
+    "and no longer says only 'Choices still to make.'");
+  grCheck(reasonState.tag === "BUTTON", `the reason is pressable (${reasonState.tag})`);
+
+  await grPage.click(".wizard__gate-reason");
+  await grPage.waitForTimeout(600);
+  const focusState = await grPage.evaluate(() => {
+    const active = document.activeElement;
+    return {
+      tag: active?.tagName || null,
+      label: active?.getAttribute("aria-label") || "",
+      rowName: active?.closest(".choice-row")?.dataset.rowName || null,
+      flashes: document.querySelectorAll(".wizard-gate-flash").length,
+      inViewport: (() => {
+        if (!active || !active.getClientRects) return false;
+        const r = active.getBoundingClientRect();
+        return r.bottom > 0 && r.top < (window.innerHeight || 0);
+      })(),
+    };
+  });
+  grCheck(focusState.tag === "SELECT", `clicking the reason focuses a dropdown (${JSON.stringify(focusState)})`);
+  grCheck(/Language/i.test(focusState.label),
+    `and that dropdown is the language one (${JSON.stringify(focusState.label)})`);
+  grCheck(focusState.rowName === "Human",
+    `and it belongs to the race actually picked (${focusState.rowName})`);
+  grCheck(focusState.flashes >= 1, "and it flashes so the eye lands on it");
+  await grPage.screenshot({ path: path.join(shotDir, "gate-reasons.png") });
+
+  // Answering it must clear the reason and unlock Next - the shortcut is an
+  // addition, not a replacement.
+  await grPage.evaluate(() => {
+    const s = document.querySelector(".choice-row--selected select[data-inline-slot]");
+    const opt = [...(s?.options || [])].find((o) => o.value && !o.disabled);
+    if (s && opt) {
+      s.value = opt.value;
+      s.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+  await grPage.waitForTimeout(700);
+  const afterPick = await grPage.evaluate(() => ({
+    reason: document.querySelector(".wizard__gate-reason")?.textContent?.trim() || "",
+    unlocked: Boolean(document.querySelector(".wizard__next:not([disabled])")),
+  }));
+  grCheck(afterPick.unlocked, `filling the language unlocks Next (${JSON.stringify(afterPick.reason)})`);
+  grCheck(!/Still to choose/.test(afterPick.reason),
+    "and the reason no longer names a choice that is made");
+  await grPage.close();
 }
 
 await browser.close();

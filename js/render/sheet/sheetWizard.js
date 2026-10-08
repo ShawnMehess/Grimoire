@@ -2090,6 +2090,41 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
     return reasons.length ? reasons[0] : "Make your selections on this page to continue.";
   };
 
+  /** The line under Next. A paragraph when the step has nothing to point
+   *  at; a button when it does.
+   *
+   *  "Choices still to make." told a player there was a problem and not
+   *  where it was, on a page that can be taller than the screen. A step
+   *  that knows WHICH control is open says so in the reason, and offers
+   *  the control: one click scrolls it into view, focuses it and flashes
+   *  it in the accent colour. Still ONE reason, in the same place - the
+   *  shortcut is additive, not a second list of buttons.
+   *
+   *  The step opts in by supplying `focusOpenChoice()`; without it the
+   *  reason stays plain text, exactly as before. */
+  const buildGateReasonNode = (step) => {
+    if (stepIsComplete(step)) {
+      const done = document.createElement("p");
+      done.className = "wizard__gate-reason";
+      return done;
+    }
+    const text = gateReasonTextFor(step);
+    const focusOpen = typeof step?.focusOpenChoice === "function" ? step.focusOpenChoice : null;
+    if (!focusOpen) {
+      const reason = document.createElement("p");
+      reason.className = "wizard__gate-reason";
+      reason.textContent = text;
+      return reason;
+    }
+    const reason = document.createElement("button");
+    reason.type = "button";
+    reason.className = "wizard__gate-reason wizard__gate-reason--action";
+    reason.textContent = text;
+    reason.title = "Go to the first choice still to make";
+    reason.addEventListener("click", () => { focusOpen(); });
+    return reason;
+  };
+
   // Built fresh each call (rather than reused) since a DOM node can
   // only live in one place at a time, and this is placed both above
   // and below the step body below.
@@ -2115,9 +2150,7 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
       }
       forward.addEventListener("click", () => { goTo(stepState.index + 1, 1); });
       nav.append(forward);
-      const reason = document.createElement("p");
-      reason.className = "wizard__gate-reason";
-      if (!stepIsComplete(currentStep)) reason.textContent = gateReasonTextFor(currentStep);
+      const reason = buildGateReasonNode(currentStep);
       nav.append(reason);
     } else if (currentStep.finish) {
       // The LAST step's action lives here, where Next would have been.
@@ -3224,6 +3257,11 @@ export function renderLiveBulletItem(item) {
     const summary = lead.map((l) => l.text).join(", ") || "Choose";
     li.append(el("a", {
       href: "#", class: "inline-pick-link", text: summary, title: "Change picks",
+      // The link's own text is only the summary ("Choose 2", or the names
+      // already picked). A screen reader hears that with no idea WHICH
+      // choice it opens, so the group label travels with it - the same
+      // words the reason under Next now names.
+      "aria-label": item.topic ? `${item.topic}: ${summary}` : summary,
       onclick: (e) => { e.preventDefault(); e.stopPropagation(); item.dialogOpener(); },
     }));
   } else {
