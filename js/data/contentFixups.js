@@ -184,8 +184,12 @@ function fightingStyleGroup(prefix, minLevel, styles) {
   return {
     id: `${prefix}-fighting-style`, label: "Fighting Style", minLevel,
     minSelections: 1, maxSelections: 1,
+    // One style per character, whichever class or subclass asked: the
+    // Fighter's own list and a Champion's extra pick are the same decision,
+    // and a multiclassed Fighter/Paladin may not take Defense twice.
+    pickFamily: "fighting-style",
     options: styles.map((s) => textOption(`${prefix}-fighting-style`, s,
-      `${FIGHTING_STYLES[s]} (Recorded here â€” conditional combat mechanics like this are tracked, not auto-applied.)`)),
+      `${FIGHTING_STYLES[s]} (Recorded here — conditional combat mechanics like this are tracked, not auto-applied.)`)),
   };
 }
 
@@ -394,6 +398,10 @@ function patchSorcerer(bundle) {
       id: `sorcerer-metamagic-${i}`, label: `Metamagic â€” pick ${counts[i] ?? 1}`, minLevel,
       minSelections: counts[i] ?? 1, maxSelections: counts[i] ?? 1,
       category: "features",
+      // Three unlocks, one set of options: the rules allow each option once,
+      // so what 3rd-level Metamagic takes is locked at 10th and again at
+      // 17th rather than offered a second time.
+      pickFamily: "sorcerer-metamagic",
       options: Object.entries(METAMAGIC).map(([n, d]) => textOption(`sorcerer-metamagic-${i}`, n, `${d} (Costs sorcery points â€” tracked, not auto-spent.)`)),
     };
     bundle.choiceGroups.push(group);
@@ -411,6 +419,9 @@ function patchWarlock(bundle) {
       id: `warlock-invocations-${i}`, label: `Eldritch Invocations â€” pick ${tier.count} (level ${tier.minLevel}+)`, minLevel: tier.minLevel,
       minSelections: tier.count, maxSelections: tier.count,
       category: "features",
+      // One invocation each, however many times the tiers are taken: the
+      // list at 5th is the list at 2nd minus what the 2nd already holds.
+      pickFamily: "warlock-invocations",
       options: INVOCATIONS.map(([n, d]) => textOption(`warlock-invocations-${i}`, n, `${d} (Recorded here â€” prerequisites apply, see text.)`)),
     };
     bundle.choiceGroups.push(group);

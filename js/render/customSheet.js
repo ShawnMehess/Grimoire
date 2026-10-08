@@ -290,6 +290,7 @@ import {
   reconcileDropdownChoices,
   ownedSkillIdsFromBundles,
   optionIsOwned,
+  familyTakenOptionNames,
   groupPicksSatisfied,
   lockCommonInLanguageGroups as lockCommonGroups,
   reviewChoiceLinesFor,
@@ -5559,6 +5560,11 @@ const closeDialog = () => {
     return (featGroups || []).map((group) => {
       const stored = character.rules.choices?.[group.key] || [];
       const picked = (group.options || []).find((o) => stored.includes(o.id)) || null;
+      // The single-pick version of the family lock the dialog does: a
+      // later unlock of the same list (Metamagic at 10th, Invocations at
+      // 5th) greys out what an earlier one already holds, so the option
+      // cannot be taken twice.
+      const familyTaken = new Set(familyTakenOptionNames(group, creationChoiceGroupsFor(state), character.rules.choices || {}));
       return {
         live: true,
         topic: group.label || "Choose",
@@ -5570,7 +5576,10 @@ const closeDialog = () => {
           options: (group.options || []).filter((o) => o.name).map((o) => ({
             value: o.id,
             label: o.name,
-            title: o.featureGrants?.[0]?.description ? sharedBriefDescription(o.featureGrants[0].description, 120) : null,
+            disabled: familyTaken.has(o.name),
+            title: familyTaken.has(o.name)
+              ? "Already chosen"
+              : (o.featureGrants?.[0]?.description ? sharedBriefDescription(o.featureGrants[0].description, 120) : null),
           })),
         }],
         onPick: (slotKey, optionId, info) => {
@@ -5859,6 +5868,18 @@ const closeDialog = () => {
       }
 
       const lockedIds = [...new Set([...(group.lockedOptionIds || []), ...opts.filter((o) => optionIsOwned(o, owned)).map((o) => o.id)])];
+      // One decision spread over several unlocks (Metamagic at 3, 10 and
+      // 17; Eldritch Invocations at every level) is still one decision per
+      // option: the rules do not let the same option be taken again, so an
+      // option a sibling unlock already holds is locked here. Matched by
+      // NAME, because the sibling group's option ids are built from its own
+      // prefix and would never match this group's.
+      const familyTaken = new Set(familyTakenOptionNames(group, creationChoiceGroupsFor(state), store));
+      if (familyTaken.size) {
+        for (const o of opts) {
+          if (familyTaken.has(o.name) && !lockedIds.includes(o.id)) lockedIds.push(o.id);
+        }
+      }
       const stored = store[group.key] || [];
       const pickedNames = stored.map((id) => opts.find((o) => o.id === id)?.name).filter(Boolean);
       // Languages get the Widespread/Rare split, so the dialog reads as two

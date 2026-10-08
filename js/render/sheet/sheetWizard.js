@@ -283,6 +283,40 @@ export function optionIsOwned(option, owned) {
     || (mod.op === "grantTag" && mod.value && owned.has(`tag:${mod.targetFieldId}:${mod.value}`)));
 }
 
+/** The family a pick group belongs to, or "" when it stands alone.
+ *
+ *  A single-pick list is a single decision only WITHIN itself. A sorcerer's
+ *  Metamagic is one decision spread over three unlocks, and the rules let
+ *  each unlock be taken once - so Quickened Spell at 3rd is Quickened Spell
+ *  at 10th, and the second time has to be refused. A group that names a
+ *  family shares it with its siblings, and the shared pure helpers below
+ *  both read the picks and lock what is already taken. */
+export function pickFamilyOf(group) {
+  return typeof group?.pickFamily === "string" ? group.pickFamily : "";
+}
+
+/** Option ids already picked anywhere else in `groups` that share this
+ *  group's family. The ids come back from the SIBLING groups, so the
+ *  dialog has to map them onto its own options by name rather than by id
+ *  - two groups build the same option id per prefix only by accident.
+ *  Returns option NAMES, which is what `lockedIds` is matched against
+ *  after the dialog maps its own list. Pure. */
+export function familyTakenOptionNames(group, groups = [], choicesStore = {}) {
+  const family = pickFamilyOf(group);
+  if (!family) return [];
+  const names = new Set();
+  for (const other of groups || []) {
+    if (other === group || pickFamilyOf(other) !== family) continue;
+    const picked = choicesStore?.[other.key] || [];
+    if (!picked.length) continue;
+    for (const id of picked) {
+      const option = (other.options || []).find((o) => o.id === id);
+      if (option?.name) names.add(option.name);
+    }
+  }
+  return [...names];
+}
+
 /** Common is known by default and can't be changed: wherever a
  *  language picker offers it, pre-select it, lock it, and keep it out
  *  of the pick budget (so "choose 2" still means two more). Operates
@@ -4413,7 +4447,14 @@ export function renderChoiceGroupsInto(container, groups, choicesStore, namePref
     if (group.categories) {
       renderCrossCategoryChoiceInto(choiceGroup, group, choicesStore, rerender, onChange);
     } else {
-      renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange);
+      // Options a sibling unlock of the same family already holds, so a
+      // later list greys out what an earlier one took. Names are the join
+      // key: each group builds its option ids from its own prefix.
+      const familyNames = new Set(familyTakenOptionNames(group, groups, choicesStore));
+      const familyLocked = groupOptionsOf(group)
+        .filter((o) => familyNames.has(o.name) && !(choicesStore[group.key] || []).includes(o.id))
+        .map((o) => o.id);
+      renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange, familyLocked);
     }
     container.append(choiceGroup);
   });
@@ -4458,8 +4499,9 @@ export function renderCrossCategoryChoiceInto(container, group, choicesStore, re
   });
 }
 
-export function renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange) {
+export function renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange, familyLocked = null) {
   const locked = new Set(group.lockedOptionIds || []);
+  const familyLockedIds = familyLocked instanceof Set ? familyLocked : new Set(familyLocked || []);
   const counted = selected.filter((id) => !locked.has(id));
   const atMax = counted.length >= group.maxSelections;
   group.options.forEach((option) => {
@@ -4467,13 +4509,22 @@ export function renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned,
     optionLabel.className = "level-guide__choice-option";
     const alreadyOwned = optionIsOwned(option, owned);
     const isLocked = locked.has(option.id);
+    // Taken by a sibling unlock of the same list (Metamagic at 10th, the
+    // same option the 3rd already holds). Disabled rather than hidden: the
+    // list a player reads should be the whole list, and the one that says
+    // why is the title, as with every other locked option here.
+    const familyHeld = familyLockedIds.has(option.id);
     const input = document.createElement("input");
     input.type = group.maxSelections === 1 ? "radio" : "checkbox";
     input.name = `${namePrefix}-${group.key}`;
     input.value = option.id;
     const isChecked = selected.includes(option.id);
     input.checked = isChecked || alreadyOwned || isLocked;
-    if (isLocked) {
+    if (familyHeld && !isChecked) {
+      input.disabled = true;
+      optionLabel.classList.add("level-guide__choice-option--locked");
+      optionLabel.title = "Already chosen at an earlier level";
+    } else if (isLocked) {
       input.disabled = true;
       optionLabel.classList.add("level-guide__choice-option--locked");
       optionLabel.title = option.lockTitle || "Selected by default — this one can't be changed";

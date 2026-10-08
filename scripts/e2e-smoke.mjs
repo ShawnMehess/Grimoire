@@ -105,6 +105,7 @@ const AREAS = {
   "asi-slots": "racial ability increases are three +1 slots, capped at twice per ability",
   "fighting-style": "Fighter L1, Paladin L2 and Ranger L2 fighting styles are real picks",
   "expertise-pick": "Rogue and Bard expertise offers only skills the character is proficient in",
+  "metamagic-pick": "Sorcerer Metamagic is two at 3rd, one at 10th, never the same option twice",
 };
 
 // The areas the smoke preset drops. Written as an explicit drop list so a new
@@ -7545,6 +7546,207 @@ if (inArea("expertise-pick")) {
   exCheck(bard3.links.some((l) => /Expertise/.test(l)),
     `a level-3 Bard is offered expertise (${JSON.stringify(bard3.links)})`);
   await exPage.close();
+}
+
+// --- Sorcerer Metamagic, unlock by unlock ------------------------------------
+//
+// 3rd level brings a pair, 10th and 17th one each, and the same option may
+// not be taken twice - the 10th-level list is the 3rd-level list minus what
+// the 3rd already holds. The pair draws as its own "Your choices" section (a
+// pair of feature picks has no single dropdown to be) and the single draws as
+// a dropdown in the class row; both are the same pick, and the test reads
+// whichever one the page drew.
+if (inArea("metamagic-pick")) {
+  const mmPage = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
+  mmPage.on("pageerror", (e) => problems.push(`PAGEERROR [metamagic-pick]: ${e.message}`));
+  mmPage.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [metamagic-pick]: ${m.text()}`); });
+  const mmCheck = (cond, msg) => {
+    if (!cond) failures.push(`[metamagic-pick] ${msg}`);
+    console.log(`${cond ? "ok" : "FAIL"} [metamagic-pick]: ${msg}`);
+  };
+  const mmStep = () => mmPage.evaluate(() =>
+    document.querySelector(".wizard__dot--active")?.dataset.stepId || null);
+  const mmNext = () => mmPage.evaluate(() => {
+    const b = document.querySelector(".wizard__next:not([disabled])");
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  const mmToClass = async (level) => {
+    await mmPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await mmPage.evaluate(() => localStorage.clear());
+    await mmPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await settled(mmPage, READY_VAULT, "mm vault");
+    await mmPage.click(READY_VAULT);
+    await settled(mmPage, READY_WIZARD, "mm wizard");
+    await mmPage.waitForTimeout(600);
+    await mmNext();
+    await mmPage.waitForTimeout(600);
+    await mmPage.evaluate((lvl) => {
+      const n = document.querySelector(".wizard input[type=text]");
+      if (n) {
+        n.value = "Meta Tester";
+        n.dispatchEvent(new Event("input", { bubbles: true }));
+        n.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      const box = document.querySelector('.wizard input[type="number"]');
+      if (box) {
+        box.value = String(lvl);
+        box.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }, level);
+    await mmPage.waitForTimeout(700);
+    await mmPage.click('.choice-row[data-row-name="Human"] .choice-row__label');
+    await mmPage.waitForTimeout(800);
+    for (let i = 0; i < 8; i += 1) {
+      const did = await mmPage.evaluate(() => {
+        const row = document.querySelector(".choice-row--selected");
+        const s = [...(row?.querySelectorAll("select[data-inline-slot]") || [])].find((x) => x.selectedIndex <= 0);
+        if (!s) return false;
+        const o = [...s.options].find((x) => x.value && !x.disabled);
+        s.value = o.value; s.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      });
+      await mmPage.waitForTimeout(450);
+      if (!did) break;
+    }
+    await mmNext();
+    await mmPage.waitForTimeout(800);
+    await mmPage.click('.choice-row[data-row-name="Sorcerer"] .choice-row__label');
+    await mmPage.waitForTimeout(1000);
+  };
+  // Everything the page says about metamagic, wherever it drew it.
+  const mmState = () => mmPage.evaluate(() => {
+    const row = document.querySelector(".choice-row--selected");
+    const sections = [...document.querySelectorAll(".wizard__choice-section")].map((s) => ({
+      label: s.querySelector(".wizard__choice-section-toggle")?.textContent?.trim() || "",
+      body: s.querySelector(".wizard__choice-section-body")?.textContent?.replace(/\s+/g, " ") || "",
+      checked: [...(s.querySelectorAll("input[type=checkbox]:checked") || [])].map((b) => b.value),
+      boxes: [...(s.querySelectorAll("input[type=checkbox]") || [])].map((b) => ({ value: b.value, disabled: b.disabled })),
+    }));
+    const dropdowns = [...(row?.querySelectorAll("select[data-inline-slot]") || [])].map((s) => ({
+      label: s.getAttribute("aria-label"),
+      value: s.value,
+      options: [...s.options].map((o) => ({ value: o.value, disabled: o.disabled, title: o.title })),
+    }));
+    const mmSection = sections.find((s) => /metamagic/i.test(`${s.label} ${s.body}`));
+    // The class step's non-dialog picks (a single-pick feature list) render
+    // as their own "Class Choices" fieldset of radios, not in the row.
+    const classChoices = [...document.querySelectorAll("#app-main .wizard__body .level-guide__choices")].map((f) => ({
+      legend: f.querySelector("legend")?.textContent?.trim() || "",
+      radios: [...f.querySelectorAll("input[type=radio]")].map((r) => ({ value: r.value, disabled: r.disabled, checked: r.checked })),
+    }));
+    const mmDropdown = dropdowns.find((d) => /metamagic/i.test(d.label || ""))
+      || dropdowns.find((d) => (d.options || []).some((o) => /metamagic/i.test(o.value)));
+    const mmClassChoice = classChoices.find((c) => /metamagic/i.test(c.legend) && /pick 1/i.test(c.legend))
+      || classChoices.find((c) => /metamagic/i.test(c.legend));
+    return {
+      mmSection,
+      mmDropdown,
+      mmClassChoice,
+      dropdowns,
+      classChoices,
+      reason: document.querySelector(".wizard__gate-reason")?.textContent?.trim() || "",
+      bodyHasMetamagic: /Metamagic/.test(document.querySelector(".wizard__body")?.textContent || ""),
+    };
+  });
+  const mmOpenSection = async () => {
+    await mmPage.evaluate(() => {
+      for (const t of document.querySelectorAll(".wizard__section-toggle, .wizard__choice-section-toggle")) {
+        if (/needs picks/i.test(t.textContent || "")) t.click();
+      }
+    });
+    await mmPage.waitForTimeout(500);
+  };
+  // Take options out of the section one at a time, re-queried after each
+  // click: a pick re-renders the group, and the section is only ever OPENED
+  // here (clicking a "needs picks" toggle blindly would collapse it on the
+  // second call and silently take nothing).
+  const mmPickInSection = async (names) => {
+    for (const want of names) {
+      await mmPage.evaluate((w) => {
+        const bodies = [...document.querySelectorAll(".wizard__choice-section-body")];
+        for (const body of bodies) {
+          if (!/Metamagic/i.test(body.closest(".wizard__choice-section")?.textContent || "")) continue;
+          if (body.hidden) {
+            body.closest(".wizard__choice-section")?.querySelector(".wizard__choice-section-toggle")?.click();
+          }
+          for (const b of body.querySelectorAll("input[type=checkbox]")) {
+            if (!b.checked && !b.disabled && b.value.includes(w)) { b.click(); return; }
+          }
+        }
+      }, want);
+      await mmPage.waitForTimeout(700);
+    }
+  };
+
+  // ---- Level 3: a pair ---------------------------------------------------
+  await mmToClass(3);
+  const l3 = await mmState();
+  mmCheck(l3.bodyHasMetamagic, "a level-3 Sorcerer is offered Metamagic");
+  mmCheck(Boolean(l3.mmSection), `the pair draws as its own section (${JSON.stringify(l3.mmSection?.label)})`);
+  const l3boxes = l3.mmSection?.boxes || [];
+  mmCheck(l3boxes.length >= 8, `with the full option list (${l3boxes.length})`);
+  mmCheck(l3boxes.some((b) => /quickened/i.test(b.value)) && l3boxes.some((b) => /twinned/i.test(b.value)),
+    `including Quickened and Twinned (${JSON.stringify(l3boxes.slice(0, 3).map((b) => b.value))})`);
+  await mmPickInSection(["quickened-spell"]);
+  await mmPickInSection(["twinned-spell"]);
+  const afterL3 = await mmState();
+  mmCheck((afterL3.mmSection?.checked || []).length === 2,
+    `both picks are recorded (${JSON.stringify(afterL3.mmSection?.checked)})`);
+  mmCheck(!/Metamagic/.test(afterL3.reason),
+    `and the reason stops naming it (${JSON.stringify(afterL3.reason)})`);
+  mmCheck(/Quickened Spell/.test(afterL3.mmSection?.body || ""),
+    `with the chosen names on the section (${JSON.stringify((afterL3.mmSection?.body || "").match(/Quickened Spell.{0,20}/)?.[0] || "")})`);
+
+  // ---- Same character at level 10: the first pair is off the list --------
+  // The level box on the Identity step is the same level the Level Up button
+  // would raise, so this is the level-10 state without driving twenty
+  // level-ups: the class row re-renders with both unlocks.
+  await mmPage.evaluate(() => {
+    const dots = [...document.querySelectorAll(".wizard__dot")];
+    (dots.find((d) => d.dataset.stepId === "identity") || dots[0]).click();
+  });
+  await mmPage.waitForTimeout(900);
+  await mmPage.evaluate(() => {
+    const box = document.querySelector('.wizard input[type="number"]');
+    if (box) { box.value = "10"; box.dispatchEvent(new Event("change", { bubbles: true })); }
+  });
+  await mmPage.waitForTimeout(1200);
+  await mmPage.evaluate(() => {
+    const dots = [...document.querySelectorAll(".wizard__dot")];
+    (dots.find((d) => d.dataset.stepId === "class") || dots[0]).click();
+  });
+  await mmPage.waitForTimeout(1000);
+  // Back on Identity after the level change; Identity itself is unchanged and
+  // complete, so one Next lands on the Class step where the new level's list
+  // now draws.
+  await mmNext();
+  await mmPage.waitForTimeout(1000);
+  const l10 = await mmState();
+  if (!l10.mmClassChoice) {
+    console.log(`[metamagic-pick] l10 debug: classChoices=${JSON.stringify((l10.classChoices || []).map((c) => c.legend))} reason=${l10.reason}`);
+  }
+  mmCheck(Boolean(l10.mmClassChoice), `at level 10 the single pick is offered (${JSON.stringify(l10.mmClassChoice?.legend)})`);
+  const l10radios = l10.mmClassChoice?.radios || [];
+  const lockedRadios = l10radios.filter((r) => r.disabled).map((r) => r.value);
+  mmCheck(lockedRadios.length === 2, `the 10th-level list locks exactly what the 3rd took (${JSON.stringify(lockedRadios)})`);
+  mmCheck(lockedRadios.some((v) => /quickened/i.test(v)) && lockedRadios.some((v) => /twinned/i.test(v)),
+    `and they are the two already chosen (${JSON.stringify(lockedRadios)})`);
+  const freeRadios = l10radios.filter((r) => !r.disabled).map((r) => r.value);
+  mmCheck(freeRadios.length >= 8, `the rest of the list is still open (${freeRadios.length})`);
+  await mmPage.evaluate(() => {
+    const fieldsets = [...document.querySelectorAll("#app-main .wizard__body .level-guide__choices")];
+    const f = fieldsets.find((x) => /Metamagic/i.test(x.querySelector("legend")?.textContent || "") && /pick 1/i.test(x.querySelector("legend")?.textContent || ""));
+    const r = [...f.querySelectorAll("input[type=radio]")].find((x) => !x.disabled && !x.checked);
+    r.click();
+  });
+  await mmPage.waitForTimeout(900);
+  const afterL10 = await mmState();
+  mmCheck((afterL10.mmClassChoice?.radios || []).some((r) => r.checked),
+    `and the 10th-level pick takes (${JSON.stringify((afterL10.mmClassChoice?.radios || []).find((r) => r.checked)?.value)})`);
+  await mmPage.screenshot({ path: path.join(shotDir, "metamagic-pick.png") });
+  await mmPage.close();
 }
 
 await browser.close();
