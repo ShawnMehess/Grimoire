@@ -6532,6 +6532,36 @@ if (inArea("dwarf-gate")) {
     await dverPage.waitForTimeout(600);
     await dverPage.click(`.choice-row[data-row-name="${sub}"] .choice-row__label`);
     await dverPage.waitForTimeout(600);
+    // The selected subrace card is part of the accent family, in every
+    // theme. It was a hard-coded rust, which read as a different product on
+    // a page that is otherwise cool blue.
+    const nestedColour = await dverPage.evaluate((n) => {
+      const row = document.querySelector(`.choice-row--selected[data-row-name="${n}"]`);
+      if (!row) return null;
+      // color-mix resolves to color(srgb r g b) in decimals on some builds
+      // and to rgb() on others; parse both rather than guess.
+      const raw = getComputedStyle(row).backgroundColor;
+      const nums = (raw.match(/-?\d*\.?\d+/g) || []).map(Number);
+      if (nums.length < 3) return null;
+      const scale = raw.startsWith("color(") ? 255 : 1;
+      return { r: Math.round(nums[0] * scale), g: Math.round(nums[1] * scale), b: Math.round(nums[2] * scale) };
+    }, sub);
+    if (nestedColour) {
+      const { r, g, b } = nestedColour;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      const d = max - min;
+      let hue = null;
+      if (d >= 8) {
+        if (max === r) hue = ((g - b) / d) % 6;
+        else if (max === g) hue = (b - r) / d + 2;
+        else hue = (r - g) / d + 4;
+        hue = Math.round(hue * 60);
+        if (hue < 0) hue += 360;
+      }
+      const warm = hue !== null && ((hue >= 10 && hue <= 45) || hue >= 335);
+      dvCheck(!warm, `${sub}: the selected card is not a warm hue (rgb(${r},${g},${b}), hue ${hue})`);
+      dvCheck(b >= r, `${sub}: and blue leads it (rgb(${r},${g},${b}))`);
+    }
     await fillEveryPick(dverPage);
     await dverPage.waitForTimeout(400);
     const nextOk = await dverPage.evaluate(() => Boolean(document.querySelector(".wizard__next:not([disabled])")));

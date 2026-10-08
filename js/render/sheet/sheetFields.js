@@ -600,9 +600,9 @@ export function buildAvatarPlaceholderSvg() {
   svg.setAttribute("preserveAspectRatio", "xMidYMid slice");
   svg.classList.add("picture-placeholder-svg");
   svg.innerHTML = `
-      <rect width="24" height="24" fill="#2a2520"/>
-      <circle cx="12" cy="9.5" r="4" fill="#4a4038"/>
-      <path d="M12 14.6c-4.8 0-8.2 3.2-8.2 7.7v1.7h16.4v-1.7c0-4.5-3.4-7.7-8.2-7.7z" fill="#4a4038"/>
+      <rect class="picture-placeholder-svg__bg" width="24" height="24"/>
+      <circle class="picture-placeholder-svg__figure" cx="12" cy="9.5" r="4"/>
+      <path class="picture-placeholder-svg__figure" d="M12 14.6c-4.8 0-8.2 3.2-8.2 7.7v1.7h16.4v-1.7c0-4.5-3.4-7.7-8.2-7.7z"/>
     `;
   return svg;
 }

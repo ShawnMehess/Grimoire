@@ -1139,6 +1139,16 @@
   display: block;
   pointer-events: none;
 }
+/* The placeholder portrait's two greys were baked into the SVG as browns,
+   so the empty portrait was the last warm thing on a cool page and the
+   only part of it that ignored the theme. Same two roles - ground and
+   figure - named here instead, off the tokens the rest of the app uses. */
+.picture-placeholder-svg__bg {
+  fill: var(--color-bg-inset);
+}
+.picture-placeholder-svg__figure {
+  fill: var(--color-text-faint);
+}
 .picture-avatar-btn {
   position: absolute;
   top: 4px;

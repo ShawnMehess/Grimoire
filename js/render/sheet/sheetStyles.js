@@ -23,6 +23,29 @@ export function styleToCss(style = {}) {
 
 export const BORDER_SHAPE_CLASS_PREFIX = "border-shape--";
 
+/** The colour a native `<input type="color">` should open on.
+ *
+ *  That control takes a literal hex and nothing else, so a token cannot go
+ *  in it - which is how a warm brown default ended up on a page that is
+ *  otherwise cool, and why it could not simply be swapped for `--color-text`.
+ *  Read the token off the document instead, so the swatch a shape opens
+ *  with is the colour the app is actually drawing with, and keep the hex as
+ *  the fallback for a document with no tokens (the unit tests).
+ *
+ *  Themes that ARE warm keep their warm swatch: this follows the theme,
+ *  rather than forcing every theme onto the default palette's blue. */
+export function themeColor(tokenName, fallbackHex) {
+  try {
+    const raw = typeof document === "undefined" ? "" :
+      getComputedStyle(document.documentElement).getPropertyValue(tokenName);
+    const hex = String(raw || "").trim();
+    if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex)) return hex;
+  } catch {
+    /* no computed style here; the fallback stands */
+  }
+  return fallbackHex;
+}
+
 export function applyCssToEl(el, css) {
   el.style.background = css.background;
   el.style.backgroundImage = css.backgroundImage;
@@ -338,7 +361,7 @@ export function buildStylePopoverInto(node, wrapperEl, deps) {
   const colorLabel = buildStyleLabel("Text Color", "color");
   const colorInput = document.createElement("input");
   colorInput.type = "color";
-  colorInput.value = editableStyle.color || "#e8e0d0";
+  colorInput.value = editableStyle.color || themeColor("--color-text", "#ececf1");
   colorInput.addEventListener("input", () => {
     styleChangeFn(wrapperEl, node, { cssProp: "color", cssValue: colorInput.value, styleKey: "color", rawValue: colorInput.value });
   });
@@ -417,7 +440,7 @@ export function buildStylePopoverInto(node, wrapperEl, deps) {
   borderControls.className = "style-popover__toggles";
   const borderInput = document.createElement("input");
   borderInput.type = "color";
-  borderInput.value = editableStyle.borderColor || "#554838";
+  borderInput.value = editableStyle.borderColor || themeColor("--color-border-strong", "#4d545f");
   borderInput.title = "Border color";
   borderInput.setAttribute("aria-label", "Border color");
   borderInput.addEventListener("input", () => {
