@@ -19,7 +19,7 @@
 
    And the dropdowns: a <select> clips what it is given, with no ellipsis
    and no tooltip. "Barbarian" needs 89px of text and had 81px, so the
-   Character Vault's own demo character showed as "Barbarian" cut in half.
+   Grimoire's own demo character showed as "Barbarian" cut in half.
    A long subclass is worse and unavoidable in 113px - "Path of the
    Ancestral Guardian" is 247px - so the CSS buys back what it can and
    js/render/customSheet.js now puts the chosen text in the select's

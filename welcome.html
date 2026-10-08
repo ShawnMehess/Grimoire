@@ -3,41 +3,42 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Welcome - Character Vault</title>
+  <title>Welcome - Grimoire</title>
   <meta name="robots" content="noindex" />
-  <meta name="description" content="The Character Vault sign-in page." />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314110f'/%3E%3Cpath d='M16 5l3.5 7.2L27 13l-5.7 5.1L22.8 27 16 22.9 9.2 27l1.5-8.9L5 13l7.5-.8z' fill='%23b3492b'/%3E%3C/svg%3E" />
+  <meta name="description" content="The Grimoire sign-in page." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2317181c'/%3E%3Cpath d='M16 5l3.5 7.2L27 13l-5.7 5.1L22.8 27 16 22.9 9.2 27l1.5-8.9L5 13l7.5-.8z' fill='%233b6fd4'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 
-  <!-- Tokens below are copied from css/tokens.css, not linked. This page is
-       standalone on purpose: it has to render even when the app's stylesheet
-       is not here. Values checked against the default dark theme -
-       --color-bg #14110f, --color-bg-raised #1d1a16, --color-bg-inset #0f0d0b,
-       --color-border #3a332a, --color-text #e8e0d0, --color-text-muted #a89a82,
-       --color-accent #b3492b, --color-accent-hover #d4602f,
-       --color-accent-text #d4602f, --color-arcane #5b7f9e. They will drift if
-       the app's theme changes; nothing on this page breaks when they do. -->
+   <!-- Tokens below are copied from css/tokens.css, not linked. This page is
+        standalone on purpose: it has to render even when the app's stylesheet
+        is not here. Values checked against the Standard dark theme (the
+        one the app applies on startup) -
+        --color-bg #17181c, --color-bg-raised #202227, --color-bg-inset #101215,
+        --color-border #363a42, --color-text #ececf1, --color-text-muted #a7adb8,
+        --color-accent #3b6fd4, --color-accent-hover #5b8aee,
+        --color-arcane #6a86c9. They will drift if
+        the app's theme changes; nothing on this page breaks when they do. -->
   <style>
     :root {
-      --bg: #14110f;
-      --raised: #1d1a16;
-      --inset: #0f0d0b;
+      --bg: #17181c;
+      --raised: #202227;
+      --inset: #101215;
       /* A shade above --raised, for a lit object sitting on the card. The
          die cannot use --inset: that is darker than the card behind it, so
          the solid vanished and only its edges showed. */
-      --die: #262019;
-      --border: #3a332a;
-      --text: #e8e0d0;
-      --muted: #a89a82;
-      --accent: #b3492b;
-      --accent-hover: #d4602f;
-      --accent-text: #d4602f;
-      --arcane: #5b7f9e;
+      --die: #272b33;
+      --border: #363a42;
+      --text: #ececf1;
+      --muted: #a7adb8;
+      --accent: #3b6fd4;
+      --accent-hover: #5b8aee;
+      --accent-text: #5b8aee;
+      --arcane: #6a86c9;
       /* Text colour for the button. Swaps per state: white on the darker
-         accent is 5.4:1, but only 3.8:1 on the lighter hover, so the hover
-         state flips to dark ink (4.9:1) rather than ship a fail. */
+         accent is 4.76:1, but only 3.3:1 on the lighter hover, so the
+         hover state flips to dark ink (5.3:1) rather than ship a fail. */
       --on-accent: #ffffff;
       --radius-sm: 3px;
       --radius-md: 6px;
@@ -74,7 +75,7 @@
       overflow-wrap: break-word;
     }
 
-    /* A faint wash of warmth behind the card, so the page reads as lit
+    /* A faint blue wash behind the card, so the page reads as lit
        rather than as a flat rectangle on a flat field. A linear wash rather
        than a pool: it needs no markup, and it cannot leave a hard edge if a
        gradient is unsupported. */
@@ -84,7 +85,7 @@
       inset: 0;
       z-index: 0;
       pointer-events: none;
-      background: linear-gradient(155deg, rgba(179, 73, 43, 0.14), rgba(179, 73, 43, 0) 55%);
+      background: linear-gradient(155deg, rgba(59, 111, 212, 0.14), rgba(59, 111, 212, 0) 55%);
     }
 
     .card {
@@ -385,8 +386,8 @@
         <path class="art__edge" d="M74 224 L206 146" />
         <path class="art__edge" d="M246 224 L114 146" />
 
-        <!-- Three sparks in the arcane blue - the one cool colour the palette
-             has, against a solid that is otherwise all warm. -->
+        <!-- Three sparks in the arcane blue - the accent's lighter cousin,
+             against a solid that is otherwise all deep ink. -->
         <path class="art__spark" d="M160 20 l3.4 8.6 8.6 3.4 -8.6 3.4 -3.4 8.6 -3.4 -8.6 -8.6 -3.4 8.6 -3.4 z" />
         <path class="art__spark" d="M264 80 l2.2 5.6 5.6 2.2 -5.6 2.2 -2.2 5.6 -2.2 -5.6 -5.6 -2.2 5.6 -2.2 z" opacity="0.7" />
         <path class="art__spark" d="M56 80 l2.2 5.6 5.6 2.2 -5.6 2.2 -2.2 5.6 -2.2 -5.6 -5.6 -2.2 5.6 -2.2 z" opacity="0.7" />

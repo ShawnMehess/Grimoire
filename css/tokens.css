@@ -6,38 +6,36 @@
    ========================================================================== */
 
 :root {
-  /* --- Color: dark fantasy, parchment-on-ink --- */
-  --color-bg:            #14110f;
-  --color-bg-raised:     #1d1a16;
-  --color-bg-inset:      #0f0d0b;
-  --color-border:        #3a332a;
-  --color-border-strong: #55483880;
+  /* --- Color: the base matches the Standard dark theme, which is what the
+     app applies on startup, so the loading flash and any unthemed moment
+     read the same as the app itself --- */
+  --color-bg:            #17181c;
+  --color-bg-raised:     #202227;
+  --color-bg-inset:      #101215;
+  --color-border:        #363a42;
+  --color-border-strong: #4d545f80;
 
-  --color-text:          #e8e0d0;
-  --color-text-muted:    #a89a82;
-  /* Was #6b5f4f — 3.02:1 against --color-bg, under the 4.5:1 WCAG AA
-     threshold for normal text. This is the "quietest" text token and it
-     still renders words (empty-field hints, secondary labels), so it has to
-     clear the same bar as --color-text-muted. 4.81:1 now. */
-  --color-text-faint:    #90826c;
+  --color-text:          #ececf1;
+  --color-text-muted:    #a7adb8;
+  --color-text-faint:    #858b97;
 
-  --color-accent:        #b3492b;   /* sealing-wax red — button BACKGROUND */
-  --color-accent-hover:  #d4602f;
-  --color-accent-muted:  #7a3a2680;
+  --color-accent:        #3b6fd4;   /* cool blue — button BACKGROUND */
+  --color-accent-hover:  #5b8aee;
+  --color-accent-muted:  #2c4a8a80;
   /* Separate token for accent used as TEXT, because one value cannot serve
-     both jobs: #b3492b clears 5.38:1 under white button labels (which is
-     why it is the background) but only 3.50:1 against the page background,
+     both jobs: #3b6fd4 clears 4.76:1 under white button labels (which is
+     why it is the background) but only 4.04:1 against the page background,
      so any accent-coloured text on the page failed AA. Raising the
      background token to fix the text would have dropped white-on-accent
-     below 4.5 and made the buttons worse. Two tokens, two jobs. 4.94:1. */
-  --color-accent-text:   #d4602f;
+     below 4.5 and made the buttons worse. Two tokens, two jobs. 5.33:1. */
+  --color-accent-text:   #5b8aee;
 
-  --color-arcane:        #5b7f9e;   /* used for spell-related UI only */
-  --color-positive:      #6a8f5c;
+  --color-arcane:        #6a86c9;   /* used for spell-related UI only */
+  --color-positive:      #5d9b62;
   /* Was #a3413a — 3.02:1, and this one is error text. It is the least
      readable colour on the default theme and it is the one carrying the
      most important message. 4.89:1 now. */
-  --color-negative:      #cc6259;
+  --color-negative:      #c27671;
 
   /* --- Spacing scale (multiples of 4px) --- */
   --space-1:  0.25rem;
@@ -81,11 +79,11 @@
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
   --shadow-lg: 0 12px 32px rgba(0,0,0,0.55);
-  --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 4px 16px -2px rgba(179,73,43,0.35);
+  --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 4px 16px -2px rgba(59,111,212,0.35);
   --shadow-inset: inset 0 1px 2px rgba(0,0,0,0.35);
 
   /* --- Gradients --- */
-  --gradient-accent: linear-gradient(155deg, #c25a37, var(--color-accent) 55%, #8f3a20);
+  --gradient-accent: linear-gradient(155deg, #5b8aee, var(--color-accent) 55%, #27437e);
   --gradient-surface: linear-gradient(160deg, #211d18, var(--color-bg-raised) 60%);
 
   /* --- Motion --- */

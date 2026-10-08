@@ -1,4 +1,4 @@
-// store.js — backend selector for Character Vault.
+// store.js — backend selector for Grimoire.
 //
 // Firebase (characterStore.js) is primary: it is already configured
 // and is the only backend shared between friends. localStore.js

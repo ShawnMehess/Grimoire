@@ -1,4 +1,4 @@
-// localStore.js — offline-first backend for Character Vault.
+// localStore.js — offline-first backend for Grimoire.
 //
 // Same named exports as state/characterStore.js, backed by
 // localStorage instead of Firestore. Used automatically when Firebase
