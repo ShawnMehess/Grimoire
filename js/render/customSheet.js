@@ -466,6 +466,7 @@ import {
   groupToolbarHover,
   clickSelectionAction,
   dropCellFor,
+  selectionCoversText,
 } from "./sheet/sheetSelection.js";
 import {
   MONEY_FIELD_NAMES as SHARED_MONEY_FIELD_NAMES,
@@ -2194,6 +2195,11 @@ const closeDialog = () => {
   // every click regardless.
   pageGrid.addEventListener("pointerdown", (e) => {
     if (!editMode) return;
+    // A drag across a block's text to copy it must not also select the
+    // block. Selection starts on this same gesture, so there is nothing to
+    // read yet on a fresh drag - what this catches is the drag that begins
+    // inside text the player has already selected.
+    if (selectionCoversText(pageGrid)) return;
     // Drag/resize handles do their own hierarchy-aware selection (a
     // block's handle selects it WITH its fields; a field's doesn't) —
     // this generic handler doesn't know that distinction, so let

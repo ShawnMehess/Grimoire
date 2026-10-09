@@ -1327,6 +1327,14 @@
   cursor: grab;
   border-radius: var(--radius-sm);
 }
+/* A reorder drag is the row's own drag gesture, and a text selection across
+   it competes with the same pointer. Unselectable for the DRAGGABLE rows
+   only - a borrowed row (a spell the character has not prepared) is not
+   draggable, so its text stays copyable like every other line of the sheet. */
+.textlist-item[draggable="true"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
 .textlist-item:hover {
   background: var(--color-bg-raised);
 }

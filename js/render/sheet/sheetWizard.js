@@ -9,6 +9,7 @@ import { briefDescription, capitalizeFirst, splitAbilityTokens, abilityTooltip, 
 import { spellGist, spellHasMoreThanGist } from "../../data/spellGists.js";
 import { el, animateWith } from "./sheetHelpers.js";
 import { spellLinkNodes } from "./spellLinks.js";
+import { selectionCoversText } from "./sheetSelection.js";
 import { contentIdMatches } from "../../data/dnd5e.js";
 
 export function isStepApplicable(step) {
@@ -3814,7 +3815,11 @@ function renderSinglePickerRows(container, names, {
       class: "choice-row" + (nested ? " choice-row--nested" : "") + (selected ? " choice-row--selected" : ""),
       "data-row-name": name,
       tabindex: 0, role: "button", "aria-pressed": String(selected),
+      // A drag across a trait line to copy it lands here too, and the row
+      // would collapse out from under the text being selected. Keyboard
+      // activation never has a selection behind it, so it is never blocked.
       onclick: () => {
+        if (selectionCoversText(row)) return;
         preserveScrollWhile(toggleRow);
       },
       onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleRow(); } },
@@ -3985,7 +3990,12 @@ function renderMultiPickerRows(container, names, { selectedSet, onToggle, getInf
     const row = el("div", {
       class: "choice-row" + (selected ? " choice-row--selected" : ""),
       "data-name": name, tabindex: 0, role: "checkbox", "aria-checked": String(selected),
-      onclick: () => preserveScrollWhile(() => onToggle(name)),
+      onclick: () => {
+        // Same rule as the single-select rows: copying a spell's text must
+        // not check it off.
+        if (selectionCoversText(row)) return;
+        preserveScrollWhile(() => onToggle(name));
+      },
       onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); preserveScrollWhile(() => onToggle(name)); } },
     });
     row.append(el("div", {

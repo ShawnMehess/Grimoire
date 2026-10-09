@@ -5,6 +5,33 @@
 // renderer keeps its `selectedIds`/`groupBorderVisible` lets as the
 // source of truth and delegates DOM work here.
 
+/** Whether the pointer that just produced this click was selecting text
+ *  rather than pressing the thing under it.
+ *
+ *  Prose is selectable everywhere (see the body rule in css/base.css), and
+ *  most of that prose sits inside something you can also click: a picker row
+ *  toggles and selects, a grid node is the unit of layout. A drag across a
+ *  row's trait list is therefore also a click, and without this the row would
+ *  collapse under the text the player was trying to copy.
+ *
+ *  Pure enough to test with a fake selection: it asks the live Selection for
+ *  whether it is collapsed, non-empty, and inside `node`, and answers false
+ *  whenever any of that is unknowable - so a stub DOM without getSelection()
+ *  gets a plain click, which is what every headless harness wants. */
+export function selectionCoversText(node, view = null) {
+  const win = view ?? (typeof window === "undefined" ? null : window);
+  const sel = win?.getSelection?.();
+  if (!sel) return false;
+  // isCollapsed is the authoritative "nothing is selected right now"; the
+  // string check catches the browser that leaves a collapsed selection's
+  // toString() non-empty, and the whitespace trim catches the drag that
+  // ended between two words.
+  if (sel.isCollapsed) return false;
+  if (!String(sel.toString?.() ?? "").trim()) return false;
+  if (!node || typeof node.contains !== "function") return false;
+  return node.contains(sel.anchorNode) && node.contains(sel.focusNode);
+}
+
 export function selectionBoxFor(pageGrid, selectedIds) {
   if (selectedIds.size < 2) return null;
   const pageRect = pageGrid.getBoundingClientRect();

@@ -25,21 +25,39 @@ body {
   font-size: var(--text-base);
   line-height: var(--leading-normal);
   min-height: 100vh;
-  cursor: default; /* plain text shouldn't show the text-select I-beam;
-    editable elements ([contenteditable], inputs) and buttons already
-    set their own cursor and override this via normal CSS cascade */
+  /* `auto`, not `default`: a player can now select and copy any prose on the
+     page - a class feature, a weapon's damage line, a field's own text - and
+     an arrow cursor over text that turns out to be selectable reads as a lie.
+     `auto` asks the browser per element, so text shows the I-beam, a link
+     shows the pointer, and anything else shows the plain arrow. Every
+     interactive control below sets its own cursor anyway and wins over an
+     inherited value through the ordinary cascade. */
+  cursor: auto;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  -webkit-user-select: none;
-  user-select: none; /* text you can't edit shouldn't be selectable either —
-    it should behave like an image. Anything actually editable opts back
-    in below, right next to the cursor override for the same reason. */
+  user-select: text;
 }
 
-/* body's cursor:default and user-select:none above would otherwise
-   incorrectly cascade onto these too, since both are inherited
-   properties — editable text needs the normal text cursor AND normal
-   selection back. */
+/* The chrome, not the content. A button's own label is not something anybody
+   copies - selecting it just leaves a blue smear on the control you were
+   about to press - so the app's INTERACTIVE furniture opts back out.
+
+   Labels are deliberately NOT in this list: most of them here wrap a radio
+   and a sentence of rules text ("Supplies: Backpack, Bedroll, 10 days of
+   rations"), and that sentence is content the player may well want to copy.
+   The drag and resize handles are content-free by construction. */
+button,
+summary,
+option,
+.drag-handle,
+.resize-handle {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Editable text needs the normal text cursor back - it no longer has to opt
+   in to selection, but the label above would otherwise leave it with an
+   arrow. */
 input[type="text"], input[type="number"], input[type="search"], textarea,
 [contenteditable="true"] {
   cursor: text;
