@@ -328,6 +328,7 @@ import {
   capMessage,
   ensureSpellListFieldIn,
   renderSpellPickerInto,
+  collapseAllControlsInto,
 } from "./sheet/sheetWizard.js";
 import {
   snapshotOf,
@@ -5435,9 +5436,10 @@ function computeSheetValues(fields) {
         if (btn) btn.setAttribute("aria-expanded", String(!collapsed));
       });
     };
-    container.append(el("div", { class: "choice-row-list__collapse-controls" },
-      el("button", { type: "button", class: "btn", text: "Expand All", onclick: () => setAll(false) }),
-      el("button", { type: "button", class: "btn", text: "Collapse All", onclick: () => setAll(true) })));
+    container.append(collapseAllControlsInto({
+      onExpand: () => setAll(false),
+      onCollapse: () => setAll(true),
+    }));
     container.append(block);
     sections.forEach((section) => {
       const key = `${stepId}:${section.source}`;
