@@ -31,6 +31,13 @@
   --color-accent-text:   #5b8aee;
 
   --color-arcane:        #6a86c9;   /* used for spell-related UI only */
+  /* The gold a "look below, there is more" note is printed in. A note, not
+     a warning: nothing here is wrong, there is simply another decision
+     further down the page. Yellow is the one hue the rest of the palette
+     never uses, which is what makes it read at a glance — and a hue used
+     for nothing else can be held to text contrast instead of being
+     decoration. 8.6:1 on the inset surface, the darkest ground here. */
+  --color-note:          #e6b93f;
   --color-positive:      #5d9b62;
   /* Was #a3413a — 3.02:1, and this one is error text. It is the least
      readable colour on the default theme and it is the one carrying the

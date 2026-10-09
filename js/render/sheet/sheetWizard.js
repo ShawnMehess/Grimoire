@@ -3353,7 +3353,9 @@ export function setChoiceRowExpanded(name, expanded) {
  *  together, so the tables cannot drift apart. `afterRow` lets a
  *  caller inject content after a particular row (nested subrace /
  *  subclass lists, remove buttons); `nested` marks a sub-list's rows
- *  for the "part of, but distinct from, its parent" styling. */
+ *  for the "part of, but distinct from, its parent" styling, and
+ *  `detailsNote(name)` prints one line at the foot of a row's expanded
+ *  box — what a container row says about the children nested under it. */
 export function renderPickerTableInto(container, names, opts = {}) {
   const { mode = "single" } = opts;
   if (mode === "multi") return renderMultiPickerRows(container, names, opts);
@@ -3720,8 +3722,72 @@ export function preserveScrollWhile(fn) {
   else setTimeout(restore, 0);
 }
 
+/** The handful of glyphs this app draws inline, as SVG markup strings.
+ *
+ *  Inline SVG rather than an icon font or sprite sheet: this is a static,
+ *  offline-first app with no build step, and an external font or sprite is one
+ *  more thing that can fail to load and leave the control blank. A stroke on
+ *  `currentColor` also means an icon inherits whatever colour its button has -
+ *  the accent on a primary button, the muted text on a plain one - with no
+ *  second set of rules. */
+const ICON_MARKS = {
+  // Two chevrons down: every row opens.
+  expand: '<path d="M6 9l6 6 6-6"/><path d="M6 15l6 6 6-6"/>',
+  // Two chevrons up: every row closes.
+  collapse: '<path d="M6 15l6-6 6 6"/><path d="M6 9l6-6 6 6"/>',
+  // Single, large chevrons: Back and Next in the action bar. Bigger than the
+  // expand/collapse pair on purpose - these are the two controls the whole
+  // wizard turns on.
+  back: '<path d="M15 4.5L7.5 12 15 19.5"/>',
+  next: '<path d="M9 4.5L16.5 12 9 19.5"/>',
+};
+
+/** An inline SVG for one of ICON_MARKS. Decorative by construction: every
+ *  control that carries one names itself with `aria-label`, so the shape is
+ *  hidden from assistive tech rather than read out as an unpronounceable
+ *  character. */
+export function iconSvg(kind, className = "") {
+  const marks = ICON_MARKS[kind];
+  if (!marks) return null;
+  return el("span", {
+    class: "btn__icon" + (className ? ` ${className}` : ""),
+    html: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" `
+      + `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${marks}</svg>`,
+  });
+}
+
+/** A button whose whole content is one of those icons.
+ *
+ *  `label` is not decoration: it is both the hover tooltip and the accessible
+ *  name, which is what keeps an icon-only control usable. It is deliberately
+ *  NOT the visible text - these controls show no words, which is the point. */
+export function iconButtonInto({ kind, label, className = "", onclick = null, ...attrs }) {
+  const btn = el("button", {
+    type: "button",
+    class: `btn btn--icon${className ? ` ${className}` : ""}`,
+    title: label,
+    "aria-label": label,
+    ...attrs,
+  }, iconSvg(kind));
+  if (onclick) btn.addEventListener("click", onclick);
+  return btn;
+}
+
+/** The two controls that open or close every row of a list at once.
+ *
+ *  Shared by the picker tables (renderSinglePickerRows) and the "Your
+ *  choices" sections on a merged step, which are the same control over a
+ *  different set of rows. Both call the same handlers and both are driven by
+ *  setRowExpanded, so a row cannot end up animated by one and not the other. */
+export function collapseAllControlsInto({ onExpand, onCollapse }) {
+  return el("div", { class: "choice-row-list__collapse-controls" },
+    iconButtonInto({ kind: "expand", label: "Expand All", className: "choice-row-list__expand-all", onclick: onExpand }),
+    iconButtonInto({ kind: "collapse", label: "Collapse All", className: "choice-row-list__collapse-all", onclick: onCollapse }));
+}
+
 function renderSinglePickerRows(container, names, {
   selectedName, onSelect, getInfo, getMechanics, getMechanicsList, afterRow, nested = false, getIcon = null,
+  detailsNote = null,
   // Collapsed-by-default is the right shape for any list long enough to
   // scroll (Race, Class, Background, …): only the selected row's details
   // show, everything else is a scannable name + one-line description.
@@ -3734,39 +3800,72 @@ function renderSinglePickerRows(container, names, {
 } = {}) {
   const list = document.createElement("div");
   list.className = "choice-row-list" + (nested ? " choice-row-list--nested" : "");
+  // Which row this list's own pick is, so "collapse everything else" can keep
+  // it open. A nested list (a race's subraces) has its own selected name, and
+  // without recording it the parent's Collapse All closed the subrace the
+  // player had chosen along with everything else.
+  if (nested) list.dataset.selectedRow = selectedName || "";
+
+  /* One place that opens or closes a row, whichever way it was asked for -
+   * a click, the Expand All / Collapse All pair, or a parent row folding
+   * away. Every path runs the same animation, so a subrace opened by hand and
+   * one opened by Expand All move identically. */
+  const nestedListAfter = (row) => {
+    const next = row?.nextElementSibling;
+    return next?.classList?.contains("choice-row-list--nested") ? next : null;
+  };
+  /** Close a row's nested list too. The subraces/subclasses under a row are
+   *  its SIBLING in the DOM, not a child of its details (they have to sit
+   *  outside the collapsible box to keep their own portrait-and-name shape),
+   *  so a folded parent would otherwise leave its children standing on the
+   *  page with nothing above them. */
+  const collapseNestedRows = (row) => {
+    const nestedList = nestedListAfter(row);
+    if (!nestedList) return;
+    nestedList.querySelectorAll(".choice-row").forEach((child) => {
+      // The remembered-open set is cleared too: a row that is not on screen
+      // must not come back open, or re-expanding the parent would restore a
+      // state the player has since watched close.
+      if (child.dataset?.rowName) expandedChoiceRows.delete(child.dataset.rowName);
+      setRowExpanded(child, false);
+    });
+  };
+  function setRowExpanded(row, expand) {
+    if (!row) return;
+    const details = row.querySelector(".choice-row__details");
+    if (details) {
+      if (expand && details.hidden) animateRowDetails(details, row, true);
+      else if (!expand && !details.hidden) animateRowDetails(details, row, false);
+      else row.classList.toggle("choice-row--expanded", expand);
+    } else {
+      row.classList.toggle("choice-row--expanded", expand);
+    }
+    if (!expand) collapseNestedRows(row);
+  }
+  /** Whether Collapse All should leave this one open: the list's own pick,
+   *  wherever that pick lives. The parent row is the anchor; so is the
+   *  subrace or subclass chosen inside a nested list under it. */
+  const keepsOpenOnCollapseAll = (row) => {
+    if (selectedName && row.dataset?.rowName === selectedName) return true;
+    const nestedList = nestedListAfter(row);
+    return Boolean(nestedList?.dataset.selectedRow && row.dataset?.rowName === nestedList.dataset.selectedRow);
+  };
+
   if (showControls && names.length) {
-    const controls = el("div", { class: "choice-row-list__collapse-controls" },
-      el("button", {
-        type: "button", class: "btn", text: "Expand All",
-        onclick: () => {
-          names.forEach((name) => expandedChoiceRows.add(name));
-          list.querySelectorAll(".choice-row").forEach((row) => {
-            const d = row.querySelector(".choice-row__details");
-            if (d && d.hidden) animateRowDetails(d, row, true);
-            else if (d) row.classList.add("choice-row--expanded");
-          });
-        },
-      }),
-      el("button", {
-        type: "button", class: "btn", text: "Collapse All",
-        onclick: () => {
-          // The current pick stays expanded as the anchor while
-          // everything else collapses around it (nothing selected:
-          // everything collapses, as before).
-          names.forEach((name) => { if (name !== selectedName) expandedChoiceRows.delete(name); });
-          if (selectedName) expandedChoiceRows.add(selectedName);
-          list.querySelectorAll(".choice-row").forEach((row) => {
-            const keep = !!selectedName && row.dataset?.rowName === selectedName;
-            const details = row.querySelector(".choice-row__details");
-            if (details) {
-              if (keep && details.hidden) animateRowDetails(details, row, true);
-              else if (!keep && !details.hidden) animateRowDetails(details, row, false);
-              else row.classList.toggle("choice-row--expanded", keep);
-            }
-          });
-        },
-      }));
-    container.append(controls);
+    container.append(collapseAllControlsInto({
+      onExpand: () => {
+        names.forEach((name) => expandedChoiceRows.add(name));
+        list.querySelectorAll(".choice-row").forEach((row) => setRowExpanded(row, true));
+      },
+      onCollapse: () => {
+        // The current pick stays expanded as the anchor while
+        // everything else collapses around it (nothing selected:
+        // everything collapses, as before).
+        names.forEach((name) => { if (name !== selectedName) expandedChoiceRows.delete(name); });
+        if (selectedName) expandedChoiceRows.add(selectedName);
+        list.querySelectorAll(".choice-row").forEach((row) => setRowExpanded(row, keepsOpenOnCollapseAll(row)));
+      },
+    }));
   }
   names.forEach((name) => {
     const info = getInfo ? getInfo(name) : null;
@@ -3785,11 +3884,7 @@ function renderSinglePickerRows(container, names, {
       if (collapsible && selectedName && selectedName !== name) {
         expandedChoiceRows.delete(selectedName);
         const prevRow = [...list.querySelectorAll(".choice-row")].find((r) => r.dataset?.rowName === selectedName);
-        if (prevRow) {
-          const prevDetails = prevRow.querySelector(".choice-row__details");
-          if (prevDetails && !prevDetails.hidden) animateRowDetails(prevDetails, prevRow, false);
-          else prevRow.classList.remove("choice-row--expanded");
-        }
+        setRowExpanded(prevRow, false);
       }
       expandedChoiceRows.add(name);
       const d = row.querySelector(".choice-row__details");
@@ -3801,11 +3896,9 @@ function renderSinglePickerRows(container, names, {
     // clicking the open, selected row again collapses it and de-selects
     // (onSelect(null)). Row click alone handles collapse — no Collapse button.
     const toggleRow = () => {
-      const detailsEl = row.querySelector(".choice-row__details");
       if (name === selectedName && expandedChoiceRows.has(name)) {
         expandedChoiceRows.delete(name);
-        if (detailsEl) animateRowDetails(detailsEl, row, false);
-        else row.classList.remove("choice-row--expanded");
+        setRowExpanded(row, false);
         onSelect(null);
         return;
       }
@@ -3878,6 +3971,16 @@ function renderSinglePickerRows(container, names, {
       }
     } else if (getMechanics) {
       details.append(el("div", { class: "choice-row__mechanics", text: getMechanics(name) || "No mechanical data linked yet." }));
+      hasDetails = true;
+    }
+    // A note at the FOOT of the expanded box - what a parent row says about
+    // the children nested under it ("choose a subrace from below"). It lives
+    // inside the details on purpose: it is only true while the box is open,
+    // and it then fades in and out with the rest of the contents under the
+    // same short motion, rather than arriving by a second, different rule.
+    const noteText = typeof detailsNote === "function" ? detailsNote(name) : "";
+    if (noteText) {
+      details.append(el("p", { class: "choice-row__followup-note", text: noteText }));
       hasDetails = true;
     }
     if (hasDetails) {

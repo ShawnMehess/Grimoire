@@ -192,6 +192,29 @@ function fieldWrapper(label, control, { inputClass = "" } = {}) {
   return field;
 }
 
+// --- The note a container row carries ------------------------------------
+//
+// Elf, Dwarf, Barbarian and the rest own a list of children nested under
+// them, and the two things a player has been shown are easy to confuse: the
+// parent's own properties (speed, senses, the hit die's saving throws) do
+// NOT change with the child, and the traits that make the child itself are
+// not on the parent's row at all. One sentence at the foot of the expanded
+// box settles both, in the row's own words.
+//
+// Said by a pure builder rather than two literals so the race page and the
+// class page cannot drift into two different ways of saying the same thing —
+// and so the wording is testable without a DOM.
+export function childChoiceNoteText({ parent, child, extra }) {
+  return `Choose a ${child} from below for its ${extra}. The base properties in the main ${parent}`
+    + ` apply to every member of the ${child}.`;
+}
+export const SUBRACE_NOTE_TEXT = childChoiceNoteText({
+  parent: "race", child: "subrace", extra: "additional traits",
+});
+export const SUBCLASS_NOTE_TEXT = childChoiceNoteText({
+  parent: "class", child: "subclass", extra: "additional features",
+});
+
 export function renderIdentityStepInto(container, state, deps) {
   const { characterName, nameInputSetFn, saveNameFn, updateFn, fieldFn, optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn, selectableRowsFn, debounceFn } = deps;
   const {
@@ -235,24 +258,40 @@ export function renderIdentityStepInto(container, state, deps) {
 
   container.append(el("p", { class: "wizard__section-label", text: "Race/Species" }));
 
+  // The one line a container race needs and no other row does: this row's own
+  // properties are shared by every subrace, and the traits that make a
+  // subrace itself are on the list below it. Pure, and shared with the class
+  // step so the two pages cannot drift into saying it differently.
+  const subraceNote = () => SUBRACE_NOTE_TEXT;
+  /** The subrace picker this race nests, and its options.
+   *
+   *  `options` is read rather than `.options` off the group alone, so a
+   *  picker that splits its options across categories resolves the same way
+   *  here as it does when the list is actually drawn. Reading `.options`
+   *  alone made a cross-category container show no note and no nested list at
+   *  all, which is the one shape that cannot then be completed. */
+  const subraceOptionsFor = (raceName) => {
+    const sub = subraceGroupFn ? subraceGroupFn(raceName) : null;
+    if (!sub) return null;
+    return { sub, options: sub.options || sub.group?.options || [] };
+  };
+  const hasSubraces = (raceName) => (subraceOptionsFor(raceName)?.options.length || 0) > 0;
+
   const liveNames = optionNamesFn(state.rulesetId, "Race");
   if (liveNames.length) {
     selectableRowsFn(container, liveNames, {
       selectedName: state.species,
       getInfo: (name) => catalogInfoFn(["race", "species"], name),
       getMechanicsList: (name) => (mechanicsListFn ? mechanicsListFn("Race", name) : null),
+      detailsNote: (name) => (hasSubraces(name) ? subraceNote() : ""),
       onSelect: (name) => updateFn("species", name),
       // Subrace picker nests under the selected race — the same
       // pattern the Class step uses for subclasses.
       afterRow: (raceName, rowEl) => {
         if (raceName !== state.species) return;
-        const sub = subraceGroupFn ? subraceGroupFn(raceName) : null;
-        // `options` is passed in rather than read off the group here, so a
-        // subrace picker that splits its options across categories renders
-        // the same rows as a flat one. Reading `.options` alone made a
-        // cross-category container show nothing nested under it, which is
-        // the one shape that cannot then be completed.
-        const options = sub?.options || sub?.group?.options || [];
+        const found = subraceOptionsFor(raceName);
+        if (!found) return;
+        const { sub, options } = found;
         if (!options.length) return;
         const picked = options.find((o) => (sub.pickedIds || []).includes(o.id));
         const holder = el("div");
@@ -285,19 +324,27 @@ export function renderIdentityStepInto(container, state, deps) {
 
 export function renderClassStepInto(container, state, deps) {
   const { optionNamesFn, catalogInfoFn, bundleFn, summarizeFn, mechanicsListFn, subclassDataFn, updateFn, selectableRowsFn, creationGroups, categorizeChoiceGroup, saveRules, sectionIntoFn, renderCreationChoiceGroupsFn, inlineChoicesFn } = deps;
+  // Whether this class has subclasses you can actually take right now. The
+  // note and the nested list have to agree on this: a level-1 Barbarian is
+  // not told to choose a subclass it cannot see yet, and a level-3 one is
+  // not left to work that out from an empty space under its row.
+  const subclassesNow = (name) => {
+    const subs = subclassDataFn(name);
+    return subs.subclasses.length && state.level >= subs.subclassLevel ? subs : null;
+  };
   const liveNames = optionNamesFn(state.rulesetId, "Class");
   selectableRowsFn(container, liveNames, {
     selectedName: state.className,
     getInfo: (name) => catalogInfoFn(["class"], name),
     getMechanicsList: (name) => (mechanicsListFn ? mechanicsListFn("Class", name) : null),
+    detailsNote: (name) => (subclassesNow(name) ? SUBCLASS_NOTE_TEXT : ""),
     onSelect: (name) => updateFn("className", name),
     afterRow: (name, rowEl) => {
       if (name !== state.className) return;
-      const subs = subclassDataFn(name);
-      // No note when there's nothing to choose yet — the nested
-      // picker appears here exactly when a subclass is choosable now,
-      // and the Leveling tab covers later levels.
-      if (!(subs.subclasses.length && state.level >= subs.subclassLevel)) return;
+      const subs = subclassesNow(name);
+      // No note when there's nothing to choose yet — the Leveling tab
+      // covers later levels.
+      if (!subs) return;
       // Built against a detached holder so the nested list's
       // own container.append() call doesn't land it at the end of
       // the whole class list — it belongs right under this

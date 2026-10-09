@@ -252,7 +252,7 @@ describe("dyslexia-friendly text", () => {
 });
 
 describe("every theme's text clears AA", () => {
-  const TEXT_TOKENS = ["--color-text", "--color-text-muted", "--color-text-faint", "--color-negative", "--color-positive", "--color-accent-text"];
+  const TEXT_TOKENS = ["--color-text", "--color-text-muted", "--color-text-faint", "--color-negative", "--color-positive", "--color-accent-text", "--color-note"];
   const BACKGROUNDS = ["--color-bg", "--color-bg-raised", "--color-bg-inset"];
 
   it("holds across every token block that has a background", () => {
