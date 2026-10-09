@@ -106,6 +106,8 @@ const AREAS = {
   "fighting-style": "Fighter L1, Paladin L2 and Ranger L2 fighting styles are real picks",
   "expertise-pick": "Rogue and Bard expertise offers only skills the character is proficient in",
   "metamagic-pick": "Sorcerer Metamagic is two at 3rd, one at 10th, never the same option twice",
+  "warlock-pact": "Warlock Pact Boon and Invocations gate on their prerequisites and their level",
+  "creation-numbers": "two finished characters measured against the rules data: HP, speed, saves, DC, slots",
 };
 
 // The areas the smoke preset drops. Written as an explicit drop list so a new
@@ -7634,7 +7636,10 @@ if (inArea("metamagic-pick")) {
     // as their own "Class Choices" fieldset of radios, not in the row.
     const classChoices = [...document.querySelectorAll("#app-main .wizard__body .level-guide__choices")].map((f) => ({
       legend: f.querySelector("legend")?.textContent?.trim() || "",
-      radios: [...f.querySelectorAll("input[type=radio]")].map((r) => ({ value: r.value, disabled: r.disabled, checked: r.checked })),
+      // Both input kinds: a one-pick group is radios, a pair is checkboxes,
+      // and this area's groups are both.
+      radios: [...f.querySelectorAll("input[type=radio], input[type=checkbox]")]
+        .map((r) => ({ value: r.value, disabled: r.disabled, checked: r.checked, type: r.type })),
     }));
     const mmDropdown = dropdowns.find((d) => /metamagic/i.test(d.label || ""))
       || dropdowns.find((d) => (d.options || []).some((o) => /metamagic/i.test(o.value)));
@@ -7665,6 +7670,7 @@ if (inArea("metamagic-pick")) {
   const mmPickInSection = async (names) => {
     for (const want of names) {
       await mmPage.evaluate((w) => {
+        // The "Your choices" section form.
         const bodies = [...document.querySelectorAll(".wizard__choice-section-body")];
         for (const body of bodies) {
           if (!/Metamagic/i.test(body.closest(".wizard__choice-section")?.textContent || "")) continue;
@@ -7673,6 +7679,13 @@ if (inArea("metamagic-pick")) {
           }
           for (const b of body.querySelectorAll("input[type=checkbox]")) {
             if (!b.checked && !b.disabled && b.value.includes(w)) { b.click(); return; }
+          }
+        }
+        // And the class-row fieldset form the same group can take.
+        for (const fs of document.querySelectorAll(".wizard__body .level-guide__choices")) {
+          if (!/Metamagic/i.test(fs.textContent || "")) continue;
+          for (const b of fs.querySelectorAll("input[type=checkbox]:not(:disabled)")) {
+            if (!b.checked && b.value.includes(w)) { b.click(); return; }
           }
         }
       }, want);
@@ -7684,20 +7697,29 @@ if (inArea("metamagic-pick")) {
   await mmToClass(3);
   const l3 = await mmState();
   mmCheck(l3.bodyHasMetamagic, "a level-3 Sorcerer is offered Metamagic");
-  mmCheck(Boolean(l3.mmSection), `the pair draws as its own section (${JSON.stringify(l3.mmSection?.label)})`);
-  const l3boxes = l3.mmSection?.boxes || [];
+  // A class group whose dialog kind is its own picker draws as a fieldset on
+  // the class row rather than in a collapsible "Your choices" section, so read
+  // whichever of the two the step rendered - same group either way, and the
+  // level-10 half of this area already had to read the fieldset.
+  const mmGroup = (s) => s.mmSection
+    ? { boxes: s.mmSection.boxes, checked: s.mmSection.checked, body: s.mmSection.body }
+    : { boxes: (s.mmClassChoice?.radios || []).map((r) => ({ value: r.value, disabled: r.disabled })), checked: (s.mmClassChoice?.radios || []).filter((r) => r.checked).map((r) => r.value), body: s.classChoices?.map((c) => c.legend).join(" ") || "" };
+  mmCheck(Boolean(l3.mmSection || l3.mmClassChoice),
+    `the pair draws as its own pick list (${JSON.stringify(l3.mmSection?.label || l3.mmClassChoice?.legend)})`);
+  const l3boxes = mmGroup(l3).boxes;
   mmCheck(l3boxes.length >= 8, `with the full option list (${l3boxes.length})`);
   mmCheck(l3boxes.some((b) => /quickened/i.test(b.value)) && l3boxes.some((b) => /twinned/i.test(b.value)),
     `including Quickened and Twinned (${JSON.stringify(l3boxes.slice(0, 3).map((b) => b.value))})`);
   await mmPickInSection(["quickened-spell"]);
   await mmPickInSection(["twinned-spell"]);
   const afterL3 = await mmState();
-  mmCheck((afterL3.mmSection?.checked || []).length === 2,
-    `both picks are recorded (${JSON.stringify(afterL3.mmSection?.checked)})`);
+  mmCheck(mmGroup(afterL3).checked.length === 2,
+    `both picks are recorded (${JSON.stringify(mmGroup(afterL3).checked)})`);
   mmCheck(!/Metamagic/.test(afterL3.reason),
     `and the reason stops naming it (${JSON.stringify(afterL3.reason)})`);
-  mmCheck(/Quickened Spell/.test(afterL3.mmSection?.body || ""),
-    `with the chosen names on the section (${JSON.stringify((afterL3.mmSection?.body || "").match(/Quickened Spell.{0,20}/)?.[0] || "")})`);
+  mmCheck(/Quickened Spell/.test(mmGroup(afterL3).body)
+    || mmGroup(afterL3).checked.some((v) => /quickened/i.test(v)),
+  `with the chosen names on the group (${JSON.stringify(mmGroup(afterL3).checked)})`);
 
   // ---- Same character at level 10: the first pair is off the list --------
   // The level box on the Identity step is the same level the Level Up button
@@ -7747,6 +7769,670 @@ if (inArea("metamagic-pick")) {
     `and the 10th-level pick takes (${JSON.stringify((afterL10.mmClassChoice?.radios || []).find((r) => r.checked)?.value)})`);
   await mmPage.screenshot({ path: path.join(shotDir, "metamagic-pick.png") });
   await mmPage.close();
+}
+
+// --- Warlock Pact Boon and Eldritch Invocations -------------------------------
+//
+// Invocations come at 2nd (two of them), the Pact Boon at 3rd, and several
+// invocations state a prerequisite in their own text - a Tome, a level - that
+// used to be a sentence in a tooltip. A pick the rules forbid should be
+// greyed, not offered.
+if (inArea("warlock-pact")) {
+  const wlPage = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
+  wlPage.on("pageerror", (e) => problems.push(`PAGEERROR [warlock-pact]: ${e.message}`));
+  wlPage.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [warlock-pact]: ${m.text()}`); });
+  const wlCheck = (cond, msg) => {
+    if (!cond) failures.push(`[warlock-pact] ${msg}`);
+    console.log(`${cond ? "ok" : "FAIL"} [warlock-pact]: ${msg}`);
+  };
+  const wlStep = () => wlPage.evaluate(() =>
+    document.querySelector(".wizard__dot--active")?.dataset.stepId || null);
+  const wlNext = () => wlPage.evaluate(() => {
+    const b = document.querySelector(".wizard__next:not([disabled])");
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  const wlToClass = async (level) => {
+    await wlPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await wlPage.evaluate(() => localStorage.clear());
+    await wlPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await settled(wlPage, READY_VAULT, "wl vault");
+    await wlPage.click(READY_VAULT);
+    await settled(wlPage, READY_WIZARD, "wl wizard");
+    await wlPage.waitForTimeout(600);
+    await wlNext();
+    await wlPage.waitForTimeout(600);
+    await wlPage.evaluate((lvl) => {
+      const n = document.querySelector(".wizard input[type=text]");
+      if (n) {
+        n.value = "Warlock Tester";
+        n.dispatchEvent(new Event("input", { bubbles: true }));
+        n.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      const box = document.querySelector('.wizard input[type="number"]');
+      if (box) {
+        box.value = String(lvl);
+        box.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }, level);
+    await wlPage.waitForTimeout(700);
+    await wlPage.click('.choice-row[data-row-name="Human"] .choice-row__label');
+    await wlPage.waitForTimeout(800);
+    for (let i = 0; i < 8; i += 1) {
+      const did = await wlPage.evaluate(() => {
+        const row = document.querySelector(".choice-row--selected");
+        const s = [...(row?.querySelectorAll("select[data-inline-slot]") || [])].find((x) => x.selectedIndex <= 0);
+        if (!s) return false;
+        const o = [...s.options].find((x) => x.value && !x.disabled);
+        s.value = o.value; s.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      });
+      await wlPage.waitForTimeout(450);
+      if (!did) break;
+    }
+    await wlNext();
+    await wlPage.waitForTimeout(800);
+    await wlPage.click('.choice-row[data-row-name="Warlock"] .choice-row__label');
+    await wlPage.waitForTimeout(1100);
+  };
+  // The invocations render in the "Your choices" section (a pair has no
+  // single dropdown); the pact boon in a single-pick fieldset on the class
+  // row. Read both.
+  const wlState = () => wlPage.evaluate(() => {
+    // Check "Your Choices" sections
+    const yourChoiceSections = [...document.querySelectorAll(".wizard__choice-section")].map((s) => ({
+      label: s.querySelector(".wizard__choice-section-toggle")?.textContent?.trim() || "",
+      boxes: [...s.querySelectorAll("input[type=checkbox]")].map((b) => ({
+        value: b.value,
+        disabled: b.disabled,
+        title: b.closest("label")?.title || "",
+        checked: b.checked,
+      })),
+      checked: [...s.querySelectorAll("input[type=checkbox]:checked")].map((b) => b.value),
+    }));
+    // Check "Class Choices" fieldsets (class row's level-guide__choices)
+    const classChoiceFieldsets = [...document.querySelectorAll("#app-main .wizard__body .level-guide__choices")].map((f) => ({
+      legend: f.querySelector("legend")?.textContent?.trim() || "",
+      boxes: [...f.querySelectorAll("input[type=checkbox]")].map((b) => ({
+        value: b.value,
+        disabled: b.disabled,
+        title: b.closest("label")?.title || "",
+        checked: b.checked,
+      })),
+      checked: [...f.querySelectorAll("input[type=checkbox]:checked")].map((b) => b.value),
+      radios: [...f.querySelectorAll("input[type=radio]")].map((r) => ({
+        value: r.value, disabled: r.disabled, checked: r.checked,
+      })),
+    }));
+    const pactFieldset = classChoiceFieldsets.find((f) => /Pact Boon/i.test(f.legend));
+    const pactRadios = pactFieldset ? pactFieldset.radios : null;
+    // Find invocations in either Your Choices or Class Choices
+    const invSection = yourChoiceSections.find((s) => /invocation/i.test(s.label) || s.boxes.some((b) => /invocation/i.test(b.value)))
+      || classChoiceFieldsets.find((f) => /invocation/i.test(f.legend) || f.boxes.some((b) => /invocation/i.test(b.value)));
+    const pactSection = yourChoiceSections.find((s) => s.boxes.some((b) => /pact-boon/i.test(b.value)));
+    return {
+      invSection, pactSection, pactRadios,
+      reason: document.querySelector(".wizard__gate-reason")?.textContent?.trim() || "",
+    };
+  });
+  const wlTakePact = async (which) => {
+    const clicked = await wlPage.evaluate((w) => {
+      const fieldsets = [...document.querySelectorAll("#app-main .wizard__body .level-guide__choices")];
+      const f = fieldsets.find((x) => /Pact Boon/i.test(x.querySelector("legend")?.textContent || ""));
+      if (!f) return "no fieldset";
+      const r = [...f.querySelectorAll("input[type=radio]")].find((x) => x.value.includes(w));
+      if (!r) return "no option";
+      if (r.disabled) return "disabled";
+      r.click();
+      return r.checked ? "ok" : "clicked-unset";
+    }, which);
+    wlCheck(clicked === "ok", `the Pact of the Tome radio takes (${clicked})`);
+    await wlPage.waitForTimeout(800);
+  };
+  const wlTakeInvocation = async (names) => {
+    for (const want of names) {
+      await wlPage.evaluate((w) => {
+        // Check "Your Choices" sections
+        const bodies = [...document.querySelectorAll(".wizard__choice-section-body")];
+        for (const body of bodies) {
+          if (!/invocation/i.test(body.closest(".wizard__choice-section")?.textContent || "")) continue;
+          if (body.hidden) body.closest(".wizard__choice-section")?.querySelector(".wizard__choice-section-toggle")?.click();
+          for (const b of body.querySelectorAll("input[type=checkbox]")) {
+            if (!b.checked && !b.disabled && b.value.includes(w)) { b.click(); return; }
+          }
+        }
+        // Check "Class Choices" fieldsets (class row's level-guide__choices)
+        const fieldsets = [...document.querySelectorAll("#app-main .wizard__body .level-guide__choices")];
+        for (const f of fieldsets) {
+          if (!/invocation/i.test(f.querySelector("legend")?.textContent || "")) continue;
+          for (const b of f.querySelectorAll("input[type=checkbox]")) {
+            if (!b.checked && !b.disabled && b.value.includes(w)) { b.click(); return; }
+          }
+        }
+      }, want);
+      await wlPage.waitForTimeout(700);
+    }
+  };
+
+  // ---- Level 1: nothing from either ---------------------------------------
+  await wlToClass(1);
+  const l1 = await wlState();
+  wlCheck(!l1.invSection && !/Invocation/.test(l1.reason), `a level-1 Warlock is not offered invocations (${JSON.stringify(l1.reason)})`);
+  wlCheck(!/Pact Boon/.test(l1.reason), `nor a Pact Boon (${JSON.stringify(l1.reason)})`);
+
+  // ---- Level 2: invocations, but the Pact-gated ones locked ---------------
+  await wlToClass(2);
+  const l2 = await wlState();
+  wlCheck(Boolean(l2.invSection), `at level 2 the invocations are offered (${JSON.stringify(l2.invSection?.label)})`);
+  const tomeLocked = (l2.invSection?.boxes || []).filter((b) => /Pact of the Tome/.test(b.title || ""));
+  wlCheck(tomeLocked.length > 0 && tomeLocked.every((b) => b.disabled),
+    `Tome-locked invocations are locked before the Pact of the Tome (${JSON.stringify(tomeLocked.map((b) => b.value))})`);
+  wlCheck(tomeLocked.some((b) => /ancient-secrets/i.test(b.value)),
+    `including Book of Ancient Secrets (${JSON.stringify(tomeLocked.map((b) => b.value))})`);
+  wlCheck((l2.invSection?.boxes || []).some((b) => !b.disabled && /agonizing/i.test(b.value)),
+    `but a free one is open (${JSON.stringify((l2.invSection?.boxes || []).filter((b) => !b.disabled).slice(0, 2).map((b) => b.value))})`);
+  const levelLocked = (l2.invSection?.boxes || []).filter((b) => /whispers|far scribe/i.test(b.value));
+  wlCheck(levelLocked.every((b) => b.disabled), `level-locked invocations are locked at level 2 (${JSON.stringify(levelLocked.map((b) => b.value))})`);
+  await wlTakeInvocation(["agonizing-blast", "armor-of-shadows"]);
+  const l2done = await wlState();
+  wlCheck((l2done.invSection?.checked || []).length === 2, `the two invocations are taken (${JSON.stringify(l2done.invSection?.checked)})`);
+  wlCheck(!/Invocation/.test(l2done.reason), `and the reason stops naming invocations (${JSON.stringify(l2done.reason)})`);
+  await wlPage.screenshot({ path: path.join(shotDir, "warlock-pact.png") });
+
+  // ---- Level 3: the Pact Boon opens the Tome-locked ones -----------------
+  // Raising the level to 3 is one number in the Identity step, the same state
+  // a level-up produces.
+  await wlPage.evaluate(() => {
+    const dots = [...document.querySelectorAll(".wizard__dot")];
+    (dots.find((d) => d.dataset.stepId === "identity") || dots[0]).click();
+  });
+  await wlPage.waitForTimeout(900);
+  await wlPage.evaluate(() => {
+    const box = document.querySelector('.wizard input[type="number"]');
+    if (box) { box.value = "3"; box.dispatchEvent(new Event("change", { bubbles: true })); }
+  });
+  await wlPage.waitForTimeout(1100);
+  await wlNext();
+  await wlPage.waitForTimeout(1000);
+  const l3 = await wlState();
+  wlCheck(Boolean(l3.pactRadios), `at level 3 the Pact Boon is offered (${JSON.stringify(l3.pactRadios?.length)} options)`);
+  // The Tome-locked invocations are STILL locked (no Tome yet).
+  const stillLocked = (l3.invSection?.boxes || []).filter((b) => /Pact of the Tome/.test(b.title || ""));
+  wlCheck(stillLocked.length > 0 && stillLocked[0].disabled, `Book of Ancient Secrets waits for the Tome (${JSON.stringify(stillLocked[0])})`);
+  await wlTakePact("pact-of-the-tome");
+  // Wait for the prerequisite unlock to propagate (requires a re-render cycle)
+  await wlPage.waitForTimeout(3000);
+  const storedChoices = await wlPage.evaluate(() => {
+    const raw = JSON.parse(localStorage.getItem("grimoire.local.characters.v1") || "{}");
+    return Object.values(raw).flatMap((d) => Object.entries(d?.rules?.choices || {}))
+      .filter(([k]) => /pact|invocation/.test(k)).map(([k, v]) => `${k}=${JSON.stringify(v)}`);
+  });
+  const afterPact = await wlState();
+  const pactNow = (afterPact.pactRadios || []).filter((r) => r.checked).map((r) => r.value);
+  wlCheck(pactNow.length === 1,
+    `and the Pact of the Tome is the checked one (${JSON.stringify(pactNow)}; stored: ${JSON.stringify(storedChoices)})`);
+  const tomeOpen = (afterPact.invSection?.boxes || []).filter((b) => /ancient-secrets/i.test(b.value));
+  wlCheck(tomeOpen.length > 0 && !tomeOpen[0].disabled,
+    `and opens once Pact of the Tome is taken (${JSON.stringify(tomeOpen[0])}; stored: ${JSON.stringify(storedChoices)})`);
+  const chainStillLocked = (afterPact.invSection?.boxes || []).filter((b) => /chain-master/i.test(b.value));
+  wlCheck(chainStillLocked.length > 0 && chainStillLocked[0].disabled, `a Chain-locked one stays locked (${JSON.stringify(chainStillLocked[0])})`);
+  await wlPage.close();
+}
+
+// --- Two finished characters, measured against the rules data ------------------
+//
+// Every other area here checks that a pick TAKES. This one checks that the
+// finished sheet says the right NUMBER, which is the claim nothing else in
+// the suite makes and the one a player actually reads the sheet for.
+//
+// The expected values are worked out from this repo's own rules data and
+// written out below rather than captured from a run, because a check that
+// records whatever the app happened to produce stops being a check. Where a
+// number is derived, the derivation is on the line above it.
+//
+// Both characters use the standard array (15/14/13/12/10/8) entered through
+// the wizard's Manual Entry method. Standard array is not one of the three
+// methods the wizard offers - point buy, roll, manual - so "standard array"
+// is expressed the way a player bringing a character built another way would:
+// typed in by hand. The typed number is the EFFECTIVE score, because the
+// step's box shows base plus the race's bonus and stores the difference
+// (see sheetWizardSteps' renderAbilitiesStepInto).
+if (inArea("creation-numbers")) {
+  const cnPage = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
+  cnPage.on("pageerror", (e) => problems.push(`PAGEERROR [creation-numbers]: ${e.message}`));
+  cnPage.on("console", (m) => { if (m.type() === "error") problems.push(`CONSOLE [creation-numbers]: ${m.text()}`); });
+  const cnCheck = (cond, msg) => {
+    if (!cond) failures.push(`[creation-numbers] ${msg}`);
+    console.log(`${cond ? "ok" : "FAIL"} [creation-numbers]: ${msg}`);
+  };
+  const cnStep = () => cnPage.evaluate(() =>
+    document.querySelector(".wizard__dot--active")?.dataset.stepId || null);
+  const cnNext = () => cnPage.evaluate(() => {
+    const b = document.querySelector(".wizard__next:not([disabled])");
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  const cnExpandAll = () => cnPage.evaluate(() => {
+    [...document.querySelectorAll("#app-main .wizard__body button")]
+      .find((x) => x.textContent.trim() === "Expand All")?.click();
+  });
+
+  /** Read the finished sheet: rendered formula cells by id, the stored
+   *  manual fields (they carry no data-field-id, so the model is the only
+   *  place to read them), which saving-throw and skill prof boxes are lit,
+   *  and how many buttons each spell-slot tracker is showing. */
+  const cnSheet = () => cnPage.evaluate(() => {
+    const computed = Object.fromEntries(
+      [...document.querySelectorAll(".page-grid .field-value--computed[data-field-id]")]
+        .map((e) => [e.dataset.fieldId, e.textContent.trim()]));
+    const raw = JSON.parse(localStorage.getItem("grimoire.local.characters.v1") || "{}");
+    const stored = raw[Object.keys(raw)[0]];
+    const byId = {};
+    for (const b of stored?.sheetTabs?.[0]?.layout || []) for (const f of b.children || []) byId[f.id] = f;
+    // A prof box is "on" either because the character is stored with it or
+    // because a bundle grants it at render time, and the sheet shows the
+    // granted one - so both count.
+    const labelOf = (n) => (n.querySelector(".field-label")?.textContent || "").trim();
+    const profRows = [...document.querySelectorAll(".page-grid .grid-node--field")]
+      .filter((n) => labelOf(n) === "Prof.")
+      .map((n) => (n.querySelector(".field-value")?.textContent || "").trim());
+    const slots = {};
+    for (const n of document.querySelectorAll(".page-grid .grid-node--field")) {
+      const lab = labelOf(n);
+      if (/^(1st|2nd|3rd)$/.test(lab)) slots[lab] = n.querySelectorAll('input[type=radio]').length;
+    }
+    return {
+      computed,
+      stored: {
+        scores: Object.fromEntries(["str", "dex", "con", "int", "wis", "cha"]
+          .map((id) => [id, byId[`${id}Score`]?.value ?? null])),
+        hpMax: byId.hpMax?.value ?? null,
+        speed: byId.speed?.value ?? null,
+        level: byId.level?.value ?? null,
+        spellAbility: byId.spellAbility?.selected ?? null,
+      },
+      profRows,
+      slots,
+      gridText: (document.querySelector(".page-grid")?.textContent || "").replace(/\s+/g, " "),
+      choices: stored?.rules?.choices || {},
+    };
+  });
+
+  /** The proficiencies the sheet has granted, read off the field ids rather
+   *  than off the rendered labels: a granted Prof. box is a real checked
+   *  `<input>` inside a `label.option-checkbox--granted`, and the grid node
+   *  around it carries the field's own id (`strSaveProf`, `athleticsProf`).
+   *  The id is the stable thing here - a label is prose, and prose is
+   *  renamed. Returns the ids of the ones that are on. */
+  const cnProficientIds = () => cnPage.evaluate(() =>
+    [...document.querySelectorAll('.page-grid .grid-node--field[data-node-id$="Prof"]')]
+      .filter((n) => n.querySelector('input[type=checkbox]:checked'))
+      .map((n) => n.dataset.nodeId));
+
+  const ABILITY_SAVE_PROF = ["strSaveProf", "dexSaveProf", "conSaveProf", "intSaveProf", "wisSaveProf", "chaSaveProf"];
+  /** The eighteen skill proficiency field ids, from schema.js's SKILLS. Named
+   *  here so the expectations below read as skills, and so "these four and
+   *  no others" can be said by name rather than by counting. */
+  const ALL_SKILL_PROF = ["acrobaticsProf", "animalHandlingProf", "arcanaProf", "athleticsProf",
+    "deceptionProf", "historyProf", "insightProf", "intimidationProf", "investigationProf",
+    "medicineProf", "natureProf", "perceptionProf", "performanceProf", "persuasionProf",
+    "religionProf", "sleightOfHandProf", "stealthProf", "survivalProf"];
+  const asSkills = (ids) => ids.filter((id) => ALL_SKILL_PROF.includes(id));
+
+  /** Drive creation from the vault to a saved sheet. */
+  const cnCreate = async ({ name, race, subrace, cls, background, classSkills, fightingStyle, scores }) => {
+    await cnPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await cnPage.evaluate(() => localStorage.clear());
+    await cnPage.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await settled(cnPage, READY_VAULT, "cn vault");
+    await cnPage.click(READY_VAULT);
+    await settled(cnPage, READY_WIZARD, "cn wizard");
+    await cnPage.waitForTimeout(600);
+    await cnNext();
+    await cnPage.waitForTimeout(600);
+    await cnPage.evaluate((n) => {
+      const i = document.querySelector(".wizard input[type=text]");
+      if (i) { i.value = n; i.dispatchEvent(new Event("input", { bubbles: true })); i.dispatchEvent(new Event("change", { bubbles: true })); }
+    }, name);
+    await cnPage.waitForTimeout(300);
+    // Identity: the species, then its subrace if it has one.
+    await cnPage.click(`.choice-row[data-row-name="${race}"] .choice-row__label`);
+    await cnPage.waitForTimeout(800);
+    if (subrace) {
+      await cnPage.click(`.choice-row[data-row-name="${subrace}"] .choice-row__label`);
+      await cnPage.waitForTimeout(800);
+    }
+    await cnExpandAll();
+    await fillEveryPick(cnPage);
+    await cnNext();
+    await cnPage.waitForTimeout(800);
+    // Class: the pick itself, then the two class-level picks by option id, so
+    // "background skills plus the class picks" is a claim about four
+    // different skills rather than two of the same one.
+    await cnPage.click(`.choice-row[data-row-name="${cls}"] .choice-row__label`);
+    await cnPage.waitForTimeout(1300);
+    const cnTakeFromDialog = async (linkPattern, values) => {
+      const opened = await cnPage.evaluate((re) => {
+        const row = document.querySelector(".choice-row--selected");
+        const link = [...(row?.querySelectorAll(".inline-pick-link") || [])]
+          .find((a) => new RegExp(re, "i").test(a.getAttribute("aria-label") || a.textContent || ""));
+        if (!link) return "no link";
+        link.click();
+        return "opened";
+      }, linkPattern);
+      if (opened !== "opened") return opened;
+      await cnPage.waitForTimeout(700);
+      const took = await cnPage.evaluate((vals) => {
+        const dlg = document.querySelector(".choice-dialog-overlay");
+        if (!dlg) return [];
+        const hit = vals.filter((v) => {
+          const box = [...dlg.querySelectorAll("input[type=checkbox], input[type=radio]")]
+            .find((b) => !b.disabled && b.value === v);
+          if (!box) return false;
+          box.click();
+          return true;
+        });
+        [...dlg.querySelectorAll("button")].find((x) => /accept/i.test(x.textContent))?.click();
+        return hit;
+      }, values);
+      await cnPage.waitForTimeout(700);
+      return took;
+    };
+    cnCheck((await cnTakeFromDialog("skill proficienc", classSkills)).length === classSkills.length,
+      `the ${cls} takes its two class skills (${JSON.stringify(classSkills)})`);
+    if (fightingStyle) {
+      cnCheck((await cnTakeFromDialog("fighting style", fightingStyle)).length === 1,
+        `the Fighter takes a Fighting Style (${JSON.stringify(fightingStyle)})`);
+    }
+    await cnExpandAll();
+    await fillEveryGearRow(cnPage);
+    await fillEveryPick(cnPage);
+    await cnNext();
+    await cnPage.waitForTimeout(800);
+    // Background, Story, then the Ability Scores step with the array typed in.
+    for (let hop = 0; hop < 14; hop += 1) {
+      const step = await cnStep();
+      if (step === "review") break;
+      if (step === "background" && !(await cnPage.$('.choice-row--selected[data-row-name="' + background + '"]'))) {
+        await cnPage.click(`.choice-row[data-row-name="${background}"] .choice-row__label`);
+        await cnPage.waitForTimeout(800);
+      }
+      if (step === "abilities") {
+        await cnPage.evaluate(() => {
+          const r = document.querySelector('input[name=ability-score-method][value=manual]');
+          if (r && !r.checked) r.click();
+        });
+        await cnPage.waitForTimeout(700);
+        for (const [id, val] of Object.entries(scores)) {
+          await cnPage.evaluate(([id, val]) => {
+            const row = [...document.querySelectorAll(".wizard__ability-row")]
+              .find((x) => (x.querySelector("label")?.textContent || "").trim().toUpperCase() === id.toUpperCase());
+            const box = row?.querySelector('input[type=number]');
+            if (box) { box.value = String(val); box.dispatchEvent(new Event("change", { bubbles: true })); }
+          }, [id, val]);
+          await cnPage.waitForTimeout(300);
+        }
+      }
+      await cnExpandAll();
+      await fillEveryPick(cnPage);
+      await fillEveryGearRow(cnPage);
+      if (!(await cnNext())) break;
+      await cnPage.waitForTimeout(800);
+    }
+    cnCheck((await cnStep()) === "review", `${name} reaches Review`);
+    await cnPage.evaluate(() => {
+      document.querySelector(".wizard__nav button.btn--primary, .wizard button.btn--primary")?.click();
+    });
+    await cnPage.waitForTimeout(1800);
+    // Finish Setup opens the one-time orientation panel over the sheet.
+    await cnPage.evaluate(() => {
+      for (const b of document.querySelectorAll("body > .modal-overlay button")) {
+        if (/close|got it|ok/i.test(b.textContent)) { b.click(); return; }
+      }
+      document.querySelectorAll("body > .modal-overlay").forEach((o) => o.remove());
+    });
+    await cnPage.waitForTimeout(900);
+    return cnSheet();
+  };
+
+  /** Open Level Up, read the prefilled HP gain, then walk it through to
+   *  Apply so the sheet itself is re-rendered at the new level.
+   *
+   *  One loop that fills-then-advances rather than one that reads its way to
+   *  a known step id: which pages a level-up has depends on the class (a
+   *  Wizard stops for a subclass at 2nd, a Fighter stops for a Fighting
+   *  Style), so walking to a fixed step was a walkthrough that only worked
+   *  for one of the two characters. */
+  const cnLevelUp = async (name) => {
+    const before = (await cnSheet()).stored;
+    await cnPage.click(".level-up__btn");
+    await cnPage.waitForTimeout(1800);
+    let gain = null;
+    let prose = null;
+    let stuck = null;
+    for (let hop = 0; hop < 24; hop += 1) {
+      const step = await cnStep();
+      if (step === "hp" && gain == null) {
+        const read = await cnPage.evaluate(() => {
+          const body = document.querySelector(".wizard__body");
+          const label = [...body.querySelectorAll("label")].find((l) => /HP Gained/i.test(l.textContent || ""));
+          return {
+            value: label?.querySelector("input")?.value ?? null,
+            prose: (body.querySelector(".leveling-tab__intro")?.textContent || "").replace(/\s+/g, " "),
+          };
+        });
+        gain = read.value;
+        prose = read.prose;
+        continue; // the box is prefilled; nothing on this page needs filling
+      }
+      const atReview = await cnPage.evaluate(() =>
+        [...document.querySelectorAll(".wizard button")].some((b) => /^Apply Level/.test(b.textContent.trim())));
+      if (atReview) break;
+      await cnExpandAll();
+      await cnPage.evaluate(() => {
+        // Click one free option per group, then top each group up to its own
+        // cap. A level-up spells step is a pair of groups that each owe more
+        // than one, and "click the first unchecked box in every group" left
+        // them short - which reads as a walkthrough that will not advance.
+        const capOf = (fs) => {
+          const m = (fs.textContent || "").match(/\/\s*(\d+)\s*picked/);
+          return m ? Number(m[1]) : 1;
+        };
+        for (let pass = 0; pass < 12; pass += 1) {
+          let clicked = false;
+          for (const fs of document.querySelectorAll(".wizard .wizard__body .level-guide__choices")) {
+            const boxes = [...fs.querySelectorAll("input[type=radio]:not(:disabled), input[type=checkbox]:not(:disabled)")];
+            const need = capOf(fs) - boxes.filter((b) => b.checked).length;
+            if (need <= 0) continue;
+            const next = boxes.find((b) => !b.checked);
+            if (!next) continue;
+            next.click();
+            clicked = true;
+          }
+          // A subclass step is a row picker, not a fieldset or a dialog (a
+          // Wizard picks its subclass at 2nd), so it needs its own click.
+          // "Selected" is the class the row renderer puts on the picked
+          // one; the rows carry no disabled class when unavailable.
+          if (!clicked) {
+            const row = [...document.querySelectorAll(".wizard__body .choice-row")]
+              .find((r) => !r.classList.contains("choice-row--selected"));
+            if (!row) break;
+            row.click();
+          }
+        }
+      });
+      // A level-up spells step is a list of dialog links (one per spell line), not
+      // fieldsets, and they sit outside the selected picker row the shared
+      // takeOnePick scopes itself to - so a caster's walkthrough stopped on
+      // its own spells. One link at a time: openChoiceDialog replaces the
+      // overlay, so firing every link in a single evaluate left whichever
+      // happened to render last as the only dialog ever answered.
+      for (let pass = 0; pass < 8; pass += 1) {
+        const opened = await cnPage.evaluate(() => {
+          const link = [...document.querySelectorAll(".wizard__body .inline-pick-link")]
+            .find((a) => /^choose\b/i.test((a.textContent || "").trim()));
+          if (!link) return null;
+          link.click();
+          return (link.getAttribute("aria-label") || link.textContent || "").trim();
+        });
+        if (!opened) break;
+        await cnPage.waitForTimeout(600);
+        const answered = await cnPage.evaluate(() => {
+          const dlg = document.querySelector(".choice-dialog-overlay");
+          if (!dlg) return "no dialog";
+          const cap = Number((dlg.textContent.match(/\/\s*(\d+)\s*picked/) || [])[1] || 1);
+          let n = 0;
+          for (const b of dlg.querySelectorAll("input[type=checkbox]:not(:disabled), input[type=radio]:not(:disabled)")) {
+            if (n >= cap) break;
+            if (!b.checked) { b.click(); n += 1; }
+          }
+          [...dlg.querySelectorAll("button")].find((x) => /accept/i.test(x.textContent))?.click();
+          return `took ${n} of ${cap}`;
+        });
+        await cnPage.waitForTimeout(600);
+        if (answered === "no dialog") break;
+      }
+      await fillEveryPick(cnPage);
+      if (!(await cnNext())) {
+        stuck = await cnPage.evaluate(() => {
+          const reason = document.querySelector(".wizard__gate-reason")?.textContent?.trim() || "";
+          const open = [...document.querySelectorAll(".wizard__body .inline-pick-link")]
+            .filter((a) => /^choose\b/i.test((a.textContent || "").trim()))
+            .map((a) => (a.getAttribute("aria-label") || "").trim().slice(0, 40));
+          const loose = [...document.querySelectorAll(".wizard__body .level-guide__choices")]
+            .map((fs) => `${(fs.querySelector("legend")?.textContent || "").trim().slice(0, 24)} ${fs.querySelectorAll("input:checked").length}/${(fs.textContent || "").match(/\/\s*(\d+)\s*picked/)?.[1] ?? "?"}`);
+          return `${reason} (open picks ${JSON.stringify(open)}, groups ${JSON.stringify(loose)})`;
+        });
+        stuck = `${step}: ${stuck}`;
+        break;
+      }
+      await cnPage.waitForTimeout(800);
+    }
+    const applied = await cnPage.evaluate(() => {
+      const b = [...document.querySelectorAll(".wizard button")].find((x) => /^Apply Level/.test(x.textContent.trim()));
+      if (!b || b.disabled) return false;
+      b.click();
+      return true;
+    });
+    cnCheck(applied, `${name}'s level 2 was applied${stuck ? ` (walkthrough stopped: ${stuck})` : ""}`);
+    await cnPage.waitForTimeout(1600);
+    await cnPage.evaluate(() => {
+      for (const o of document.querySelectorAll("body > .modal-overlay")) o.remove();
+      const main = [...document.querySelectorAll(".sheet-tab")].find((t) => t.textContent.trim() !== "Leveling");
+      main?.click();
+    });
+    await cnPage.waitForTimeout(900);
+    return { before, gain, prose, after: await cnSheet() };
+  };
+
+  // ---- Hill Dwarf Fighter, Sailor, level 1 -----------------------------------
+  //
+  // Standard array spread for a fighter who wants CON: STR 15, CON 14,
+  // DEX 13, WIS 12, INT 10, CHA 8. Hill Dwarf then adds +2 CON and +1 WIS,
+  // so the EFFECTIVE scores typed into the step are STR 15, CON 16,
+  // DEX 13, WIS 13, INT 10, CHA 8 - and the sheet stores the BASE, which is
+  // what "applied exactly once" means: 15/13/14/10/12/8.
+  const fighter = await cnCreate({
+    name: "Durin Ironfist", race: "Dwarf", subrace: "Hill Dwarf", cls: "Fighter", background: "Sailor",
+    scores: { str: 15, dex: 13, con: 16, int: 10, wis: 13, cha: 8 },
+    classSkills: ["class-skill-acrobatics", "class-skill-animal-handling"],
+    fightingStyle: ["fighter-fighting-style-defense"],
+  });
+  cnCheck(fighter.computed.profBonus === "2",
+    `the Fighter's proficiency bonus is +2 (got ${JSON.stringify(fighter.computed.profBonus)})`);
+  cnCheck(JSON.stringify(fighter.stored.scores) === JSON.stringify({ str: "15", dex: "13", con: "14", int: "10", wis: "12", cha: "8" }),
+    `the racial bonuses are applied once: base stored, bonus shown on the Mod (${JSON.stringify(fighter.stored.scores)})`);
+  cnCheck(fighter.computed.conMod === "3" && fighter.computed.wisMod === "1",
+    `CON 14+2 reads as +3 and WIS 12+1 as +1 (${JSON.stringify([fighter.computed.conMod, fighter.computed.wisMod])})`);
+  cnCheck(fighter.computed.strSaveMod === "4" && fighter.computed.conSaveMod === "5",
+    `the Fighter's two saving throws are STR +4 and CON +5 (${JSON.stringify([fighter.computed.strSaveMod, fighter.computed.conSaveMod])})`);
+  cnCheck(fighter.computed.intSaveMod === "0" && fighter.computed.wisSaveMod === "1",
+    `and the other four are plain modifiers, not proficient (${JSON.stringify([fighter.computed.intSaveMod, fighter.computed.wisSaveMod])})`);
+  cnCheck(fighter.stored.hpMax === "14",
+    `HP Max is 14 - a d10 + CON +3, plus Dwarven Toughness +1 (got ${JSON.stringify(fighter.stored.hpMax)})`);
+  cnCheck(fighter.stored.speed === "25",
+    `a Hill Dwarf's speed reads 25 ft (got ${JSON.stringify(fighter.stored.speed)})`);
+  const fighterProfs = await cnProficientIds();
+  cnCheck(JSON.stringify(fighterProfs.filter((id) => ABILITY_SAVE_PROF.includes(id)))
+    === JSON.stringify(["strSaveProf", "conSaveProf"]),
+  `the Fighter is proficient in exactly STR and CON saves (${JSON.stringify(fighterProfs.filter((id) => ABILITY_SAVE_PROF.includes(id)))})`);
+  cnCheck(JSON.stringify(asSkills(fighterProfs))
+    === JSON.stringify(["acrobaticsProf", "animalHandlingProf", "athleticsProf", "perceptionProf"]),
+  `skills are the Sailor's Athletics and Perception plus the Fighter's Acrobatics and Animal Handling (${JSON.stringify(asSkills(fighterProfs))})`);
+  cnCheck(/\bDueling|Defense|Archery|Great Weapon Fighting|Protection|Two-Weapon Fighting/.test(fighter.gridText),
+    "the chosen Fighting Style is on Features & Traits");
+  cnCheck(/Dwarvish/.test(fighter.gridText) && /Common/.test(fighter.gridText),
+    "the Hill Dwarf's Common and Dwarvish are on the Languages list");
+  cnCheck(fighter.slots["1st"] === 0 && fighter.slots["2nd"] === 0,
+    `a Fighter is offered no spell slots (${JSON.stringify(fighter.slots)})`);
+
+  // Level 2: the average of a d10 is 6, CON is +3, Dwarven Toughness is +1.
+  const fighterL2 = await cnLevelUp("the Fighter");
+  cnCheck(fighterL2.gain === "10",
+    `the Fighter's level-2 gain is 10 - 6 + CON +3 + Dwarven Toughness +1 (got ${JSON.stringify(fighterL2.gain)})`);
+  cnCheck(/\+3/.test(fighterL2.prose || "") && /race adds 1/.test(fighterL2.prose || ""),
+    `and the step says so in words rather than showing a number with no reason (${JSON.stringify((fighterL2.prose || "").slice(0, 150))})`);
+  cnCheck(fighterL2.after.stored.level === "2" && fighterL2.after.stored.hpMax === "24",
+    `the sheet ends up level 2 on 24 HP (${JSON.stringify(fighterL2.after.stored)})`);
+
+  // ---- Human Wizard, Sage, level 1 -------------------------------------------
+  //
+  // The same array read for a wizard: INT 15, CON 14, DEX 13, WIS 12,
+  // CHA 10, STR 8, and the Human's +1 to every score on top. Effective
+  // 16/14/15/16/13/11; stored base 8/13/14/15/12/10.
+  const wizard = await cnCreate({
+    name: "Meriadoc", race: "Human", subrace: null, cls: "Wizard", background: "Sage",
+    scores: { str: 9, dex: 14, con: 15, int: 16, wis: 13, cha: 11 },
+    // Not Arcana and History: those are what Sage already gave, and taking
+    // them again would make "background skills plus the class picks"
+    // indistinguishable from "the background's skills, twice".
+    classSkills: ["class-skill-investigation", "class-skill-insight"],
+  });
+  cnCheck(wizard.computed.profBonus === "2",
+    `the Wizard's proficiency bonus is +2 (got ${JSON.stringify(wizard.computed.profBonus)})`);
+  cnCheck(wizard.computed.intSaveMod === "5" && wizard.computed.wisSaveMod === "3",
+    `the Wizard's two saving throws are INT +5 and WIS +3 (${JSON.stringify([wizard.computed.intSaveMod, wizard.computed.wisSaveMod])})`);
+  cnCheck(wizard.computed.strSaveMod === "-1" && wizard.computed.conSaveMod === "2",
+    `and Strength and Constitution are plain modifiers (${JSON.stringify([wizard.computed.strSaveMod, wizard.computed.conSaveMod])})`);
+  cnCheck(wizard.stored.hpMax === "8",
+    `HP Max is 8 - a d6 + CON +2 (got ${JSON.stringify(wizard.stored.hpMax)})`);
+  cnCheck(wizard.stored.speed === "30",
+    `a Human's speed reads 30 ft (got ${JSON.stringify(wizard.stored.speed)})`);
+  cnCheck(wizard.computed.spellSaveDC === "13",
+    `spell save DC is 13 - 8 + proficiency +2 + INT +3 (got ${JSON.stringify(wizard.computed.spellSaveDC)})`);
+  cnCheck(wizard.computed.spellAttackBonus === "5",
+    `spell attack is +5 - proficiency +2 + INT +3 (got ${JSON.stringify(wizard.computed.spellAttackBonus)})`);
+  cnCheck(wizard.stored.spellAbility === "1",
+    `the Spell Ability dropdown is set to Intelligence from the class, not left blank (got ${JSON.stringify(wizard.stored.spellAbility)})`);
+  cnCheck(wizard.slots["1st"] === "2" || wizard.slots["1st"] === 2,
+    `a level-1 Wizard has 2 first-level slots (${JSON.stringify(wizard.slots)})`);
+  cnCheck(wizard.slots["2nd"] === 0,
+    `and none at 2nd, whose table row at level 1 is empty (${JSON.stringify(wizard.slots)})`);
+  cnCheck(/Prepared: \d+ \/ 4\b/.test(wizard.gridText),
+    `the prepared-spell cap is 4, counting the Human's +1 INT (${JSON.stringify((wizard.gridText.match(/Prepared:[^P]{0,20}/) || [""])[0])})`);
+  const wizardProfs = await cnProficientIds();
+  cnCheck(JSON.stringify(wizardProfs.filter((id) => ABILITY_SAVE_PROF.includes(id)))
+    === JSON.stringify(["intSaveProf", "wisSaveProf"]),
+  `the Wizard is proficient in exactly INT and WIS saves (${JSON.stringify(wizardProfs.filter((id) => ABILITY_SAVE_PROF.includes(id)))})`);
+  cnCheck(JSON.stringify(asSkills(wizardProfs))
+    === JSON.stringify(["arcanaProf", "historyProf", "insightProf", "investigationProf"]),
+  `skills are the Sage's Arcana and History plus the Wizard's Investigation and Insight (${JSON.stringify(asSkills(wizardProfs))})`);
+  cnCheck(/Giant|Gnomish|Goblin|Halfling|Orc|Elvish|Dwarvish/.test(wizard.gridText),
+    "the Human's extra language and the Sage's two are on the Languages list");
+
+  // Level 2: the average of a d6 is 4, CON is +2, and the caster table gives
+  // a level-2 full caster three first-level slots.
+  const wizardL2 = await cnLevelUp("the Wizard");
+  cnCheck(wizardL2.gain === "6",
+    `the Wizard's level-2 gain is 6 - 4 + CON +2 (got ${JSON.stringify(wizardL2.gain)})`);
+  cnCheck(wizardL2.after.stored.level === "2" && wizardL2.after.stored.hpMax === "14",
+    `the sheet ends up level 2 on 14 HP (${JSON.stringify(wizardL2.after.stored)})`);
+  cnCheck(wizardL2.after.slots["1st"] === 3,
+    `a level-2 Wizard has 3 first-level slots (${JSON.stringify(wizardL2.after.slots)})`);
+  await cnPage.screenshot({ path: path.join(shotDir, "creation-numbers.png"), fullPage: true });
+  await cnPage.close();
 }
 
 await browser.close();

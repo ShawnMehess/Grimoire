@@ -413,6 +413,24 @@ const SPELL_ABILITY = {
   Artificer: "int",
 };
 
+// The Spellcasting block's "Spell Ability" dropdown uses numeric choice ids
+// ("1"/"2"/"3") because spellAbilityMod's formula compares against those
+// literal numbers. This is the bridge from a class to that dropdown.
+//
+// It existed to answer "how many spells may this class cast" (see
+// getSpellcastingInfo) and nothing set the field the player reads - which is
+// why a finished Wizard showed Save DC 10 and Attack 2 while its own feature
+// text said "You use INT for wizard spells". A caster's Save DC and spell
+// attacks are not optional knowledge; the field stays editable for a
+// homebrew class whose ability is not in this table.
+const SPELL_ABILITY_CHOICE_IDS = { int: "1", wis: "2", cha: "3" };
+
+/** The "Spell Ability" dropdown choice id a class implies, or null for a
+ *  class that does not cast (so nothing is written for a Fighter). Pure. */
+export function spellAbilityChoiceIdFor(className) {
+  return SPELL_ABILITY_CHOICE_IDS[SPELL_ABILITY[className]] || null;
+}
+
 // Standard hit dice by class (Schema.txt has no hit-die section).
 export const CLASS_HIT_DICE = {
   Barbarian: 12,

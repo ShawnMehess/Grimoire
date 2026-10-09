@@ -208,6 +208,37 @@ const METAMAGIC = {
 };
 
 // --- Warlock invocations (2014 PHB + TCE, with prerequisites) -------------------
+
+/** The requirements an invocation's own text states, read once so the
+ *  option can be REFUSED rather than merely described.
+ *
+ *  Two kinds appear in the text above: a Pact Boon ("Prerequisite: Pact
+ *  of the Tome") and a character level ("Prerequisite: 9th level"). Both
+ *  used to be words in a tooltip, so a warlock could take Far Scribe at
+ *  2nd level with no Tome and no 5th level, and the sheet would not have
+ *  known to object. `requires` is what the pickers read to grey an option
+ *  out; the sentence stays in the description, because a player still
+ *  wants to know WHY.
+ *
+ *  Parsed from the text rather than hand-listed beside it, so a
+ *  prerequisite can never be stated in one place and forgotten in the
+ *  other. Returns `[]` when the text states none. */
+function invocationRequirements(description) {
+  const tail = String(description || "").split("Prerequisite:").slice(1).join(", ");
+  if (!tail) return [];
+  const out = [];
+  for (const raw of tail.split(",")) {
+    const pact = /Pact of the (Tome|Chain|Talisman|Blade)\b/i.exec(raw);
+    if (pact) {
+      out.push({ kind: "pact", value: `Pact of the ${pact[1]}` });
+      continue;
+    }
+    const level = /(\d+)\s*(?:st|nd|rd|th)\s+level/i.exec(raw);
+    if (level) out.push({ kind: "level", value: Number(level[1]) });
+  }
+  return out;
+}
+
 const INVOCATIONS = [
   ["Agonizing Blast", "Add CHA modifier to Eldritch Blast damage. Prerequisite: Eldritch Blast cantrip."],
   ["Armor of Shadows", "Cast Mage Armor on yourself at will (no slot/materials)."],
@@ -422,7 +453,12 @@ function patchWarlock(bundle) {
       // One invocation each, however many times the tiers are taken: the
       // list at 5th is the list at 2nd minus what the 2nd already holds.
       pickFamily: "warlock-invocations",
-      options: INVOCATIONS.map(([n, d]) => textOption(`warlock-invocations-${i}`, n, `${d} (Recorded here â€” prerequisites apply, see text.)`)),
+      options: INVOCATIONS.map(([n, d]) => {
+        const option = textOption(`warlock-invocations-${i}`, n, `${d} (Recorded here — the effect is tracked, not auto-applied.)`);
+        const requires = invocationRequirements(d);
+        if (requires.length) option.requires = requires;
+        return option;
+      }),
     };
     bundle.choiceGroups.push(group);
   });
@@ -436,8 +472,28 @@ function patchWarlock(bundle) {
     };
     bundle.choiceGroups.push(group);
   }
-  // Mystic Arcanum intentionally stays a note (free spell of choice â€”
-  // record it in Spells Known via the browser).
+  // Mystic Arcanum: one spell of 6th/7th/8th/9th level at 11th/13th/15th/17th.
+  // These are spell picks from ANY class list, limited to a specific level.
+  // The original feature grants are kept as notes (they describe the feature).
+  const arcanumTiers = [
+    { minLevel: 11, spellLevel: 6, label: "Mystic Arcanum (6th level)" },
+    { minLevel: 13, spellLevel: 7, label: "Mystic Arcanum (7th level)" },
+    { minLevel: 15, spellLevel: 8, label: "Mystic Arcanum (8th level)" },
+    { minLevel: 17, spellLevel: 9, label: "Mystic Arcanum (9th level)" },
+  ];
+  arcanumTiers.forEach((tier) => {
+    const group = {
+      id: `warlock-mystic-arcanum-${tier.spellLevel}`,
+      label: `${tier.label} — pick 1 spell of level ${tier.spellLevel}`,
+      minLevel: tier.minLevel,
+      minSelections: 1, maxSelections: 1,
+      category: "spells",
+      // Spell pick from any class list, limited to the specific spell level
+      spellPick: { list: "warlock", level: tier.spellLevel },
+      choiceKind: "build",
+    };
+    bundle.choiceGroups.push(group);
+  });
   return bundle;
 }
 
@@ -877,6 +933,12 @@ function patchFreeformAsi(bundle, prefix) {
 // on each elf-subrace option in extraRaces.js.
 const DWARF_SHARED_STATS = [
   { targetFieldId: "conScore", op: "add", value: 2, minLevel: null },
+  // Dwarves walk 25 ft., not the 30 the starter sheet's Speed field ships
+  // with. Declared as a stat modifier the same way Wood Elves already
+  // declare their +5 (extraRaces.js), so Finish Setup has something to
+  // write the Speed cell from instead of leaving it contradicting the
+  // "25 ft. walking" line two rows below it in Features & Traits.
+  { targetFieldId: "speed", op: "add", value: -5, minLevel: null },
   { targetFieldId: "languages", op: "grantTag", value: "Common" },
   { targetFieldId: "languages", op: "grantTag", value: "Dwarvish" },
   { targetFieldId: "weaponProf", op: "grantTag", value: "Battleaxe" },
@@ -922,7 +984,15 @@ function dwarfBaseEntry(entry) {
           options: [
             dwarfSubraceOption(
               "dwarf-subrace-hill-dwarf", "Hill Dwarf",
-              [{ targetFieldId: "wisScore", op: "add", value: 1, minLevel: null }],
+              [
+                { targetFieldId: "wisScore", op: "add", value: 1, minLevel: null },
+                // Dwarven Toughness: +1 HP at 1st level, and +1 more at
+                // every level after it. A stat modifier rather than a
+                // sentence in the feature text, because that is what the
+                // level-1 HP total and the Level Up guide both read - as
+                // prose it only ever said to apply it by hand.
+                { targetFieldId: "hpMax", op: "add", value: 1, minLevel: null },
+              ],
               [{ name: "Dwarven Toughness", description: "Max HP increases by 1 per level.", minLevel: null }]
             ),
             dwarfSubraceOption(

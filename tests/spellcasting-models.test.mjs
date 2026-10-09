@@ -18,7 +18,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { getSpellcastingInfo, listRulesets } from "../js/data/dnd5e.js";
+import { getSpellcastingInfo, listRulesets, spellAbilityChoiceIdFor } from "../js/data/dnd5e.js";
 import * as SPELLCASTING_MODELS from "../js/data/spellcastingModels.js";
 import { spellcastingModelFor, deriveSpellcastingModel, rulesetsWithSpellcastingModels } from "../js/data/spellcastingModels.js";
 
@@ -199,5 +199,40 @@ describe("the config matches what the rules data says", () => {
     // Worth pinning: the brief anticipates a 2024 ruleset changing the model
     // for several classes, and there is not one here to check against.
     assert.deepEqual(listRulesets().map((r) => r.id), ["dnd5e-2014"]);
+  });
+});
+
+// The Spellcasting block's "Spell Ability" dropdown is what Save DC and spell
+// attacks are computed from, and spellAbilityMod's formula falls through to
+// Charisma when the dropdown is empty. Nothing set it, so a finished Wizard
+// showed DC 10 / Attack +2 while its own feature text on the same sheet said
+// "You use INT for wizard spells".
+describe("spellAbilityChoiceIdFor", () => {
+  it("answers with the dropdown choice id the class implies", () => {
+    assert.equal(spellAbilityChoiceIdFor("Wizard"), "1", "1 = Intelligence");
+    assert.equal(spellAbilityChoiceIdFor("Artificer"), "1");
+    assert.equal(spellAbilityChoiceIdFor("Cleric"), "2", "2 = Wisdom");
+    assert.equal(spellAbilityChoiceIdFor("Druid"), "2");
+    assert.equal(spellAbilityChoiceIdFor("Ranger"), "2");
+    assert.equal(spellAbilityChoiceIdFor("Bard"), "3", "3 = Charisma");
+    assert.equal(spellAbilityChoiceIdFor("Sorcerer"), "3");
+    assert.equal(spellAbilityChoiceIdFor("Paladin"), "3");
+    assert.equal(spellAbilityChoiceIdFor("Warlock"), "3");
+  });
+
+  it("agrees with the ability getSpellcastingInfo hands the picker", () => {
+    // Two sources for one fact is how they drifted. If a class's casting
+    // ability changes, both have to move together.
+    for (const cls of ["Wizard", "Cleric", "Bard", "Artificer", "Paladin"]) {
+      const choice = spellAbilityChoiceIdFor(cls);
+      const ability = getSpellcastingInfo(cls).ability;
+      assert.equal(choice, { int: "1", wis: "2", cha: "3" }[ability], `${cls} casts off ${ability}`);
+    }
+  });
+
+  it("answers null for a class that does not cast, so nothing is written", () => {
+    for (const cls of ["Fighter", "Rogue", "Barbarian", "Monk", "", "Homebrew"]) {
+      assert.equal(spellAbilityChoiceIdFor(cls), null, `${cls || "(none)"}`);
+    }
   });
 });

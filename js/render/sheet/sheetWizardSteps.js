@@ -1621,11 +1621,21 @@ export function renderGuideFeaturesStepInto(container, features) {
     })));
 }
 
-export function renderGuideHpStepInto(container, pending, { conScore, dieSize, method }) {
-  const conMod = conModFromScore(conScore);
+export function renderGuideHpStepInto(container, pending, { conScore, dieSize, method, conMod: conModOverride, hpBonus = 0 }) {
+  // `conMod` may be passed directly when the caller already has it from the
+  // sheet's computed values (which include the race's ability bonuses).
+  // `conScore` alone is the BASE score, and using it here is what made a Hill
+  // Dwarf's level-up prose say "+2" on a sheet whose own CON Mod cell read
+  // +3 — the same character, two different Constitution modifiers.
+  //
+  // `hpBonus` is the race's per-level HP grant (Dwarven Toughness: +1 at
+  // every level), which is a stat modifier on the subrace bundle and not
+  // something this step can derive from a die size.
+  const conMod = Number.isFinite(conModOverride) ? conModOverride : conModFromScore(conScore);
+  const bonus = Number.isFinite(hpBonus) ? hpBonus : 0;
   if (!pending.hp) {
-    if (method === "average") pending.hp = String(averageHpOnce(dieSize, conMod));
-    else if (method === "roll") pending.hp = String(rollHpOnce(dieSize, conMod));
+    if (method === "average") pending.hp = String(averageHpOnce(dieSize, conMod) + bonus);
+    else if (method === "roll") pending.hp = String(rollHpOnce(dieSize, conMod) + bonus);
   }
 
   // Show the HP math the same way the ability-scores step shows point
@@ -1635,9 +1645,10 @@ export function renderGuideHpStepInto(container, pending, { conScore, dieSize, m
   // is made of.
   const avg = method === "average" ? Math.floor(dieSize / 2) + 1 : 0;
   const conWord = `${conMod >= 0 ? "plus" : "minus"} ${Math.abs(conMod)}`;
+  const bonusWord = bonus ? ` and your race adds ${bonus}` : "";
   container.append(el("p", { class: "leveling-tab__intro", text: method === "average"
-    ? `Your hit die is a d${dieSize}. Half of that, rounded up, is ${avg} — and your Constitution modifier is ${conMod >= 0 ? "+" : ""}${conMod}. Added together, this level adds ${avg + conMod} hit points.`
-    : `Your hit die is a d${dieSize}, and your Constitution modifier is ${conMod >= 0 ? "+" : ""}${conMod}. Roll the die and ${conWord} that, so this level can add anywhere from ${1 + conMod} to ${dieSize + conMod} hit points. Type in whatever you rolled.` }));
+    ? `Your hit die is a d${dieSize}. Half of that, rounded up, is ${avg} — and your Constitution modifier is ${conMod >= 0 ? "+" : ""}${conMod}${bonusWord}. Added together, this level adds ${avg + conMod + bonus} hit points.`
+    : `Your hit die is a d${dieSize}, and your Constitution modifier is ${conMod >= 0 ? "+" : ""}${conMod}${bonusWord}. Roll the die and ${conWord} that${bonus ? `, then add ${bonus}` : ""}, so this level can add anywhere from ${1 + conMod + bonus} to ${dieSize + conMod + bonus} hit points. Type in whatever you rolled.` }));
 
   const hpInput = el("input", {
     type: "number", min: "1", step: "1", required: true,
@@ -1652,8 +1663,8 @@ export function renderGuideHpStepInto(container, pending, { conScore, dieSize, m
   if (method === "roll") {
     const rerollBtn = el("button", {
       type: "button", class: "btn",
-      text: `Reroll (d${dieSize} ${conMod >= 0 ? "+" : ""}${conMod} CON)`,
-      onclick: () => { pending.hp = String(rollHpOnce(dieSize, conMod)); hpInput.value = pending.hp; },
+      text: `Reroll (d${dieSize} ${conMod >= 0 ? "+" : ""}${conMod} CON${bonus ? ` ${bonus >= 0 ? "+" : "−"}${Math.abs(bonus)} race` : ""})`,
+      onclick: () => { pending.hp = String(rollHpOnce(dieSize, conMod) + bonus); hpInput.value = pending.hp; },
     });
     container.append(rerollBtn);
   } else {

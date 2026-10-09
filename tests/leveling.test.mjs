@@ -41,7 +41,9 @@ import {
   isSubclassField,
   restoresOnRest,
   collectListItemGrantsIn,
-  applyBundleModifiersIn,
+applyBundleModifiersIn,
+  computeSpellSlotCountsIn,
+  effectiveAbilityScoresIn,
   dropdownEntryForGroupKey,
   levelUpTarget,
   rawLevelFrom,
@@ -438,5 +440,98 @@ describe("levels skipped by a multi-level jump", () => {
     const fresh = levelingRecordState(1, { levelUps: {}, createdAtLevel: 1 });
     assert.equal(fresh.hasGap, false);
     assert.equal(fresh.levelToProcess, 1);
+  });
+});
+
+// --- What a finished character is MEASURED with -----------------------------
+//
+// Three numbers were tangled together here: the canonical base in
+// character.rules, what each score CELL was stored with, and what the sheet
+// computes (base + racial + picks). Reading the computed cell answered the
+// wrong question when the first two disagree; reading the base alone dropped
+// every racial bonus. Both showed up as wrong numbers on a finished sheet.
+describe("effectiveAbilityScoresIn", () => {
+  const FIELDS = [
+    { id: "conScore", value: "14" },
+    { id: "wisScore", value: "12" },
+    { id: "intScore", value: "15" },
+  ];
+
+  it("adds the racial bonuses the sheet is already applying", () => {
+    // A Hill Dwarf: stored base, computed 16 CON (+2) and 13 WIS (+1).
+    const out = effectiveAbilityScoresIn(
+      { str: 15, dex: 13, con: 14, int: 15, wis: 12, cha: 8 },
+      FIELDS,
+      { conScore: 16, wisScore: 13, intScore: 15 }
+    );
+    assert.equal(out.con, 16, "CON 14 + 2");
+    assert.equal(out.wis, 13, "WIS 12 + 1");
+    assert.equal(out.int, 15, "an ability with no bonus is untouched");
+    assert.equal(out.str, 15, "and an ability with no field at all keeps the base");
+  });
+
+  it("trusts the canonical base when the cells disagree with it", () => {
+    // A sheet set up outside the wizard: rules say WIS 16, the cell still
+    // says 10, and nothing has granted anything, so the computed value is 10.
+    // The prepared-spell cap was reading that 10 and capping the Cleric at 5
+    // instead of 8.
+    const out = effectiveAbilityScoresIn(
+      { str: 10, dex: 10, con: 10, int: 10, wis: 16, cha: 10 },
+      [{ id: "wisScore", value: "10" }],
+      { wisScore: 10 }
+    );
+    assert.equal(out.wis, 16, "the base is what the character IS");
+  });
+
+  it("leaves an ability alone when there is no computed value for it", () => {
+    const out = effectiveAbilityScoresIn({ wis: 12 }, [{ id: "wisScore", value: "12" }], {});
+    assert.equal(out.wis, 12);
+  });
+
+  it("ignores fields that are not ability scores", () => {
+    const out = effectiveAbilityScoresIn({ wis: 12 }, [{ id: "hpMax", value: "14" }, { id: "speed", value: "25" }], { hpMax: 15, speed: 25 });
+    assert.deepEqual(out, { wis: 12 });
+  });
+});
+
+// A spell-slot tracker the level-up plan says nothing about means the class
+// has NONE of it. The starter layout ships 1st-5th with 4/3/3/2/1 buttons and
+// the caster table stores each level's row trimmed at the first zero, so
+// "not mentioned" used to leave those defaults showing: a Fighter was offered
+// four first-level slots, and a level-1 Wizard kept 2nd/3rd/4th/5th.
+describe("computeSpellSlotCountsIn", () => {
+  const FIELDS = ["slots1", "slots2", "slots3", "slots4", "slots5"].map((id) => ({ id, fieldType: "radio" }));
+
+  const countsFor = (className, level) => computeSpellSlotCountsIn(FIELDS, {}, {
+    rulesetId: "dnd5e-2014",
+    className,
+    level,
+    planFn: getLevelUpPlan,
+  });
+
+  it("gives a level-1 Wizard two first-level slots and none above", () => {
+    assert.deepEqual(countsFor("Wizard", 1), { slots1: 2, slots2: 0, slots3: 0, slots4: 0, slots5: 0 });
+  });
+
+  it("gives a level-2 Wizard three first-level slots and still none above", () => {
+    assert.deepEqual(countsFor("Wizard", 2), { slots1: 3, slots2: 0, slots3: 0, slots4: 0, slots5: 0 });
+  });
+
+  it("gives a Fighter no slots at all, rather than the starter layout's four", () => {
+    assert.deepEqual(countsFor("Fighter", 1), { slots1: 0, slots2: 0, slots3: 0, slots4: 0, slots5: 0 });
+  });
+
+  it("hands a Warlock only the pact row, zeroing the rest", () => {
+    // Read off this repo's own warlockSlots table rather than the PHB: it
+    // stores one pact row per level as [slotLevel, count], and level 2 there
+    // is a single 2nd-level slot.
+    const counts = countsFor("Warlock", 2);
+    assert.equal(counts.slots2, 1, "the one pact slot level 2 grants");
+    assert.equal(counts.slots1, 0, "and no first-level tracker, which the starter layout ships with four");
+  });
+
+  it("says nothing when there is no plan to answer from", () => {
+    assert.deepEqual(computeSpellSlotCountsIn(FIELDS, {}, { rulesetId: "", className: "Wizard", level: 1, planFn: getLevelUpPlan }), {});
+    assert.deepEqual(computeSpellSlotCountsIn(FIELDS, {}, { rulesetId: "dnd5e-2014", className: "Wizard", level: Number.NaN, planFn: getLevelUpPlan }), {});
   });
 });

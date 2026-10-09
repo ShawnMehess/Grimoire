@@ -79,7 +79,14 @@ export function multiclassPrereqReason(scores = {}, fromClass, toClass) {
 }
 
 /** Base scores plus a race bundle's fixed ability adds (op "add" on
- *  *Score) — what multiclass prerequisites measure against. Pure. */
+ *  *Score) — what multiclass prerequisites measure against. Pure.
+ *
+ *  Only the race bundle itself: a subrace's own adds (the Hill Dwarf's +1
+ *  Wisdom) live on the subrace OPTION, not here, so a Hill Dwarf measuring
+ *  WIS through this is one point short. Nothing currently asks it to — the
+ *  multiclass prerequisites are all STR/DEX/CON — but the sheet's own answer
+ *  to "what does this character measure with" is
+ *  effectiveAbilityScoresIn (sheetLeveling.js), which does fold them. */
 export function effectiveScoresFor(baseScores = {}, raceBundle) {
   const out = { ...baseScores };
   for (const mod of ((raceBundle || {}).statModifiers || [])) {

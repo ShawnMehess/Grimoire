@@ -627,6 +627,29 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(/d10/.test(rollBox.textContent) && /Constitution modifier is \+2/.test(rollBox.textContent)
     && /from 3 to 12/.test(rollBox.textContent),
   `the roll note says the die, the modifier and the range (got ${JSON.stringify(rollBox.textContent.trim())})`);
+
+  // A racial CON bonus and a racial per-level HP bonus (Dwarven Toughness).
+  // Passing only `conScore` measured the BASE score, so a Hill Dwarf - whose
+  // sheet reads CON 16 and "Mod +3" - was told "+2" by a step on its own
+  // sheet, and Dwarven Toughness only ever existed as a sentence in a trait
+  // list. Both arrive as numbers now, and the note has to account for both or
+  // the gain looks made up.
+  const racialBox = document.createElement("div");
+  const racialPending = {};
+  steps.renderGuideHpStepInto(racialBox, racialPending, { conScore: 14, conMod: 3, hpBonus: 1, dieSize: 10, method: "average" });
+  assert(racialPending.hp === "10",
+    `HP counts the race's CON and its per-level bonus (got ${JSON.stringify(racialPending.hp)})`);
+  assert(/Constitution modifier is \+3/.test(racialBox.textContent)
+    && /your race adds 1/.test(racialBox.textContent)
+    && /this level adds 10 hit points/.test(racialBox.textContent),
+  `and the note names both (got ${JSON.stringify(racialBox.textContent.trim())})`);
+  // An explicit conMod of 0 is a real answer (CON 10), not a missing one -
+  // `Number.isFinite` is what keeps the fallback from stealing it.
+  const zeroBox = document.createElement("div");
+  const zeroPending = {};
+  steps.renderGuideHpStepInto(zeroBox, zeroPending, { conScore: 16, conMod: 0, dieSize: 6, method: "average" });
+  assert(zeroPending.hp === "4",
+    `an explicit 0 modifier wins over conScore (got ${JSON.stringify(zeroPending.hp)})`);
 }
 // The HP method preference rows: no expand/collapse affordance (they have
 // nothing to expand), and an icon in the portrait slot instead of a letter

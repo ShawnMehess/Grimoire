@@ -1589,6 +1589,46 @@ export function migrateFlexibleAsiToSlots(choices = {}, slotCount = 3) {
 return { choices: out, migrated };
 }
 
+/** Why one option cannot be taken yet, or null when it can.
+ *
+ *  `option.requires` is the machine-readable half of a prerequisite the
+ *  rules state in the option's own text - a Warlock invocation that needs
+ *  a Pact of the Tome, or a 9th level. Both used to be a sentence in a
+ *  tooltip, so a player could take an invocation their character has no
+ *  way to use and the sheet had nothing to say.
+ *
+ *  A pact requirement is met by a pick in ANY group, matched by option
+ *  NAME (ids differ per group); a level requirement is met by the level
+ *  the character is at. `pickedNamesFor` and `level` are passed in rather
+ *  than read here, so this stays a pure function. Returns a short phrase
+ *  for the option's title, or null. */
+export function optionRequirementNote(option, { pickedNames = [], level = 0 } = {}) {
+  const requires = option?.requires || [];
+  for (const req of requires) {
+    if (req?.kind === "pact" && !pickedNames.includes(req.value)) {
+      return `Needs ${req.value}`;
+    }
+    if (req?.kind === "level" && Number(level || 0) < Number(req.value || 0)) {
+      return `Needs ${req.value}th level`;
+    }
+  }
+  return null;
+}
+
+/** Every option name picked in `groups`, by choice key lookup. Used as the
+ *  `pickedNames` input above, and by the pickers that need the whole set.
+ *  Pure. */
+export function pickedOptionNames(groups = [], choicesStore = {}) {
+  const out = new Set();
+  for (const group of groups || []) {
+    for (const id of choicesStore?.[group.key] || []) {
+      const option = groupOptionsOf(group).find((o) => o.id === id);
+      if (option?.name) out.add(option.name);
+    }
+  }
+  return [...out];
+}
+
 /** The one place that decides WHERE a choice group is rendered.
  *
  *  Every group gets exactly one answer, and both the picker row
@@ -4138,13 +4178,23 @@ export function openChoiceDialog({
       // spell's checkbox row in here is what the player actually reads.
       // Same shape as the picker rows - facts on their own row, a gist, and a
       // disclosure for the full text - so the two do not drift.
-      const spellish = opt.meta || opt.gist;
-      if (!spellish) {
-        return el("label", { class: "choice-dialog-option" },
+        const spellish = opt.meta || opt.gist;
+        if (!spellish) {
+          // The label carries the caller's own note for this option (what a
+          // locked prerequisite needs, when the caller has one) so the row
+          // says why it is not pickable on hover, like the rest of the app.
+          const row = el("label", {
+            class: "choice-dialog-option",
+            ...(opt.title ? { title: opt.title } : {}),
+          },
           input,
           el("span", { text: opt.name, style: "flex: 1;" }),
           opt.description ? el("span", { class: "choice-dialog-desc", text: opt.description }) : null);
-      }
+          if (opt.title) {
+            row.append(el("span", { class: "choice-dialog-note", text: opt.title }));
+          }
+          return row;
+        }
       const facts = el("div", { class: "choice-row__mechanics-meta" },
         ...spellMetaFacts(opt.meta || "").map((fact) => el("span", {
           class: "choice-row__fact choice-row__fact--" + fact.kind,
@@ -4346,7 +4396,7 @@ export function flexibleAsiSummary(pick) {
  *  options are auto-selected, shown locked, and exempt from the pick
  *  budget (used for e.g. a mandatory default language). Re-renders
  *  itself after every change. */
-export function renderChoiceGroupsInto(container, groups, choicesStore, namePrefix, onChange, ownedResolver) {
+export function renderChoiceGroupsInto(container, groups, choicesStore, namePrefix, onChange, ownedResolver, levelFor = null) {
   container.innerHTML = "";
   if (!groups.length) {
     const note = document.createElement("p");
@@ -4357,6 +4407,7 @@ export function renderChoiceGroupsInto(container, groups, choicesStore, namePref
   }
   const rerender = () => renderChoiceGroupsInto(container, groups, choicesStore, namePrefix, onChange, ownedResolver);
   groups.forEach((group) => {
+    console.debug("[RENDER] renderChoiceGroupsInto for group:", group.key, "choicesStore[group.key]:", JSON.stringify(choicesStore[group.key]));
     if (!choicesStore[group.key]) choicesStore[group.key] = [];
     const locked = new Set(group.lockedOptionIds || []);
     const selected = choicesStore[group.key];
@@ -4454,7 +4505,21 @@ export function renderChoiceGroupsInto(container, groups, choicesStore, namePref
       const familyLocked = groupOptionsOf(group)
         .filter((o) => familyNames.has(o.name) && !(choicesStore[group.key] || []).includes(o.id))
         .map((o) => o.id);
-      renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange, familyLocked);
+      // Prerequisites the option's own text states (a pact boon, a level),
+      // refused the same way: greyed, with the reason in the title.
+      const taken = pickedOptionNames(groups, choicesStore);
+      const level = Number(typeof levelFor === "function" ? levelFor(group) : levelFor) || 0;
+      const notes = new Map();
+      const unmet = [];
+      for (const o of groupOptionsOf(group)) {
+        if ((choicesStore[group.key] || []).includes(o.id)) continue;
+        const note = optionRequirementNote(o, { pickedNames: taken, level });
+        if (!note) continue;
+        notes.set(o.id, note);
+        unmet.push(o.id);
+      }
+      renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange,
+        new Set([...familyLocked, ...unmet]), notes);
     }
     container.append(choiceGroup);
   });
@@ -4499,9 +4564,9 @@ export function renderCrossCategoryChoiceInto(container, group, choicesStore, re
   });
 }
 
-export function renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange, familyLocked = null) {
+export function renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned, choicesStore, namePrefix, rerender, onChange, extraLocked = null, lockNotes = null) {
   const locked = new Set(group.lockedOptionIds || []);
-  const familyLockedIds = familyLocked instanceof Set ? familyLocked : new Set(familyLocked || []);
+  const lockedElsewhere = extraLocked instanceof Set ? extraLocked : new Set(extraLocked || []);
   const counted = selected.filter((id) => !locked.has(id));
   const atMax = counted.length >= group.maxSelections;
   group.options.forEach((option) => {
@@ -4509,11 +4574,13 @@ export function renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned,
     optionLabel.className = "level-guide__choice-option";
     const alreadyOwned = optionIsOwned(option, owned);
     const isLocked = locked.has(option.id);
-    // Taken by a sibling unlock of the same list (Metamagic at 10th, the
-    // same option the 3rd already holds). Disabled rather than hidden: the
-    // list a player reads should be the whole list, and the one that says
-    // why is the title, as with every other locked option here.
-    const familyHeld = familyLockedIds.has(option.id);
+    // Taken elsewhere in the same family (Metamagic at 10th, the same
+    // option the 3rd already holds) or blocked by a prerequisite the
+    // option's own text states. Disabled rather than hidden: the list a
+    // player reads should be the whole list, and the reason goes in the
+    // title, as with every other locked option here.
+    const familyHeld = lockedElsewhere.has(option.id);
+    const note = lockNotes instanceof Map ? lockNotes.get(option.id) : null;
     const input = document.createElement("input");
     input.type = group.maxSelections === 1 ? "radio" : "checkbox";
     input.name = `${namePrefix}-${group.key}`;
@@ -4523,7 +4590,7 @@ export function renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned,
     if (familyHeld && !isChecked) {
       input.disabled = true;
       optionLabel.classList.add("level-guide__choice-option--locked");
-      optionLabel.title = "Already chosen at an earlier level";
+      optionLabel.title = note || "Already chosen at an earlier level";
     } else if (isLocked) {
       input.disabled = true;
       optionLabel.classList.add("level-guide__choice-option--locked");
@@ -4533,12 +4600,23 @@ export function renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned,
       optionLabel.classList.add("level-guide__choice-option--granted");
       optionLabel.title = "Already have this from another selection — pick something else instead";
     } else if (input.type === "checkbox" && atMax && !isChecked) {
-      input.disabled = true;
+      // Don't disable if this option's prerequisite is now met (note is null/empty)
+      // This allows prerequisite-unlocked options to be picked even when at maxSelections
+      if (note) {
+        input.disabled = true;
+      }
     }
     input.addEventListener("change", () => {
+      // Use global getter if available (updated by renderRulesTab) to handle
+      // cases where character.rules.choices reference was replaced after render
+      const getChoicesStore = (typeof window !== "undefined" && typeof window.__getChoicesStore === "function")
+        ? window.__getChoicesStore
+        : () => choicesStore;
+      const liveChoicesStore = getChoicesStore();
       if (input.type === "radio") {
         // Locked defaults ride along — a radio pick must not drop them.
-        choicesStore[group.key] = input.checked ? [option.id, ...locked].filter((id, i, arr) => arr.indexOf(id) === i) : [...locked];
+        const newVal = input.checked ? [option.id, ...locked].filter((id, i, arr) => arr.indexOf(id) === i) : [...locked];
+        liveChoicesStore[group.key] = newVal;
       } else if (input.checked) {
         // Guards a full group even if disabling the input above
         // hasn't taken effect yet (e.g. two change events racing).
@@ -4547,7 +4625,7 @@ export function renderFlatChoiceOptionsInto(choiceGroup, group, selected, owned,
         if (countedNow.length >= group.maxSelections) { input.checked = false; return; }
         if (!selected.includes(option.id)) selected.push(option.id);
       } else {
-        choicesStore[group.key] = selected.filter((id) => id !== option.id);
+        liveChoicesStore[group.key] = selected.filter((id) => id !== option.id);
       }
       if (onChange) onChange();
       rerender();

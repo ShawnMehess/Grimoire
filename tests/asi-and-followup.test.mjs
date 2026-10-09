@@ -368,3 +368,55 @@ describe("choice groups embedded on an option", () => {
     assert.equal(choiceDialogKindFor(cantrip), "spells");
   });
 });
+
+// Dwarves walk 25 ft and Hill Dwarves have Dwarven Toughness. Both used to
+// live only in prose - a "Speed: 25 ft. walking" trait line and a
+// "Max HP increases by 1 per level" sentence - so the sheet's Speed cell
+// said 30 and no HP total counted either one. A stat modifier is what the
+// level-1 HP total and the Level Up guide read; prose only ever asked to be
+// applied by hand.
+describe("dwarven mechanics are real stat modifiers", () => {
+  const subraceOption = (id) => {
+    const subraces = raceBundle("Dwarf").choiceGroups.find((g) => g.id === "dwarf-subrace");
+    return subraces.options.find((o) => o.id === id);
+  };
+  const statMods = (option, fieldId) =>
+    (option.statModifiers || []).filter((m) => m.targetFieldId === fieldId);
+
+  it("every dwarf subrace declares the 25 ft walking speed", () => {
+    // +2 CON is shared, and so is being five feet slower than the 30 the
+    // starter sheet's Speed cell ships with.
+    for (const id of ["dwarf-subrace-hill-dwarf", "dwarf-subrace-mountain-dwarf", "dwarf-subrace-duergar"]) {
+      const speed = statMods(subraceOption(id), "speed");
+      assert.equal(speed.length, 1, `${id} declares a speed`);
+      assert.equal(speed[0].op, "add", `${id} adjusts the sheet default`);
+      assert.equal(speed[0].value, -5, `${id} is five feet slower`);
+    }
+  });
+
+  it("the Hill Dwarf's Dwarven Toughness adds 1 to the hit point maximum", () => {
+    const hill = subraceOption("dwarf-subrace-hill-dwarf");
+    const hp = statMods(hill, "hpMax");
+    assert.equal(hp.length, 1, "one hpMax modifier");
+    assert.equal(hp[0].value, 1);
+    assert.ok(!hp[0].minLevel, "and it applies at 1st level, where Dwarven Toughness starts");
+    // The other two subraces have no such feature, so no such bonus.
+    for (const id of ["dwarf-subrace-mountain-dwarf", "dwarf-subrace-duergar"]) {
+      assert.equal(statMods(subraceOption(id), "hpMax").length, 0, `${id} gets no toughness bonus`);
+    }
+  });
+
+  it("still states both in the trait list, in the wording the player reads", () => {
+    const hill = subraceOption("dwarf-subrace-hill-dwarf");
+    const names = hill.featureGrants.map((f) => f.name);
+    assert.ok(names.includes("Speed") && names.includes("Dwarven Toughness"),
+      `the traits are still listed (got ${JSON.stringify(names)})`);
+    assert.ok(/25 ft/.test(hill.featureGrants.find((f) => f.name === "Speed").description));
+  });
+
+  it("the Hill Dwarf's Wisdom bonus is still on the subrace, not the base", () => {
+    const hill = subraceOption("dwarf-subrace-hill-dwarf");
+    assert.equal(statMods(hill, "wisScore")[0]?.value, 1);
+    assert.equal(statMods(hill, "conScore")[0]?.value, 2);
+  });
+});

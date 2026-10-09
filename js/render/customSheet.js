@@ -64,7 +64,7 @@ import { openFormulaEditor } from "./formulaEditor.js";
 import { openBundleLibraryManager } from "./bundleLibraryEditor.js";
 import { openCatalogLibraryManager } from "./catalogLibraryEditor.js";
 import { openCatalogBrowser } from "./catalogBrowser.js";
-import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets, listContentPacks, getContentPack, defaultContentPackIds, hitDieFor, multiclassSlotsFor, classNamesIn, subclassesAcrossRulesets, contentIdMatches } from "../data/dnd5e.js";
+import { getLevelUpPlan, getRuleset, getRulesetClass, getSpellcastingInfo, listRulesets, listContentPacks, getContentPack, defaultContentPackIds, hitDieFor, multiclassSlotsFor, classNamesIn, subclassesAcrossRulesets, contentIdMatches, spellAbilityChoiceIdFor } from "../data/dnd5e.js";
 import { ABILITY_IDS, normalizeRulesState, resolveRulesState, spellLimitFor, classLevelsFor, meetsMulticlassPrereq, effectiveScoresFor, multiclassPrereqReason, includedRulesetIds, primaryRulesetId } from "../data/rulesEngine.js";
 import { primaryLevelFor, levelReachedByClass, postApplyClassSlices, subclassNameForClass } from "../data/multiclassLevels.js";
 import { spellcastingModelFor } from "../data/spellcastingModels.js";
@@ -183,6 +183,7 @@ activeChoiceGroupsFor,
 normalizeChoiceGroup,
   applyStatModifiers as applySharedStatModifiers,
   computeSheetValuesIn,
+  effectiveAbilityScoresIn,
   computeRadioOptionCountsIn,
   computeSpellSlotCountsIn,
   normalizeRadioSelectionsIn,
@@ -291,6 +292,8 @@ import {
   ownedSkillIdsFromBundles,
   optionIsOwned,
   familyTakenOptionNames,
+  pickedOptionNames,
+  optionRequirementNote,
   groupPicksSatisfied,
   lockCommonInLanguageGroups as lockCommonGroups,
   reviewChoiceLinesFor,
@@ -3118,7 +3121,43 @@ const closeDialog = () => {
     return unapplied;
   }
 
-  function computeSheetValues(fields) {
+/** The ability scores the SHEET measures with: the canonical base in
+  * character.rules, plus the race's fixed adds.
+  *
+  *  The base comes from `character.rules.abilityScores` and NOT from the score
+  *  cells, because those two are not the same thing: a sheet set up outside the
+  *  wizard (an import, a hand-built character) has rules that say one thing and
+  *  fields that still say 10, and rules is the source of truth for what the
+  *  character IS. Reading the cells instead quietly dropped a Cleric with WIS
+  *  16 onto a prepared cap of 5 rather than 8.
+  *
+  *  The race's adds are folded in because the prepared-spell cap is 3 + the
+  *  casting ability's modifier: on the base alone a Human Wizard (whose +1
+  *  Intelligence is a racial bonus) was told to prepare 3 spells when the rules
+  *  allow 4, while the same sheet's Save DC cell used the +1.
+  *
+  *  `computed` defaults to the current render's value map; a caller that has
+  *  just recomputed one (Finish Setup) passes it in rather than having a
+  *  stale render's numbers decide. */
+function effectiveSheetScores(computed = formulaValues) {
+  const fields = flattenGlobalFields();
+  return effectiveAbilityScoresIn(
+    character.rules?.abilityScores,
+    fields.filter((f) => /Score$/.test(f.id || "")),
+    computed
+  );
+}
+
+/** The number the STARTER sheet ships a field with, or null when the
+ *  starter layout has no such field. Lets a one-time write tell "nobody has
+ *  touched this yet" from "the player set this deliberately" without
+ *  tracking an edit history for it. */
+function starterFieldValue(id, label) {
+  const field = findStarterFieldIn(createStarterLayout().flatMap((b) => b.children || []), id, label);
+  return field ? numericFieldValue(field) : null;
+}
+
+function computeSheetValues(fields) {
     const { valueMap, granted } = computeSheetValuesIn(fields, {
       computeAllFormulasFn: (f) => computeAllFormulas(f),
       applyBundleModifiersFn: (f, vm, cb, tags) => applyBundleModifiers(f, vm, cb, tags),
@@ -4187,7 +4226,26 @@ const closeDialog = () => {
       creationChoiceGroupsFor(state),
       group.key
     );
-    if (!groupPicksSatisfied(group, character.rules?.choices?.[group.key], owned)) return false;
+    if (!groupPicksSatisfied(group, character.rules?.choices?.[group.key], owned)) {
+      // A group whose remaining options are all blocked by a prerequisite
+      // the character cannot meet yet is not outstanding - it is closed.
+      // Without this, a Warlock at 2nd level who has not taken a Pact Boon
+      // (it comes at 3rd) is asked to pick from a list where every
+      // Tome-locked row is greyed out, and Next can never unlock. The
+      // shortfall is measured against the options still open, and only a
+      // shortfall there counts.
+      const open = openOptionsFor(group, state);
+      if (open.length < (group.minSelections ?? 0)) return true;
+      // Enough open options remain, so the group is still owed a pick.
+      //
+      // This fell through to the `return true` below, which reported an
+      // UNTRAKEN group as done: the reason under Next stopped naming it
+      // (falling back to a bare "Choices still to make."), and Metamagic
+      // drew as an already-answered section. The two branches are the other
+      // way round from each other, and the other way round is what the note
+      // above them describes.
+      return false;
+    }
     // An ASI family's cap is not a property of any one group: three "+1 STR"
     // picks each satisfy their own group perfectly while granting a +3 no
     // racial increase allows. So a family is checked whole, and the group
@@ -4196,6 +4254,21 @@ const closeDialog = () => {
       return false;
     }
     return true;
+  }
+
+  /** The group's options a character at this level could actually take:
+   *  every option except one a sibling pick or this level blocks. Shared by
+   *  the gating above and the "still to choose" label, so both agree on what
+   *  is on offer. */
+  function openOptionsFor(group, state) {
+    const groups = creationChoiceGroupsFor(state);
+    const taken = pickedOptionNames(groups, character.rules?.choices || {});
+    const familyTaken = new Set(familyTakenOptionNames(group, groups, character.rules?.choices || {}));
+    return groupOptionsOf(group).filter((o) => {
+      if (!o?.name) return false;
+      if (familyTaken.has(o.name)) return false;
+      return !optionRequirementNote(o, { pickedNames: taken, level: state.level });
+    });
   }
 
   /** The four fixed picks a creation wizard makes, in the positional
@@ -4242,8 +4315,21 @@ const closeDialog = () => {
   // now go through the shared renderChoiceGroups() below, which is
   // also where "can't pick more than you're told to" is enforced.
   function renderCreationChoiceGroups(container, groups, saveRules, state) {
-    renderChoiceGroups(container, groups, character.rules.choices, "creation-choice", () => { saveRules(); refreshWizardNav(); },
-      (excludeKey) => ownedSkillIdsFrom(creationFixedBundles(state), creationChoiceGroupsFor(state), excludeKey));
+    // A pick here can open or close an option in ANOTHER group: taking the
+    // Pact of the Tome is what unlocks Book of Ancient Secrets, and the two
+    // are separate sections of the same page. Re-rendering only this group
+    // leaves the other one showing a stale lock, so the whole page is
+    // re-rendered - the same thing every live pick on this page does.
+    renderChoiceGroups(container, groups, character.rules.choices, "creation-choice", () => {
+      saveRules();
+      refreshWizardNav();
+      renderPageGrid();
+    },
+      (excludeKey) => ownedSkillIdsFrom(creationFixedBundles(state), creationChoiceGroupsFor(state), excludeKey),
+      // The character's own level, because an option can state a level
+      // prerequisite (a Warlock invocation that needs 9th level) and the
+      // picker has to grey it rather than describe it.
+      state.level);
   }
 
   /** The Race/Class/Subclass/Background bundles implied by the Setup
@@ -4308,8 +4394,8 @@ const closeDialog = () => {
    *  own maxSelections at all, leaving the full pick count available
    *  from whatever's left. Re-renders itself after every change so
    *  the disabled state always matches the current count. */
-  function renderChoiceGroups(container, groups, choicesStore, namePrefix, onChange, ownedResolver) {
-    return renderChoiceGroupsInto(container, groups, choicesStore, namePrefix, onChange, ownedResolver);
+  function renderChoiceGroups(container, groups, choicesStore, namePrefix, onChange, ownedResolver, level = 0) {
+    return renderChoiceGroupsInto(container, groups, choicesStore, namePrefix, onChange, ownedResolver, level);
   }
 
   // A Catalog whose name mentions "spell" is treated as the spell
@@ -4780,6 +4866,20 @@ const closeDialog = () => {
       const target = findSetupField(change.fieldId, change.label);
       if (target) { target.options = change.options; syncOptionWidth(target); }
     });
+    // A caster's Save DC and spell attacks come off the Spell Ability
+    // dropdown, and nothing had ever set it: a finished Wizard showed
+    // DC 10 / Attack 2 (the Spell Ability Mod formula falls through to
+    // Charisma when the dropdown is empty) while its own feature text on
+    // the same sheet said "You use INT for wizard spells". The class
+    // decides this, not the player, so it is written once here - and only
+    // when the field is still empty, so a deliberate override (a
+    // multiclass character casting off a different ability) survives a
+    // later Finish Setup.
+    const spellAbilityField = findSetupField("spellAbility", "Spell Ability");
+    const classSpellAbility = spellAbilityChoiceIdFor(character.rules.className);
+    if (spellAbilityField && classSpellAbility && spellAbilityField.selected == null) {
+      spellAbilityField.selected = classSpellAbility;
+    }
     // The Setup wizard's own "Choices" steps save picks under a
     // temporary key — creation:<category>:<name>:<groupId> — built
     // from staged state, since the real Class/Race/Background fields
@@ -4792,6 +4892,49 @@ const closeDialog = () => {
        ["Subclass", subclassField, character.rules.subclass], ["Background", backgroundField, character.rules.background]],
       character.rules.choices
     );
+    // Level 1 hit points: the class's full hit die plus the character's
+    // Constitution modifier (5e gives a first level the MAX die, unlike
+    // every level after it) plus any racial HP bonus - Dwarven Toughness
+    // is a `hpMax` stat modifier on the Hill Dwarf subrace for exactly
+    // this.
+    //
+    // It has to be written here because everything downstream is
+    // additive: the Level Up guide does `hpMax + gain`, so a character
+    // whose HP Max was blank came out of a level-2 walkthrough with the
+    // gain as their TOTAL hit points. HP Current starts at full, as it
+    // does at the end of a long rest you finish at 1st level.
+    //
+    // Both numbers come from the sheet's own answer rather than from the bare
+    // base, so the racial bonus is applied exactly once and identically to the
+    // CON Mod cell the player can see. That needs the choice-key migration
+    // above to have run first: a subrace (the Hill Dwarf's +2 CON and +1 HP
+    // both live on the subrace option) is only reachable once its pick is
+    // under the real key.
+    const hpMaxField = findSetupField("hpMax", "HP Max");
+    const hpCurrentField = findSetupField("hpCurrent", "HP Current");
+    if (hpMaxField && character.rules.className) {
+      const settledValues = computeSheetValues(flattenGlobalFields());
+      const con = effectiveSheetScores(settledValues).con;
+      const racialHp = Number(settledValues.hpMax) || 0;
+      const level1Hp = Math.max(
+        1,
+        hitDieFor(character.rules.className) + (Math.floor(((Number(con) || 10) - 10) / 2)) + racialHp
+      );
+      hpMaxField.value = String(level1Hp);
+      if (hpCurrentField && !numericFieldValue(hpCurrentField)) hpCurrentField.value = String(level1Hp);
+      // A race's walking speed, the same way: read off the computed value
+      // map, where a `speed` stat modifier has already been folded in.
+      //
+      // Only written while the cell still holds the value the starter sheet
+      // ships, so a speed the player typed - or a mount they added to - is
+      // never overwritten by re-running Sync Rules To Sheet.
+      const speedField = findSetupField("speed", "Speed");
+      const starterSpeed = starterFieldValue("speed", "Speed");
+      if (speedField && Number.isFinite(Number(settledValues.speed))
+        && numericFieldValue(speedField) === starterSpeed) {
+        speedField.value = String(Math.max(0, Math.round(Number(settledValues.speed))));
+      }
+    }
     // Now that the choices exist and are selected, apply any
     // ruleset-tagged library bundle whose name matches — same matching
     // rule as Bulk Apply, just run automatically for the fields the
@@ -4931,7 +5074,21 @@ const closeDialog = () => {
   }
 
   function renderRulesTab() {
-    const state = character.rules = normalizeRulesState(character.rules);
+    // Mutate character.rules in place to preserve object identity for closures
+    // (e.g., radio handlers in sheetWizard.js that capture character.rules.choices)
+    const oldChoices = character.rules.choices;
+    const normalized = normalizeRulesState(character.rules);
+    // Copy all properties except choices (which we mutate in place)
+    const { choices: _, ...rest } = normalized;
+    Object.assign(character.rules, rest);
+    // Mutate choices in place: clear and copy to preserve reference for radio handlers
+    for (const key of Object.keys(oldChoices)) delete oldChoices[key];
+    Object.assign(oldChoices, normalized.choices);
+    // Also update global getter for radio handlers that captured old references
+    if (typeof window !== "undefined") {
+      window.__getChoicesStore = () => character.rules.choices;
+    }
+    const state = character.rules;
     // Retired combo-option ASI picks map onto the slot groups (both
     // key shapes); unparseable leftovers stay untouched for the
     // Leveling gate to surface. Runs every render but only saves when
@@ -5101,7 +5258,7 @@ const closeDialog = () => {
     // "groups with a dialog kind render inline" filter picks them up with
     // no change to the row renderer: a Cantrips bullet and one per level,
     // each a link into the shared spell dialog.
-    const creationSpellGroups = inlineSpellPickGroups();
+    const creationSpellGroups = inlineSpellPickGroups(stagedAbilityBonuses(state));
     const creationGroupsWithSpells = [...creationGroups, ...creationSpellGroups];
     // Per-step sections: a pick's own groups (subrace groups render
     // nested under their race, never standalone). Read from the list WITH
@@ -5565,6 +5722,7 @@ const closeDialog = () => {
       // 5th) greys out what an earlier one already holds, so the option
       // cannot be taken twice.
       const familyTaken = new Set(familyTakenOptionNames(group, creationChoiceGroupsFor(state), character.rules.choices || {}));
+      const pickedNames = pickedOptionNames(creationChoiceGroupsFor(state), character.rules.choices || {});
       return {
         live: true,
         topic: group.label || "Choose",
@@ -5573,14 +5731,17 @@ const closeDialog = () => {
           key: group.key,
           value: picked?.id || "",
           placeholder: "Choose…",
-          options: (group.options || []).filter((o) => o.name).map((o) => ({
-            value: o.id,
-            label: o.name,
-            disabled: familyTaken.has(o.name),
-            title: familyTaken.has(o.name)
-              ? "Already chosen"
-              : (o.featureGrants?.[0]?.description ? sharedBriefDescription(o.featureGrants[0].description, 120) : null),
-          })),
+          options: (group.options || []).filter((o) => o.name).map((o) => {
+            const unmet = optionRequirementNote(o, { pickedNames, level: state.level });
+            return {
+              value: o.id,
+              label: o.name,
+              disabled: familyTaken.has(o.name) || Boolean(unmet),
+              title: familyTaken.has(o.name)
+                ? "Already chosen"
+                : (unmet || (o.featureGrants?.[0]?.description ? sharedBriefDescription(o.featureGrants[0].description, 120) : null)),
+            };
+          }),
         }],
         onPick: (slotKey, optionId, info) => {
           const patch = assignFeatureSlot(featGroups, slotKey, optionId || null);
@@ -5880,6 +6041,17 @@ const closeDialog = () => {
           if (familyTaken.has(o.name) && !lockedIds.includes(o.id)) lockedIds.push(o.id);
         }
       }
+      // Prerequisites the option's own text states: a pact boon not yet
+      // taken, a level not yet reached. Refused in the dialog for the same
+      // reason a taken option is: the rules will not let it be had.
+      const prerequisiteNames = pickedOptionNames(creationChoiceGroupsFor(state), store);
+      const requirementNotes = new Map();
+      for (const o of opts) {
+        const note = optionRequirementNote(o, { pickedNames: prerequisiteNames, level: state.level });
+        if (!note) continue;
+        requirementNotes.set(o.id, note);
+        if (!lockedIds.includes(o.id)) lockedIds.push(o.id);
+      }
       const stored = store[group.key] || [];
       const pickedNames = stored.map((id) => opts.find((o) => o.id === id)?.name).filter(Boolean);
       // Languages get the Widespread/Rare split, so the dialog reads as two
@@ -5902,7 +6074,15 @@ const closeDialog = () => {
           title: group.label || "Choose an option",
           multi: group.maxSelections !== 1,
           maxSelections: group.maxSelections,
-          options: opts.map((o) => ({ id: o.id, name: o.name, description: describeChoiceOption(kind, o) })),
+          options: opts.map((o) => ({
+            id: o.id,
+            name: o.name,
+            description: describeChoiceOption(kind, o),
+            // A locked option reads "why" in its row, not only in a title:
+            // the dialog's own lock column already says "already chosen",
+            // and "Needs Pact of the Tome" is the same kind of fact.
+            title: requirementNotes.get(o.id) || null,
+          })),
           sections: langSections,
           lockedIds,
           initialSelected: stored,
@@ -6025,35 +6205,19 @@ const closeDialog = () => {
     ].filter(Boolean);
   }
 
-  /** How many spells the class list offers across these spell levels. This is
-   *  the ceiling for a line whose model says the list is free-form (the
-   *  Wizard's spellbook: 5e caps the PREPARED subset, not the book). It used
-   *  to be a 9999 sentinel instead, which reached the player as a button
-   *  reading "Choose 9999".
-   *
-   *  Counted from the same catalog the picker reads, so the ceiling and the
-   *  list are one source. Counting the raw entries rather than the dialog's
-   *  options is deliberate and lands on the safe side: the dialog also drops
-   *  always-prepared spells, so this number is never below what it offers and
-   *  can never truncate the list.
-   *
-   *  Zero means no Spell List is imported, and the caller then offers no line
-   *  at all rather than one with no ceiling.
-   *
-   *  One function for both wizards, so creation and level-up cannot answer
-   *  this differently. */
-  function spellOptionsAcrossLevels(className, levels) {
-    const seen = new Set();
-    for (const levelNum of levels || []) {
-      for (const spell of spellsForLevel(levelNum, className) || []) {
-        const name = typeof spell === "string" ? spell : spell?.name;
-        if (name) seen.add(name);
-      }
-    }
-    return seen.size;
-  }
-
-  function inlineSpellPickGroups() {
+  // `abilityBonuses` is the staged race/class/background ability bonuses
+  // (stagedAbilityBonuses). The prepared-spell count is 3 + the spellcasting
+  // ability's modifier, so it has to measure the modifier the SHEET uses -
+  // base score plus the race's adds. Reading character.rules.abilityScores
+  // alone capped a Human Wizard at 3 prepared spells when their +1
+  // Intelligence made it 4. Passed in rather than re-derived here because
+  // the Race dropdown has no `.selected` choice until Finish Setup, so this
+  // is the only place the staged race is visible.
+  //
+  // The spellbook ceiling this tab hands over (`spellbookCapFor` below) is
+  // the shared `spellOptionsAcrossLevels`, declared beside
+  // renderRulesetLevelGuide so the level-up wizard can reach it too.
+  function inlineSpellPickGroups(abilityBonuses = null) {
     const bundles = spellBundles();
     const model = spellcastingModelFor(state.className, state.rulesetId, {
       infoFor: (name) => getSpellcastingInfo(name),
@@ -6070,7 +6234,10 @@ const closeDialog = () => {
     return creationSpellPickGroups({
       className: state.className,
       level: state.level,
-      abilityScores: character.rules?.abilityScores,
+      abilityScores: Object.fromEntries(ABILITY_IDS.map((id) => [
+        id,
+        (Number(character.rules?.abilityScores?.[id]) || 10) + (Number(abilityBonuses?.[id]?.bonus) || 0),
+      ])),
       bundles,
       choices,
       knownItems: spellField?.items || [],
@@ -6134,7 +6301,7 @@ const closeDialog = () => {
    *  per spell level — the Express spell fill. Respects caps exactly
    *  like the picker (same limit helpers), never exceeding them. */
   function fillSpellsToCap() {
-    const limit = spellLimitFor(state.className, state.level, character.rules?.abilityScores);
+    const limit = spellLimitFor(state.className, state.level, effectiveSheetScores());
     if (!limit) return;
     const plan = getLevelUpPlan(state.rulesetId, state.className, state.level);
     const field = ensureSpellListField();
@@ -6571,7 +6738,7 @@ const closeDialog = () => {
           // had no numbers in it and stopped being true the moment spell
           // counts appeared — the shortfall is the one thing a player
           // standing here most needs to know.
-          const spells = spellPickShortfallPhrase(inlineSpellPickGroups(), state.choices || {});
+          const spells = spellPickShortfallPhrase(inlineSpellPickGroups(stagedAbilityBonuses(state)), state.choices || {});
           if (spells) out.push(spells);
           if (!choicesComplete(classChoiceGroups)) {
             const phrase = stillToChoosePhrase(classChoiceGroups);
@@ -6616,10 +6783,24 @@ const closeDialog = () => {
               { abilityIds: ABILITY_IDS, abilities: ABILITIES, skills: SKILLS, resolveLabel: (id) => resolveFieldById(id)?.label }
             ),
           });
-          // classChoiceGroups is empty for every baked-in class now
-          // (leftovers render in the row via inlineChoicesFn) — the
+// classChoiceGroups is empty for every baked-in class now
+          // (leftovers render in the row via inlineChoicesFn) - the
           // call stays as a safety net for groups no dialog covers.
-          renderYourChoicesSections(container, "class", classChoiceGroups.filter((g) => !choiceDialogKindFor(g)), saveRules, classChoiceGroups);
+          // The non-dialog groups were already drawn in the "Class
+          // Choices" block renderClassStepInto renders from the same
+          // list, so they are excluded here: two copies of the same
+          // fieldset meant a pick in the first vanished on the re-render
+          // the second drew.
+          const classGroupsDrawnByStep = new Set(
+            creationChoiceGroupsFor(state)
+              .filter((g) => !g.subrace && (g.source === state.className || g.source === state.subclass) && !choiceDialogKindFor(g))
+              .map((g) => g.key),
+          );
+          renderYourChoicesSections(
+            container, "class",
+            classChoiceGroups.filter((g) => !choiceDialogKindFor(g) && !classGroupsDrawnByStep.has(g.key)),
+            saveRules, classChoiceGroups,
+          );
 
           // The class's starting-gear rows, answered here where the class is
           // picked rather than on a page of their own. Returns false for a
@@ -7089,7 +7270,41 @@ const closeDialog = () => {
     });
   }
 
-  function renderRulesetLevelGuide() {
+  /** How many spells the class list offers across these spell levels. This is
+ *  the ceiling for a line whose model says the list is free-form (the
+ *  Wizard's spellbook: 5e caps the PREPARED subset, not the book). It used to
+ *  be a 9999 sentinel instead, which reached the player as a button reading
+ *  "Choose 9999".
+ *
+ *  Counted from the same catalog the picker reads, so the ceiling and the
+ *  list are one source. Counting the raw entries rather than the dialog's
+ *  options is deliberate and lands on the safe side: the dialog also drops
+ *  always-prepared spells, so this number is never below what it offers and
+ *  can never truncate the list.
+ *
+ *  Zero means no Spell List is imported, and the caller then offers no line at
+ *  all rather than one with no ceiling.
+ *
+ *  One function for BOTH wizards, so creation and level-up cannot answer this
+ *  differently - which means it cannot live inside either of them. It used to
+ *  sit inside renderRulesTab, and the level-up half reached for it by name
+ *  from renderRulesetLevelGuide, a SIBLING that cannot see anything declared
+ *  inside renderRulesTab. Nothing complained until a caster actually levelled
+ *  up: the creation spellbook rendered fine (same scope, so the name
+ *  resolved), the level-up one threw "spellOptionsAcrossLevels is not
+ *  defined" and took the whole step with it. */
+const spellOptionsAcrossLevels = (className, levels) => {
+    const seen = new Set();
+    for (const levelNum of levels || []) {
+      for (const spell of spellsForLevel(levelNum, className) || []) {
+        const name = typeof spell === "string" ? spell : spell?.name;
+        if (name) seen.add(name);
+      }
+    }
+    return seen.size;
+  };
+
+function renderRulesetLevelGuide() {
     const primaryName = selectedChoiceName("class", "Class");
     const sheetLevel = currentCharacterLevel();
     // No Level on the sheet means no level to guide (and no "null"
@@ -7440,7 +7655,11 @@ const closeDialog = () => {
         title: "Choices",
         isComplete: () => contentGroups.every((g) => groupPicksSatisfied(g, pending.choices[g.key], alreadyOwnedSkillIds(g.key))),
         render(container) {
-          renderChoiceGroups(container, contentGroups, pending.choices, "rule-choice", () => refreshWizardNav(), alreadyOwnedSkillIds);
+          // The level being TAKEN counts, not the level held: a Warlock
+          // reaching 9th is offered the 9th-level invocation here, not on
+          // the level after.
+          const taking = (currentCharacterLevel() ?? character.rules?.level ?? 1);
+          renderChoiceGroups(container, contentGroups, pending.choices, "rule-choice", () => refreshWizardNav(), alreadyOwnedSkillIds, taking);
         },
       });
     }
@@ -7601,6 +7820,24 @@ const closeDialog = () => {
       });
     }
 
+    // The Constitution modifier is the one the SHEET is showing - the canonical
+    // base plus the race's adds - so a Hill Dwarf is not told "+2" on a sheet
+    // whose own CON Mod cell reads +3.
+    //
+    // The racial HP bonus is the difference between the computed HP Max (base
+    // field plus the race's `hpMax` modifiers) and the stored field, so
+    // Dwarven Toughness is counted here without this step needing to know
+    // which subrace was taken.
+    const sheetValuesForHp = () => {
+      const values = computeSheetValues(flattenGlobalFields());
+      const stored = numericFieldValue(findStarterField("hpMax", "HP Max"));
+      const con = effectiveSheetScores().con;
+      return {
+        conMod: Math.floor(((Number(con) || 10) - 10) / 2),
+        hpBonus: Math.max(0, Math.round((Number(values.hpMax) || 0) - (stored || 0))),
+      };
+    };
+
     steps.push({
       id: "hp",
       title: "Hit Points",
@@ -7609,8 +7846,11 @@ const closeDialog = () => {
         return Number.isFinite(gain) && gain >= 1;
       },
       render(container) {
+        const { conMod, hpBonus } = sheetValuesForHp();
         renderGuideHpStepInto(container, pending, {
           conScore: character.rules?.abilityScores?.con,
+          conMod,
+          hpBonus,
           dieSize: hitDieFor(levelClass),
           method: character.rules?.hpMethod || "average",
         });
@@ -8944,7 +9184,7 @@ const closeDialog = () => {
       infoFor: (name) => getSpellcastingInfo(name),
     });
     const hasPreparedList = Boolean(model?.hasPreparedList);
-    const limit = spellLimitFor(levelClass, level, rules.abilityScores);
+    const limit = spellLimitFor(levelClass, level, effectiveSheetScores());
     const alwaysPrepared = [...alwaysPreparedSpellNames(
       [bundleFor("Class", levelClass, includedRulesetIdsFor()), bundleFor("Subclass", rules.subclass, includedRulesetIdsFor())]
         .filter(Boolean),

@@ -488,10 +488,62 @@ export function computeSpellSlotCountsIn(fields, valueMap, { rulesetId, classNam
   const counts = {};
   if (!rulesetId || !className) return counts;
   if (!Number.isFinite(level)) return counts;
+  // Every spell-slot tracker on the sheet starts at zero, and the level-up
+  // plan then overrides the ones the class actually has.
+  //
+  // Without this the starter layout's own button counts showed through: it
+  // ships 1st-5th with 4/3/3/2/1 buttons, so a Fighter - whose plan has no
+  // slotChanges at all - offered four first-level slots, and a level-1
+  // Wizard kept 2nd/3rd/4th/5th because the caster table stores each level's
+  // row trimmed at the first zero (`"1":[2]`) and `map` over a short row
+  // cannot produce the zeros that follow it. The plan is a delta over the
+  // PHB table, not a full nine-slot row, so "not mentioned" has to mean
+  // "none", or the sheet disagrees with the table it reads from.
+  for (const f of fields) {
+    if (f.fieldType === "radio" && /^slots\d+$/.test(f.id)) counts[f.id] = 0;
+  }
   (planFn(rulesetId, className, level)?.slotChanges || []).forEach((change) => {
     counts[change.fieldId] = change.options;
   });
   return counts;
+}
+
+/** The ability scores the sheet is actually measuring with.
+ *
+ *  Three numbers have to be told apart, and the app had them tangled:
+ *
+ *  - the CANONICAL base, `character.rules.abilityScores`, which is what the
+ *    character IS;
+ *  - what each score CELL was stored with, which on a sheet set up outside
+ *    the wizard (an import, a hand-built character) is still the starter 10;
+ *  - what the sheet COMPUTES, base plus the race's fixed adds and whatever
+ *    any pick grants.
+ *
+ *  Reading the computed cell directly answers the wrong question when the
+ *  first two disagree: a Cleric whose rules say WIS 16 was capped at 5
+ *  prepared spells because its cell still read 10. Reading the base alone
+ *  answers it wrong the other way, dropping every racial bonus — which told
+ *  a Human Wizard to prepare 3 spells when +1 Intelligence makes it 4.
+ *
+ *  So: canonical base, plus the difference between computed and stored. That
+ *  difference is exactly the bonuses the sheet is already applying, whatever
+ *  they came from, so the two numbers can never disagree about the same
+ *  character.
+ *
+ *  `scoreFields` are the six `*Score` fields; `computed` is the value map.
+ *  Pure. */
+export function effectiveAbilityScoresIn(baseScores = {}, scoreFields = [], computed = {}) {
+  const out = { ...baseScores };
+  for (const field of scoreFields) {
+    const id = String(field.id || "").replace(/Score$/, "");
+    if (!id || !(id in out)) continue;
+    const stored = Number(field.value);
+    const now = Number(computed[field.id]);
+    if (!Number.isFinite(now)) continue;
+    const base = Number.isFinite(Number(out[id])) ? Number(out[id]) : 10;
+    out[id] = base + (now - (Number.isFinite(stored) ? stored : 0));
+  }
+  return out;
 }
 
 /** If a radio field's live button count just shrank below its current
