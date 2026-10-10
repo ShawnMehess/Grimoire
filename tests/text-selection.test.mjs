@@ -15,6 +15,7 @@ import { selectionCoversText } from "../js/render/sheet/sheetSelection.js";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const base = readFileSync(join(ROOT, "css", "base.css"), "utf8");
 const grid = readFileSync(join(ROOT, "css", "components", "custom-sheet-grid.css"), "utf8");
+const targets = readFileSync(join(ROOT, "css", "components", "a11y-targets.css"), "utf8");
 
 /** A window whose getSelection() answers with the given fake selection. */
 const withSelection = (sel) => ({ getSelection: () => sel });
@@ -94,5 +95,24 @@ describe("the stylesheet lets text be selected", () => {
   it("gives editable text its own cursor back", () => {
     const editable = base.match(/input\[type="text"\][^{]*\{([^}]*)\}/)[1];
     assert.ok(/cursor:\s*text/.test(editable) && /user-select:\s*text/.test(editable));
+  });
+});
+
+/* The touch floors. a11y-targets.css is the one file that owns them, and
+   the numbers are the point: 24px is the desktop minimum, 32-44 is the
+   coarse band. A rule that is deleted from here is a control that quietly
+   goes back to being unpressed. */
+describe("interactive targets clear their floor", () => {
+  it("gives the wizard's step pills a height, not just a line of text", () => {
+    // The pills are drawn as 2px of padding around a text-xs line: 21px
+    // tall, under the 24px floor, and on a tablet or a desktop they are the
+    // only way to jump between steps (the phone's step dropdown is off).
+    const dot = targets.match(/\n\.wizard__dot \{([^}]*)\}/);
+    assert.ok(dot, "a11y-targets.css no longer sizes .wizard__dot");
+    assert.match(dot[1], /min-height:\s*24px/, `expected a 24px floor, got: ${dot[1]}`);
+    const coarse = targets.match(/@media \(pointer: coarse\) \{([\s\S]*?)\n\}/);
+    assert.ok(coarse, "the coarse-pointer band is gone");
+    assert.match(coarse[1], /\.wizard__dot \{([^}]*)\}/, "the band no longer carries the pills");
+    assert.match(coarse[1], /min-height:\s*32px/);
   });
 });

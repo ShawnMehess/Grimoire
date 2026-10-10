@@ -23,6 +23,16 @@ input[type="radio"]:checked::after {
   min-height: 24px;
 }
 
+/* The wizard's step pills. Drawn as 2px of padding around a text-xs line
+   they measure 21px tall, which is under the 24px floor below - and they
+   are the only way to jump between steps on a tablet or a desktop, where
+   the phone's step dropdown is switched off (see phone.css). A pill is
+   sized by its box, so growing the box grows the pill rather than leaving
+   dead space inside it. */
+.wizard__dot {
+  min-height: 24px;
+}
+
 @media (pointer: coarse) {
   input[type="checkbox"],
   input[type="radio"] {
@@ -37,6 +47,10 @@ input[type="radio"]:checked::after {
     height: 16px;
   }
   .textlist-add {
+    min-height: 32px;
+  }
+
+  .wizard__dot {
     min-height: 32px;
   }
 }
