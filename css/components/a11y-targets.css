@@ -58,7 +58,6 @@ input[type="radio"]:checked::after {
     min-height: 32px;
   }
 }
-
 /* The wizard's in-sentence dropdowns — "Languages — Common, [pick]", the
    three "+1 to each of" slots, a tool from inside a row's own bullet.
    These are drawn with 1px of padding above and below so they read as
@@ -74,4 +73,22 @@ input[type="radio"]:checked::after {
    its band, which is the right outcome for a thumb. */
 .inline-pick-select {
   min-height: 24px;
+}
+
+/* A row in the shared choice dialog. Every picker in the app funnels
+   through it - skills, spells, feats, tools, fighting styles, and the
+   starting-gear weapon pickers - and a row is `var(--space-2)` of padding
+   around one line of text, which measured 40px: four short of the floor, at
+   every width including a phone's, on the control a player taps to choose.
+
+   `min-height` rather than a padding change, because the row is a flex line
+   that stays top-aligned: a taller box with the same padding keeps the name
+   beside the checkbox instead of pushing the checkbox to the middle. The
+   Accept/Cancel pair is the same story at 38px. */
+.choice-dialog-option {
+  min-height: 44px;
+}
+
+.modal-actions .btn {
+  min-height: 44px;
 }

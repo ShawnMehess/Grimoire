@@ -133,8 +133,7 @@ describe("interactive targets clear their floor", () => {
       "the in-sentence dropdown lost the compact padding that makes it read as text");
   });
 
-  it("keeps the character sheet's dropdowns over the floor, without stealing the phone's 44", () => {
-    // The reading column's 1.3em floor left the sheet's own dropdowns 23px
+  it("keeps the character sheet's dropdowns over the floor, without stealing the phone's 44", () => {    // The reading column's 1.3em floor left the sheet's own dropdowns 23px
     // tall at 721px and up. The floor that fixes it lives beside the rule it
     // overrides (custom-sheet-grid.css) rather than in a11y-targets.css, and
     // that placement is the assertion: a selector specific enough to beat the
@@ -150,5 +149,22 @@ describe("interactive targets clear their floor", () => {
     // phone.css and would beat the phone's 44px band.
     assert.doesNotMatch(targets, /field-value--dropdown/,
       "the sheet floor moved back to a11y-targets.css, where it overrides phone.css's 44px");
+  });
+
+  it("gives the shared choice dialog's rows and buttons the floor", () => {
+    // Every picker in the app funnels through this dialog - skills, spells,
+    // feats, tools, fighting styles, and the starting-gear weapon pickers -
+    // and a row is `var(--space-2)` of padding around one line, which
+    // measured 40px, with Accept/Cancel at 38px: both under the floor at
+    // every width including a phone's, on the control a player taps to
+    // choose. Safe to floor here in a way the sheet's dropdowns were not:
+    // nothing in phone.css names either selector, so there is no band to
+    // out-specify.
+    const row = targets.match(/\n\.choice-dialog-option \{([^}]*)\}/);
+    assert.ok(row, "a11y-targets.css no longer sizes .choice-dialog-option");
+    assert.match(row[1], /min-height:\s*44px/);
+    const actions = targets.match(/\n\.modal-actions \.btn \{([^}]*)\}/);
+    assert.ok(actions, "a11y-targets.css no longer sizes .modal-actions .btn");
+    assert.match(actions[1], /min-height:\s*44px/);
   });
 });
