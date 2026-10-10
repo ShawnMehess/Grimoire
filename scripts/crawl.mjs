@@ -412,22 +412,52 @@ for (let step = 0; step < 22; step++) {
     // empty select remains (same one-at-a-time rule as the radios
     // below). Capped: a full budget stays full, so extra rounds only
     // churn within the budget, never below it.
+    //
+    // The SELECTED row is filled first and is NOT covered by that cap,
+    // which is the fix for a BLOCKED Identity step. The step is gated on
+    // the row that is picked and nothing else, and Custom Lineage alone
+    // puts FIVE dropdowns on that row - languages, three "+1 ability"
+    // slots, and the variable trait - so fast mode's four select rounds
+    // could never finish it. The crawl ended every run with the gate
+    // still asking for "Ability Score Increase (Custom Lineage)" and
+    // reported a step no player could be blocked on. The bound below is
+    // a real bound (no row offers more than a handful) rather than a cap
+    // on volume; the capped pass that follows is the one that bounds
+    // work across the whole page.
+    //
+    // And the option chosen is the first ENABLED one, which is the other
+    // half of the same fix. Three ASI slots filled blind all took
+    // "+1 Strength", which the app correctly refuses: the family caps an
+    // ability at twice, so three of one is an illegal ask and the gate
+    // stays shut on a page that looks fully answered. The sibling slot's
+    // pick disables the duplicate option - the same thing the ASI-slot
+    // e2e area measures - so honouring `disabled` is what makes the fill
+    // produce a pick a player could actually make.
+    const fillOneSelect = (onlySelectedRow) => page.evaluate((onlySelected) => {
+      const inUnpickedRow = (el) => {
+        const row = el.closest?.(".choice-row");
+        return !!row && !row.classList.contains("choice-row--selected");
+      };
+      const inSelected = (el) => !!el.closest?.(".choice-row--selected");
+      const usable = (el) => el.isConnected && !inUnpickedRow(el);
+      const openOption = (s) => [...s.options].find((o) => o.value && !o.disabled && !/choose|select|none/i.test(o.text));
+      const pool = [...document.querySelectorAll(".wizard select")].filter((el) => !el.value && usable(el));
+      const s = (onlySelected ? pool.find((el) => inSelected(el)) : pool[0]);
+      if (!s) return false;
+      const opt = openOption(s);
+      if (!opt) return false;
+      s.value = opt.value;
+      s.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    }, onlySelectedRow);
+    for (let srow = 0; srow < 12; srow++) {
+      mark(`${label}: fillStep selected-row select ${srow}`);
+      if (!(await fillOneSelect(true))) break;
+      await page.waitForTimeout(250);
+    }
     for (let sround = 0; sround < CAP.selectRounds; sround++) {
       mark(`${label}: fillStep select round ${sround}`);
-      const filled = await page.evaluate(() => {
-        const inUnpickedRow = (el) => {
-          const row = el.closest?.(".choice-row");
-          return !!row && !row.classList.contains("choice-row--selected");
-        };
-        const s = [...document.querySelectorAll(".wizard select")].find((el) => !el.value && el.isConnected && !inUnpickedRow(el));
-        if (!s) return false;
-        const opt = [...s.options].find((o) => o.value && !/choose|select|none/i.test(o.text));
-        if (!opt) return false;
-        s.value = opt.value;
-        s.dispatchEvent(new Event("change", { bubbles: true }));
-        return true;
-      });
-      if (!filled) break;
+      if (!(await fillOneSelect(false))) break;
       await page.waitForTimeout(250);
     }
     for (let round = 0; round < CAP.radioRounds; round++) {
@@ -622,6 +652,19 @@ for (let step = 0; step < 22; step++) {
   } else {
     errors.push({ phase: `wizard:${label}`, action: "advance", message: "BLOCKED: no enabled Next/Finish" });
     const diag = await page.evaluate(() => ({
+      // What the wizard itself says is outstanding. This was missing, and a
+      // blocked step's diag without it is a list of dropdown values that
+      // says nothing about WHICH one is still empty: `selects` below shows
+      // Custom Lineage's variable trait filled and three ASI slots on
+      // "str", none of which is the row the sweep happened to leave
+      // selected. The reason is one line and it names the choice.
+      reason: document.querySelector(".wizard__gate-reason")?.textContent?.trim() || null,
+      selectedRow: document.querySelector(".choice-row--selected")?.dataset.rowName || null,
+      // Picks still showing their placeholder, and whether they sit inside
+      // the selected row (the only ones the step is actually gated on).
+      openPicks: [...document.querySelectorAll(".wizard .inline-pick-link")]
+        .filter((a) => /^choose\b/i.test(a.textContent || ""))
+        .map((a) => `${a.getAttribute("aria-label") || a.textContent.trim()}${a.closest(".choice-row--selected") ? " [selected row]" : ""}`),
       spellRows: document.querySelectorAll(".spell-picker-list .choice-row").length,
       limitNote: [...document.querySelectorAll(".leveling-tab__intro")].map((n) => n.textContent.trim()).join(" || ").slice(0, 500),
       fieldsets: document.querySelectorAll(".level-guide__choices").length,
