@@ -450,6 +450,20 @@
   padding-inline: var(--space-2);
   max-width: 40rem;
   margin-inline: auto;
+  /* Sized by its own text, never by a share of the bar. It used to claim
+     `flex: 1 0 100%` - a whole line to itself - which was right when the
+     bar was a full-width block in the page and wrong the moment the bar
+     became a fixed strip: on a 768px tablet the reason took a line of its
+     own with 640px of unused room beside it, and the bar grew 40% taller
+     than it was at 800px. With `flex: 0 0 auto` it sits beside the buttons
+     whenever there is room for it, and drops to a line of its own - where
+     it has the full width and its sentence is never truncated - only when
+     there genuinely isn't. That is the same outcome the old rule was after,
+     arrived at without a width to maintain. */
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: min(40rem, 100%);
+  margin-block: 0;
 }
 
 /* The same line, when the step knows which control is open and can take
@@ -967,11 +981,23 @@
   color: var(--color-accent, var(--color-text-muted));
 }
 
+/* ONE action bar, pinned to the bottom of the viewport. Back, Next, and
+   the reason Next is refusing - all on screen at once, at every width.
+
+   It used to be a pair of text buttons drawn twice, once above the step
+   and once below, plus a floating arrow on the right of the screen on a
+   phone: three controls for two actions, and the only one always on
+   screen was the one that said nothing about why it was dimmed.
+
+   `row-gap`, not `margin-top` on the reason: the reason drops to a line
+   of its own on a narrow screen (see the rule above) and the gap between
+   the two rows has to exist without the single-row case paying for it. */
 .wizard__nav {
   display: flex;
   justify-content: center;
   align-items: center;
   gap: var(--space-3);
+  row-gap: var(--space-2);
   position: fixed;
   left: 0;
   right: 0;
@@ -984,6 +1010,8 @@
   border-top: var(--border-width) solid var(--color-border-strong);
   box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.3);
 }
+/* Bigger than a toolbar's buttons: these two are the controls the whole
+   wizard turns on, and they are the only thing always on screen. */
 .wizard__nav .btn {
   min-width: 3.25rem;
   min-height: 3rem;
@@ -991,8 +1019,12 @@
   font-size: 1.5rem;
   line-height: 1;
 }
+/* The bar is out of flow, so the page has to be able to scroll clear of
+   it. 7rem, not the 6rem the bar measured before the reason learned to
+   share its row: the phone's wrapped bar is 100px tall (see phone.css) and
+   a control sitting 4px under it is a control a player cannot press. */
 .wizard {
-  padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+  padding-bottom: calc(7rem + env(safe-area-inset-bottom));
 }
 
 @media (max-width: 1024px) {

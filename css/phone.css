@@ -434,24 +434,19 @@
 }
 
 /* Why Next is refusing, on the page.
-   It sits under the buttons on a full-width line rather than beside them:
-   the sentences are whole ("No species picked yet.") and squeezing one
-   into the gap between two buttons truncates it, which is the failure the
-   missing reason was already causing.
+   The bar is a fixed strip now, so the reason is one of its rows rather
+   than a block under it - see .wizard__gate-reason in
+   components/custom-sheet-wizard.css, which decides whether it shares the
+   buttons' row or takes a line of its own. This band only adds the phone's
+   own type scale.
 
-   Centred, and that matters more here than on a desktop: the bar wraps, so
-   the reason is the only thing on its own line, full width, and left-aligned
-   under two buttons it reads as part of Back. */
+   Centred, and that matters more on a narrow screen: when the reason does
+   take a line of its own it is full width, and left-aligned under two
+   buttons it reads as part of Back. */
 .wizard__gate-reason {
-  flex: 1 0 100%;
-  order: 9;
-  margin: var(--space-2) 0 0;
   font-size: var(--text-sm);
   color: var(--color-text-muted);
   line-height: 1.35;
-  text-align: center;
-  max-width: 40rem;
-  margin-inline: auto;
 }
 .wizard__nav {
   flex-wrap: wrap;
@@ -481,28 +476,14 @@
     border-radius: var(--radius-sm);
   }
 
-  /* ONE forward control. The edge arrow is removed here rather than on
-     phones only being cramped: the button below is pinned to the bottom of
-     the screen instead, so it is always visible, and two gated controls
-     saying the same thing is one more thing to read and one more that can
-     disagree. The swipe gesture is untouched - it needs no chrome at all,
-     and it is the reason the arrow existed. */
-  .wizard__edge-next {
-    display: none !important;
-  }
-  /* ...and with the arrow gone, so is the right-hand gutter it needed.
-     This is the asymmetry: `padding-right: var(--space-5)` under
-     `max-width: 1024px`, against nothing on the left. */
+  /* ONE forward control, and it is the bar's. There used to be an edge
+     arrow as well, plus a second Back/Next above the step; the arrow is
+     gone with them because the bar is pinned to the bottom of the screen
+     and a third control saying the same thing is one more thing to read
+     and one more that can disagree. The swipe gesture is untouched - it
+     needs no chrome at all, and it is the reason the arrow existed. */
   .wizard__body {
     padding-right: 0;
-  }
-
-  /* The top Back/Next duplicate goes; the sticky bottom one is the one.
-     Both were already in the DOM (the top one hides itself when the
-     bottom one is on screen) - on a phone the bottom one is ALWAYS on
-     screen, so the top one is always dead weight. */
-  .wizard__nav--top {
-    display: none;
   }
 
   /* The step's primary action, always on screen.
@@ -516,13 +497,12 @@
      relative to the viewport and does what it says.
      Nothing above it is transformed, which is the other thing that would
      silently re-root a fixed element. */
-  .wizard__nav:not(.wizard__nav--top):not(.wizard__nav--hidden) {
+   .wizard__nav {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 30;
-    margin-top: 0;
     padding: var(--space-2) var(--space-3);
     background: var(--color-bg);
     border-top: var(--border-width) solid var(--color-border-strong);
@@ -538,9 +518,9 @@
      Caught by the level-up revert check, whose `elementFromPoint` came back
      with the bar instead of the button it was aiming at. */
   .page-grid--leveling {
-    padding-bottom: 6rem;
+    padding-bottom: 7rem;
   }
-  .wizard__nav:not(.wizard__nav--top) .btn {
+  .wizard__nav .btn {
     min-height: 44px;
   }
 
@@ -555,26 +535,10 @@
   }
 }
 
-/* Why Next is refusing, on the page.
-   It sits under the buttons on a full-width line rather than beside them:
-   the sentences are whole ("No species picked yet.") and squeezing one
-   into the gap between two buttons truncates it, which is the failure the
-   missing reason was already causing.
-
-   Centred, and that matters more here than on a desktop: the bar wraps, so
-   the reason is the only thing on its own line, full width, and left-aligned
-   under two buttons it reads as part of Back. */
-.wizard__gate-reason {
-  flex: 1 0 100%;
-  order: 9;
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-sm);
-  color: var(--color-text-muted);
-  line-height: 1.35;
-  text-align: center;
-  max-width: 40rem;
-  margin-inline: auto;
-}
+/* See the note above the first band: the reason is a row of the fixed bar,
+   sized by its own text, and centred because when it does take a line of
+   its own it is full width and left-aligned under two buttons it reads as
+   part of Back. */
 .wizard__nav {
   flex-wrap: wrap;
   align-items: center;
@@ -597,7 +561,7 @@
     gap: var(--space-2);
   }
 
-  .wizard__nav:not(.wizard__nav--top) .btn {
+  .wizard__nav .btn {
     min-height: 44px;
   }
 
@@ -620,10 +584,10 @@
     border: var(--border-width) solid var(--color-border);
     border-radius: var(--radius-sm);
   }
+  /* The step pills were the third copy of the step number, and the bar's
+     controls have never been duplicated since it went fixed. */
   .wizard__dots,
-  .wizard__bar,
-  .wizard__edge-next,
-  .wizard__nav--top {
+  .wizard__bar {
     display: none !important;
   }
   .wizard__body {
@@ -635,13 +599,17 @@
   .choice-row-list__collapse-controls .btn {
     min-height: 44px;
   }
-  .wizard__nav:not(.wizard__nav--top):not(.wizard__nav--hidden) {
+  /* Half a screen's height is the most a landscape phone has, so the bar
+     spends less of it: tighter padding, a smaller reason, and a smaller
+     reservation behind it to match. 5.5rem still clears a two-line reason
+     (44px buttons + gap + two 16px lines), which is what a long sentence
+     on a sentence-width screen costs. */
+  .wizard__nav {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 30;
-    margin-top: 0;
     padding: var(--space-1) var(--space-3);
     background: var(--color-bg);
     border-top: var(--border-width) solid var(--color-border-strong);
@@ -651,8 +619,14 @@
     padding-bottom: 5.5rem;
   }
   .wizard__gate-reason {
-    margin-top: var(--space-1);
     font-size: var(--text-xs);
+  }
+  /* The same reservation on the wizard itself (the creation wizard's,
+     which lives on .page-grid--creation rather than --leveling): 7rem of a
+     390px-tall screen is 29% spent on air behind a bar that is 53-88px
+     here. */
+  .wizard {
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
   }
 }
 /* --- 5. The character sheet on a phone ------------------------------------
