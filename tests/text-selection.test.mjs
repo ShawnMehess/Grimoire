@@ -132,4 +132,23 @@ describe("interactive targets clear their floor", () => {
     assert.match(wizard, /\.mechanics-pick \.inline-pick-select \{[^}]*padding-top:\s*1px/,
       "the in-sentence dropdown lost the compact padding that makes it read as text");
   });
+
+  it("keeps the character sheet's dropdowns over the floor, without stealing the phone's 44", () => {
+    // The reading column's 1.3em floor left the sheet's own dropdowns 23px
+    // tall at 721px and up. The floor that fixes it lives beside the rule it
+    // overrides (custom-sheet-grid.css) rather than in a11y-targets.css, and
+    // that placement is the assertion: a selector specific enough to beat the
+    // 1.3em also ties with phone.css's 44px rule, and being in a file imported
+    // later it would silently win it - which measured 26px on a phone.
+    const grid = readFileSync(join(ROOT, "css", "components", "custom-sheet-grid.css"), "utf8");
+    const simple = grid.match(/\.page-grid\.is-simple:not\(\.page-grid--leveling\) \.field-value \{\s*height: auto;\s*min-height: 1\.3em;\s*\}/);
+    assert.ok(simple, "the reading column's 1.3em floor is gone - the 23px may have moved, not been fixed");
+    const floor = grid.match(/\.page-grid\.is-simple:not\(\.page-grid--leveling\) \.field-value--dropdown \{([^}]*)\}/);
+    assert.ok(floor, "custom-sheet-grid.css no longer floors the sheet's dropdowns");
+    assert.match(floor[1], /min-height:\s*24px/);
+    // And it must NOT be in a11y-targets.css, which is imported after
+    // phone.css and would beat the phone's 44px band.
+    assert.doesNotMatch(targets, /field-value--dropdown/,
+      "the sheet floor moved back to a11y-targets.css, where it overrides phone.css's 44px");
+  });
 });

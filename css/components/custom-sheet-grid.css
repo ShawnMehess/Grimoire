@@ -970,6 +970,25 @@
   height: auto;
   min-height: 1.3em;
 }
+/* ...but a dropdown is a control, and 1.3em of a 14px line leaves it 23px
+   tall - one pixel under the desktop floor in a11y-targets.css, on Class,
+   Race, Background, Subclass, Spell Ability and Alignment, at every width
+   the reading column runs at (721px and up, where phone.css's 44px band
+   does not reach).
+
+   The floor belongs in a11y-targets.css with the others, but it cannot
+   live there and work: a selector specific enough to beat the 1.3em above
+   also ties with phone.css's `.page-grid.is-simple .grid-node--field
+   .field-value { min-height: 44px }` and, being in a file imported later,
+   silently wins it - which drops a phone's dropdown from 44px to 26px.
+   Written here, inside the file that owns the competing rule, it is beaten
+   by the right thing at the right width instead.
+
+   `min-height` rather than a height, so the value box can still grow: a
+   two-line value in a reading column is the point of the column. */
+.page-grid.is-simple:not(.page-grid--leveling) .field-value--dropdown {
+  min-height: 24px;
+}
 
 /* Hide the editing chrome. Simple View is a read-only display mode, so a
    hovered node's toolbar or a drag handle left on screen would invite an
