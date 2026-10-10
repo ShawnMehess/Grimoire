@@ -51,7 +51,13 @@
 }
 
 .btn--danger:hover {
-  background: rgba(163, 65, 58, 0.12);
+  /* color-mix, not a literal: this was rgba(163,65,58,.12), which is the
+     old --color-negative of the default theme only. Every light theme and
+     every alt theme got a red wash that did not belong to it, and the
+     colour-blind option - which repoints --color-negative at blue or
+     orange - did nothing here, leaving a red hover on a blue-on-orange
+     palette. */
+  background: color-mix(in srgb, var(--color-negative) 12%, transparent);
 }
 
 .btn--icon {
@@ -61,5 +67,5 @@
 /* Toggled-on toolbar buttons (Card fields toggle). */
 .btn.active {
   border-color: var(--color-accent);
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }

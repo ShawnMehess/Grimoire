@@ -112,6 +112,16 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
   for (const block of blocks) {
     const bg = block.tokens["--color-bg"];
     if (!bg) continue;
+    // --color-accent-text must be set BY the block, not inherited. The
+    // contrast loop below silently skips an absent token, so a theme that
+    // omits it passes this gate while every accent-coloured word in it
+    // renders at :root's blue - the wrong hue for the theme and, in the
+    // light modes, as little as 3.2:1. Fourteen of the eighteen blocks were
+    // in exactly that state. Presence is the part that has to be asserted;
+    // the ratio is only meaningful once it is.
+    if (!block.tokens["--color-accent-text"]) {
+      fail(`--color-accent-text is missing from ${block.selector} - it falls back to the :root value, which is the wrong hue for this theme and does not clear 4.5:1 on its background`);
+    }
     for (const token of TEXT_TOKENS) {
       const value = block.tokens[token];
       if (!value) continue;

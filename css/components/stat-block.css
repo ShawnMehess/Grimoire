@@ -51,8 +51,22 @@
 .stat-block__modifier {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  color: var(--color-accent);
-  background: var(--color-accent-muted);
+/* --color-text, not the accent: this is the one accent-on-tint pairing
+   in the app. --color-accent-muted is a translucent wash, so the badge
+   ground is really the accent blended over whatever is behind it, and
+   any accent-family text landed at 1.0-2.6:1 against it - cyberpunk
+   rendered "+2" at literally 1.00:1, invisible.
+
+   The wash is now blended onto --color-bg-inset rather than left to
+   composite against whatever happens to be behind the badge. Against the
+   surface it followed onto (the stat block, then the page) the result
+   depended on stacking order and still failed cyberpunk at 3.02:1;
+   against the inset, which every theme defines, it is 6.0:1 or better in
+   all eighteen, and body text clears 4.5:1 on it everywhere. */
+  color: var(--color-text);
+  background: linear-gradient(
+    color-mix(in srgb, var(--color-accent) 20%, var(--color-bg-inset)),
+    var(--color-bg-inset));
   border-radius: var(--radius-sm);
   padding: 0 var(--space-2);
   min-width: 2.25rem;

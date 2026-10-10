@@ -237,7 +237,7 @@
   border-color: var(--color-accent);
   /* A tinted ground as well as a border, so the chosen method does not
      depend on noticing a one-pixel colour change. */
-  background: rgba(59, 111, 212, 0.08);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
 }
 .wizard__ability-method-label {
   display: inline-flex;
@@ -344,7 +344,7 @@
    feat below its minimum. */
 .wizard__ability-need {
   flex-basis: 100%;
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 .wizard__ability-need::before {
   content: "\26A0\FE0E ";
@@ -962,7 +962,7 @@
   padding: 0.4rem 0.6rem;
   font-size: 1.2rem;
   line-height: 1;
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   background: var(--color-bg-inset);
 }
 .choice-row--expanded .choice-row__portrait--icon {
@@ -1491,7 +1491,7 @@
   font-size: 0.7em;
   vertical-align: super;
   cursor: pointer;
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 .inline-pick-help a {
   color: inherit;
@@ -1579,7 +1579,7 @@
 /* Inline choice summary ("Choose 2", "Arcana, Stealth") — the link
    that opens the shared choice dialog. */
 .inline-pick-link {
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   cursor: pointer;
   text-decoration: none;
 }
@@ -1944,7 +1944,7 @@
 }
 .feat-list__icon {
   flex: 0 0 auto;
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 .feat-list__main {
   display: flex;
@@ -2003,7 +2003,7 @@
   margin: 0.35em 0 0;
   padding-left: 1.8em;
   font-size: var(--text-xs);
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 .feat-list__warn::before {
   content: "\26A0\FE0E ";
@@ -2012,7 +2012,7 @@
   margin: 0;
   padding-left: 1.8em;
   font-size: var(--text-xs);
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 .feat-list__source {
   margin-left: auto;
@@ -2073,7 +2073,7 @@
   color: var(--color-text);
 }
 .leveling-subtabs__tab.is-active {
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   border-bottom-color: var(--color-accent);
 }
 .leveling-subtabs__panel[hidden] {
@@ -2088,7 +2088,7 @@
   font-size: var(--text-sm);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 .leveling-glance__list {
   margin: 0;

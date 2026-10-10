@@ -422,7 +422,7 @@
 .catalog-browser__entry-cost {
   flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   font-weight: 600;
   min-width: 3ch;
   text-align: right;

@@ -82,7 +82,7 @@ h4 { font-size: var(--text-md); }
 p { margin: 0 0 var(--space-3) 0; }
 
 a {
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   text-decoration: none;
 }
 a:hover { color: var(--color-accent-hover); }

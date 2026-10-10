@@ -90,7 +90,7 @@
 
 .dropdown-choices-editor__mod-btn.active {
   border-color: var(--color-accent);
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
 /* The expandable per-choice bundle editor — indented and left-bordered

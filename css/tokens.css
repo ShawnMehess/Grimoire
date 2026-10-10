@@ -27,7 +27,13 @@
      why it is the background) but only 4.04:1 against the page background,
      so any accent-coloured text on the page failed AA. Raising the
      background token to fix the text would have dropped white-on-accent
-     below 4.5 and made the buttons worse. Two tokens, two jobs. 5.33:1. */
+     below 4.5 and made the buttons worse. Two tokens, two jobs. 5.33:1.
+
+     EVERY theme block below must set this. A theme that omits it inherits
+     :root's blue, which is both the wrong hue for the theme and the wrong
+     luminance for its background - the light-mode themes fell as far as
+     3.2:1 that way. scripts/verify-content.mjs now asserts presence, not
+     just contrast, so a new theme cannot ship without one. */
   --color-accent-text:   #5b8aee;
 
   --color-arcane:        #6a86c9;   /* used for spell-related UI only */
@@ -153,6 +159,7 @@
   --color-accent:        #5c8a3c;
   --color-accent-hover:  #74a84e;
   --color-accent-muted:  #3f5c2a80;
+  --color-accent-text:   #6b954e;
   --color-arcane:        #5b7f9e;
   --color-positive:      #7aa45c;
   --color-negative:      #ca706a;
@@ -179,6 +186,7 @@
   --color-accent:        #4a6fd4;
   --color-accent-hover:  #5f86e8;
   --color-accent-muted:  #33437c80;
+  --color-accent-text:   #6282da;
   --color-arcane:        #7fb2dd;
   --color-positive:      #6a8f5c;
   --color-negative:      #c96d66;
@@ -208,6 +216,7 @@
   --color-accent:        #3b6fd4;
   --color-accent-hover:  #5b8aee;
   --color-accent-muted:  #2c4a8a80;
+  --color-accent-text:   #5e89dc;
   --color-arcane:        #6a86c9;
   --color-positive:      #5d9b62;
   --color-negative:      #c27671;
@@ -255,6 +264,7 @@
   --color-accent:        #b3492b;
   --color-accent-hover:  #d4602f;
   --color-accent-muted:  #7a3a2680;
+  --color-accent-text:   #c16c53;
   --color-arcane:        #8fa8c9;
   --font-display: "Cinzel", "Georgia", serif;
   --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 0 18px -2px rgba(212,175,55,0.35);
@@ -273,6 +283,7 @@
   --color-accent:        #8f2f1c;
   --color-accent-hover:  #b3492b;
   --color-accent-muted:  #dcbf85;
+  --color-accent-text:   #8f2f1c;
   --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 0 18px -2px rgba(143,47,28,0.35);
   --gradient-accent: linear-gradient(155deg, #d4af37, var(--color-accent) 60%, #6e2a16);
   --gradient-surface: linear-gradient(160deg, #fff7e0, var(--color-bg-raised) 60%);
@@ -297,6 +308,7 @@
   --color-accent:        #8a6d3b;
   --color-accent-hover:  #a8874e;
   --color-accent-muted:  #5c4a2680;
+  --color-accent-text:   #9c8358;
   --color-arcane:        #7d8aa0;
   --font-display: "Georgia", serif;
   --font-body: "Georgia", serif;
@@ -317,6 +329,7 @@
   --color-accent:        #6f5627;
   --color-accent-hover:  #8a6d3b;
   --color-accent-muted:  #cfc09c;
+  --color-accent-text:   #6f5627;
 }
 :root[data-theme="simple-medieval"] .grid-node { border-radius: 3px; border-width: 1px; border-style: solid; }
 :root[data-theme="simple-medieval"] .grid-node--block { border-radius: 4px; box-shadow: var(--shadow-sm); }
@@ -334,6 +347,7 @@
   --color-accent:        #0ea5e9;
   --color-accent-hover:  #38bdf8;
   --color-accent-muted:  #0c4a6e80;
+  --color-accent-text:   #0ea5e9;
   --color-arcane:        #38bdf8;
   --font-display: "Inter", system-ui, sans-serif;
   --radius-md: 2px;
@@ -352,10 +366,10 @@
   --color-text:          #16202a;
   --color-text-muted:    #4d5f72;
   --color-text-faint:    #526678;
-  --color-accent:        #0284c7;
+--color-accent:        #0284c7;
   --color-accent-hover:  #0ea5e9;
   --color-accent-muted:  #bae6fd;
-  --gradient-surface: linear-gradient(160deg, #ffffff, var(--color-bg-raised) 60%);
+  --color-accent-text:   #026ba1;
 }
 :root[data-theme="modern"] .grid-node { border-radius: 2px; border-width: 1px; border-style: solid; box-shadow: none; }
 :root[data-theme="modern"] .grid-node--block { border-radius: 4px; }
@@ -374,6 +388,7 @@
   --color-accent:        #ff2ea6;
   --color-accent-hover:  #ff6ec4;
   --color-accent-muted:  #ff2ea633;
+  --color-accent-text:   #ff2ea6;
   --color-arcane:        #00e5ff;
   --color-positive:      #00ffa3;
   --color-negative:      #ff3b3b;
@@ -397,6 +412,7 @@
   --color-accent:        #c81e7e;
   --color-accent-hover:  #ff2ea6;
   --color-accent-muted:  #f5c2e2;
+  --color-accent-text:   #ba1c75;
   --color-arcane:        #0e7490;
   --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted), 0 0 12px -2px rgba(200,30,126,0.55);
   --gradient-accent: linear-gradient(135deg, #ff2ea6, #7b2eff 55%, #00b8d4);
@@ -424,6 +440,7 @@
   --color-accent:        #4cc9f0;
   --color-accent-hover:  #90e0ff;
   --color-accent-muted:  #1d4e6b80;
+  --color-accent-text:   #4cc9f0;
   --color-arcane:        #7b9ff5;
   --font-display: "Inter", system-ui, sans-serif;
   --font-body: "Inter", system-ui, sans-serif;
@@ -445,6 +462,7 @@
   --color-accent:        #1573b8;
   --color-accent-hover:  #4cc9f0;
   --color-accent-muted:  #b9d9f2;
+  --color-accent-text:   #1366a4;
 }
 :root[data-theme="space"] .grid-node { border-radius: 12px; border-width: 1px; border-style: solid; }
 :root[data-theme="space"] .grid-node--block { border-radius: 18px; box-shadow: var(--shadow-md), var(--shadow-glow-accent); }
@@ -467,6 +485,7 @@
   --color-accent:        #00ff00;
   --color-accent-hover:  #66ff66;
   --color-accent-muted:  #003300;
+  --color-accent-text:   #00ff00;
   --color-arcane:        #ffb000;
   --color-positive:      #00ff00;
   --color-negative:      #ff3333;
@@ -505,6 +524,7 @@
   --color-accent:        #0d6b0d;
   --color-accent-hover:  #149414;
   --color-accent-muted:  #9db894;
+  --color-accent-text:   #0d6a0d;
   --color-arcane:        #8a5a00;
   --shadow-glow-accent: 0 0 0 1px var(--color-accent-muted);
   --gradient-accent: linear-gradient(180deg, #149414, #0d6b0d);

@@ -510,7 +510,7 @@
 .level-up__btn--resume {
   background: var(--color-bg-raised);
   border-color: var(--color-accent);
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   box-shadow: none;
 }
 
@@ -831,7 +831,9 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--color-accent-hover);
-  background: linear-gradient(180deg, rgba(59,111,212,0.14), rgba(59,111,212,0.03));
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--color-accent) 14%, transparent),
+    color-mix(in srgb, var(--color-accent) 3%, transparent));
   border-bottom: var(--border-width) solid var(--color-border-strong);
   padding: 2px 10px;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
@@ -843,7 +845,7 @@
   box-sizing: border-box;
 }
 .block-name:focus {
-  background: rgba(15, 13, 11, 0.55); /* a translucent tint while
+  background: color-mix(in srgb, var(--color-bg-inset) 55%, transparent); /* a translucent tint while
     actively editing, not a solid fill — see the .grid-node--block
     comment above about not letting individual elements obscure the
     grid more than the block itself does */
@@ -862,7 +864,7 @@
   text-overflow: ellipsis;
 }
 .block-name:focus-within {
-  background: rgba(15, 13, 11, 0.55);
+  background: color-mix(in srgb, var(--color-bg-inset) 55%, transparent);
 }
 .block-name:focus-within .field-value--label {
   white-space: normal;
@@ -1082,7 +1084,12 @@
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  background: linear-gradient(180deg, var(--color-bg-inset), rgba(15,13,11,0.7));
+  /* The bottom stop was a literal warm-black, which in light mode mixed a
+   near-black into the gradient and dropped the field darker than the block
+   behind it - the field is supposed to read as the recessed surface.
+   --color-bg-inset is the darkest ground every theme already defines, so
+   tinting it down keeps the same top-to-bottom falloff in all of them. */
+  background: linear-gradient(180deg, var(--color-bg-inset), color-mix(in srgb, var(--color-bg-inset) 70%, #000));
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-sm);
   /* A faint carved-in look for the writable area, distinguishing it
@@ -1111,7 +1118,7 @@
 
 .field-value--computed {
   cursor: default;
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -1179,7 +1186,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(15, 13, 11, 0.6);
+  background: color-mix(in srgb, var(--color-bg-inset) 60%, transparent);
   border: var(--border-width) solid var(--color-border-strong);
   border-radius: 50%;
   color: var(--color-text-muted);
@@ -1322,12 +1329,12 @@
 
 .spell-row__prepared-toggle:hover:not(:disabled) {
   border-color: var(--color-accent);
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
 .spell-row__prepared-toggle.is-prepared {
   border-color: var(--color-accent);
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
 /* An always-prepared spell: shown, said to be prepared, and not clickable.
@@ -1715,7 +1722,7 @@
 }
 .group-toolbar button.active {
   border-color: var(--color-accent);
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
 /* One rectangle around the smallest box containing the whole
@@ -1758,7 +1765,7 @@
 }
 .node-toolbar button.active {
   border-color: var(--color-accent);
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
 /* The equals icon sits on whichever edge is opposite the label. */
@@ -2180,7 +2187,7 @@
   margin-top: 4px;
   font-size: var(--text-xs);
   color: var(--color-negative);
-  background: rgba(163, 65, 58, 0.1);
+  background: color-mix(in srgb, var(--color-negative) 10%, transparent);
   border: 1px solid var(--color-negative);
   border-radius: var(--radius-sm);
   padding: 2px var(--space-2);
@@ -2192,7 +2199,7 @@
   gap: var(--space-2);
   padding: var(--space-3);
   border-left: 3px solid var(--color-arcane);
-  background: rgba(91, 127, 158, 0.08);
+  background: color-mix(in srgb, var(--color-arcane) 8%, transparent);
   border-radius: var(--radius-sm);
 }
 
