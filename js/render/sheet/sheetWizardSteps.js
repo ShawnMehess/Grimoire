@@ -600,7 +600,7 @@ export function reviewAbilityLinesFor({ abilityScores, abilityBonuses, abilityMe
  *  are one bordered panel and detaching the name from them would leave a
  *  heading floating above a separate panel. */
 export function reviewSummaryBoxInto(container, state, deps) {
-  const { characterName, spellLimit, resources, abilityScores, abilityBonuses, abilityMethod, hpMethod, choiceLines, spellsPicked, equipmentLine, featNames } = deps;
+  const { characterName, spellLimit, resources, abilityScores, abilityBonuses, abilityMethod, hpMethod, hpLine, choiceLines, spellsPicked, equipmentLine, featNames } = deps;
   const rows = el("div", { class: "wizard__review-rows" });
   const built = reviewLinesFor({
     characterName,
@@ -623,6 +623,7 @@ export function reviewSummaryBoxInto(container, state, deps) {
   const abilityLines = reviewAbilityLinesFor({ abilityScores, abilityBonuses, abilityMethod });
   const { noteLines, ABILITY_METHOD_NAMES, HP_METHOD_NAMES } = built;
   const extra = [];
+  if (hpLine?.text) extra.push(hpLine);
   if (hpMethod) extra.push(`HP Method: ${HP_METHOD_NAMES[hpMethod] || hpMethod}`);
   for (const line of (choiceLines || [])) extra.push(line);
   if (spellLimit) {
@@ -664,7 +665,12 @@ export function reviewSummaryBoxInto(container, state, deps) {
   if (all.length === 0) {
     rows.append(el("p", { class: "level-guide__summary", text: "Nothing chosen yet." }));
   } else {
-    rows.append(...all.map((line) => el("p", { class: "wizard__review-row", text: line })));
+    rows.append(...all.map((line) => {
+      if (line && typeof line === "object") {
+        return el("p", { class: "wizard__review-row", text: line.text || "", title: line.tooltip || null });
+      }
+      return el("p", { class: "wizard__review-row", text: line });
+    }));
   }
   container.append(rows);
   return rows;

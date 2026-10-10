@@ -392,10 +392,10 @@ const fillEveryPick = async (page) => {
 };
 
 /** The class's starting-gear rows live on the Class step and gate it, so
- *  every walkthrough through that step has to answer them. Plain radio
- *  groups - first option in each, which is how a player resolves a row
- *  they have no opinion about. Takes the gold group too, so a class whose
- *  rows are all answered by gold still reaches the next step. */
+ * every walkthrough through that step has to answer them. Plain radio
+ * groups - first option in each, which is how a player resolves a row
+ * they have no opinion about. Takes the gold group too, so a class whose
+ * rows are all answered by gold still reaches the next step. */
 const fillEveryGearRow = async (page) => page.evaluate(() => {
   const groups = new Map();
   for (const r of document.querySelectorAll('.wizard input[type=radio][name^="starting-equipment"]')) {
@@ -1227,7 +1227,7 @@ async function runViewportTests(viewport) {
   // convention scripts/crawl.mjs already uses for its Next clicks ("the
   // button a person could actually press"), and the assertion below is
   // unchanged: Next moves the wizard.
-  const nextBtn = await page.$(".wizard button:has-text('Next'):visible");
+  const nextBtn = await page.$(".wizard button.wizard__next[aria-label='Next']:visible");
   if (nextBtn) {
     await nextBtn.click();
     await quiet(page);
@@ -1381,12 +1381,13 @@ async function runViewportTests(viewport) {
   //
   // There are two "Expand All" buttons on this page (this one, and the one
   // for the "Your choices" sections), so it is found as the one whose list it
-  // controls rather than by text.
+  // controls rather than by text - which is also why the icon-only button is
+  // matched on its aria-label: these controls show no words at all.
   const pickerExpandAll = await page.evaluateHandle(() => {
     const list = document.querySelector(".choice-row-list");
     const scope = list?.parentElement;
     return [...(scope?.querySelectorAll("button.btn") || [])]
-      .find((b) => b.textContent.trim() === "Expand All") || null;
+      .find((b) => b.getAttribute("aria-label") === "Expand All") || null;
   });
   check(!!pickerExpandAll, "the picker table has its own Expand All");
   if (pickerExpandAll.asElement()) {
@@ -1708,7 +1709,7 @@ async function runViewportTests(viewport) {
     // language, so it's the cleanest probe: before this, profileSectionsFor
     // returned the static preview for anything but state.species, so
     // expanding an unselected row showed no picks at all.
-    const expandAll = await page.$(".choice-row-list__collapse-controls button:text-matches('Expand All')");
+    const expandAll = await page.$('.choice-row-list__collapse-controls button[aria-label="Expand All"]');
     check(!!expandAll, "Identity step has an Expand All control");
     if (expandAll) {
       await expandAll.click();
@@ -5175,7 +5176,7 @@ if (inArea("rowclick")) {
     if (!moved) break;
     await cr.waitForTimeout(500);
   }
-  const expandAll = await cr.$(".choice-row-list__collapse-controls button:text-matches('Expand All')");
+  const expandAll = await cr.$('.choice-row-list__collapse-controls button[aria-label="Expand All"]');
   phoneCheck(!!expandAll, "the row-click checks start from an expanded list");
   if (expandAll) {
     await expandAll.click();
@@ -5499,8 +5500,10 @@ if (inArea("swipe-arrow")) {
   phoneCheck(f0.pinned, "and it is pinned to the bottom of the screen, so it is never below the fold");
   phoneCheck(f0.nextDisabled === false,
     `this first page is decided, so Next is live (disabled=${f0.nextDisabled})`);
-  phoneCheck(f0.reason === null, `and there is no reason shown when nothing is blocking (${JSON.stringify(f0.reason)})`);
-
+  // The bar never sits there saying nothing. It either gives a reason, or it
+  // says the page is done — never an empty line with a paragraph in it.
+  phoneCheck(f0.reason === "Ready to continue.",
+    `and a decided page says so rather than showing nothing (${JSON.stringify(f0.reason)})`);
   if (f0.nextDisabled === false) {
     // Tap it where it is drawn, which is the assertion the arrow used to
     // get: a control that looks pressable and is.
@@ -5705,9 +5708,11 @@ if (inArea("swipe-arrow")) {
         return anim;
       };
       // Back is always available once you are past the first page, which is
-      // where the walkthrough above has left us.
-      const btn = [...document.querySelectorAll(".wizard__nav button")]
-        .find((b) => /back/i.test(b.textContent || "") && !b.disabled && b.getBoundingClientRect().width > 0);
+      // where the walkthrough above has left us. Found by its class, not its
+      // text: the action bar's Back is an icon, and the arrow glyph is not a
+      // word a reader can match on.
+      const btn = [...document.querySelectorAll(".wizard__nav button.wizard__back")]
+        .find((b) => !b.disabled && b.getBoundingClientRect().width > 0);
       if (btn) btn.click();
       await new Promise((r) => setTimeout(r, 600));
       Element.prototype.animate = real;
@@ -5724,7 +5729,7 @@ if (inArea("swipe-arrow")) {
   for (let hop = 0; hop < 12; hop++) {
     const done = await t.evaluate(() => {
       const btn = [...document.querySelectorAll(".wizard button")]
-        .find((b) => /Next|Finish|Complete|Apply/.test(b.textContent) && !b.disabled
+        .find((b) => ((b.classList.contains("wizard__next") || /Finish|Complete|Apply/.test(b.textContent)) && !b.disabled)
           && !b.classList.contains("wizard__dot"));
       if (!btn) return true;
       btn.click();
@@ -5765,7 +5770,7 @@ await quiet(vaultPage);
 vaultCheck(await vaultPage.$(".wizard"), "creator wizard renders after + New Character");
 await vaultPage.screenshot({ path: path.join(shotDir, "creator.png") });
 // Advance one wizard step to prove the wizard is alive, not paint.
-const nextBtn = await vaultPage.$(".wizard button:has-text('Next')");
+const nextBtn = await vaultPage.$(".wizard button.wizard__next[aria-label='Next']");
 if (nextBtn) {
   await nextBtn.click();
   await quiet(vaultPage);
@@ -6105,7 +6110,7 @@ if (inArea("background-gate")) {
   bgCheck(repeats.length === 0,
     `no gear row repeats its own name underneath it (${JSON.stringify(repeats)})`);
   const placeholders = gearText.flatMap((g) => g.options)
-    .filter((o) => /\(your choice\)/i.test(o.detail));
+    .filter((o) => /(your choice)/i.test(o.detail));
   bgCheck(placeholders.length === 0,
     `and no gear row shows the PHB's "(your choice)" table shorthand (${JSON.stringify(placeholders)})`);
   bgFillPicks();
@@ -6336,6 +6341,7 @@ if (inArea("background-gate")) {
         rows,
         // Finish Setup lives in the action bar, where Next has been.
         navButtons: [...(nav?.querySelectorAll("button") || [])].map((b) => b.textContent.trim()),
+        navHasBack: !!nav?.querySelector("button.wizard__back:not([disabled])"),
         navHasFinish: !!nav?.querySelector(".wizard__finish-btn"),
         bodyHasFinish: !!body.querySelector(".wizard__finish-btn"),
         // No collapse bars anywhere on the page.
@@ -6363,7 +6369,7 @@ if (inArea("background-gate")) {
       `Finish Setup sits in the bottom action bar, where Next was (${JSON.stringify(review.navButtons)})`);
     bgCheck(!review.bodyHasFinish,
       "and there is no second Finish button stranded at the bottom of the page");
-    bgCheck(review.navButtons.some((b) => /back/i.test(b)),
+    bgCheck(review.navButtons.some((b) => b === "←") || Boolean(navHasBack),
       "with Back still there, because a last step with no way back is a trap");
     bgCheck(review.expandBars === 0 && !review.expandWords,
       `and no Expand All / Collapse All anywhere on Review (${review.expandBars} bars)`);
@@ -7326,7 +7332,7 @@ if (inArea("fighting-style")) {
     const dots = await fsPage.evaluate(() => [...document.querySelectorAll(".wizard__dot")].map((d) => ({ id: d.dataset.stepId, active: d.classList.contains("wizard__dot--active") })));
     const moved = await fsPage.evaluate(() => {
       const b = [...document.querySelectorAll(".wizard__nav:not(.wizard__nav--top) button")]
-        .find((x) => /^Next/.test(x.textContent.trim()) && !x.disabled);
+        .find((x) => x.classList.contains("wizard__next") && !x.disabled);
       if (!b) return false;
       b.click();
       return true;

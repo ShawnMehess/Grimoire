@@ -998,6 +998,12 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
    *  Matching is on the raw name, so nothing about the routing changes;
    *  only the label the player reads is cleaned. */
   const displayGrantName = (raw) => String(raw || "").replace(/\s*\(\s*note\s*\)\s*$/i, "").trim();
+  const classHitDie = (() => {
+    if (!classDisplay) return null;
+    const hitDieGrant = (bundle.featureGrants || []).find((g) => /^hit die$/i.test(String(g?.name || "").trim()));
+    const match = String(hitDieGrant?.description || "").match(/d(\d+)/i);
+    return match ? Number(match[1]) : null;
+  })();
 
   // Class/background/subclass rows show the whole current
   // description: their texts are concise replacements written to be
@@ -1133,7 +1139,12 @@ export function mechanicsBulletsFor(bundle, level = Infinity, deps = {}) {
     } else if (isResistanceGrant(grant)) {
       const why = briefDescription(description, 120);
       resistanceBits.push(line(`${displayGrantName(name)}${why ? `: ${why}` : ""}`, grant.minLevel));
-    } else if (classDisplay && /^hit (die|points)/i.test(name)) {
+    } else if (classDisplay && /^hit points/i.test(name)) {
+      const why = detailFor(grant.description, grant.caveat);
+      const first = why || (classHitDie ? `${classHitDie} + your Constitution modifier` : "");
+      const later = classHitDie ? `; later levels add 1d${classHitDie} (or fixed average ${Math.floor(classHitDie / 2) + 1}) + your Constitution modifier` : "";
+      hitBits.push(line(`Hit Points${first ? `: Level 1 gives ${first}` : ""}${later}`, grant.minLevel));
+    } else if (classDisplay && /^hit die/i.test(name)) {
       const why = detailFor(grant.description, grant.caveat);
       hitBits.push(line(`${displayGrantName(name)}${why ? `: ${why}` : ""}`, grant.minLevel));
     } else {

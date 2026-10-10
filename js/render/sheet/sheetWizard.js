@@ -2299,6 +2299,7 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
     if (stepIsComplete(step)) {
       const done = document.createElement("p");
       done.className = "wizard__gate-reason";
+      done.textContent = "Ready to continue.";
       return done;
     }
     const text = gateReasonTextFor(step);
@@ -2324,19 +2325,22 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
   const buildNav = (extraClass) => {
     const nav = document.createElement("div");
     nav.className = extraClass ? `wizard__nav ${extraClass}` : "wizard__nav";
-    if (stepState.index > 0) {
-      const back = document.createElement("button");
-      back.type = "button";
-      back.className = "btn";
-      back.textContent = "← Back";
-      back.addEventListener("click", () => { goTo(stepState.index - 1, -1); });
-      nav.append(back);
-    }
+    const back = document.createElement("button");
+    back.type = "button";
+    back.className = "btn wizard__back";
+    back.textContent = "←";
+    back.title = "Back";
+    back.setAttribute("aria-label", "Back");
+    back.disabled = stepState.index <= 0;
+    back.addEventListener("click", () => { if (stepState.index > 0) goTo(stepState.index - 1, -1); });
+    nav.append(back);
     if (stepState.index < applicableSteps.length - 1) {
       const forward = document.createElement("button");
       forward.type = "button";
       forward.className = "btn btn--primary wizard__next";
-      forward.textContent = "Next →";
+      forward.textContent = "→";
+      forward.title = "Next";
+      forward.setAttribute("aria-label", "Next");
       if (!stepIsComplete(currentStep)) {
         forward.disabled = true;
         forward.title = "Make your selections on this page to continue.";
@@ -2374,8 +2378,6 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
     return nav;
   };
 
-  wrap.append(buildNav("wizard__nav--top"));
-
   const body = document.createElement("div");
   body.className = "wizard__body level-guide__form";
   wrap.append(body);
@@ -2393,64 +2395,7 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
     stepState.arrivalDirection = 0;
   }
 
-  const bottomNav = buildNav();
-  wrap.append(bottomNav);
-
-  // A single edge arrow, on the vertical middle of the step, that appears
-  // once the page's own decisions are made and takes you forward.
-  //
-  // It exists because on a phone the Next button is at the BOTTOM of the
-  // page: with the picker table expanded, that is a long scroll down and then
-  // a scroll back up to see what you changed. An affordance that is already
-  // on screen and says "you may continue" removes the search for it.
-  //
-  // Gated on exactly the same `stepIsComplete(currentStep)` as Next - one
-  // predicate, so the arrow can never disagree with the button. Absent
-  // entirely when there is no next step, and absent (not disabled) when the
-  // page still needs decisions: an arrow you cannot press is worse than no
-  // arrow, because it invites tapping and then nothing happening.
-  const nextStep = applicableSteps[stepState.index + 1];
-  if (nextStep) {
-    const arrow = document.createElement("button");
-    arrow.type = "button";
-    arrow.className = "wizard__edge-next";
-    arrow.textContent = "→";
-    const blockedTitle = "Make your selections on this page to continue.";
-    const setArrow = (blocked) => {
-      if (blocked) {
-        arrow.classList.add("wizard__edge-next--blocked");
-        arrow.disabled = true;
-        arrow.title = blockedTitle;
-      } else {
-        arrow.classList.remove("wizard__edge-next--blocked");
-        arrow.disabled = false;
-        arrow.title = `Next: ${nextStep.title || ""}`.trim();
-      }
-    };
-    setArrow(!stepIsComplete(currentStep));
-    arrow.addEventListener("click", () => { goTo(stepState.index + 1, 1); });
-    wrap.append(arrow);
-    // Kept beside the Next buttons so refreshWizardNav can drive them
-    // together; a stale arrow would contradict the button next to it.
-    wrap.refreshEdgeNext = () => setArrow(!stepIsComplete(
-      applicableStepsOf(steps)[clampStepIndex(applicableStepsOf(steps).length, stepState.index)] || currentStep,
-    ));
-  }
-
-  // One set of Back/Next is enough: while the bottom nav is fully on
-  // screen (short pages, wide windows), the top duplicate hides
-  // itself; scrolling down brings it back. No cleanup needed — the
-  // observer dies with these nodes on the next re-render.
-  if (typeof IntersectionObserver !== "undefined") {
-    const topNav = wrap.querySelector(".wizard__nav--top");
-    if (topNav) {
-      const io = new IntersectionObserver((entries) => {
-        const visible = entries.some((e) => e.isIntersecting);
-        topNav.classList.toggle("wizard__nav--hidden", visible);
-      }, { threshold: 0.6 });
-      io.observe(bottomNav);
-    }
-  }
+  wrap.append(buildNav());
 
   // Lightweight nav refresh for mutations that don't trigger a full
   // re-render (choice-group toggles save without rebuilding the page).
@@ -2462,14 +2407,11 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
     const blocked = !stepIsComplete(cur);
     wrap.querySelectorAll(".wizard__nav .wizard__next").forEach((btn) => {
       btn.disabled = blocked;
-      btn.title = blocked ? "Make your selections on this page to continue." : "";
+      btn.title = blocked ? "Make your selections on this page to continue." : "Next";
     });
-    // The visible reason follows the same predicate, and is removed rather
-    // than emptied when there is nothing blocking - a zero-height gap with
-    // an empty paragraph in it is not "no reason shown".
     wrap.querySelectorAll(".wizard__gate-reason").forEach((node) => {
       if (blocked) node.textContent = gateReasonTextFor(cur);
-      else node.remove();
+      else node.textContent = "Ready to continue.";
     });
     // Completing the page via a no-rebuild pick (choice toggles save
     // without rebuilding) also unlocks forward dots in place — without
@@ -2493,7 +2435,6 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
     stepSelect.value = String(clampStepIndex(applicableSteps.length, stepState.index));
     // The edge arrow reads the same predicate, so it cannot disagree with
     // the Next buttons it duplicates.
-    if (typeof wrap.refreshEdgeNext === "function") wrap.refreshEdgeNext();
   };
   // Picks auto-seeded while the body renders (locked defaults) can
   // satisfy the page after the navs above were already built.
