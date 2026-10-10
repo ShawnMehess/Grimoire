@@ -1541,6 +1541,80 @@
   text-decoration: underline;
 }
 
+/* The class's starting gear, drawn as the last rows of the class row's own
+   proficiencies list: a "Starting Gear" bullet whose picks sit in a nested
+   list under it, indented with a rule down the side so the parent/child
+   relationship is visible without relying on reading order alone. Same
+   shape as the spellbook's prepared-spell line below. */
+.wizard__equipment-list {
+  margin-top: var(--space-2);
+}
+
+.wizard__equipment-sublist {
+  margin: var(--space-2) 0 0 var(--space-4);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-border);
+}
+
+/* A gear row's pick, which is the link text until something is chosen. */
+.wizard__equipment-choice {
+  margin-top: var(--space-1);
+}
+
+/* The either/or at the bottom of the gear rows. Two radios on their own
+   rows, the supplies list and the gold amount each as wide as they need. */
+.wizard__equipment-mode {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* The rolled amount, in gp. Narrow on purpose - it is a number, and a
+   full-width field here would read as a place to type a sentence. */
+.wizard__gold-input {
+  width: 7ch;
+  min-width: 7ch;
+  padding-inline: var(--space-2);
+}
+
+/* The class's starting gear, drawn as the last rows of the class row's own
+   proficiencies list: a "Starting Gear" bullet whose picks sit in a nested
+   list under it, indented with a rule down the side so the parent/child
+   relationship is visible without relying on reading order alone. Same
+   shape as the spellbook's prepared-spell line below. */
+.wizard__equipment-list {
+  margin-top: var(--space-2);
+}
+
+.wizard__equipment-sublist {
+  margin: var(--space-2) 0 0 var(--space-4);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-border);
+}
+
+/* A gear row's pick, which is the link text until something is chosen. */
+.wizard__equipment-choice {
+  margin-top: var(--space-1);
+}
+
+/* The either/or at the bottom of the gear rows. Two radios on their own
+   rows, the supplies list and the gold amount each as wide as they need. */
+.wizard__equipment-mode {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* The rolled amount, in gp. Narrow on purpose - it is a number, and a
+   full-width field here would read as a place to type a sentence. */
+.wizard__gold-input {
+  width: 7ch;
+  min-width: 7ch;
+  padding-inline: var(--space-2);
+}
+
 /* A live bullet nested under another one - the prepared line sits under the
    spellbook line it prepares out of. Indented with a rule down the side so
    the parent/child relationship is visible without relying on reading order

@@ -391,27 +391,38 @@ const fillEveryPick = async (page) => {
   return changed;
 };
 
-/** The class's starting-gear rows live on the Class step and gate it, so
- * every walkthrough through that step has to answer them. Plain radio
- * groups - first option in each, which is how a player resolves a row
- * they have no opinion about. Takes the gold group too, so a class whose
- * rows are all answered by gold still reaches the next step. */
-const fillEveryGearRow = async (page) => page.evaluate(() => {
-  const groups = new Map();
-  for (const r of document.querySelectorAll('.wizard input[type=radio][name^="starting-equipment"]')) {
-    if (!r.closest(".wizard__body")) continue;
-    if (!groups.has(r.name)) groups.set(r.name, [...document.querySelectorAll(`input[type=radio][name="${r.name}"]`)]);
-  }
+/** The class's starting-gear rows live inside its own picker row on the
+ * Class step and gate it, so every walkthrough through that step has to
+ * answer them. Two halves, and they are different shapes: the rows are
+ * picker links that open the shared choice dialog (which takeOnePick
+ * already handles, from inside the selected row), and the either/or is a
+ * plain radio pair — first option in each, which is how a player resolves
+ * a row they have no opinion about. Takes the gold group too, so a class
+ * whose rows are all answered by gold still reaches the next step. */
+const fillEveryGearRow = async (page) => {
   let took = 0;
-  for (const radios of groups.values()) {
-    if (radios.some((r) => r.checked)) continue;
-    const first = radios.find((r) => !r.disabled && !r.closest("[hidden]"));
-    if (!first) continue;
-    first.click();
+  for (let i = 0; i < 6; i++) {
+    if (!(await takeOnePick(page))) break;
     took += 1;
   }
+  took += await page.evaluate(() => {
+    const groups = new Map();
+    for (const r of document.querySelectorAll('.wizard input[type=radio][name^="starting-equipment"]')) {
+      if (!r.closest(".wizard__body")) continue;
+      if (!groups.has(r.name)) groups.set(r.name, [...document.querySelectorAll(`input[type=radio][name="${r.name}"]`)]);
+    }
+    let n = 0;
+    for (const radios of groups.values()) {
+      if (radios.some((r) => r.checked)) continue;
+      const first = radios.find((r) => !r.disabled && !r.closest("[hidden]"));
+      if (!first) continue;
+      first.click();
+      n += 1;
+    }
+    return n;
+  });
   return took;
-});
+};
 
 const READY_SHEET = ".sheet-toolbar";
 const READY_VAULT = ".vault-new__go";
@@ -6047,72 +6058,78 @@ if (inArea("background-gate")) {
   await bgPage.waitForTimeout(600);
 
   // The class's starting gear used to sit on a step of its own, two steps
-  // away. It is here now, and it gates here - so answer it and the reason
-  // under Next has to change. Asserted by measuring the radios rather than
-  // by counting, because a class with no rows is legitimately empty.
+  // away, under a heading at the bottom of the page. It is now the last rows
+  // of the selected class row's own proficiencies list, and it gates here —
+  // so answer it and the reason under Next has to change.
   const classGear = await bgPage.evaluate(() => {
-    const body = document.querySelector(".wizard__body");
-    const head = [...(body?.querySelectorAll(".wizard__section-label") || [])]
-      .find((h) => /^Starting gear/.test(h.textContent.trim()));
-    const groups = new Map();
-    for (const r of document.querySelectorAll('.wizard input[type=radio][name^="starting-equipment"]')) {
-      if (!groups.has(r.name)) groups.set(r.name, [...document.querySelectorAll(`input[type=radio][name="${r.name}"]`)]);
-    }
+    const row = document.querySelector('.choice-row[data-row-name="Barbarian"]');
+    const gear = row?.querySelector(".wizard__equipment-list");
+    // Where it sits: after the proficiencies, as one of their rows.
+    const lastList = [...(row?.querySelectorAll(".choice-row__details .choice-row__mechanics-list") || [])].pop();
     return {
-      heading: head?.textContent.trim() || null,
-      groups: [...groups.entries()].map(([name, rs]) => ({ name, options: rs.length, checked: rs.some((r) => r.checked) })),
+      insideClassRow: !!gear?.closest('.choice-row[data-row-name="Barbarian"]'),
+      isLastList: lastList === gear,
+      heading: gear?.querySelector(":scope > li > strong")?.textContent.trim() || null,
+      rows: [...(gear?.querySelectorAll(":scope > li > ul > li") || [])].map((li) => ({
+        label: li.querySelector("strong")?.textContent.trim() || null,
+        pick: li.querySelector(".inline-pick-link")?.textContent.trim() || null,
+      })),
+      modes: [...(gear?.querySelectorAll('input[type=radio][name^="starting-equipment"]') || [])].map((r) => ({
+        value: r.value, checked: r.checked,
+      })),
       reason: document.querySelector(".wizard__gate-reason")?.textContent.trim() || null,
     };
   });
-  bgCheck(Boolean(classGear.heading && classGear.heading.includes("Barbarian")),
-    `the class's starting gear is on the Class step (${JSON.stringify(classGear.heading)})`);
-  bgCheck(classGear.groups.length > 0 && classGear.groups.every((g) => !g.checked),
-    `and it is unanswered on arrival (${JSON.stringify(classGear.groups)})`);
+  bgCheck(classGear.insideClassRow && classGear.isLastList,
+    `the class's starting gear is inside its own row, as the last rows of its list (${JSON.stringify(classGear.heading)})`);
+  bgCheck(classGear.heading === "Starting Gear",
+    `and it is headed Starting Gear, like the rows around it (${JSON.stringify(classGear.heading)})`);
+  bgCheck(classGear.rows.length > 2 && classGear.rows.slice(0, -1).every((r) => r.pick === "Choose"),
+    `its picks are unanswered on arrival (${JSON.stringify(classGear.rows)})`);
+  bgCheck(classGear.rows.at(-1)?.label === "Starting Items",
+    `and the either/or is the last row, labelled Starting Items (${JSON.stringify(classGear.rows.at(-1))})`);
+  // The either/or is answered by default: a class with a fixed package
+  // grants it, so the radio a player does not touch is the one that keeps
+  // the rows from being "unanswered" by accident.
+  bgCheck(classGear.modes.length === 2 && classGear.modes.filter((m) => m.checked).length === 1
+    && classGear.modes.find((m) => m.checked)?.value === "supplies",
+    `and supplies is the one that starts checked (${JSON.stringify(classGear.modes)})`);
   const beforeGear = await bgPage.evaluate(() => Boolean(document.querySelector(".wizard__next:not([disabled])")));
   bgCheck(!beforeGear,
     `so Next is refusing while a class gear row is open (${JSON.stringify(classGear.reason)})`);
   await bgFillEquipment();
   await bgPage.waitForTimeout(300);
   const afterGear = await bgPage.evaluate(() => ({
+    picks: [...document.querySelectorAll('.wizard__equipment-list .inline-pick-link')]
+      .map((a) => a.textContent.trim()),
     checked: [...document.querySelectorAll('.wizard input[type=radio][name^="starting-equipment"]')]
       .filter((r) => r.checked).length,
-    reason: document.querySelector(".wizard__gate-reason")?.textContent.trim() || null,
   }));
-  bgCheck(afterGear.checked > 0, `answering the gear rows registers (${afterGear.checked} checked)`);
+  bgCheck(afterGear.picks.length > 0 && afterGear.picks.every((p) => p !== "Choose"),
+    `answering the gear rows registers (${JSON.stringify(afterGear.picks)})`);
 
   // No gear row may restate its own name underneath itself, and the "any X"
   // rows must admit that they are the player's to name. Checked on screen,
   // because that is where the complaint was — a pack option used to print
   // "Explorer's Pack, Backpack, Bedroll, …" under a label saying
-  // "Explorer's pack".
+  // "Explorer's pack". The gear rows open a picker, so the row itself is one
+  // label and one link; what the picker offers is checked in the unit suite.
   const gearText = await bgPage.evaluate(() => {
-    const rows = [...document.querySelectorAll(".wizard__subsection")]
-      .map((g) => {
-        const opts = [...g.querySelectorAll(".level-guide__choice-option")];
-        return {
-          heading: g.querySelector(".wizard__section-label")?.textContent.trim() || null,
-          hint: g.querySelector(".level-guide__note, .wizard__note")?.textContent.trim() || null,
-          options: opts.map((o) => {
-            const spans = [...o.querySelectorAll(":scope > span")];
-            return {
-              label: (spans[0]?.textContent || "").trim(),
-              detail: (spans[1]?.textContent || "").trim(),
-            };
-          }),
-        };
-      })
-      .filter((g) => /^Main weapon|Sidearm|Weapon|Pack|Instrument|Spellcasting focus/i.test(g.heading || ""));
-    return rows;
+    const gear = document.querySelector('.choice-row[data-row-name="Barbarian"] .wizard__equipment-list');
+    return {
+      text: (gear?.textContent || "").replace(/\s+/g, " "),
+      rows: [...(gear?.querySelectorAll("li") || [])].map((li) => li.textContent.replace(/\s+/g, " ").trim()),
+    };
   });
-  bgCheck(gearText.length > 0, `the gear rows have readable headings (${JSON.stringify(gearText.map((g) => g.heading))})`);
-  const repeats = gearText.flatMap((g) => g.options)
-    .filter((o) => o.detail && o.detail.toLowerCase().startsWith(o.label.toLowerCase()));
-  bgCheck(repeats.length === 0,
-    `no gear row repeats its own name underneath it (${JSON.stringify(repeats)})`);
-  const placeholders = gearText.flatMap((g) => g.options)
-    .filter((o) => /(your choice)/i.test(o.detail));
-  bgCheck(placeholders.length === 0,
-    `and no gear row shows the PHB's "(your choice)" table shorthand (${JSON.stringify(placeholders)})`);
+  bgCheck(gearText.text.length > 40, `the gear rows have readable text (${JSON.stringify(gearText.text.slice(0, 120))})`);
+  bgCheck(!/\(your choice\)/i.test(gearText.text),
+    `and no gear row shows the PHB's "(your choice)" table shorthand (${JSON.stringify(gearText.text.slice(0, 200))})`);
+  const labelRepeats = gearText.rows.filter((r) => {
+    const m = /^(.+?) — (.+)$/.exec(r);
+    return m && m[2].toLowerCase().startsWith(m[1].toLowerCase());
+  });
+  bgCheck(labelRepeats.length === 0,
+    `and no gear row repeats its own name after the dash (${JSON.stringify(labelRepeats)})`);
   bgFillPicks();
   for (let i = 0; i < 4 && (await bgStep()) !== "background"; i++) {
     await bgFillPicks();

@@ -4519,77 +4519,156 @@ function computeSheetValues(fields) {
     else pickWrap.remove();
   }
 
-  /** Starting equipment, rendered where it belongs.
-   *
-   *  This used to be one function drawing one "Starting Equipment" heading
-   *  on the Ability Scores step, holding the background's fixed package
-   *  and the class's either/or rows together. They are not one thing. The
-   *  background's package is a consequence of the background, so it is shown
-   *  on the Background step; the class's rows are choices the class leaves
-   *  open, so they are answered on the Class step, where the class is picked
-   *  and every other class question is answered.
-   *
-   *  Class starting equipment: the PHB either/or rows (not exclusive
-   *  whole-kit paths) or the gold instead. Picks live on
-   *  rules.startingEquipment and apply once at Finish Setup (items to
-   *  Inventory, gold to GP). Returns whether anything was drawn, so the
-   *  caller can leave its separator out for a class with no rows. */
+   /** Starting equipment, drawn as rows of the class's own proficiencies
+    *  list rather than as a section at the bottom of the page.
+    *
+    *  It used to sit at the foot of the Class step under its own heading,
+    *  several screens below the class row that decides it. Now it is the
+    *  last thing inside the selected class row's details, after its
+    *  Saving Throws / Armor / Weapons rows, in the same bullet style as
+    *  them — the gear is part of what the class gives you, not a separate
+    *  form to fill in.
+    *
+    *  Class starting equipment: the PHB either/or rows (not exclusive
+    *  whole-kit paths) or the gold instead. Each row is one pick, made
+    *  through the shared choice dialog from a link, exactly as a skill or
+    *  a fighting style is picked inside a row. Picks live on
+    *  rules.startingEquipment and apply once at Finish Setup (items to
+    *  Inventory, gold to GP). Returns whether anything was drawn, so a
+    *  caller can skip the whole thing for a class with no rows. */
   function renderClassEquipmentInto(container, state, saveRules) {
     const entry = CLASS_STARTING_EQUIPMENT[state.className];
     if (!entry) return false;
     const stored = character.rules.startingEquipment || {};
     const picks = { ...(stored.picks || {}) };
     const goldId = goldOptionIdFor(state.className);
-    container.append(el("p", { class: "wizard__section-label", text: `Starting gear — ${state.className}` }));
-    (entry.decisions || []).forEach((decision) => {
-      const group = el("div", { class: "wizard__subsection" },
-        el("p", { class: "wizard__section-label", text: decision.label }));
-      // "Spellcasting focus" asks for something a reader may not have met
-      // yet, and the two options below it looked identical on screen until
-      // they were given descriptions. The hint is the rule, in one line.
-      if (decision.hint) noteInto(group, decision.hint);
-      decision.options.forEach((opt) => {
-        const input = el("input", {
-          type: "radio", name: `starting-equipment-${decision.id}`, value: opt.id,
-          checked: picks[decision.id] === opt.id,
-          onchange: () => {
-            character.rules.startingEquipment = {
-              picks: { ...(character.rules.startingEquipment?.picks || {}), [decision.id]: opt.id },
-            };
-            saveRules();
-            refreshWizardNav();
-          },
-        });
-        // `note` wins when a row has one; otherwise work out what is left of
-        // the item list once the label has said its piece. Empty string means
-        // the label was the whole of it, and no second line is drawn - an
-        // empty grey paragraph is worse than nothing.
-        const detail = opt.note || optionDetailText(opt);
-        group.append(el("label", { class: "level-guide__choice-option" },
-          input,
-          el("span", { text: opt.label }),
-          detail ? el("span", { class: "level-guide__choice-description", text: detail }) : null));
+    const tookGold = stored.gold === true || stored.classOptionId === goldId;
+    const list = el("ul", { class: "choice-row__mechanics-list wizard__equipment-list" });
+    const pickSummary = (decision) => {
+      const picked = decision.options.find((o) => o.id === picks[decision.id]);
+      return picked?.label || "Choose";
+    };
+    /** Rows answered here settle the Class step's gate, so every write is
+     *  followed by the same nav refresh the choice dialogs use. */
+    const commit = (next) => {
+      character.rules.startingEquipment = next;
+      saveRules();
+      refreshWizardNav();
+      renderPageGrid();
+    };
+    const setSupplies = () => {
+      // Keeps the picks (they are what Supplies grants) and the rolled
+      // amount (it is only relevant to the other radio, but re-typing it
+      // because you looked at the gold row is not a thing anyone wants).
+      commit({
+        picks: { ...(character.rules.startingEquipment?.picks || {}) },
+        ...(character.rules.startingEquipment?.goldAmount ? { goldAmount: character.rules.startingEquipment.goldAmount } : {}),
       });
-      container.append(group);
+    };
+    const setGold = () => commit({
+      // The picks survive the trip too: gold is what the character ends up
+      // with, but switching back to Supplies must not leave the rows blank
+      // after the player has already answered them.
+      ...(character.rules.startingEquipment?.picks ? { picks: character.rules.startingEquipment.picks } : {}),
+      gold: true,
+      goldAmount: character.rules.startingEquipment?.goldAmount || "",
     });
-    if ((entry.fixed || []).length) {
-      noteInto(container, `Also included automatically: ${entry.fixed.join(", ")}.`);
-    }
-    {
-      const input = el("input", {
-        type: "radio", name: "starting-equipment-gold", value: goldId,
-        checked: stored.gold === true,
-        onchange: () => {
-          character.rules.startingEquipment = { gold: true };
-          saveRules();
-          refreshWizardNav();
+    const openEquipmentPicker = (decision) => {
+      openChoiceDialog({
+        title: `${state.className}: ${decision.label}`,
+        multi: false,
+        maxSelections: 1,
+        initialSelected: picks[decision.id] ? [picks[decision.id]] : [],
+        options: decision.options.map((opt) => ({
+          id: opt.id,
+          name: opt.label,
+          description: opt.note || optionDetailText(opt) || "Added to your starting inventory.",
+        })),
+        onAccept: (ids) => {
+          const picked = ids[0];
+          if (!picked) return;
+          commit({
+            picks: { ...(character.rules.startingEquipment?.picks || {}), [decision.id]: picked },
+            ...(character.rules.startingEquipment?.goldAmount ? { goldAmount: character.rules.startingEquipment.goldAmount } : {}),
+          });
         },
       });
-      container.append(el("label", { class: "level-guide__choice-option" },
-        input,
-        el("span", { text: `Take ${entry.gold.gp} gp instead` }),
-        el("span", { class: "level-guide__choice-description", text: `Fixed average of your starting wealth roll (${entry.gold.formula}). Use this to buy gear yourself.` })));
-    }
+    };
+    // The heading row, with everything it decides nested under it: one row
+    // in the list reads as one row in the list, and the picks under it are
+    // indented by the same rule the spellbook's prepared-spell line uses.
+    const gear = el("li", {}, el("strong", { text: "Starting Gear" }));
+    const rows = el("ul", { class: "wizard__equipment-sublist" });
+    (entry.decisions || []).forEach((decision) => {
+      const link = el("a", {
+        href: "#",
+        class: "inline-pick-link",
+        text: pickSummary(decision),
+        title: "Change pick",
+        // The link's own text is the summary ("Choose", or the weapon
+        // already taken); the row it belongs to is the topic, so a screen
+        // reader hears which choice it opens.
+        "aria-label": `${decision.label}: ${pickSummary(decision)}`,
+        onclick: (e) => { e.preventDefault(); e.stopPropagation(); openEquipmentPicker(decision); },
+      });
+      const row = el("li", { class: "wizard__equipment-choice" },
+        el("strong", { text: decision.label }),
+        document.createTextNode(" — "),
+        link);
+      if (decision.hint) row.append(el("span", { class: "level-guide__choice-description", text: ` ${decision.hint}` }));
+      rows.append(row);
+    });
+    const suppliesInput = el("input", {
+      type: "radio", name: "starting-equipment-mode", value: "supplies",
+      checked: !tookGold,
+      onchange: setSupplies,
+    });
+    const goldInput = el("input", {
+      type: "radio", name: "starting-equipment-mode", value: goldId,
+      checked: tookGold,
+      onchange: setGold,
+    });
+    const goldAmount = el("input", {
+      type: "text",
+      inputmode: "numeric",
+      pattern: "[0-9]*",
+      class: "input-group__control wizard__gold-input",
+      value: String(stored.goldAmount || ""),
+      "aria-label": "Rolled starting gold",
+      // Digits only, in the field itself rather than on submit: a paste of
+      // "50 gp" or a stray letter is stripped as it lands, so the stored
+      // value is always parseable. Typing here is also deciding here — the
+      // character is taking the gold — so it writes the pick as you go.
+      oninput: () => {
+        goldAmount.value = goldAmount.value.replace(/\D+/g, "");
+        commit({ ...(character.rules.startingEquipment || {}), gold: true, goldAmount: goldAmount.value });
+      },
+    });
+    // "Starting Items" is the either/or itself: take what the class hands
+    // you, or take the money. The Supplies line prints the fixed package in
+    // full - a player reading this row should not have to remember what is
+    // in an explorer's pack.
+    const fixed = (entry.fixed || []);
+    const suppliesText = fixed.length
+      ? `Supplies: ${fixed.join(", ")}`
+      : "Supplies: the items from your choices above";
+    const items = el("li", { class: "wizard__equipment-choice wizard__equipment-choice--items" },
+      el("strong", { text: "Starting Items" }),
+      el("ul", { class: "wizard__equipment-sublist" },
+        el("li", {},
+          el("label", { class: "wizard__equipment-mode" },
+            suppliesInput,
+            el("span", { text: suppliesText }))),
+        el("li", {},
+          el("label", { class: "wizard__equipment-mode" },
+            goldInput,
+            el("span", { text: `Take ${entry.gold.gp} gp instead, or roll your own starting wealth (${entry.gold.formula})` }),
+            goldAmount,
+            el("span", { text: " gp" })))));
+    rows.append(items);
+    gear.append(rows);
+    list.append(gear);
+    container.append(list);
     return true;
   }
 
@@ -6810,14 +6889,14 @@ function computeSheetValues(fields) {
             saveRules, classChoiceGroups,
           );
 
-          // The class's starting-gear rows, answered here where the class is
-          // picked rather than on a page of their own. Returns false for a
-          // class with no rows, and then the separator would dangle, so it is
-          // only drawn when there is something under it.
-          const gearWrap = el("div", { class: "wizard__equipment" });
-          if (renderClassEquipmentInto(gearWrap, state, saveRules)) {
-            container.append(el("hr", { class: "wizard__separator" }));
-            container.append(gearWrap);
+          // The class's starting-gear rows, drawn INSIDE the selected class
+          // row as the last rows of its proficiencies list. Found through the
+          // row the picker table just rendered rather than appended to the
+          // step, so they land where the class that decides them is read -
+          // which is the whole point of moving them off their own section.
+          if (state.className) {
+            const details = container.querySelector(`.choice-row[data-row-name="${state.className.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"] .choice-row__details`);
+            if (details) renderClassEquipmentInto(details, state, saveRules);
           }
         },
       },

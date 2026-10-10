@@ -188,7 +188,7 @@ describe("starting gear lives on the steps that decide it", () => {
   const backgroundStep = step('id: "background"', 'id: "story"');
 
   it("puts the class's either/or rows on the CLASS step", () => {
-    assert.match(classStep, /renderClassEquipmentInto\(gearWrap, state, saveRules\)/);
+    assert.match(classStep, /renderClassEquipmentInto\(details, state, saveRules\)/);
   });
 
   it("puts the background's fixed package on the BACKGROUND step", () => {
