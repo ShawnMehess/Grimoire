@@ -50,10 +50,41 @@ describe("optionDetailText", () => {
     assert.equal(optionDetailText({ label: "Two handaxes", items: ["Handaxe", "Handaxe"] }), "Handaxe · Handaxe");
   });
 
-  it("drops the \"(your choice)\" placeholder, which is table shorthand", () => {
-    const anyWeapon = CLASS_STARTING_EQUIPMENT.Bard.decisions
-      .find((d) => d.id === "weapon").options.find((o) => o.id === "simple-weapon");
-    assert.doesNotMatch(optionDetailText(anyWeapon), /\(your choice\)/);
+  it("offers no row that is only a category", () => {
+    // "Any simple weapon" used to be one radio that granted a line reading
+    // "Simple weapon (your choice)" and left the naming to the player. Every
+    // row now names real things, so a label starting "Any " is either gone or
+    // a leftover — and "(your choice)" is the tell that it was left behind.
+    for (const { cls, d, o } of everyOption()) {
+      assert.doesNotMatch(o.label, /^Any /i, `${cls}/${d.id}/${o.id}: "${o.label}" is a category, not a pick`);
+      assert.doesNotMatch(o.label, /\(your choice\)/i, `${cls}/${d.id}/${o.id}: "${o.label}"`);
+      assert.doesNotMatch(optionDetailText(o), /\(your choice\)/,
+        `${cls}/${d.id}/${o.id}: still prints the PHB's table shorthand`);
+    }
+  });
+
+  it("says what each weapon deals, because that is what you choose between", () => {
+    // A greataxe and a rapier are both "any martial melee weapon" until
+    // something tells you one deals 1d12 slashing and the other 1d8
+    // piercing. Every expanded weapon option carries that in its note.
+    const weapons = everyOption()
+      .filter(({ o }) => /^(simple|martial|shield|pair|backup-simple)-/.test(o.id));
+    assert.ok(weapons.length > 40, `expected the weapon rows expanded, got ${weapons.length}`);
+    for (const { cls, d, o } of weapons) {
+      assert.match(o.note || "", /(\d+d?\d* (bludgeoning|piercing|slashing)|no damage)/,
+        `${cls}/${d.id}/${o.id}: "${o.label}" does not say its damage (${o.note})`);
+    }
+  });
+
+  it("keeps the Bard's instrument row down to instruments that exist", () => {
+    // Ten real instruments, each with the sheet's own one-line description
+    // of what it is for.
+    const instruments = CLASS_STARTING_EQUIPMENT.Bard.decisions.find((d) => d.id === "instrument").options;
+    assert.ok(instruments.length >= 10, `expected the instrument list expanded, got ${instruments.length}`);
+    for (const o of instruments) {
+      assert.ok(o.note && o.note.length > 10, `${o.label}: no description`);
+      assert.deepEqual(o.items, [o.label], `${o.label} grants more than itself`);
+    }
   });
 
   it("prefers a note over anything it could work out", () => {
@@ -74,17 +105,6 @@ describe("optionDetailText", () => {
       const label = o.label.trim().toLowerCase();
       assert.ok(!detail.toLowerCase().startsWith(label),
         `${cls}/${d.id}/${o.id}: detail repeats the label — "${o.label}" / "${detail}"`);
-    }
-  });
-
-  it("has something to say about every \"any ...\" row, or a note", () => {
-    // The PHB's "(your choice)" promises a picker this UI does not have. The
-    // honest fix is a note saying so; an option with neither is back to
-    // promising something it will not deliver.
-    for (const { cls, d, o } of everyOption()) {
-      if (!/^Any /i.test(o.label)) continue;
-      const detail = o.note || optionDetailText(o);
-      assert.ok(detail && detail.length > 0, `${cls}/${d.id}/${o.id}: no note on an "any" row`);
     }
   });
 
@@ -148,6 +168,23 @@ describe("the gear data still reads as English", () => {
       assert.ok(resolveStartingEquipmentPick(cls, null, { classOptionId: goldOptionIdFor(cls) }, []).gp > 0,
         `${cls}: the legacy gold id still resolves to gold`);
     }
+  });
+
+  it("grants the number the player rolled, and the class's own figure when they left it blank", () => {
+    // The gold row carries a text field for the rolled amount. A blank one
+    // means "I did not roll": the standard fixed figure, not zero - the class
+    // figure is the same number the PHB prints as the average of the roll.
+    for (const [cls, entry] of Object.entries(CLASS_STARTING_EQUIPMENT)) {
+      assert.equal(resolveStartingEquipmentPick(cls, null, { gold: true, goldAmount: "40" }, []).gp, 40,
+        `${cls}: a rolled 40 gp is not granted`);
+      assert.equal(resolveStartingEquipmentPick(cls, null, { gold: true, goldAmount: "" }, []).gp, entry.gold.gp,
+        `${cls}: a blank amount should fall back to ${entry.gold.gp} gp`);
+      assert.equal(resolveStartingEquipmentPick(cls, null, { gold: true, goldAmount: "abc" }, []).gp, entry.gold.gp,
+        `${cls}: a non-numeric amount should fall back to ${entry.gold.gp} gp`);
+    }
+    // Background gold is separate and always adds: it is a different roll.
+    const withBg = resolveStartingEquipmentPick("Barbarian", "Sailor", { gold: true, goldAmount: "40" }, []);
+    assert.equal(withBg.gp, 40 + BG_STARTING_EQUIPMENT.Sailor.gp, "the background's own purse is not added");
   });
 });
 

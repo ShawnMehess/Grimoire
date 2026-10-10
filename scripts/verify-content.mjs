@@ -772,7 +772,7 @@ function featListWith(namesAndLevels) {
     }
   }
   // Spot-check resolution: decisions combine, gold bypasses, legacy still resolves.
-  const probe = resolveStartingEquipmentPick("Fighter", "Sailor", { picks: { armor: "chain-mail", weapon: "sword-board", ranged: "light-crossbow", pack: "dungeoneers-pack" } });
+  const probe = resolveStartingEquipmentPick("Fighter", "Sailor", { picks: { armor: "chain-mail", weapon: "shield-longsword", ranged: "light-crossbow", pack: "dungeoneers-pack" } });
   if (!probe.items.includes("Chain mail") || !probe.items.includes("Shield")) fail("Fighter decisions do not resolve");
   const legacyProbe = resolveStartingEquipmentPick("Fighter", "Sailor", "fighter-a");
   if (!legacyProbe.items.includes("Longsword")) fail("legacy equipment pick stopped resolving");

@@ -1079,7 +1079,7 @@ assert(levelingMod.restoresOnRest("rest", "short") === false, "restoresOnRest ba
   }
   {
     const { resolveStartingEquipmentPick, goldOptionIdFor, CLASS_STARTING_EQUIPMENT, BG_STARTING_EQUIPMENT } = await import("../js/data/startingEquipment.js");
-    const fighter = resolveStartingEquipmentPick("Fighter", "Sailor", { picks: { armor: "chain-mail", weapon: "sword-board", ranged: "light-crossbow", pack: "dungeoneers-pack" } });
+    const fighter = resolveStartingEquipmentPick("Fighter", "Sailor", { picks: { armor: "chain-mail", weapon: "shield-longsword", ranged: "light-crossbow", pack: "dungeoneers-pack" } });
     assert(fighter.items.includes("Chain mail") && fighter.items.includes("Shield") && fighter.gp === 10, "starting package + bg gold");
     const legacy = resolveStartingEquipmentPick("Fighter", "Sailor", "fighter-a");
     assert(legacy.items.includes("Chain mail") && legacy.items.includes("Longsword") && legacy.gp === 10, "legacy flattened pick resolves");

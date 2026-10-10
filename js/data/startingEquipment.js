@@ -6,21 +6,26 @@
 // AND a martial weapon + shield OR two martial weapons, AND ... —
 // never a set of exclusive whole-kit "paths", so the data mirrors
 // that: `fixed` lines everyone of that class takes, plus `decisions`
-// (one pick each), plus the take-gold-instead fallback. Open
-// "(your choice)" lines stay editable so the player can fill in
-// whatever they picked at the table.
+// (one pick each), plus the take-gold-instead fallback. Every
+// decision is answered through a picker dialog, so no row may offer a
+// category ("any simple weapon") in place of the things in it — see
+// WEAPONS and INSTRUMENTS below.
 //
 // Shape:
 //   CLASS_STARTING_EQUIPMENT = { [className]: { gold: { gp, formula },
-//     fixed: [...], decisions: [{ id, label, options: [{ id, label, items }] }] } }
-//   BG_STARTING_EQUIPMENT = { [bgName]: { items: [...], gp } }
+//     fixed: [...], decisions: [{ id, label, options: [{ id, label, items }] }] }
+//     BG_STARTING_EQUIPMENT = { [bgName]: { items: [...], gp } }
 // Item strings append verbatim to the Inventory Items textlist; gp
-// adds to the GP field.
+// adds to the GP field. A gold pick may carry `goldAmount`: the
+// number the player rolled (or typed), in gp, which falls back to the
+// class's own standard figure when blank.
 //
 // LEGACY_EQUIPMENT_OPTIONS translates the pre-decisions flattened
 // picks ({ classOptionId: "<class>-a/b" }) so older saved characters
 // keep exactly the items they chose; anything picked fresh uses the
 // decisions shape above.
+
+import { TOOL_PROFICIENCIES, TOOL_PROFICIENCY_GROUPS, TOOL_DESCRIPTIONS } from "./blockModel.js";
 
 export const EQUIPMENT_PACK_CONTENTS = {
   "Burglar's Pack": ["Backpack", "Ball bearings (bag of 1,000)", "10 feet of string", "Bell", "5 candles", "Crowbar", "Hammer", "10 pitons", "Hooded lantern", "2 flasks of oil", "5 days of rations", "Tinderbox", "Waterskin", "50 feet of hempen rope"],
@@ -34,20 +39,10 @@ export const EQUIPMENT_PACK_CONTENTS = {
 
 const pack = (name) => [name, ...EQUIPMENT_PACK_CONTENTS[name]];
 
-/** Shown under every "Any <thing>" option.
- *
- *  The PHB says "(your choice)" and leaves it there, which reads as a
- *  promise the wizard does not keep: the row is a radio, and nothing on it
- *  opens a catalog, so choosing it grants a line reading "Simple weapon (your
- *  choice)" and leaves the naming to the player. Saying that outright is
- *  better than a label that implies a picker is one tap away — and better
- *  than pretending the choice was made for them. */
-const ANY_PICK_NOTE = "The PHB says “your choice” and stops there. Name it yourself on the sheet's Items list after you finish.";
-
-/** What a spellcasting focus does, in one line, for the row label that asks
- *  for one. Sourced from the compendium item text: “An arcane focus is a
- *  special item designed to channel the power of arcane spells… using it in
- *  place of any material component which does not list a cost.” */
+/** Shown under a spellcasting focus row's label. Sourced from the
+ *  compendium item text: “An arcane focus is a special item designed to
+ *  channel the power of arcane spells… using it in place of any material
+ *  component which does not list a cost.” */
 const FOCUS_HINT = "You need one of these to cast at all. It stands in for any material component a spell does not charge you for (PHB).";
 
 /** The two focus options, which until now said nothing beyond their own
@@ -65,6 +60,92 @@ const FOCUS_HINT = "You need one of these to cast at all. It stands in for any m
  *  to choose on. */
 const COMPONENT_POUCH_NOTE = "A small watertight leather belt pouch with compartments for the material components and other special items your spells need, except components that carry a stated cost.";
 const ARCANE_FOCUS_NOTE = "An orb, rod, staff, wand or crystal that channels spell power, used in place of any material component that lists no cost.";
+
+/** The weapons a class may take, split by the PHB's own groups
+ *  (simple/martial × melee/ranged). The PHB writes these rows as "any
+ *  simple weapon", which a radio row cannot deliver: picking one granted
+ *  a line reading "Simple weapon (your choice)" and left the naming to
+ *  the player. Expanded into the real weapons instead, so the picker
+ *  offers each of them and says what it deals. `kind` is the filter;
+ *  `damage` and `ammo` are what the option says. Pure data, shared by
+ *  every class row that offers any of them.
+ *
+ *  The same list the sheet's weapon-proficiency taglist uses (see
+ *  WEAPON_PROFICIENCIES in blockModel.js), with the damage each one
+ *  deals beside it - the thing a player actually chooses between a
+ *  greataxe and a rapier on. */
+const WEAPONS = [
+  { name: "Club", kind: "simple melee", damage: "1d4 bludgeoning" },
+  { name: "Dagger", kind: "simple melee", damage: "1d4 piercing" },
+  { name: "Greatclub", kind: "simple melee", damage: "1d8 bludgeoning" },
+  { name: "Handaxe", kind: "simple melee", damage: "1d6 slashing" },
+  { name: "Javelin", kind: "simple melee", damage: "1d6 piercing" },
+  { name: "Light hammer", kind: "simple melee", damage: "1d4 bludgeoning" },
+  { name: "Mace", kind: "simple melee", damage: "1d6 bludgeoning" },
+  { name: "Quarterstaff", kind: "simple melee", damage: "1d6 bludgeoning" },
+  { name: "Sickle", kind: "simple melee", damage: "1d4 slashing" },
+  { name: "Spear", kind: "simple melee", damage: "1d6 piercing" },
+  { name: "Light crossbow", kind: "simple ranged", damage: "1d8 piercing", ammo: "20 crossbow bolts" },
+  { name: "Dart", kind: "simple ranged", damage: "1d4 piercing" },
+  { name: "Shortbow", kind: "simple ranged", damage: "1d6 piercing", ammo: "20 arrows" },
+  { name: "Sling", kind: "simple ranged", damage: "1d4 bludgeoning", ammo: "20 sling bullets" },
+  { name: "Battleaxe", kind: "martial melee", damage: "1d8 slashing" },
+  { name: "Flail", kind: "martial melee", damage: "1d8 bludgeoning" },
+  { name: "Glaive", kind: "martial melee", damage: "1d10 slashing" },
+  { name: "Greataxe", kind: "martial melee", damage: "1d12 slashing" },
+  { name: "Greatsword", kind: "martial melee", damage: "2d6 slashing" },
+  { name: "Halberd", kind: "martial melee", damage: "1d10 slashing" },
+  { name: "Lance", kind: "martial melee", damage: "1d12 piercing" },
+  { name: "Longsword", kind: "martial melee", damage: "1d8 slashing" },
+  { name: "Maul", kind: "martial melee", damage: "2d6 bludgeoning" },
+  { name: "Morningstar", kind: "martial melee", damage: "1d8 piercing" },
+  { name: "Pike", kind: "martial melee", damage: "1d10 piercing" },
+  { name: "Rapier", kind: "martial melee", damage: "1d8 piercing" },
+  { name: "Scimitar", kind: "martial melee", damage: "1d6 slashing" },
+  { name: "Shortsword", kind: "martial melee", damage: "1d6 piercing" },
+  { name: "Trident", kind: "martial melee", damage: "1d6 piercing" },
+  { name: "War pick", kind: "martial melee", damage: "1d8 piercing" },
+  { name: "Warhammer", kind: "martial melee", damage: "1d8 bludgeoning" },
+  { name: "Whip", kind: "martial melee", damage: "1d4 slashing" },
+  { name: "Blowgun", kind: "martial ranged", damage: "1 piercing", ammo: "50 blowgun needles" },
+  { name: "Hand crossbow", kind: "martial ranged", damage: "1d6 piercing", ammo: "20 crossbow bolts" },
+  { name: "Heavy crossbow", kind: "martial ranged", damage: "1d10 piercing", ammo: "20 crossbow bolts" },
+  { name: "Longbow", kind: "martial ranged", damage: "1d8 piercing", ammo: "20 arrows" },
+  { name: "Net", kind: "martial ranged", damage: "no damage; restrains on a hit" },
+];
+
+const weaponDescription = (w) => `${w.damage}${w.ammo ? `; starts with ${w.ammo}` : ""}.`;
+/** A count as a word, for the labels the data already reads as words
+ *  ("Two handaxes", "Five javelins"): "2 Longswords" in a list beside
+ *  those is the same fact in two different registers. Falls back to the
+ *  numeral for a count with no word here. */
+const COUNT_WORDS = { 2: "Two", 3: "Three", 4: "Four", 5: "Five" };
+const countWord = (n) => COUNT_WORDS[n] || String(n);
+const weaponOption = (w, { idPrefix = "", labelSuffix = "", itemCount = 1, extraItems = [] } = {}) => ({
+  id: `${idPrefix}${slugId(w.name)}`,
+  label: `${itemCount > 1 ? `${countWord(itemCount)} ` : ""}${w.name}${itemCount > 1 ? "s" : ""}${labelSuffix}`,
+  note: weaponDescription(w),
+  items: [...Array(itemCount).fill(w.name), ...(w.ammo ? [w.ammo] : []), ...extraItems],
+});
+const weaponOptions = (kinds, opts = {}) => WEAPONS
+  .filter((w) => (Array.isArray(kinds) ? kinds : [kinds]).includes(w.kind))
+  .map((w) => weaponOption(w, opts));
+
+/** The Bard's instrument row, for the same reason. "Any musical
+ *  instrument" was one radio that granted a line reading "Musical
+ *  instrument (your choice)"; the ten instruments are the actual offers,
+ *  and the sheet already carries a one-line description of each (see
+ *  TOOL_DESCRIPTIONS), so the picker can say what each one is for.
+ *  Which names those are is not re-decided here: it is the same
+ *  "Musical Instruments" group the sheet's tool-proficiency taglist
+ *  offers. */
+const INSTRUMENTS = (TOOL_PROFICIENCY_GROUPS.find((g) => g.label === "Musical Instruments")?.options || []);
+const instrumentOptions = () => INSTRUMENTS.map((name) => ({
+  id: slugId(name),
+  label: name,
+  note: TOOL_DESCRIPTIONS[name] || null,
+  items: [name],
+}));
 
 /** What to show beneath a starting-gear option's label, or "" when the
  *  label already says it. Pure, and shared by every renderer so the wizard,
@@ -103,13 +184,13 @@ export const CLASS_STARTING_EQUIPMENT = {
       {
         id: "main-weapon", label: "Main weapon", options: [
           { id: "greataxe", label: "Greataxe", items: ["Greataxe"] },
-          { id: "martial-melee", label: "Any martial melee weapon", note: ANY_PICK_NOTE, items: ["Martial melee weapon (your choice)"] },
+          ...weaponOptions("martial melee", { idPrefix: "martial-melee-" }).filter((o) => o.id !== "martial-melee-greataxe"),
         ],
       },
       {
         id: "sidearm", label: "Sidearm", options: [
           { id: "handaxes", label: "Two handaxes", items: ["Handaxe", "Handaxe"] },
-          { id: "simple-weapon", label: "Any simple weapon", note: ANY_PICK_NOTE, items: ["Simple weapon (your choice)"] },
+          ...weaponOptions(["simple melee", "simple ranged"], { idPrefix: "simple-" }),
         ],
       },
     ],
@@ -122,7 +203,7 @@ export const CLASS_STARTING_EQUIPMENT = {
         id: "weapon", label: "Weapon", options: [
           { id: "rapier", label: "Rapier", items: ["Rapier"] },
           { id: "longsword", label: "Longsword", items: ["Longsword"] },
-          { id: "simple-weapon", label: "Any simple weapon", note: ANY_PICK_NOTE, items: ["Simple weapon (your choice)"] },
+          ...weaponOptions(["simple melee", "simple ranged"], { idPrefix: "simple-" }),
         ],
       },
       {
@@ -133,8 +214,8 @@ export const CLASS_STARTING_EQUIPMENT = {
       },
       {
         id: "instrument", label: "Instrument", options: [
-          { id: "lute", label: "Lute", items: ["Lute"] },
-          { id: "any-instrument", label: "Any musical instrument", note: ANY_PICK_NOTE, items: ["Musical instrument (your choice)"] },
+          { id: "lute", label: "Lute", note: TOOL_DESCRIPTIONS.Lute, items: ["Lute"] },
+          ...instrumentOptions().filter((o) => o.id !== "lute"),
         ],
       },
     ],
@@ -159,7 +240,7 @@ export const CLASS_STARTING_EQUIPMENT = {
       {
         id: "ranged", label: "Ranged weapon", options: [
           { id: "light-crossbow", label: "Light crossbow and 20 bolts", items: ["Light crossbow", "20 crossbow bolts"] },
-          { id: "simple-weapon", label: "Any simple weapon", note: ANY_PICK_NOTE, items: ["Simple weapon (your choice)"] },
+          ...weaponOptions(["simple melee", "simple ranged"], { idPrefix: "simple-" }),
         ],
       },
       {
@@ -177,13 +258,13 @@ export const CLASS_STARTING_EQUIPMENT = {
       {
         id: "offhand", label: "Shield or weapon", options: [
           { id: "wooden-shield", label: "Wooden shield", items: ["Wooden shield"] },
-          { id: "simple-weapon", label: "Any simple weapon", note: ANY_PICK_NOTE, items: ["Simple weapon (your choice)"] },
+          ...weaponOptions(["simple melee", "simple ranged"], { idPrefix: "simple-" }),
         ],
       },
       {
         id: "melee", label: "Melee weapon", options: [
           { id: "scimitar", label: "Scimitar", items: ["Scimitar"] },
-          { id: "simple-melee", label: "Any simple melee weapon", note: ANY_PICK_NOTE, items: ["Simple melee weapon (your choice)"] },
+          ...weaponOptions("simple melee", { idPrefix: "simple-melee-" }),
         ],
       },
     ],
@@ -200,8 +281,8 @@ export const CLASS_STARTING_EQUIPMENT = {
       },
       {
         id: "weapon", label: "Weapons", options: [
-          { id: "sword-board", label: "Martial weapon and shield", items: ["Martial weapon (your choice)", "Shield"] },
-          { id: "two-martial", label: "Two martial weapons", items: ["Martial weapon (your choice)", "Martial weapon (your choice)"] },
+          ...weaponOptions(["martial melee", "martial ranged"], { idPrefix: "shield-", labelSuffix: " and shield", extraItems: ["Shield"] }),
+          ...weaponOptions(["martial melee", "martial ranged"], { idPrefix: "pair-", itemCount: 2 }),
         ],
       },
       {
@@ -225,7 +306,7 @@ export const CLASS_STARTING_EQUIPMENT = {
       {
         id: "weapon", label: "Weapon", options: [
           { id: "shortsword", label: "Shortsword", items: ["Shortsword"] },
-          { id: "simple-weapon", label: "Any simple weapon", note: ANY_PICK_NOTE, items: ["Simple weapon (your choice)"] },
+          ...weaponOptions(["simple melee", "simple ranged"], { idPrefix: "simple-" }),
         ],
       },
       {
@@ -242,14 +323,14 @@ export const CLASS_STARTING_EQUIPMENT = {
     decisions: [
       {
         id: "weapon", label: "Weapons", options: [
-          { id: "sword-board", label: "Martial weapon and shield", items: ["Martial weapon (your choice)", "Shield"] },
-          { id: "two-martial", label: "Two martial weapons", items: ["Martial weapon (your choice)", "Martial weapon (your choice)"] },
+          ...weaponOptions(["martial melee", "martial ranged"], { idPrefix: "shield-", labelSuffix: " and shield", extraItems: ["Shield"] }),
+          ...weaponOptions(["martial melee", "martial ranged"], { idPrefix: "pair-", itemCount: 2 }),
         ],
       },
       {
         id: "ranged", label: "Ranged weapon", options: [
           { id: "javelins", label: "Five javelins", items: ["5 javelins"] },
-          { id: "simple-melee", label: "Any simple melee weapon", note: ANY_PICK_NOTE, items: ["Simple melee weapon (your choice)"] },
+          ...weaponOptions("simple melee", { idPrefix: "simple-melee-" }),
         ],
       },
       {
@@ -273,7 +354,7 @@ export const CLASS_STARTING_EQUIPMENT = {
       {
         id: "melee", label: "Melee weapons", options: [
           { id: "shortswords", label: "Two shortswords", items: ["Shortsword", "Shortsword"] },
-          { id: "simple-pair", label: "Two simple melee weapons", items: ["Simple melee weapon (your choice)", "Simple melee weapon (your choice)"] },
+          ...weaponOptions("simple melee", { idPrefix: "simple-pair-", itemCount: 2 }),
         ],
       },
       {
@@ -316,7 +397,7 @@ export const CLASS_STARTING_EQUIPMENT = {
       {
         id: "weapon", label: "Weapon", options: [
           { id: "light-crossbow", label: "Light crossbow and 20 bolts", items: ["Light crossbow", "20 crossbow bolts"] },
-          { id: "simple-weapon", label: "Any simple weapon", note: ANY_PICK_NOTE, items: ["Simple weapon (your choice)"] },
+          ...weaponOptions(["simple melee", "simple ranged"], { idPrefix: "simple-" }),
         ],
       },
       {
@@ -335,12 +416,15 @@ export const CLASS_STARTING_EQUIPMENT = {
   },
   Warlock: {
     gold: { gp: 100, formula: "4d4 × 10 gp" },
-    fixed: ["Leather armor", "Simple melee weapon (your choice)", "2 daggers"],
+    fixed: ["Leather armor", "2 daggers"],
     decisions: [
+      {
+        id: "backup-weapon", label: "Backup weapon", options: weaponOptions("simple melee", { idPrefix: "backup-simple-" }),
+      },
       {
         id: "weapon", label: "Weapon", options: [
           { id: "light-crossbow", label: "Light crossbow and 20 bolts", items: ["Light crossbow", "20 crossbow bolts"] },
-          { id: "simple-weapon", label: "Any simple weapon", note: ANY_PICK_NOTE, items: ["Simple weapon (your choice)"] },
+          ...weaponOptions(["simple melee", "simple ranged"], { idPrefix: "simple-" }),
         ],
       },
       {
@@ -383,8 +467,11 @@ export const CLASS_STARTING_EQUIPMENT = {
   },
   Artificer: {
     gold: { gp: 125, formula: "5d4 × 10 gp" },
-    fixed: ["Simple weapon (your choice)", "Simple weapon (your choice)", "Light crossbow", "20 crossbow bolts", "Thieves' tools", ...pack("Dungeoneer's Pack")],
+    fixed: ["Light crossbow", "20 crossbow bolts", "Thieves' tools", ...pack("Dungeoneer's Pack")],
     decisions: [
+      {
+        id: "simple-weapons", label: "Simple weapons", options: weaponOptions(["simple melee", "simple ranged"], { idPrefix: "simple-pair-", itemCount: 2 }),
+      },
       {
         id: "armor", label: "Armor", options: [
           { id: "studded-leather", label: "Studded leather armor", items: ["Studded leather armor"] },
@@ -437,10 +524,13 @@ const LEGACY_EQUIPMENT_OPTIONS = {
 
 /** Pure resolution of Starting Equipment picks: which inventory
  *  lines and how much gold they yield. `pick` is the stored
- *  rules.startingEquipment object: { picks: { decisionId: optionId } }
- *  (or { gold: true }) for fresh picks, { classOptionId } for legacy
- *  flattened picks (see LEGACY_EQUIPMENT_OPTIONS). Used by Finish
- *  Setup and by tests; the renderer only collects the pick. */
+ *  rules.startingEquipment object: { picks: { decisionId: optionId } },
+ *  or { gold: true, goldAmount } to take the gold instead, or
+ *  { classOptionId } for legacy flattened picks (see
+ *  LEGACY_EQUIPMENT_OPTIONS). `goldAmount` is what the player rolled
+ *  in gp; blank or non-numeric falls back to the class's own standard
+ *  figure. Used by Finish Setup and by tests; the renderer only
+ *  collects the pick. */
 export function resolveStartingEquipmentPick(className, background, pick, linkedNames = []) {
   const items = [];
   let gp = 0;
@@ -449,7 +539,8 @@ export function resolveStartingEquipmentPick(className, background, pick, linked
   if (typeof pick === "string") pick = { classOptionId: pick };
   if (entry) {
     if (pick?.gold || pick?.classOptionId === goldOptionIdFor(className)) {
-      gp += entry.gold.gp;
+      const rolled = Number.parseInt(String(pick?.goldAmount ?? "").replace(/\D+/g, ""), 10);
+      gp += Number.isFinite(rolled) ? rolled : entry.gold.gp;
     } else if (pick?.picks) {
       items.push(...(entry.fixed || []));
       for (const decision of (entry.decisions || [])) {
