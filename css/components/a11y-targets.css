@@ -53,4 +53,25 @@ input[type="radio"]:checked::after {
   .wizard__dot {
     min-height: 32px;
   }
+
+  .inline-pick-select {
+    min-height: 32px;
+  }
+}
+
+/* The wizard's in-sentence dropdowns — "Languages — Common, [pick]", the
+   three "+1 to each of" slots, a tool from inside a row's own bullet.
+   These are drawn with 1px of padding above and below so they read as
+   sentence text, which leaves them 23px tall: one pixel under the desktop
+   floor, on the controls a player answers a language, an ability
+   increase or a tool with.
+
+   Sized to the floor, not to the touch band, on purpose. A control
+   sitting inside a sentence cannot be 44px tall without the sentence
+   becoming a stack of boxes; 24px normally and 32px on a touch screen
+   keeps the line readable and the target pressable. A phone already gets
+   44px here — phone.css's .wizard rule is more specific and wins inside
+   its band, which is the right outcome for a thumb. */
+.inline-pick-select {
+  min-height: 24px;
 }

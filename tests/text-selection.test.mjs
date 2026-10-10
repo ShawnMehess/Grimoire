@@ -17,8 +17,7 @@ const base = readFileSync(join(ROOT, "css", "base.css"), "utf8");
 const grid = readFileSync(join(ROOT, "css", "components", "custom-sheet-grid.css"), "utf8");
 const targets = readFileSync(join(ROOT, "css", "components", "a11y-targets.css"), "utf8");
 
-/** A window whose getSelection() answers with the given fake selection. */
-const withSelection = (sel) => ({ getSelection: () => sel });
+/** A window whose getSelection() answers with the given fake selection. */const withSelection = (sel) => ({ getSelection: () => sel });
 
 /** A node stub that claims to contain the nodes it is handed. */
 const node = (...contains) => ({ contains: (n) => contains.includes(n) });
@@ -114,5 +113,23 @@ describe("interactive targets clear their floor", () => {
     assert.ok(coarse, "the coarse-pointer band is gone");
     assert.match(coarse[1], /\.wizard__dot \{([^}]*)\}/, "the band no longer carries the pills");
     assert.match(coarse[1], /min-height:\s*32px/);
+  });
+
+  it("gives the wizard's in-sentence dropdowns a height too", () => {
+    // 1px of padding above and below, so they read as sentence text - which
+    // measured 23px, one under the floor, on the controls a player answers a
+    // language or an ability increase with. The floor, not the touch band:
+    // a 44px box inside a sentence turns the sentence into a stack.
+    const base = targets.match(/\n\.inline-pick-select \{([^}]*)\}/);
+    assert.ok(base, "a11y-targets.css no longer sizes .inline-pick-select");
+    assert.match(base[1], /min-height:\s*24px/);
+    const coarse = targets.match(/@media \(pointer: coarse\) \{([\s\S]*?)\n\}/)[1];
+    assert.match(coarse, /\.inline-pick-select \{([^}]*)\}/, "the coarse band no longer carries the dropdowns");
+    assert.match(coarse, /min-height:\s*32px/);
+    // And the rule that made them 23px must still be what sizes them at
+    // rest: the floor lives on top of it, it does not replace it.
+    const wizard = readFileSync(join(ROOT, "css", "components", "custom-sheet-wizard.css"), "utf8");
+    assert.match(wizard, /\.mechanics-pick \.inline-pick-select \{[^}]*padding-top:\s*1px/,
+      "the in-sentence dropdown lost the compact padding that makes it read as text");
   });
 });
