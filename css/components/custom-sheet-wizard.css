@@ -784,11 +784,16 @@
 
 
 /* Icon-only buttons for Expand All / Collapse All: square, prominent, and
-   the SVG inherits the button's colour via currentColor. */
+   the SVG inherits the button's colour via currentColor.
+
+   44px, not 40. These are the two controls that open or close every row
+   on a page, and at 2.5rem a side they measured four pixels under the
+   touch floor every other control in the wizard clears - caught by the
+   leveling panel's own 44px check. */
 .choice-row-list__collapse-controls > .btn--icon {
   padding: var(--space-2);
-  min-width: 2.5rem;
-  min-height: 2.5rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
   line-height: 1;
 }
 .choice-row-list__collapse-controls > .btn--icon .btn__icon {
@@ -821,9 +826,18 @@
     flex: 1 1 0;
     min-width: 0;
   }
+  /* The touch floor again, which `flex: 1 1 0` above does not give you on
+     its own: the icon pair collapses to whatever `flex-basis: 0` grows them
+     to and nothing more, which measured 40x44 - 40px wide, four short of the
+     44 every other control in this band clears. Found by the leveling
+     panel's own 44px check, which had never had a walkthrough to measure
+     on the demo sheet before a character with no ruleset got one.
+     `min-width` rather than a width: they still share the row one half
+     each, they just cannot shrink below a thumb. */
   .choice-row-list__collapse-controls > .btn--icon {
-    min-width: 2.5rem;
-    min-height: 2.5rem;
+    flex: 1 1 0;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
   }
 }
 

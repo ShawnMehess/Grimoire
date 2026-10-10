@@ -7456,9 +7456,19 @@ function renderRulesetLevelGuide() {
     const selectedSubclass = levelClass === primaryName
       ? selectedChoiceName("subclass", "Subclass")
       : (entryForLevelClass?.subclass || "");
+    /** Which system the guide's level-up maths resolves against. The
+     *  character's own primary when it has one, and the app's only
+     *  ruleset when it doesn't: a sheet built by hand, pasted in, or
+     *  opened from the demo store has a Class choice and a Level and no
+     *  `rules.rulesetId` at all, and reading the stored field alone told
+     *  those characters there was "no level-up data on file" while the
+     *  At a Glance table beside the empty walkthrough listed their
+     *  features correctly. Both reads come from the same place, so they
+     *  can no longer disagree about whether a level can be guided. */
+    const guideRulesetId = currentRulesetId() || (listRulesets()[0]?.id ?? null);
     const plan = levelClass
       ? applyLiveSubclassOverride(
-        getLevelUpPlan(character.rules?.rulesetId || character.rulesetId, levelClass, newClassLevel, selectedSubclass),
+        getLevelUpPlan(guideRulesetId, levelClass, newClassLevel, selectedSubclass),
         { selectedSubclass, level: newClassLevel, liveSubclasses: liveSubclassData(levelClass) }
       )
       : null;

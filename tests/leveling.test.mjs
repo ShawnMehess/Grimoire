@@ -122,6 +122,21 @@ describe("ruleset registry", () => {
     assert.ok(Array.isArray(getLevelUpPlan("dnd5e-2014", "Warlock", 3)?.slotChanges));
   });
 
+  it("plans a level for a character that names no system", () => {
+    // A sheet built by hand, pasted in, or opened from the demo store has
+    // a Class choice and a Level and no system at all. The level-up guide
+    // used to read the stored system on its own, found nothing, and told
+    // the player there was "no level-up data on file" - while the At a
+    // Glance table beside it listed the level's features correctly. Every
+    // rules-aware read now goes through the same fallback, so the two
+    // cannot disagree about whether a level can be guided.
+    assert.equal(getLevelUpPlan(null, "Barbarian", 3), null, "no system, no plan - the case being fixed");
+    const fallback = listRulesets()[0].id;
+    assert.equal(fallback, "dnd5e-2014");
+    assert.ok(getLevelUpPlan(fallback, "Barbarian", 3), "the app's only system plans the same level");
+    assert.equal(getLevelUpPlan(fallback, "Barbarian", 3).level, 3);
+  });
+
   it("follows the PHB multiclass slot table", () => {
     const full3 = multiclassSlotsFor([{ caster: "full", levels: 3 }]);
     assert.equal(full3[0].fieldId, "slots1");
