@@ -689,6 +689,15 @@ export function renderCustomSheet(root, character, store, opts = {}) {
   // isn't a meaningful variable for other formulas to reference the
   // way a field's own value is.
   let radioOptionCounts = {};
+  // Set when the NEXT whole-grid render should open at the top of the page
+  // instead of where the player just was. Re-rendering preserves the scroll
+  // position (see restoreScrollAfterRender) so that picking a row never
+  // feels like the page refreshed under you, so the one case that must NOT
+  // be preserved - arriving at another PAGE, whether that is the next
+  // wizard step, a step-pill click or a sheet tab - has to say so before
+  // that render reads window.scrollY. renderPageGrid consumes and clears
+  // it, so a re-render of the page you are already on keeps its position.
+  let scrollToTopOnNextRender = false;
   // Same idea again, but for the sheet's standard spell-slot fields
   // (slots1-slots9 in the Spellcasting block) — {fieldId: count},
   // recomputed by computeSpellSlotCounts alongside radioOptionCounts
@@ -3642,7 +3651,10 @@ function computeSheetValues(fields) {
     if (ensureSpellAbilityDropdown()) persist();
     if (ensureAttacksId()) persist();
     if (ensureShepherdSpelling()) persist();
-    const preservedScrollTop = window.scrollY || 0;
+    // A page change asks for the top of the page (see the flag's comment);
+    // everything else keeps the position it was read at below.
+    const preservedScrollTop = scrollToTopOnNextRender ? 0 : (window.scrollY || 0);
+    scrollToTopOnNextRender = false;
     pageGrid.innerHTML = "";
     pageGrid.classList.toggle("is-edit-mode", editMode);
     pendingLabelOverflowChecks = [];
@@ -3887,7 +3899,15 @@ function computeSheetValues(fields) {
    *  see getAllowedChoiceIds/applyBundleModifiers, which recompute
    *  everything from the current selection on every render anyway. */
   function renderStepWizard(steps, stepState, { title, intro, onNavigate } = {}) {
-    return renderStepWizardInto(steps, stepState, { title, intro, onNavigate }, () => renderPageGrid());
+    return renderStepWizardInto(steps, stepState, {
+      title, intro, onNavigate,
+      // Arriving at another page opens it at the top - Next, Back, a step
+      // pill, the phone's step dropdown, or a swipe. Fired before the
+      // re-render because that render is what reads (and preserves) the
+      // scroll position; asked afterwards it would already have been
+      // restored to where the old page was left.
+      onArrive: () => { scrollToTopOnNextRender = true; },
+    }, () => renderPageGrid());
   }
 
   /** Re-evaluates wizard Next/dot gating in place (no full re-render)
@@ -6551,7 +6571,7 @@ function computeSheetValues(fields) {
     const steps = [
       {
         id: "rules",
-        title: "Rules & Sources",
+        title: "Rules & Content",
         isComplete: () => {
           if (includedRulesetIds(state).length === 0 || !primaryRulesetId(state)) return false;
           return Boolean(character.rules.hpMethod);
@@ -6563,7 +6583,7 @@ function computeSheetValues(fields) {
           return out;
         },
         render(container) {
-          const sourcesWrap = sectionInto(container, "Sources");
+          const sourcesWrap = sectionInto(container, "Rulesets");
           renderRulesetStepInto(sourcesWrap, state, {
             listRulesetsFn: () => listRulesets(),
             listContentPacksFn: (rid) => listContentPacks(rid),
@@ -6635,7 +6655,7 @@ function computeSheetValues(fields) {
             },
           });
           // No section title here: renderPreferencesStepInto already
-          // labels the picker ("Hit Points on Level Up"), so a second
+          // labels the picker ("Hit Points on Level Up …"), so a second
           // header would read as a duplicate. A separator divides the
           // Ruleset + Content selection above from the HP rule below.
           container.append(el("hr", { class: "wizard__separator" }));
@@ -6651,7 +6671,7 @@ function computeSheetValues(fields) {
       },
       {
         id: "identity",
-        title: "Identity",
+        title: "Identity & Race",
         isComplete: () => {
           if (!((character.name || "").trim()) || !state.species) return false;
           if (!raceChoiceSettled(state.species)) return false;
@@ -7126,11 +7146,6 @@ function computeSheetValues(fields) {
         // Genasi) has to have a subrace chosen before the character counts
         // as built, and Review is the page that says so out loud.
         isComplete: () => Boolean(raceChoiceSettled(state.species) && state.className && state.background),
-        // Open at the TOP of the page. Arriving here from the Ability Scores
-        // step carried the scroll position with it, so the review opened
-        // halfway down its own summary - the one page whose whole content is
-        // meant to be read from the first line, opened on its middle.
-        opensAtTop: true,
         // The action bar's button on this step. See sheetWizard's buildNav:
         // on the last step there is no Next, so a step that says what to do
         // instead gets its control where Next would have been - Back stays,
@@ -7184,6 +7199,8 @@ function computeSheetValues(fields) {
             outstandingSteps(steps, { untilStepId: "review" }),
             (stepId) => {
               creationWizardState.stepId = stepId;
+              // A jump to another page opens it at the top, like Next/Back.
+              scrollToTopOnNextRender = true;
               persistWizardProgressSoon();
               renderPageGrid();
             },
@@ -7279,12 +7296,7 @@ function computeSheetValues(fields) {
       // position needs persisting here so reopening resumes it.
       onNavigate: () => persistWizardProgressSoon(),
     });
-    // A step can ask to open at the top of the page (Review does). The
-    // render above preserves the scroll position so nothing else jumps, so
-    // the request is consumed here and only for an actual arrival.
-    const wantsTop = Boolean(wizard?.consumeScrollTopRequest?.());
     if (wizard) pageGrid.append(wizard);
-    if (wantsTop) restoreScrollAfterRender(0);
   }
 
   /** Ability-score minimums the character's own feats are waiting on,
@@ -8733,6 +8745,10 @@ function renderRulesetLevelGuide() {
         renderBlockFrame();
       },
       onSelect: (tab) => {
+        // Another tab is another page: open it at the top rather than at
+        // whatever depth the last one was left scrolled to. Same render the
+        // wizard's onArrive asks for.
+        if (tab.id !== activeTabId) scrollToTopOnNextRender = true;
         activeTabId = tab.id;
         renderAll();
       },

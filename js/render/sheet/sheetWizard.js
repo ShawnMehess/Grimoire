@@ -1948,9 +1948,13 @@ export function availableSpellLevels(plan) {
 // persisted step id wins over the numeric index whenever it still
 // applies, since ids are stable while positions shift as steps
 // appear/disappear. `onNavigate` fires after every step change
-// (dots, Back, Next) so the caller can persist the new position.
+// (dots, Back, Next) so the caller can persist the new position, and
+// `onArrive` fires on the same events that actually MOVE the wizard
+// (everything except re-selecting the step already on screen) before the
+// re-render, so the sheet can open the new page at the top of the
+// scroll.
 //
-//   renderStepWizardInto(steps, stepState, {title, intro, onNavigate}, gridFn)
+//   renderStepWizardInto(steps, stepState, {title, intro, onNavigate, onArrive}, gridFn)
 
 export function applicableStepsOf(steps) {
   return steps.filter((step) => isStepApplicable(step));
@@ -2113,7 +2117,7 @@ export function resumeStepIndex(applicableSteps = [], state = {}) {
   return state.index;
 }
 
-export function renderStepWizardInto(steps, stepState, { title, intro, onNavigate } = {}, gridFn) {
+export function renderStepWizardInto(steps, stepState, { title, intro, onNavigate, onArrive } = {}, gridFn) {
   const applicableSteps = applicableStepsOf(steps);
   if (applicableSteps.length === 0) return null;
   resumeStepIndex(applicableSteps, stepState);
@@ -2127,24 +2131,23 @@ export function renderStepWizardInto(steps, stepState, { title, intro, onNavigat
   // animation here, because `gridFn()` rebuilds the whole wizard - including
   // this function's closure - so the element that should animate does not
   // exist until after the re-render. `afterStepChange` below picks it up.
+  //
+  // `direction` also says whether this is an ARRIVAL at a different page or
+  // a re-render of the one being read: 0 means the player re-selected the
+  // step they were already on, which changes nothing and must not move the
+  // page. Anything else is a move, and `onArrive` reports it - the sheet
+  // preserves the scroll position across renders so clicking a row does not
+  // feel like a refresh, so the one case that must NOT be preserved has to
+  // be told before the re-render that reads that position.
   const goTo = (i, direction = 0) => {
     stepState.index = clampStepIndex(applicableSteps.length, i);
     stepState.stepId = applicableSteps[stepState.index]?.id ?? null;
     if (direction) stepState.arrivalDirection = direction;
-    // A step can ask to be shown from the top of the page. The wizard does
-    // not own the scroll position - the sheet does, and it deliberately
-    // PRESERVES it across every render so clicking a row does not feel like
-    // the page refreshed under you - so the request is recorded here and the
-    // caller reads it off the returned node after this render.
-    //
-    // Only on ARRIVAL, which is what `direction` means: a step that re-renders
-    // while you are reading it must not yank you back to the top.
-    scrollToTopOnRender = direction !== 0 && applicableSteps[stepState.index]?.opensAtTop === true;
+    const arrived = direction !== 0;
+    if (arrived && typeof onArrive === "function") onArrive();
     if (typeof onNavigate === "function") onNavigate(stepState);
     gridFn();
   };
-
-  let scrollToTopOnRender = false;
 
   const wrap = document.createElement("section");
   wrap.className = "leveling-tab character-rules wizard";
@@ -4533,16 +4536,7 @@ export function renderChoiceGroupsInto(container, groups, choicesStore, namePref
           });
         });
         wrap.append(select);
-// Read by the caller after this render: "the step you just arrived at asked
-  // to be shown from the top". Consumed and cleared here so it cannot leak
-  // into the next render, which is not an arrival.
-  wrap.consumeScrollTopRequest = () => {
-    const wanted = scrollToTopOnRender;
-    scrollToTopOnRender = false;
-    return wanted;
-  };
-
-  return wrap;
+        return wrap;
       };
       host.append(makeSlot(0, 2), makeSlot(1, 1));
       choiceGroup.append(host);

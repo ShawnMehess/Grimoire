@@ -376,9 +376,16 @@ const steps = await import("../js/render/sheet/sheetWizardSteps.js");
   assert(JSON.stringify(ids[ids.length - 1]) === '["p1","p2"]', "book toggle adds in pack order");
 
   // The label stays in plain words - "Content books" named the section
-  // without saying what it was.
-  assert(html.includes("Books to use"), "book section is labelled in plain words");
-  assert(!html.includes("Content books"), "book section drops the jargon label");
+  // without saying what it was. Read off the rendered nodes rather than a
+  // substring of the serialised box, so the assertion is about the label a
+  // player sees.
+  const texts = [];
+  const walkText = (n) => {
+    for (const c of n.children || []) { texts.push(c.textContent); walkText(c); }
+  };
+  walkText(box);
+  assert(texts.includes("Content"), "book section is labelled in plain words");
+  assert(!texts.includes("Content books"), "book section drops the jargon label");
 
   // The explanatory PARAGRAPHS are gone, deliberately. Each one restated what
   // the rows beneath already said: the rows are named after the systems, the

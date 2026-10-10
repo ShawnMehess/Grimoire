@@ -17,6 +17,7 @@
     "test:crawl": "node scripts/crawl.mjs",
     "test:crawl:fast": "node scripts/crawl.mjs --fast",
     "gate": "node scripts/gate-fast.mjs",
+    "entry": "node scripts/entry.mjs",
     "verify": "npm run gate && npm run test:e2e"
   },
   "devDependencies": {

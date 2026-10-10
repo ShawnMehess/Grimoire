@@ -193,12 +193,9 @@
     gap: var(--space-3);
   }
 
-  /* The create box fills the row: stacked under the heading there is
+  /* The create control keeps its row: stacked under the heading there is
      nothing else on it. */
   .vault-new {
-    width: 100%;
-  }
-  .vault-new__input {
     width: 100%;
   }
 
@@ -251,18 +248,13 @@
    "is this a touch screen at phone scale".
 
    Note what is NOT here: `.vault-new { width: 100% }`. At 844x390 the
-   heading and the create box have a 796px row between them, and an input
-   told to fill it took 567px of it and squeezed "Your Characters" into
-   three lines - the same bug this commit set out to fix, reintroduced
-   from the other side. Width is a narrow-screen question (above); size
-   is a touch question (here). */
+   heading and the create control have a 796px row between them, and a
+   button told to fill it would stretch the length of the row and squeeze
+   "Your Characters" into three lines - the same bug this commit set out
+   to fix, reintroduced from the other side. Width is a narrow-screen
+   question (above); size is a touch question (here). */
 @media screen and (max-width: 720px), screen and (max-height: 480px) {
-  /* The create box: the input takes the row, the + button is a target. */
-  .vault-new__input {
-    flex: 1 1 auto;
-    min-width: 0;
-    min-height: 44px;
-  }
+  /* The + button is a target, on its own now that the name box is gone. */
   .vault-new__go {
     min-width: 44px;
     min-height: 44px;

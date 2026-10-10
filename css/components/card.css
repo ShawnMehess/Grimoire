@@ -328,9 +328,10 @@
 }
 
 /* --- The new-character control -------------------------------------------
- * A name box with grey placeholder text and a create button. The input is
- * the thing you read first, so it comes first and carries the width; the
- * button is the fallback for anyone who would rather not press Enter. */
+ * Just the create button. It used to share the row with a name box, until
+ * the name moved to the one place it belongs - the Identity page's own
+ * labelled field - and the box was left asking for a word that page then
+ * asks for again. */
 
 .vault-new {
   display: flex;
@@ -338,34 +339,11 @@
   gap: var(--space-2);
 }
 
-.vault-new__input {
-  width: 14rem;
-  max-width: 100%;
-}
-
-/* The placeholder is dimmed here rather than left to the browser's default.
- * Chrome, Safari and Firefox each pick their own grey - and each picks it
- * from its own idea of the field's background, not this theme's - so an
- * unstyled `::placeholder` is very slightly wrong in three browsers at once,
- * and on the dark themes it is noticeably too bright. It is still a REAL
- * placeholder: it disappears the moment anything is typed, which a value
- * pretending to be a placeholder cannot do. */
-.vault-new__input::placeholder {
-  color: var(--color-text-muted);
-  opacity: 1;
-}
-
 .vault-new__go {
   flex: 0 0 auto;
   min-width: 2.5rem;
   font-size: var(--text-lg);
   line-height: 1;
-}
-
-@media (max-width: 600px) {
-  .vault-new__input {
-    width: 100%;
-  }
 }
 
 /* --- Vault search ------------------------------------------------------- */

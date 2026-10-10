@@ -97,6 +97,7 @@ const AREAS = {
   rowclick: "a click inside a row selects that row (picker link vs <select>)",
   "spell-rows": "spell picker row shape: facts, gist, disclosure",
   "swipe-arrow": "edge arrow, swipe between steps, and the step transition's motion",
+  "step-scroll": "a page change opens at the top; a re-render keeps the scroll position",
   "load-failure": "a blocked entry script produces a failure page",
   "background-gate": "every background: Next is blocked only on a visible pick",
   "dwarf-gate": "Dwarf subraces and Duergar clear the Identity gate; picks land on Review",
@@ -1200,31 +1201,15 @@ async function runViewportTests(viewport) {
   await settled(page, READY_VAULT, `page vault`);
   const newBtn = await page.$(".vault-new__go");
   check(!!newBtn && (await newBtn.isVisible()), "vault + New Character button visible");
-  // The new-character control is a name box with placeholder text, so the
-  // name is typed here rather than on the wizard's first page - and it has
-  // to survive the trip, or the box is decorative.
-  const nameBox = await page.$(".vault-new__input");
-  check(!!nameBox, "the vault's new-character name box is there");
-  if (nameBox) {
-    check((await nameBox.getAttribute("placeholder")) === "New Character",
-      "and carries New Character as placeholder text");
-    await nameBox.fill("Cinderhold");
-    check((await nameBox.inputValue()) === "Cinderhold",
-      "which the typed name replaces");
-  }
+  // No name box beside it any more. The name is asked once, on the
+  // Identity step, in the labelled field the sheet itself reads - so the
+  // button alone has to open the wizard, and an unnamed character still
+  // has to be namable from there.
+  check(!(await page.$(".vault-new__input")),
+    "the vault's name box is gone (the name lives on the Identity step)");
   if (newBtn) await newBtn.click();
   await quiet(page);
   check(await page.$(".wizard"), "creator wizard renders after + New Character");
-  // The typed name reached the character, so the wizard's name box opens
-  // with it already filled rather than empty. That box is the sheet
-  // toolbar's own input (buildNameInput), which the Identity step drives -
-  // it is not inside .wizard, so it is found by its own placeholder.
-  const nameOnWizard = await page.evaluate(() => {
-    const box = document.querySelector('input[placeholder="Character name"]');
-    return box ? box.value : "";
-  });
-  check(nameOnWizard === "Cinderhold",
-    `the name typed on the vault is the character's name (got "${nameOnWizard}")`);
   // The one-time orientation panel is for a FINISHED character, so it must
   // NOT appear while the creation wizard is running - the wizard is itself
   // the guided first run, and a panel about display modes sitting on top of
@@ -1249,6 +1234,20 @@ async function runViewportTests(viewport) {
     const stepText = /Step 2 of \d+/.test(await page.textContent("body"));
     check(stepText, "creator wizard advances to step 2");
     await page.screenshot({ path: path.join(shotDir, `creator-step2-${viewport.name}.png`) });
+  }
+  // The name is typed HERE now, on the Identity step's own row, and has to
+  // reach the character - the vault's name box is gone, so this input is
+  // the only way a character gets a name. Read back from storage (not from
+  // the input) so a box that writes nowhere fails here.
+  const identityName = await page.$(".wizard__identity-row input");
+  if (identityName) {
+    await identityName.fill("Cinderhold");
+    await saved(page, () => {
+      const stored = JSON.parse(localStorage.getItem("grimoire.local.characters.v1") || "{}");
+      return Object.values(stored).some((c) => (c.name || "") === "Cinderhold");
+    }, "the name typed on Identity is the character's name");
+  } else {
+    check(false, "the Identity step's name box is there");
   }
   // Changeling regression: picking a race with real choice groups once
   // crashed the creator (a bare categorizeChoiceGroup reference with no
@@ -3344,7 +3343,9 @@ if (inArea("vault-cards")) {
     const actions = document.querySelector(".character-card__actions");
     const acts = actions ? [...actions.children].map((b) => b.getBoundingClientRect()) : [];
     const heading = document.querySelector(".page-header h2")?.getBoundingClientRect();
-    const newInput = document.querySelector(".vault-new__input")?.getBoundingClientRect();
+    // The create control, on its own now that the name box is gone: a
+    // 44px touch target beside the heading, not a stretched row.
+    const createBtn = document.querySelector(".vault-new__go")?.getBoundingClientRect();
     return {
       cards: cards.length,
       firstRow: row[0] || 0,
@@ -3356,17 +3357,12 @@ if (inArea("vault-cards")) {
       anyLineClipped: visibleLines.some((l) => l.shown === false),
       ellipsised,
       cutOff,
-      // The placeholder's own colour. A real placeholder attribute, dimmed by
-      // us rather than by whichever grey the browser picked for its own idea
-      // of the field's background.
-      placeholderColour: getComputedStyle(document.querySelector(".vault-new__input"), "::placeholder").color,
-      placeholderAttr: document.querySelector(".vault-new__input")?.getAttribute("placeholder") || "",
       actionSizes: acts.map((r) => [Math.round(r.width), Math.round(r.height)]),
       actionGap: acts.length >= 2
         ? Math.round(acts[1].left - acts[0].right)
         : null,
       headingLines: heading ? Math.round(heading.height / 26) : 0,
-      newInputW: Math.round(newInput?.width || 0),
+      createSize: createBtn ? [Math.round(createBtn.width), Math.round(createBtn.height)] : null,
     };
   });
   phoneCheck(grid.cards >= 4, `the vault has several characters to lay out (got ${grid.cards})`);
@@ -3385,14 +3381,12 @@ if (inArea("vault-cards")) {
   // this is measuring wrapping rather than short names that happen to fit.
   phoneCheck(grid.cutOff.length === 0,
     `a fact long enough to need a second line gets one (cut off: ${JSON.stringify(grid.cutOff)})`);
-  phoneCheck(/^rgb\(/.test(grid.placeholderColour || ""),
-    `the create box's placeholder is a real, dimmed placeholder (${grid.placeholderAttr} in ${grid.placeholderColour})`);
-  phoneCheck(!!grid.placeholderAttr && grid.placeholderAttr === "New Character",
-    "and it says what the box is for");
   phoneCheck(grid.headingLines <= 1,
-    `the heading is one line, not wrapped beside the create box (${grid.headingLines})`);
-  phoneCheck(grid.newInputW >= 200,
-    `and the create box takes the width it needs (${grid.newInputW}px)`);
+    `the heading is one line, not wrapped beside the create control (${grid.headingLines})`);
+  // The + button is a touch target on its own now that the name box is
+  // gone: 44px each way, and not a stretched row beside the heading.
+  phoneCheck(!!grid.createSize && grid.createSize[0] >= 44 && grid.createSize[1] >= 44,
+    `and the create button is at least a 44px target (${JSON.stringify(grid.createSize)})`);
   phoneCheck(grid.actionSizes.every(([w, h]) => w >= 44 && h >= 44),
     `duplicate and delete are both 44px or more (${JSON.stringify(grid.actionSizes)})`);
   phoneCheck(grid.actionGap === null || grid.actionGap >= 8,
@@ -5832,6 +5826,245 @@ if (vaultLineage) {
     await quiet(vaultPage);
     vaultCheck(!(await vaultPage.$(".choice-dialog-overlay")), "feat picker closes on Escape");
   }
+}
+
+// --- Moving to another page opens it at the top ---------------------------
+//
+// The sheet deliberately PRESERVES the scroll position across re-renders, so
+// that picking a row never feels like the page refreshed under you. Moving to
+// another PAGE is the one case that must not be preserved, and it was: Next,
+// Back and a step pill all carried the depth you had scrolled to on the old
+// page into the new one, so a long page handed you its middle with no way
+// back to the top but the scrollbar. The same complaint in the other chrome
+// is the sheet's tab bar.
+//
+// All three surfaces are driven: the creator wizard, the level-up
+// walkthrough on the Leveling tab, and the tab bar. The other half is
+// asserted too - re-rendering the page you are ON must still keep its place,
+// or this is fixed by throwing the scroll away everywhere and breaking the
+// thing it was protecting.
+if (inArea("step-scroll")) {
+  const sc = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  sc.on("pageerror", (e) => problems.push(`PAGEERROR [step-scroll]: ${e.message}`));
+  await sc.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+  await settled(sc, READY_VAULT, `sc vault`);
+  await sc.click(READY_VAULT);
+  await settled(sc, READY_WIZARD, `sc wizard`);
+
+  const depth = () => sc.evaluate(() => ({
+    y: Math.round(window.scrollY),
+    max: Math.round(document.documentElement.scrollHeight - window.innerHeight),
+  }));
+  const activeStep = () => sc.evaluate(() =>
+    document.querySelector(".wizard__dot--active")?.dataset.stepId || null);
+  const activeTabName = () => sc.evaluate(() =>
+    document.querySelector(".sheet-tab.active .sheet-tab__name")?.textContent.trim() || null);
+  // Scroll somewhere the reader would actually be, then wait for the page to
+  // stop moving before reading the position back.
+  const scrollToDepth = async (y = 250) => {
+    await sc.evaluate((to) => window.scrollTo(0, to), y);
+    await quiet(sc);
+    return depth();
+  };
+  // A click on the control a person would press, dispatched IN the page.
+  // `locator.click()` is deliberately not used: Playwright scrolls the
+  // target into view first, and every control here lives at the top of the
+  // page - so a harness that re-scrolls to reach it would prove nothing
+  // about where the app leaves the page. `kind` names the control rather
+  // than passing a selector in, because the pill lookup is a "first one
+  // that is not the current step" search and hiding that behind a string
+  // is how a check ends up quietly clicking nothing.
+  const clickControl = async (kind) => sc.evaluate((k) => {
+    let node = null;
+    if (k === "next") node = document.querySelector(".wizard button.wizard__next:not([disabled])");
+    else if (k === "back") node = document.querySelector(".wizard button.wizard__back:not([disabled])");
+    else if (k === "levelUp") node = document.querySelector(".level-up__btn:not([disabled])");
+    else if (k === "otherDot") {
+      node = [...document.querySelectorAll(".wizard__dot:not([disabled])")]
+        .find((d) => !d.classList.contains("wizard__dot--active"));
+    } else if (k === "activeDot") node = document.querySelector(".wizard__dot--active");
+    else if (k === "activeTab") node = document.querySelector(".sheet-tab.active");
+    else if (k) {
+      node = [...document.querySelectorAll(".sheet-tab")]
+        .find((b) => b.querySelector(".sheet-tab__name")?.textContent.trim() === k);
+    }
+    if (!node) return false;
+    node.click();
+    return true;
+  }, kind);
+
+  // Every page-change assertion, in one place: the step/tab actually moved
+  // (so a control that did nothing cannot pass by leaving the page where it
+  // was), and the page is at the top rather than where the old one was left.
+  const assertOpenedAtTop = async (what, from, before) => {
+    const after = await depth();
+    const now = await activeStep();
+    phoneCheck(now !== before, `${what} moved to another step (${before} -> ${now})`);
+    phoneCheck(after.y <= 2,
+      `${what} opens that step at the top of the page (was ${from.y}px down, now ${after.y}px of ${after.max}px)`);
+  };
+
+  const start = await depth();
+  if (start.max < 300) {
+    phoneCheck(false, `the first wizard step is long enough to scroll (only ${start.max}px)`);
+  } else {
+    for (const [kind, what] of [
+      ["next", "Next"],
+      ["back", "Back"],
+      // A pill, which is the third way to the same place - and on a phone the
+      // only one, since the pills and the bar are both display:none there and
+      // the step dropdown does this job instead.
+      ["otherDot", "a step pill"],
+    ]) {
+      const before = await activeStep();
+      const scrolled = await scrollToDepth();
+      phoneCheck(await clickControl(kind), `${what} is live on this step`);
+      await quiet(sc);
+      await assertOpenedAtTop(what, scrolled, before);
+    }
+
+    // And the case that must NOT move: re-selecting the step you are already
+    // on. That is a re-render, not an arrival, and yanking it to the top is
+    // the bug the scroll preservation exists to prevent.
+    const same = await scrollToDepth();
+    phoneCheck(await clickControl("activeDot"), "the active step pill is clickable");
+    await quiet(sc);
+    const kept = await depth();
+    phoneCheck(Math.abs(kept.y - same.y) < 4,
+      `re-selecting the step you are on keeps the scroll position (${same.y} -> ${kept.y}px)`);
+  }
+
+  // --- A finished character, seeded for the tab bar and the walkthrough -----
+  //
+  // Seeded by patching a character the APP made (a hand-written document
+  // would have to guess every derived field). It gets its own name so the
+  // vault card can be found without guessing which of several "Unnamed"
+  // cards the fixture patched, and a stated level of 1 so Level Up has
+  // somewhere to go.
+  const tall = (name) => [{ name, x: 0, y: 0, w: 4, h: 24, children: [] }];
+  const seedFinished = async (seed) => {
+    await sc.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await settled(sc, READY_VAULT, `sc vault for ${seed.name}`);
+    await sc.click(READY_VAULT);
+    // Let the new sheet's debounced wizard-progress write land BEFORE the
+    // patch below. That write re-asserts `setupComplete: false` for an
+    // unfinished character, and one that fires after the patch - during the
+    // navigation that follows it - would put the fixture back on the creation
+    // wizard, where the tab bar is hidden and nothing here can be measured.
+    await sc.waitForTimeout(1500);
+    await sc.evaluate((s) => {
+      const KEY = "grimoire.local.characters.v1";
+      const stored = JSON.parse(localStorage.getItem(KEY) || "{}");
+      const id = Object.keys(stored).pop();
+      if (!id) throw new Error("fixture: no character to patch");
+      const walk = (nodes) => nodes.flatMap((n) => [n, ...(n.children || [])]);
+      const allFields = [stored[id].layout, ...(stored[id].sheetTabs || []).map((t) => t.layout)]
+        .filter(Boolean).flatMap(walk);
+      if (s.level != null) {
+        allFields.filter((f) => f.id === "level").forEach((f) => { f.value = String(s.level); });
+      }
+      // A dropdown's selection is `selected` (a choice id), not `value` - and
+      // the level-up walkthrough reads the Class DROPDOWN, so a character
+      // whose rules name a class but whose sheet does not gets no guide.
+      Object.entries(s.dropdowns || {}).forEach(([label, text]) => {
+        allFields.filter((f) => (f.label || "") === label).forEach((f) => {
+          const choice = (f.choices || []).find((c) => c.text === text);
+          if (choice) f.selected = choice.id;
+        });
+      });
+      stored[id] = {
+        ...stored[id],
+        name: s.name,
+        setupComplete: true,
+        rules: { ...(stored[id].rules || {}), ...(s.rules || {}) },
+        ...(s.tabs ? { sheetTabs: s.tabs } : {}),
+      };
+      // Pending picks from an earlier fixture would make the Level Up button
+      // think a walkthrough is already in progress.
+      delete stored[id].levelingPending;
+      localStorage.setItem(KEY, JSON.stringify(stored));
+    }, seed);
+    await sc.goto(`${base}/index.html?offline=1`, { waitUntil: "networkidle" });
+    await settled(sc, READY_VAULT, `sc vault opens ${seed.name}`);
+    await sc.click(`.character-card:has-text("${seed.name}")`);
+    await quiet(sc);
+  };
+
+  // --- The Leveling tab's walkthrough -------------------------------------
+  await seedFinished({
+    name: "Leveling Scroller",
+    level: 1,
+    dropdowns: { Class: "Fighter", Race: "Dwarf" },
+    rules: { className: "Fighter", species: "Dwarf", level: 1, abilityScoreMethod: "manual", hpMethod: "average" },
+  });
+  phoneCheck(await clickControl("levelUp"), "the Level Up button is live on the finished character");
+  await quiet(sc);
+  phoneCheck(!!(await sc.$(".wizard")), "and opens the level-up walkthrough");
+  // Walk forward until a step is long enough to scroll, so the depth being
+  // carried over is a real depth rather than a page that cannot scroll.
+  let guideTall = false;
+  for (let hop = 0; hop < 6; hop += 1) {
+    if ((await depth()).max > 400) { guideTall = true; break; }
+    if (!(await clickControl("next"))) break;
+    await quiet(sc);
+  }
+  if (!guideTall) {
+    phoneCheck(false, `the walkthrough has a step long enough to scroll (max ${(await depth()).max}px)`);
+  } else {
+    for (const [kind, what] of [["next", "Next"], ["back", "Back"]]) {
+      const before = await activeStep();
+      const scrolled = await scrollToDepth(300);
+      phoneCheck(await clickControl(kind), `${what} is live on the walkthrough`);
+      await quiet(sc);
+      await assertOpenedAtTop(`the walkthrough's ${what}`, scrolled, before);
+    }
+  }
+
+  // --- The sheet's tab bar -------------------------------------------------
+  await seedFinished({
+    name: "Scroll Tabbed",
+    tabs: [
+      // 24 rows of a block each: far more than a viewport, on both tabs.
+      { id: "sc-tab-first", name: "First", layout: tall("First Block") },
+      { id: "sc-tab-second", name: "Second", layout: tall("Second Block") },
+    ],
+  });
+  await settled(sc, ".sheet-tab.active", `sc tabbed sheet`);
+  await quiet(sc);
+  const tabBar = await sc.evaluate(() => {
+    const bar = [...document.querySelectorAll(".sheet-tab")];
+    return {
+      names: bar.map((b) => b.querySelector(".sheet-tab__name")?.textContent.trim()),
+      shown: bar.length > 0 && bar.every((b) => b.getBoundingClientRect().height > 0),
+    };
+  });
+  phoneCheck(tabBar.names.includes("First") && tabBar.names.includes("Second"),
+    `the seeded sheet has two tabs to switch between (${JSON.stringify(tabBar.names)})`);
+  phoneCheck(tabBar.shown, "and the tab bar is on screen, not hidden");
+
+  const tabStart = await depth();
+  if (tabStart.max < 300) {
+    phoneCheck(false, `a sheet tab is long enough to scroll (only ${tabStart.max}px)`);
+  } else {
+    for (const name of ["Second", "First"]) {
+      const scrolled = await scrollToDepth(400);
+      phoneCheck(await clickControl(name), `the ${name} tab is there to click`);
+      await quiet(sc);
+      const after = await depth();
+      phoneCheck((await activeTabName()) === name, `clicking the ${name} tab switches to it`);
+      phoneCheck(after.y <= 2,
+        `and opens it at the top of the page (was ${scrolled.y}px down, now ${after.y}px of ${after.max}px)`);
+    }
+    // The tab you are already on: a re-render, which keeps its place.
+    const sameTab = await scrollToDepth(400);
+    const onTab = await activeTabName();
+    phoneCheck(await clickControl("activeTab"), `the ${onTab} tab is clickable again`);
+    await quiet(sc);
+    const keptTab = await depth();
+    phoneCheck(Math.abs(keptTab.y - sameTab.y) < 4,
+      `clicking the tab you are on keeps the scroll position (${sameTab.y} -> ${keptTab.y}px)`);
+  }
+  await sc.close();
 }
 
 // --- The page that cannot start --------------------------------------------

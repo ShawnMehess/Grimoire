@@ -157,7 +157,7 @@ export function properNounPhrases() {
     ...(FIXED_CLASS_ENTRIES || []),
     ...(FIXED_BG_ENTRIES || []),
     ...(RACE_EXTRA_ENTRIES || []),
-    ...(SUBCLASS_SUPPLEMENT?.subclasses || []),
+    ...(SUBCLASS_SUPPLEMENT || []),
   ];
   for (const entry of bundles) {
     add(entry.name);

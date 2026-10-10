@@ -20,29 +20,36 @@ export { ABILITY_DESCRIPTIONS };
 // "Fixed Average" reads like a one-time total, and nothing else on the page
 // says it is applied again at every level.
 //
-// Each description also carries the ARITHMETIC in plain words - die,
-// average, CON modifier, added together - because "how is this number
-// worked out" is the part a first-time player cannot get from the label,
-// and it is the same three numbers every time. None of this changes the
-// calculation: see averageHpOnce / rollHpOnce.
+// Each description answers the two questions a first-time player actually
+// has - WHO works the number out, and DOES IT CHANGE? - and says "every
+// time you level up", because that is the half the setting shows nowhere
+// else. There is deliberately no arithmetic in here: the formula is the
+// same three numbers every time, and a player who does not know what a hit
+// die is cannot use it anyway. None of this changes the calculation: see
+// averageHpOnce / rollHpOnce.
+//
+// Listed in the order a table meets them in - you roll, the site rolls, the
+// constant last. The DEFAULT is still the last entry: `average` is what the
+// callers fall back to when no method is saved (see renderRulesTab and the
+// currentMethod fallbacks), which is a position in this list, not the first.
 export const HP_METHOD_OPTIONS = [
   {
-    value: "average",
-    label: "Fixed Average",
-    icon: "∑",
-    description: "Every time you level up, this adds the same amount: half your hit die, rounded up (6 on a d10), plus your Constitution modifier. A Fighter with +2 Constitution gains 8 at every level. No rolling, and you always know the number.",
+    value: "manual",
+    label: "Roll at the Table",
+    icon: "✎",
+    description: "You roll the hit die yourself, at the table, every time you level up, and type the result in. The amount of hit points you gain can be different at each level, so your total might jump by a lot one level and barely at all the next.",
   },
   {
     value: "roll",
     label: "Roll In-Browser",
     icon: "⚄",
-    description: "Every time you level up, this page rolls your hit die for you and adds your Constitution modifier. You might get more or less than the fixed average, so your hit points will vary level to level.",
+    description: "The site rolls the hit die for you every time you level up and works out the hit points you gain — nothing to type in. The amount you gain can be different at each level, so your total might jump by a lot one level and barely at all the next.",
   },
   {
-    value: "manual",
-    label: "Roll at the Table",
-    icon: "✎",
-    description: "Nothing is worked out for you. Every time you level up, roll however you like at the table (or wherever you play) and type the result in — remembering to add your Constitution modifier to the roll.",
+    value: "average",
+    label: "Fixed Average",
+    icon: "∑",
+    description: "The average of what you would get from rolling, so it is the same set amount every time you level up. No die to roll and nothing to type in: you always know exactly how many hit points a level gives you.",
   },
 ];
 
@@ -135,15 +142,16 @@ export function renderRulesetStepInto(container, state, deps) {
     if (ids.length > 0) updateIdsFn(ids, { rerender: false });
   }
   const locked = packs.length === 1;
-  // The section label stays: "Content books" is jargon, and "Books to use"
-  // is at least plain. The lead-in sentence under it used to spell out that
-  // unticking a book empties pickers on every later page - true, and worth
-  // saying, but it was a paragraph on the first page a new player sees,
-  // describing a page whose controls are checkboxes with the book names on
-  // them. The consequence is a confirm dialog away either way, which is
-  // where a player meets it in context rather than before they know what a
-  // book is for.
-  container.append(el("p", { class: "wizard__section-label", text: "Books to use" }));
+  // The section label stays: "Content books" is jargon, and "Content" says
+  // what the rows are for without naming the format they arrive in. The
+  // lead-in sentence under it used to spell out that unticking a book
+  // empties pickers on every later page - true, and worth saying, but it
+  // was a paragraph on the first page a new player sees, describing a page
+  // whose controls are checkboxes with the book names on them. The
+  // consequence is a confirm dialog away either way, which is where a
+  // player meets it in context rather than before they know what a book is
+  // for.
+  container.append(el("p", { class: "wizard__section-label", text: "Content" }));
   const list = el("div", { class: "choice-row-list ruleset-list" });
   packs.forEach((pack) => {
     const checked = ids.includes(pack.id);
@@ -419,7 +427,12 @@ export function renderRowListStepInto(container, state, deps) {
 
 export function renderPreferencesStepInto(container, state, deps) {
   const { hpOptions, currentMethod, updateFn, selectableRowsFn } = deps;
-  container.append(el("p", { class: "wizard__preference-label", text: "Hit Points on Level Up" }));
+  // The label carries its own caveat: a campaign's DM may well rule on
+  // this, and a setting named "Hit Points on Level Up" implies the choice
+  // is only ever the player's. It is a longer label than the others, so it
+  // wraps rather than truncates - `.wizard__preference-label` spans the
+  // full grid width.
+  container.append(el("p", { class: "wizard__preference-label", text: "Hit Points on Level Up (ask your DM, if in a campaign)" }));
   // No lead-in paragraph. It used to explain that the setting only changes
   // how the number is worked out and affects nothing until level-up - but
   // each of the three options carries that as its own description, below the

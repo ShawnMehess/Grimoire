@@ -25,6 +25,7 @@ import {
 import { FIXED_RACE_ENTRIES, FIXED_CLASS_ENTRIES } from "../js/data/contentFixups.js";
 import { RACE_EXTRA_ENTRIES } from "../js/data/extraRaces.js";
 import { FEAT_BUNDLES } from "../js/data/featBundles.js";
+import { SUBCLASS_SUPPLEMENT } from "../js/data/subclassContent.js";
 import { mechanicsBulletsFor } from "../js/render/sheet/sheetMechanics.js";
 
 /** Every piece of prose the sheet can render for a race/class/feat. */
@@ -247,6 +248,36 @@ describe("a spell name is never a fragment of a longer name", () => {
     // A feat name that ends in "(Optional)" in the compiled data is indexed
     // with and without it, because the prose prints the bare form.
     assert.ok(known.has("magical guidance"), "the parenthetical form is stripped too");
+  });
+
+  it("indexes subclass names, not just class names", () => {
+    // properNounPhrases() once spread SUBCLASS_SUPPLEMENT?.subclasses - but
+    // SUBCLASS_SUPPLEMENT is an array, so that key was always undefined and
+    // every subclass name silently dropped out of the fragment guard. Checked
+    // across all of them so the wrong key fails here, not as a bogus link.
+    const known = properNounPhrases();
+    let missing = 0;
+    let checked = 0;
+    for (const s of SUBCLASS_SUPPLEMENT) {
+      const name = String(s.name || "").trim().toLowerCase();
+      if (!name) continue;
+      checked += 1;
+      if (!known.has(name)) missing += 1;
+    }
+    assert.equal(missing, 0, `${missing} of ${checked} subclass names are missing from the index`);
+    assert.ok(checked > 50, `subclasses are actually covered (${checked})`);
+  });
+
+  it("leaves a subclass-derived NAME alone", () => {
+    // Feature/option/label names that begin with a spell's name ("Light",
+    // "Hex", "Command", "Mage Hand"). They live only in subclasses, so before
+    // the fix above each linked the spell out of its own name.
+    assert.deepEqual(names("Light Domain"), []);
+    assert.deepEqual(names("Hex Warrior"), []);
+    assert.deepEqual(names("Command Undead"), []);
+    assert.deepEqual(names("Mage Hand Legerdemain"), []);
+    // The name is protected; a real cast of the same word in the line still links.
+    assert.deepEqual(names("Command Undead. You can cast Command at will."), ["Command"]);
   });
 });
 
