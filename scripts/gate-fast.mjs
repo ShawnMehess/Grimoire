@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // gate-fast.mjs
 //
-// The five no-browser gates, in one process tree.
+// The six no-browser gates, in one process tree.
 //
-// Why this file exists rather than five npm scripts chained with &&:
+// Why this file exists rather than six npm scripts chained with &&:
 // npm spawns a fresh Node process per script, and at these gate sizes that
-// overhead is the dominant cost. Measured on this repo, the same five gates
+// overhead is the dominant cost. Measured on this repo, the same six gates
 // cost ~3.9s run directly and ~16s through `concurrently` over npm scripts -
 // more than four seconds of pure process startup to save two seconds of
 // wall clock. So: run them as plain child processes, no npm in the loop.
